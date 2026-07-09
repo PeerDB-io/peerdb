@@ -13,15 +13,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -1940,6 +1937,110 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_DateTime_ClickHouse_Range verifies that MySQL DATE/DATETIME values outside
+// ClickHouse's supported DateTime64/Date32 range ([1900, 2299]) are clamped to the nearest
+// boundary.
+func (s ClickHouseSuite) Test_MySQL_DateTime_ClickHouse_Range() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_datetime_range"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_datetime_range_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			d_null_low DATE NULL,
+			d_null_high DATE NULL,
+			d_nn_low DATE NOT NULL,
+			d_nn_high DATE NOT NULL,
+			d_ok DATE NOT NULL,
+			dt_null_low DATETIME NULL,
+			dt_null_high DATETIME NULL,
+			dt_nn_low DATETIME NOT NULL,
+			dt_nn_high DATETIME NOT NULL,
+			dt_ok DATETIME NOT NULL
+		)`, quotedSrcFullName)))
+
+	// '1000-06-15' and '9999-06-15' are valid MySQL DATE/DATETIME values but fall outside
+	// ClickHouse's [1900, 2299] range. The distinctive time-of-day (05:30:45) verifies that
+	// clamping preserves the time-of-day, matching parseDateTime64BestEffortOrNull.
+	insertRow := func(id int) error {
+		return s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (
+			id,
+			d_null_low, d_null_high, d_nn_low, d_nn_high, d_ok,
+			dt_null_low, dt_null_high, dt_nn_low, dt_nn_high, dt_ok
+		) VALUES (
+			%d,
+			'1000-06-15', '9999-06-15', '1000-06-15', '9999-06-15', '2000-01-02',
+			'1000-06-15 05:30:45', '9999-06-15 05:30:45', '1000-06-15 05:30:45', '9999-06-15 05:30:45', '2000-01-02 03:04:05'
+		)`, quotedSrcFullName, id))
+	}
+
+	require.NoError(s.t, insertRow(1))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	// Enable nullable columns so nullable source columns map to Nullable(...) in ClickHouse,
+	// verifying that clamping happens regardless of column nullability.
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id", 1)
+
+	require.NoError(s.t, insertRow(2))
+
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id", 2)
+
+	colExprs := []string{"id"}
+	for _, c := range []string{
+		"d_null_low", "d_null_high", "d_nn_low", "d_nn_high", "d_ok",
+		"dt_null_low", "dt_null_high", "dt_nn_low", "dt_nn_high", "dt_ok",
+	} {
+		colExprs = append(colExprs, fmt.Sprintf("ifNull(toString(%s),'')", c))
+	}
+	cols := strings.Join(colExprs, ",")
+	rows, err := s.GetRows(dstTableName, cols)
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2, "expected snapshot + cdc rows")
+
+	assertStr := func(qv types.QValue, expect string) {
+		sv, ok := qv.Value().(string)
+		require.Truef(s.t, ok, "expected string, got %T", qv.Value())
+		require.Equal(s.t, expect, sv)
+	}
+
+	// Out-of-range values are clamped to the nearest ClickHouse boundary
+	for _, row := range rows.Records {
+		// DATE (Date32): clamps to the boundary day.
+		assertStr(row[1], "1900-01-01") // d_null_low
+		assertStr(row[2], "2299-12-31") // d_null_high
+		assertStr(row[3], "1900-01-01") // d_nn_low
+		assertStr(row[4], "2299-12-31") // d_nn_high
+		assertStr(row[5], "2000-01-02") // d_ok
+		// DATETIME (DateTime64(6)): clamps the date, preserves the time-of-day.
+		assertStr(row[6], "1900-01-01 05:30:45.000000")  // dt_null_low
+		assertStr(row[7], "2299-12-31 05:30:45.000000")  // dt_null_high
+		assertStr(row[8], "1900-01-01 05:30:45.000000")  // dt_nn_low
+		assertStr(row[9], "2299-12-31 05:30:45.000000")  // dt_nn_high
+		assertStr(row[10], "2000-01-02 03:04:05.000000") // dt_ok
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 	mySource, ok := s.source.(*MySqlSource)
 	if !ok {
@@ -2038,57 +2139,11 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 		s.t.Skip("binlog incident injection requires a MySQL debug build; not available for MariaDB")
 	}
 
-	req := testcontainers.ContainerRequest{
-		Image: "ghcr.io/peerdb-io/mysql-debug:8.0.46",
-		Env: map[string]string{
-			"MYSQL_ROOT_PASSWORD": internal.MySQLTestRootPasswordWithFallback("cipass"),
-			"MYSQL_ROOT_HOST":     "%",
-		},
-		// Keep the debug server small for the one-off testcontainers
-		Cmd: []string{
-			"mysqld",
-			"--server-id=1",
-			"--log-bin=mysql-bin",
-			"--binlog-format=ROW",
-			"--innodb-buffer-pool-size=64M",
-			"--performance-schema=OFF",
-			"--mysqlx=0",
-			"--max-connections=20",
-			"--table-open-cache=64",
-			"--table-definition-cache=128",
-			"--innodb-log-buffer-size=8M",
-		},
-		ExposedPorts: []string{"3306/tcp"},
-		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
-	}
-
-	ctr, err := testcontainers.GenericContainer(s.t.Context(), testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	testcontainers.CleanupContainer(s.t, ctr, testcontainers.StopTimeout(30*time.Second))
-	require.NoError(s.t, err)
-
-	mapped, err := ctr.MappedPort(s.t.Context(), "3306/tcp")
-	require.NoError(s.t, err)
-	port, err := strconv.Atoi(mapped.Port())
-	require.NoError(s.t, err)
-
-	suffix := "mydbginc_" + strings.ToLower(common.RandomString(8))
-	config := &protos.MySqlConfig{
-		// host.docker.internal resolves both from the test process (to the published port) and
-		// from the flow worker container (via host-gateway), unlike the container's own host.
-		Host:                 internal.MySQLTestHost(),
-		Port:                 uint32(port),
-		User:                 "root",
-		Password:             internal.MySQLTestRootPasswordWithFallback("cipass"),
-		DisableTls:           true,
+	src, suffix := SetupMySQLTestContainerSource(s.t, "mydbginc", MySQLTestContainerConfig{
+		Image:                "ghcr.io/peerdb-io/mysql-debug:8.0.46",
 		Flavor:               protos.MySqlFlavor_MYSQL_MYSQL,
 		ReplicationMechanism: mySource.Config.ReplicationMechanism,
-	}
-	src, err := setupMyConnector(s.t, suffix, config, "mysql_debug_"+suffix)
-	require.NoError(s.t, err)
-	s.t.Cleanup(func() { src.Teardown(s.t, context.Background(), suffix) })
+	})
 
 	srcTableName := "incident"
 	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
@@ -2126,6 +2181,87 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for binlog incident error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "binlog incident event received")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_MariaDB_PartialRowEvent verifies how the mirror handles a MariaDB PARTIAL_ROW_DATA_EVENT
+// (MariaDB 12.3+) - an oversized rows event fragmented across multiple binlog events.
+func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
+	if s.cluster {
+		s.t.Skip("source-side partial row event coverage does not need to run against ClickHouse cluster")
+	}
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+		s.t.Skip("only applies to maria flavor")
+	}
+
+	// binlog_row_event_fragment_threshold is pinned to its 1024-byte minimum so a modest row
+	// overflows a single rows event and MariaDB splits it into PARTIAL_ROW_DATA_EVENT fragments.
+	src, suffix := SetupMySQLTestContainerSource(s.t, "mdbpart", MySQLTestContainerConfig{
+		Image:                "mariadb:12.3",
+		Flavor:               protos.MySqlFlavor_MYSQL_MARIA,
+		ReplicationMechanism: protos.MySqlReplicationMechanism_MYSQL_GTID,
+		ExtraServerFlags: []string{
+			"--binlog-row-metadata=FULL",
+			"--binlog-row-event-fragment-threshold=1024",
+		},
+	})
+
+	srcTableName := "partial_rows"
+	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
+	dstTableName := "partial_rows_dst"
+
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "test_mariadb_partial_row_" + suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	// The suite source is the shared CI MySQL; point the mirror at our MariaDB source instead.
+	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+
+	// A fragmented rows event on a table OUTSIDE the pipe must NOT fail the mirror
+	ignoredFullName := fmt.Sprintf("e2e_test_%s.partial_rows_ignored", suffix)
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, ignoredFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('y', 8192))`, ignoredFullName)))
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (1, 'small')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting for in-pipe row past out-of-pipe partial row event",
+		dstTableName, "id,payload", 1)
+
+	// An oversized row larger than the 1024-byte fragment threshold on the mirrored table itself is
+	// fragmented into PARTIAL_ROW_DATA_EVENTs, which we don't reassemble and must fail loudly on.
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, payload) VALUES (2, REPEAT('x', 8192))`, srcFullName)))
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for partial row event error", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "fragmented oversized row events")
 		if err != nil {
 			s.t.Log("Error querying flow_errors:", err)
 			return false
@@ -2315,6 +2451,87 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_FullTable() {
 	require.NoError(s.t, partitionRows.Err())
 	require.EqualValues(s.t, 1, partitionCount)
 	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	var shardingKey string
+	if s.cluster {
+		shardingKey = "rand()"
+	}
+
+	srcTableName := "test_no_pkey_cdc"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_no_pkey_cdc"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, val TEXT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (1, 'a'), (2, 'b')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("mysql_no_pkey_cdc"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+			// rand() is required for cluster mode: Distributed tables with multiple shards
+			// need a sharding expression. No natural key exists on a PK-less table.
+			ShardingKey: shardingKey,
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// waitForNonDeletedCount polls CH without FINAL (MergeTree rejects FINAL).
+	waitForNonDeletedCount := func(expected int, reason string) {
+		s.t.Helper()
+		EnvWaitFor(s.t, env, 3*time.Minute, reason, func() bool {
+			s.t.Helper()
+			n, err := s.CountNonDeletedRows(dstTableName)
+			if err != nil {
+				s.t.Log(err)
+				return false
+			}
+			return n == expected
+		})
+	}
+
+	// Snapshot: 2 rows expected in CH.
+	waitForNonDeletedCount(2, "waiting on snapshot")
+
+	// CDC INSERT: 3 rows in CH.
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (3, 'c')`, srcFullName)))
+	waitForNonDeletedCount(3, "waiting on cdc insert")
+
+	// CDC UPDATE: MergeTree appends the updated row without removing the original.
+	// Source has 3 rows; CH now has 4 non-deleted rows (row-1-original, row-1-updated, row-2, row-3).
+	// The count growing from 3→4 documents the append-only semantics: no dedup without an ordering key.
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`UPDATE %s SET val='updated' WHERE id=1`, srcFullName)))
+	waitForNonDeletedCount(4, "waiting on cdc update")
+
+	// CDC DELETE + subsequent INSERT: the DELETE must not crash the pipeline. A delete-marker row
+	// (is_deleted=1) is appended to CH but the original row-2 (is_deleted=0) stays visible.
+	// The following INSERT (id=4) arriving at count=5 confirms the pipeline survived the DELETE.
+	// count=5: row1_orig, row1_updated, row2_orig (is_deleted=0 retained), row3, row4
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`DELETE FROM %s WHERE id=2`, srcFullName)))
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (4, 'd')`, srcFullName)))
+	waitForNonDeletedCount(5, "waiting on cdc after delete")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

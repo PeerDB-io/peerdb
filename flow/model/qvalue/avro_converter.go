@@ -369,8 +369,12 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 	return t, varIntSize(int64(t/time.Microsecond), so)
 }
 
-func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+const (
+	clickHouseMinYear = 1900
+	clickHouseMaxYear = 2299
+)
+
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
 		year := t.Year()
@@ -383,26 +387,36 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avr
 				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), varIntSize(0, so)
 			}
 		}
+	case protos.DBType_CLICKHOUSE:
+		if year := t.Year(); year < clickHouseMinYear {
+			t = time.Date(clickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		} else if year > clickHouseMaxYear {
+			t = time.Date(clickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		}
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		s := t.Format(format)
 		return s, stringSize(s, so)
 	}
+	// Timestamps are micros since epoch; dates are days since epoch. Both encoded as Avro varint.
+	avroVal := t.UnixMicro()
+	if isDate {
+		avroVal = t.Unix() / 86400
+	}
 	return t, varIntSize(avroVal, so)
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", t.UnixMicro(), so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", false, so)
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", t.UnixMicro(), so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", false, so)
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
-	// Date is days since epoch, encoded as Avro int (varint)
-	return c.processGeneralTime(t, "2006-01-02", t.Unix()/86400, so)
+	return c.processGeneralTime(t, "2006-01-02", true, so)
 }
 
 func (c *QValueAvroConverter) processNullableUnion(

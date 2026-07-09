@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -117,32 +118,31 @@ func TestComputeStringBoundaries(t *testing.T) {
 	})
 }
 
-func intPartition(start, end int64) *protos.PartitionRange {
-	return &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{
-		IntRange: &protos.IntPartitionRange{Start: start, End: end},
-	}}
-}
-
-func stringPartition(start, end string, endInclusive bool) *protos.PartitionRange {
-	return &protos.PartitionRange{Range: &protos.PartitionRange_StringRange{
-		StringRange: &protos.StringPartitionRange{Start: start, End: end, EndInclusive: endInclusive},
-	}}
-}
-
 func TestToRangeFilter(t *testing.T) {
-	t.Run("int range is inclusive on both ends", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, intPartition(10, 20))
+	t.Run("numeric range is half-open", func(t *testing.T) {
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateNumericPartition(10, 20, false).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
 				bson.E{Key: "$gte", Value: int64(10)},
-				bson.E{Key: "$lte", Value: int64(20)},
+				bson.E{Key: "$lt", Value: int64(20)},
+			}},
+		}, filter)
+	})
+
+	t.Run("last numeric range is closed", func(t *testing.T) {
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateNumericPartition(20, 30, true).Range)
+		require.NoError(t, err)
+		require.Equal(t, bson.D{
+			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
+				bson.E{Key: "$gte", Value: int64(20)},
+				bson.E{Key: "$lte", Value: int64(30)},
 			}},
 		}, filter)
 	})
 
 	t.Run("string range is half-open", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.a", "com.m", false))
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateStringPartition("com.a", "com.m", false).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
@@ -153,7 +153,7 @@ func TestToRangeFilter(t *testing.T) {
 	})
 
 	t.Run("last string range is closed", func(t *testing.T) {
-		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, stringPartition("com.m", "org.z", true))
+		filter, err := toRangeFilter(DefaultDocumentKeyColumnName, utils.CreateStringPartition("com.m", "org.z", true).Range)
 		require.NoError(t, err)
 		require.Equal(t, bson.D{
 			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{

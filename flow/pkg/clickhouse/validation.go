@@ -303,3 +303,23 @@ func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhous
 		sourceTable,
 	)
 }
+
+// ValidateClusterShardingKey returns an error when the destination is a multi-shard cluster,
+// the source table has no primary key and no custom ordering, and no explicit sharding_key is
+// provided. In that configuration ClickHouse would reject writes to the Distributed table
+// (error 55: "Method write is not supported by storage Distributed with more than one shard
+// and no sharding key provided").
+func ValidateClusterShardingKey(cluster, shardingKey, sourceTable string, hasPrimaryKeys bool, sortingKeys []string) error {
+	if cluster == "" {
+		return nil
+	}
+	if shardingKey != "" || hasPrimaryKeys || len(sortingKeys) > 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"table %q has no primary key and no custom ordering columns; "+
+			"an explicit sharding_key is required for cluster deployments "+
+			"(e.g. sharding_key: rand() for random distribution across shards)",
+		sourceTable,
+	)
+}

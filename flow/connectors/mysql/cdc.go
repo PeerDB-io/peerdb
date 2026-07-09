@@ -13,6 +13,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,46 @@ import (
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
 )
+
+const mariadbPartialRowDataEvent replication.EventType = 172
+
+const (
+	partialRowsHeaderLen        = 4 + 4 + 1
+	partialRowFlagOrigEventSize = 0x01
+	binlogCommonHeaderLen       = 19
+	rowsEventTableIDSize        = 6
+)
+
+// parsePartialRowEventTableID extracts the source table id from a MariaDB PARTIAL_ROW_DATA_EVENT
+//
+//	[0:4]  total_fragments (uint32 LE)
+//	[4:8]  seq_no          (uint32 LE, 1-based)
+//	[8]    flags           (bit 0 = FL_ORIG_EVENT_SIZE)
+//	[9:17] original size   (present only when FL_ORIG_EVENT_SIZE is set, i.e. on the first fragment)
+//	then   content         (first fragment: embedded rows event = 19-byte header + post-header)
+//
+// The embedded rows-event post-header begins with a 6-byte little-endian table id.
+func parsePartialRowEventTableID(data []byte) (uint64, uint32, bool) {
+	if len(data) < partialRowsHeaderLen {
+		return 0, 0, false
+	}
+	totalFragments := binary.LittleEndian.Uint32(data[0:4])
+	seqNo := binary.LittleEndian.Uint32(data[4:8])
+	flags := data[8]
+	if seqNo != 1 {
+		// continuation fragment: carries only raw row data, no embedded header, so no table id
+		return 0, totalFragments, false
+	}
+	contentStart := partialRowsHeaderLen
+	if flags&partialRowFlagOrigEventSize != 0 {
+		contentStart += 8
+	}
+	tableIDStart := contentStart + binlogCommonHeaderLen
+	if len(data) < tableIDStart+rowsEventTableIDSize {
+		return 0, totalFragments, false
+	}
+	return mysql.FixedLengthInt(data[tableIDStart : tableIDStart+rowsEventTableIDSize]), totalFragments, true
+}
 
 const (
 	queryStatusVarFlags2  = 0
@@ -552,6 +593,14 @@ func (c *MySqlConnector) PullRecords(
 				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
 		}
 	}
+	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
+		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
+		)))
+		if _, loaded := c.warnedUnsupportedEventTypes.LoadOrStore(event.Header.EventType, struct{}{}); !loaded {
+			c.logger.Warn("unsupported binlog event", slog.Any("type", event.Header.EventType))
+		}
+	}
 
 	advanceCheckpoint := func(evGSet mysql.GTIDSet, logPos uint32) {
 		if gset != nil {
@@ -567,6 +616,11 @@ func (c *MySqlConnector) PullRecords(
 
 	lastEventAt := time.Now()
 	var mysqlParser *parser.Parser
+	// table id -> "schema.table", maintained from TABLE_MAP_EVENTs
+	tableIdToName := make(map[uint64]string)
+	// When we ignore an out-of-pipe fragmented rows event, its continuation fragments carry no table
+	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
+	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -585,12 +639,49 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.GenericEvent:
-			// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
-			if event.Header.EventType == replication.INCIDENT_EVENT {
+			switch event.Header.EventType {
+			case replication.INCIDENT_EVENT:
+				// INCIDENT_EVENT (LOST_EVENTS) - fail and require resync
 				incident, message := parseIncidentEvent(ev.Data)
 				c.logger.Error("[mysql] received binlog incident event, resync required",
 					slog.Uint64("incident", uint64(incident)), slog.String("message", message))
 				return exceptions.NewMySQLBinlogIncidentError(incident, message)
+			case mariadbPartialRowDataEvent:
+				if partialRowSkipFragments > 0 {
+					// continuation fragments of an out-of-pipe group we already decided to ignore
+					partialRowSkipFragments--
+					break
+				}
+				tableID, totalFragments, ok := parsePartialRowEventTableID(ev.Data)
+				// tableIdToName tracking relies on TABLE_MAP_EVENT and
+				// PARTIAL_ROW_DATA_EVENT coming within the same batch, so no checkpoints in between
+				// Server sends events in groups with the usual sequence of begin - table map - rows - gtid/commit
+				// So as of committing this, the unresolvable path is not expected to be hit
+				sourceTableName, known := tableIdToName[tableID]
+				if !ok || !known {
+					// couldn't recover/resolve the table, fail loudly
+					c.logger.Error("[mysql] received unresolvable MariaDB partial row data event, resync required",
+						slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.Bool("parsed", ok))
+					return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), "", "")
+				}
+				if req.TableNameSchemaMapping[req.TableNameMapping[sourceTableName].Name] == nil {
+					// table not in the pipe - ignore this fragment group and its continuation fragments
+					if totalFragments > 1 {
+						partialRowSkipFragments = totalFragments - 1
+					}
+					c.logger.Warn("[mysql] ignoring MariaDB partial row data event for table outside the pipe",
+						slog.String("table", sourceTableName), slog.Uint64("totalFragments", uint64(totalFragments)))
+					break
+				}
+				schemaName, tableName, _ := strings.Cut(sourceTableName, ".")
+				c.logger.Error("[mysql] received MariaDB partial row data event, resync required",
+					slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.String("table", sourceTableName))
+				return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), schemaName, tableName)
+			case replication.STOP_EVENT, replication.RAND_EVENT, replication.USER_VAR_EVENT,
+				replication.IGNORABLE_EVENT, replication.MARIADB_START_ENCRYPTION_EVENT:
+				// safe to ignore because validation requires binlog_format=ROW
+			default:
+				recordUnsupportedEvent(ctx, event, "Generic")
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
@@ -640,6 +731,8 @@ func (c *MySqlConnector) PullRecords(
 					return fmt.Errorf("unknown stmt kind: %v", kind)
 				}
 			}
+		case *replication.TableMapEvent:
+			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -824,6 +917,13 @@ func (c *MySqlConnector) PullRecords(
 					}
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return fmt.Errorf("mysql v0 replication protocol not supported")
+				case replication.PARTIAL_UPDATE_ROWS_EVENT:
+					// Emitted only when binlog_row_value_options=PARTIAL_JSON is enabled at runtime.
+					e := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError(string(ev.Table.Schema), string(ev.Table.Table))
+					c.logger.Error(e.Error())
+					return e
+				default:
+					recordUnsupportedEvent(ctx, event, "Rows")
 				}
 			}
 			if event.Header.Timestamp > 0 {
@@ -832,6 +932,15 @@ func (c *MySqlConnector) PullRecords(
 					int64(event.Header.Timestamp),
 				)
 			}
+		case *replication.FormatDescriptionEvent, *replication.PreviousGTIDsEvent,
+			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
+			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
+			*replication.MariadbAnnotateRowsEvent, *replication.MariadbBinlogCheckPointEvent,
+			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent:
+			// benign events we intentionally don't process (binlog-file headers, heartbeats,
+			// rows-query/SBR context, MariaDB GTID/annotate markers)
+		default:
+			recordUnsupportedEvent(ctx, event, "Untyped")
 		}
 
 		return nil

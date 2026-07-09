@@ -106,6 +106,12 @@
       // Unpin when a release is tagged
       "allowedVersions": "v1.15.1-0.20260701093637-35ca5c6ee8c8"
     },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-mysql-org/go-mysql"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
+    },
     // This package rule instruct renovate to require approval from
     // the dependency dashboard before proposing major upgrades.
     // This sets a default is approval mindset for automatic proposals.

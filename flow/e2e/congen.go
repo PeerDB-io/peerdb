@@ -41,7 +41,7 @@ func CreatePeer(t *testing.T, peer *protos.Peer) {
 	t.Helper()
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	res, err := utils.CreatePeerNoValidate(t.Context(), shared.CatalogPool{Pool: pool}, peer, false)
+	res, err := utils.CreatePeerNoValidate(t.Context(), shared.CatalogPool{Pool: pool}, peer, true)
 	require.NoError(t, err)
 	if res.Status != protos.CreatePeerStatus_CREATED {
 		require.Fail(t, res.Message)

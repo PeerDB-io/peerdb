@@ -8,13 +8,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
-
-// String watermark partitioning is currently only supported by the MySQL connector,
-// so these helpers live in the MySQL connector subtree to prevent accidental usage
-// by other connectors.
 
 var (
 	uuidLowerRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -76,10 +73,10 @@ func buildUuidStringPartitions(
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert bigint to uuid: %w", err)
 		}
-		partitions = append(partitions, createStringPartition(start, end, false))
+		partitions = append(partitions, utils.CreateStringPartition(start, end, false))
 		start = end
 	}
-	partitions = append(partitions, createStringPartition(start, maxVal, true))
+	partitions = append(partitions, utils.CreateStringPartition(start, maxVal, true))
 	return partitions, nil
 }
 
@@ -102,19 +99,4 @@ func bigIntToUUID(n *big.Int, casing hexCasing) (string, error) {
 		s = strings.ToUpper(s)
 	}
 	return s, nil
-}
-
-func createStringPartition(start string, end string, endInclusive bool) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.NewString(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_StringRange{
-				StringRange: &protos.StringPartitionRange{
-					Start:        start,
-					End:          end,
-					EndInclusive: endInclusive,
-				},
-			},
-		},
-	}
 }

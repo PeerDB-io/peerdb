@@ -271,6 +271,80 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID_With_Fractional_Interior() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned_numeric_id_fractional"
+	dstTable := "test_simple_dst_partitioned_numeric_id_fractional"
+
+	const numRows = 100
+	const numPartitions = 10
+	const rowsPerPartition = numRows / numPartitions
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = rowsPerPartition
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	docs := make([]any, numRows)
+	for i := range numRows {
+		if i == 0 {
+			docs[i] = bson.D{
+				{Key: "_id", Value: int32(i)},
+				{Key: "key_0", Value: "val_0"},
+			}
+		} else if i == numRows-1 {
+			docs[i] = bson.D{
+				{Key: "_id", Value: int64(i)},
+				{Key: "key_99", Value: "val_99"},
+			}
+		} else {
+			id := float64(i) + 0.5
+			docs[i] = bson.D{
+				{Key: "_id", Value: id},
+				{Key: fmt.Sprintf("key_%d", i), Value: fmt.Sprintf("val_%d", i)},
+			}
+		}
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	res, err := catalogPool.Query(t.Context(),
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(t, err)
+	defer res.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for res.Next() {
+		var rowsInPartition int64
+		require.NoError(t, res.Scan(&rowsInPartition))
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(t, res.Err())
+	require.EqualValues(t, numPartitions, partitionCount)
+	require.EqualValues(t, numRows, totalRows)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Snapshot_Collection_With_Single_Document() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())

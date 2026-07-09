@@ -55,6 +55,21 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedBinlogRowValueOptionsError struct {
+	Schema string
+	Table  string
+}
+
+func NewMySQLUnsupportedBinlogRowValueOptionsError(schema string, table string) *MySQLUnsupportedBinlogRowValueOptionsError {
+	return &MySQLUnsupportedBinlogRowValueOptionsError{Schema: schema, Table: table}
+}
+
+func (e *MySQLUnsupportedBinlogRowValueOptionsError) Error() string {
+	return fmt.Sprintf(
+		"Received a partial JSON update event while processing %s.%s; binlog_row_value_options must be disabled (set to '')",
+		e.Schema, e.Table)
+}
+
 type MySQLUnsupportedDDLError struct {
 	TableName string
 }
@@ -152,4 +167,26 @@ func (e *MySQLBinlogIncidentError) Error() string {
 		return fmt.Sprintf("MySQL binlog incident event received (incident=%d): %s; a resync is required", e.Incident, e.Message)
 	}
 	return fmt.Sprintf("MySQL binlog incident event received (incident=%d); a resync is required", e.Incident)
+}
+
+type MySQLUnsupportedPartialRowEventError struct {
+	Schema    string
+	Table     string
+	EventType byte
+}
+
+func NewMySQLUnsupportedPartialRowEventError(eventType byte, schema string, table string) *MySQLUnsupportedPartialRowEventError {
+	return &MySQLUnsupportedPartialRowEventError{EventType: eventType, Schema: schema, Table: table}
+}
+
+func (e *MySQLUnsupportedPartialRowEventError) Error() string {
+	if e.Schema != "" || e.Table != "" {
+		return fmt.Sprintf(
+			"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d) on table %s.%s: "+
+				"fragmented oversized row events cannot be processed; a resync is required",
+			e.EventType, e.Schema, e.Table)
+	}
+	return fmt.Sprintf(
+		"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d): fragmented oversized row events cannot be processed; a resync is required",
+		e.EventType)
 }

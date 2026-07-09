@@ -162,3 +162,55 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateClusterShardingKey(t *testing.T) {
+	tests := []struct {
+		name           string
+		cluster        string
+		shardingKey    string
+		sourceTable    string
+		hasPrimaryKeys bool
+		sortingKeys    []string
+		wantErr        string
+	}{
+		{
+			name:        "non-cluster mode always passes",
+			cluster:     "",
+			sourceTable: "db.no_pk",
+		},
+		{
+			name:        "cluster with explicit sharding key passes",
+			cluster:     "cicluster",
+			shardingKey: "rand()",
+			sourceTable: "db.no_pk",
+		},
+		{
+			name:           "cluster with primary keys passes",
+			cluster:        "cicluster",
+			sourceTable:    "db.has_pk",
+			hasPrimaryKeys: true,
+		},
+		{
+			name:        "cluster with custom sorting columns passes",
+			cluster:     "cicluster",
+			sourceTable: "db.no_pk",
+			sortingKeys: []string{"created_at"},
+		},
+		{
+			name:        "cluster, no pk, no sharding key, no sorting → error",
+			cluster:     "cicluster",
+			sourceTable: "db.no_pk",
+			wantErr:     "sharding_key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateClusterShardingKey(tt.cluster, tt.shardingKey, tt.sourceTable, tt.hasPrimaryKeys, tt.sortingKeys)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
