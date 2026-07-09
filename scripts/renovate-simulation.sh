@@ -9,6 +9,13 @@
 # WARNING: If the script is terminated before restoring the extension source (step 2), make sure you revert
 #          the changes to renovate.json5 manually.
 
+if [ -f "renovate.json5" ]; then
+  echo "Found renovate.json5, proceeding..."
+else
+  echo "renovate.json5 not found, please run this script from the root of the repository."
+  exit 1
+fi
+
 ## (1) Check config syntax
 npx --yes --package renovate -- renovate-config-validator renovate.json5 || exit 1
 
