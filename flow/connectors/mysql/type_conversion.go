@@ -23,7 +23,7 @@ func QkindFromMysqlColumnType(ct string, binlogRowMetadataSupported bool, versio
 		"xmltype": // maria
 		return types.QValueKindString, nil
 	case "set":
-		// keeps snapshot and cdc consistent for mysql without rows metadata
+		// keeps snapshot and cdc consistent for mysql without row metadata
 		if !binlogRowMetadataSupported && version >= shared.InternalVersion_MySQL5ConvertSetsToInts {
 			return types.QValueKindUint64Set, nil
 		}

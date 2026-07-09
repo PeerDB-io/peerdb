@@ -24,8 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// mysqlUsesOrdinals reports whether the source lacks binlog row metadata, in which case CDC
-// sees enum ordinals and set bitmasks as integers rather than labels.
 func mysqlUsesOrdinals(source *MySqlSource) bool {
 	return source.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL &&
 		source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS
