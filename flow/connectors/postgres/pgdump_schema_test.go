@@ -514,7 +514,7 @@ func TestAppendTLSEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+			cmd := exec.CommandContext(ctx, "echo")
 			cmd.Env = os.Environ()
 
 			appendTLSEnv(ctx, cmd, tt.config)
@@ -550,7 +550,7 @@ func TestAppendTLSEnv_TlsHost(t *testing.T) {
 	ctx := t.Context()
 
 	t.Run("PGHOSTADDR set when TlsHost configured", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd := exec.CommandContext(ctx, "echo")
 		cmd.Env = os.Environ()
 
 		config := &protos.PostgresConfig{
@@ -569,7 +569,7 @@ func TestAppendTLSEnv_TlsHost(t *testing.T) {
 	})
 
 	t.Run("PGHOSTADDR not set when TlsHost empty", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo") //nolint:gosec
+		cmd := exec.CommandContext(ctx, "echo")
 		cmd.Env = os.Environ()
 
 		config := &protos.PostgresConfig{
