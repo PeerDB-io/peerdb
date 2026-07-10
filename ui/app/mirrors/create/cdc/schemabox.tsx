@@ -28,7 +28,11 @@ import {
 } from 'react';
 import ReactSelect from 'react-select';
 import { useTheme as useStyledTheme } from 'styled-components';
-import { fetchColumns, fetchTables } from '../handlers';
+import {
+  fetchColumns,
+  fetchTables,
+  getDefaultDestinationTable,
+} from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
@@ -75,6 +79,25 @@ export default function SchemaBox({
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
+
+  const applyTargetSchemaOverride = (newSchema: string) => {
+    setDefaultTargetSchema(newSchema);
+    if (peerType === undefined) return;
+    setRows((oldRows) =>
+      oldRows.map((row) =>
+        row.schema !== schema || row.editingDisabled
+          ? row
+          : {
+              ...row,
+              destination: getDefaultDestinationTable(
+                peerType,
+                newSchema,
+                row.source.slice(schema.length + 1)
+              ),
+            }
+      )
+    );
+  };
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
@@ -310,7 +333,7 @@ export default function SchemaBox({
             <div style={{ alignSelf: 'center', cursor: 'pointer' }}>
               <SchemaSettings
                 schema={defaultTargetSchema}
-                setTargetSchemaOverride={setDefaultTargetSchema}
+                setTargetSchemaOverride={applyTargetSchemaOverride}
               />
             </div>
           </div>
