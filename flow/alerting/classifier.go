@@ -967,6 +967,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrUnknownDatabase,
 			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
+		case chproto.ErrUnexpectedZookeeperError:
+			if strings.Contains(chException.Message, "ZNODEEXISTS") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case chproto.ErrKeeperException:
 			if chException.Message == "Session expired" || strings.HasPrefix(chException.Message, "Coordination error: Connection loss") {
 				return ErrorRetryRecoverable, chErrorInfo

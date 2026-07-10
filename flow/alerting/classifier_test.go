@@ -270,6 +270,20 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	}
 }
 
+func TestClickHouseUnexpectedZookeeperZnodeExistsErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnexpectedZookeeperError),
+		Message: "Got unexpected ZooKeeper error ZNODEEXISTS (at index 10) for part all_0_0_1",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: QRepSync Error: %w", err), "", ""))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnexpectedZookeeperError)),
+	}, errInfo)
+}
+
 func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code:    int32(chproto.ErrAccessDenied),
