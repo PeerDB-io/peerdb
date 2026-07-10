@@ -174,9 +174,10 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 		s.t.Skip("column compression is a MariaDB-only feature")
 	}
 
-	// A compressed column produces a binlog row event go-mysql cannot decode, which poisons the
-	// binlog stream for every mirror reading the server. Use a dedicated throwaway MariaDB so the
-	// failure cannot cascade into the other parallel subtests sharing the CI source.
+	// A compressed column produces a valid MariaDB binlog event that go-mysql cannot decode.
+	// Because every CDC reader consumes the server-wide binlog before table filtering, the event
+	// can terminate unrelated mirrors using the shared CI server. Use a dedicated throwaway
+	// MariaDB to isolate the unsupported event.
 	src, suffix := SetupMySQLTestContainerSource(s.t, "cmpcol", MySQLTestContainerConfig{
 		Image:                "mariadb:12.3",
 		Flavor:               protos.MySqlFlavor_MYSQL_MARIA,
