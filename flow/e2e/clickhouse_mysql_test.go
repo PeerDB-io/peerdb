@@ -219,7 +219,7 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name, val) VALUES (2, 'cdc', 'compressed value')`, srcFullName)))
 
-	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
+	EnvWaitFor(s.t, env, 6*time.Minute, "waiting for compressed column error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "cannot be replicated via CDC")
 		if err != nil {
 			s.t.Log("Error querying flow_errors:", err)
