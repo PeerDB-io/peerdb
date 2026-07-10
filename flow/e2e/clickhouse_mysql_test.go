@@ -209,17 +209,51 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
+	s.t.Cleanup(func() {
+		if !s.t.Failed() {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		rows, err := catalogPool.Query(ctx, `
+			SELECT error_type, error_message
+			FROM peerdb_stats.flow_errors
+			WHERE flow_name = $1
+			ORDER BY id`, flowConnConfig.FlowJobName)
+		if err != nil {
+			s.t.Log("failed to query flow logs after test failure:", err)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var errorType, message string
+			if err := rows.Scan(&errorType, &message); err != nil {
+				s.t.Log("failed to scan flow log after test failure:", err)
+				return
+			}
+			s.t.Logf("flow log after test failure: type=%s message=%s", errorType, message)
+		}
+		if err := rows.Err(); err != nil {
+			s.t.Log("failed while reading flow logs after test failure:", err)
+		}
+	})
 
 	EnvWaitForCount(env, s, "waiting on initial snapshot", dstTableName, "id,name", 1)
+	// Seeing the snapshot row at the destination does not guarantee that the CDC activity has
+	// started. Prove that CDC is consuming this source before introducing the unsupported type.
+	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name) VALUES (2, 'cdc-ready')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id,name", 2)
 
 	// Add a COMPRESSED column mid-stream, then write a row so a row event carrying the undecodable
 	// wire type reaches the pipe and trips the TABLE_MAP detection.
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
 		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName)))
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name, val) VALUES (2, 'cdc', 'compressed value')`, srcFullName)))
+		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, srcFullName)))
 
-	EnvWaitFor(s.t, env, 6*time.Minute, "waiting for compressed column error", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "cannot be replicated via CDC")
 		if err != nil {
 			s.t.Log("Error querying flow_errors:", err)
