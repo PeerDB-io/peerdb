@@ -75,6 +75,7 @@ jobs:
       - name: Create and push tag
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ secrets.DEVOPS_BOT_GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
           RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
         run: |
