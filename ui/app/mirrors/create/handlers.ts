@@ -375,7 +375,7 @@ export async function fetchSchemas(peer_name: string) {
   return schemasRes.schemas;
 }
 
-function getDefaultDestinationTable(
+export function getDefaultDestinationTable(
   peerType: DBType,
   schemaName: string,
   tableName: string

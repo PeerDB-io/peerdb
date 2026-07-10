@@ -22,13 +22,15 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from 'react';
 import ReactSelect from 'react-select';
 import { useTheme as useStyledTheme } from 'styled-components';
-import { fetchColumns, fetchTables } from '../handlers';
+import { fetchColumns, fetchTables, getDefaultDestinationTable } from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
@@ -75,6 +77,27 @@ export default function SchemaBox({
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
+  const prevTargetSchema = useRef<string>(schema);
+
+  useEffect(() => {
+    if (prevTargetSchema.current !== defaultTargetSchema && peerType) {
+      prevTargetSchema.current = defaultTargetSchema;
+      setRows((oldRows) =>
+        oldRows.map((row) => {
+          if (row.schema !== schema || row.editingDisabled) return row;
+          const tableName = row.source.split('.').slice(1).join('.');
+          return {
+            ...row,
+            destination: getDefaultDestinationTable(
+              peerType,
+              defaultTargetSchema,
+              tableName
+            ),
+          };
+        })
+      );
+    }
+  }, [defaultTargetSchema, peerType, schema, setRows]);
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
