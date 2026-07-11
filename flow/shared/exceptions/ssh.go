@@ -1,5 +1,7 @@
 package exceptions
 
+import "strings"
+
 // SSHTunnelSetupError represents errors during SSH Tunnel Setup, the SSH library we use does not provide a common error type,
 // just does fmt.Errorf
 type SSHTunnelSetupError struct {
@@ -15,6 +17,29 @@ func (e *SSHTunnelSetupError) Error() string {
 }
 
 func (e *SSHTunnelSetupError) Unwrap() error {
+	return e.error
+}
+
+// SSHTunnelDialError represents a failure to open a new connection through an established SSH tunnel.
+type SSHTunnelDialError struct {
+	error
+	Retryable bool
+}
+
+func NewSSHTunnelDialError(err error) *SSHTunnelDialError {
+	// x/crypto/ssh's mux returns this untyped error when the SSH connection
+	// is torn down while a channel open is in flight.
+	if strings.Contains(err.Error(), "unexpected packet in response to channel open") {
+		return &SSHTunnelDialError{err, true}
+	}
+	return &SSHTunnelDialError{err, false}
+}
+
+func (e *SSHTunnelDialError) Error() string {
+	return "SSH Tunnel Dial Error: " + e.error.Error()
+}
+
+func (e *SSHTunnelDialError) Unwrap() error {
 	return e.error
 }
 

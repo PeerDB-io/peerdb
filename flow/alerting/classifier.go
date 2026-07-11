@@ -428,6 +428,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if sshDialErr, ok := errors.AsType[*exceptions.SSHTunnelDialError](err); ok {
+		errInfo := ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "TUNNEL_DIAL_ERROR",
+		}
+		if sshDialErr.Retryable {
+			return ErrorRetryRecoverable, errInfo
+		}
+		return ErrorOther, errInfo
+	}
+
 	// An SSH-tunneled connection that goes bad (e.g. keepalive failure) is wrapped explicitly.
 	if _, ok := errors.AsType[*exceptions.SSHTunnelConnectionError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
