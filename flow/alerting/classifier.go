@@ -45,6 +45,7 @@ const (
 	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -815,6 +816,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		// This should recover, but we notify if exceed default threshold
 		if mongoCmdErr.HasErrorLabel(driver.TransientTransactionError) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		}
+
+		// TLS handshake failures during connection checkout is typically retryable. We've observed
+		// Atlas briefly serving a mismatched cert/key pair during rolling cert rotation that auto-recovers
+		if strings.Contains(err.Error(), MongoTLSInvalidServerCertSignature) {
+			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
