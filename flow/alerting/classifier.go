@@ -806,6 +806,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
+		if mongoCmdErr.HasErrorMessage(MongoIncompleteReadOfMessageHeader) {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
 		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
 		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
