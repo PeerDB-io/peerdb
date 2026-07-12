@@ -229,8 +229,18 @@ func (h *FlowRequestHandler) checkSourcePeerReuse(
 		return NewInternalApiError(fmt.Errorf("failed to iterate flows while checking peer reuse for %s: %w", cfg.SourceName, err))
 	}
 
-	// Beyond other PeerDB mirrors (checked above), the pinned server_id must not be already
+	// beyond other PeerDB mirrors (checked above), the pinned server_id must not be already
 	// registered as a replica on the source DB itself.
+
+	// if this mirror already exists (resync case),
+	// the registered replica may be the mirror's own binlog connection, which is
+	// indistinguishable from a foreign one, so the check must be skipped.
+	if exists, err := h.checkIfMirrorNameExists(ctx, cfg.FlowJobName); err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to check if mirror name exists: %w", err))
+	} else if exists {
+		return nil
+	}
+
 	mysqlConn, mysqlClose, err := connectors.GetAs[*connmysql.MySqlConnector](ctx, cfg.Env, peer)
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to create MySQL connector for source peer %s: %w", cfg.SourceName, err))
