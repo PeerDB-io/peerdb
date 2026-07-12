@@ -16,7 +16,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -188,25 +187,6 @@ func (h *FlowRequestHandler) checkSourcePeerReuse(
 		return nil
 	}
 
-	// beyond other PeerDB mirrors (checked below), the pinned server_id must not be already registered
-	// as a replica on the source DB itself.
-	mysqlConn, mysqlClose, err := connectors.GetAs[*connmysql.MySqlConnector](ctx, cfg.Env, peer)
-	if err != nil {
-		return NewInternalApiError(fmt.Errorf("failed to create MySQL connector for source peer %s: %w", cfg.SourceName, err))
-	}
-	defer mysqlClose(ctx)
-
-	if inUse, err := mysql_validation.HasReplicaWithServerId(mysqlConn.Conn(), *mysqlCfg.ServerId); err != nil {
-		return NewInternalApiError(fmt.Errorf("failed to check replicas registered on source peer %s: %w", cfg.SourceName, err))
-	} else if inUse {
-		return NewFailedPreconditionApiError(
-			fmt.Errorf("source peer %q pins server_id=%d, which is already in use by a replica registered on the source database",
-				cfg.SourceName, *mysqlCfg.ServerId),
-			NewMirrorErrorInfo(map[string]string{
-				common.ErrorMetadataOffendingField: "source_name",
-			}))
-	}
-
 	// CDC flows for this source peer other than the mirror being validated.
 	// query_string IS NULL filters out QRep flows, which do
 	// not stream the binlog.
@@ -247,6 +227,25 @@ func (h *FlowRequestHandler) checkSourcePeerReuse(
 	}
 	if err := rows.Err(); err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to iterate flows while checking peer reuse for %s: %w", cfg.SourceName, err))
+	}
+
+	// Beyond other PeerDB mirrors (checked above), the pinned server_id must not be already
+	// registered as a replica on the source DB itself.
+	mysqlConn, mysqlClose, err := connectors.GetAs[*connmysql.MySqlConnector](ctx, cfg.Env, peer)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to create MySQL connector for source peer %s: %w", cfg.SourceName, err))
+	}
+	defer mysqlClose(ctx)
+
+	if inUse, err := mysqlConn.HasReplicaWithServerId(ctx, *mysqlCfg.ServerId); err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to check replicas registered on source peer %s: %w", cfg.SourceName, err))
+	} else if inUse {
+		return NewFailedPreconditionApiError(
+			fmt.Errorf("source peer %q pins server_id=%d, which is already in use by a replica registered on the source database",
+				cfg.SourceName, *mysqlCfg.ServerId),
+			NewMirrorErrorInfo(map[string]string{
+				common.ErrorMetadataOffendingField: "source_name",
+			}))
 	}
 
 	return nil

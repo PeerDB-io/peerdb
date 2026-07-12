@@ -138,6 +138,15 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	return nil
 }
 
+// HasReplicaWithServerId reports whether the source lists a replica registered with serverID.
+func (c *MySqlConnector) HasReplicaWithServerId(ctx context.Context, serverID uint32) (bool, error) {
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to connect: %w", err)
+	}
+	return mysql_validation.HasReplicaWithServerId(conn, serverID)
+}
+
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
 		return fmt.Errorf("flavor is set to unknown")
