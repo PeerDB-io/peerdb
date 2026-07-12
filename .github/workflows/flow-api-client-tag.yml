@@ -36,6 +36,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Test DEVOPS_BOT_GITHUB_TOKEN can post PR comments (temporary)
+        shell: bash
+        env:
+          #GITHUB_TOKEN: ${{ secrets.DEVOPS_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr comment https://github.com/PeerDB-io/peerdb/pull/4560 --body "test message"
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Fetch flow-api-client branch and existing tags
