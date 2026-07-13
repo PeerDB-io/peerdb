@@ -32,7 +32,7 @@ import (
 )
 
 func TestCheckTableMapForCompressedColumns(t *testing.T) {
-	// id (normal), v (varchar compressed, 140), b (blob compressed, 141)
+	// id (normal), b (blob compressed, 140), v (varchar compressed, 141)
 	ev := &replication.TableMapEvent{
 		Schema:     []byte("db"),
 		Table:      []byte("t"),

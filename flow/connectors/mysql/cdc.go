@@ -734,10 +734,12 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.TableMapEvent:
 			schemaTable := string(ev.Schema) + "." + string(ev.Table)
 			tableIdToName[ev.TableID] = schemaTable
-			if req.TableNameSchemaMapping[req.TableNameMapping[schemaTable].Name] != nil {
-				if err := checkTableMapForCompressedColumns(ev); err != nil {
-					return err
-				}
+			// Rows are decoded by go-mysql before PeerDB can filter them to tables in the
+			// mirror. Fail on any compressed column in the stream while the TABLE_MAP_EVENT
+			// is still available; otherwise the following rows event fails with an opaque
+			// "unsupport type" decoder error.
+			if err := checkTableMapForCompressedColumns(ev); err != nil {
+				return err
 			}
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
