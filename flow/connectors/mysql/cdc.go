@@ -44,9 +44,35 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
+	mysqlUTCTimestampLayout      = "2006-01-02 15:04:05.000000"
 )
 
 const mariadbPartialRowDataEvent replication.EventType = 172
+
+// getMySQLClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MySqlConnector) getMySQLClockOffset(ctx context.Context) (time.Duration, error) {
+	requestStarted := time.Now()
+	result, err := c.Execute(ctx, "SELECT UTC_TIMESTAMP(6)")
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query MySQL server time: %w", err)
+	}
+	if result == nil || result.RowNumber() != 1 {
+		return 0, fmt.Errorf("expected one MySQL server time row")
+	}
+
+	serverTimestamp, err := result.GetString(0, 0)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read MySQL server time: %w", err)
+	}
+	serverTime, err := time.ParseInLocation(mysqlUTCTimestampLayout, serverTimestamp, time.UTC)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse MySQL server time %q: %w", serverTimestamp, err)
+	}
+
+	return serverTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
+}
 
 const (
 	partialRowsHeaderLen        = 4 + 4 + 1
@@ -504,6 +530,12 @@ func (c *MySqlConnector) PullRecords(
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
 
+	mysqlClockOffset, err := c.getMySQLClockOffset(ctx)
+	if err != nil {
+		c.logger.Warn("failed to calculate MySQL clock offset",
+			slog.Any("error", err))
+	}
+
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
 	if err != nil {
 		return err
@@ -587,10 +619,34 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordCommitLagMetric := func(ctx context.Context, commitTs uint64) {
-		if commitTs > 0 {
+	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
+		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
+			// A heartbeat means there is currently no source change event to lag behind.
+			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
+			// the old source-lag value.
+			otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+			return
+		}
+
+		// GTID commit timestamps are precise transaction timestamps. Other binlog
+		// events only have the common header timestamp, which is seconds-resolution
+		// but lets older MySQL/MariaDB versions report source lag as well.
+		timestampMicros := int64(event.Header.Timestamp) * int64(time.Second/time.Microsecond)
+		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		case *replication.GtidTaggedLogEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		}
+
+		if timestampMicros > 0 {
 			otelManager.Metrics.CommitLagGauge.Record(ctx,
-				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
+				time.Now().UTC().Add(time.Duration(mysqlClockOffset)*time.Microsecond).
+					Sub(time.UnixMicro(timestampMicros)).Microseconds())
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
@@ -622,11 +678,9 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
+		recordSourceEventLag(ctx, event)
+
 		switch ev := event.Event.(type) {
-		case *replication.GTIDEvent:
-			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
-		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
-			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
 			advanceCheckpoint(ev.GSet, event.Header.LogPos)
 			inTx = false
@@ -936,7 +990,8 @@ func (c *MySqlConnector) PullRecords(
 			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
 			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
 			*replication.MariadbAnnotateRowsEvent, *replication.MariadbBinlogCheckPointEvent,
-			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent:
+			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent,
+			*replication.GTIDEvent, *replication.GtidTaggedLogEvent:
 			// benign events we intentionally don't process (binlog-file headers, heartbeats,
 			// rows-query/SBR context, MariaDB GTID/annotate markers)
 		default:

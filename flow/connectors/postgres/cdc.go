@@ -87,6 +87,24 @@ type PostgresCDCConfig struct {
 	InternalVersion                          uint32
 }
 
+// getPostgresClockOffset estimates the difference between the source server
+// clock and this process's clock.
+func (p *PostgresCDCSource) getPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if p.conn == nil {
+		return 0, errors.New("PostgreSQL connection is nil")
+	}
+
+	requestStarted := time.Now()
+	var serverTime time.Time
+	err := p.conn.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&serverTime)
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query PostgreSQL server time: %w", err)
+	}
+
+	return serverTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
+}
+
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
 	childToParentRelIDMap, idToRelKindMap, err := getChildToParentRelIDMap(ctx,
@@ -487,14 +505,21 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
+	postgresClockOffset, err := p.getPostgresClockOffset(ctx)
+	if err != nil {
+		logger.Warn("failed to calculate PostgreSQL clock offset", slog.Any("error", err))
+	}
 
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
-	sendStandbyAfterReplLock := func(updateType string) error {
+	sendStandbyAfterReplLock := func(updateType string, requestReply bool) error {
 		replLock.Lock()
 		defer replLock.Unlock()
 		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+			pglogrepl.StandbyStatusUpdate{
+				WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load()),
+				ReplyRequested:   requestReply,
+			},
 		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
@@ -524,7 +549,7 @@ func PullCdcRecords[Items model.Items](
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset.ID > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset.ID)
-		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
+		if err := sendStandbyAfterReplLock("initial-flush", false); err != nil {
 			return err
 		}
 	}
@@ -634,7 +659,7 @@ func PullCdcRecords[Items model.Items](
 				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
-			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
+			if err := sendStandbyAfterReplLock("pkm-response", false); err != nil {
 				return err
 			}
 			pkmRequiresResponse = false
@@ -730,7 +755,7 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && pgconn.Timeout(err) {
 			// On timeout, always send a ping before moving on to read more messages
-			if err := sendStandbyAfterReplLock("receive-timeout"); err != nil {
+			if err := sendStandbyAfterReplLock("receive-timeout", true); err != nil {
 				return err
 			}
 			// After that, we let the condition checks at the beginging of the loop,
@@ -758,6 +783,10 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
+				// A keepalive means there is currently no source change event to lag behind.
+				// Reset the gauge so a previously backlogged, now-idle pipe does not retain
+				// the old source-lag value.
+				p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
 
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
@@ -782,7 +811,8 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor, warnedReplIdentTables)
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, postgresClockOffset,
+					processor, warnedReplIdentTables)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -954,6 +984,7 @@ func processMessage[Items model.Items](
 	batch *model.CDCStream[Items],
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
+	postgresClockOffset time.Duration,
 	processor replProcessor[Items],
 	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
@@ -974,6 +1005,8 @@ func processMessage[Items model.Items](
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
+		p.otelManager.Metrics.CommitLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
@@ -988,7 +1021,8 @@ func processMessage[Items model.Items](
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
-		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
+		p.otelManager.Metrics.CommitLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		originalRelID := msg.RelationID

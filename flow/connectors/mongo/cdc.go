@@ -36,6 +36,30 @@ type ChangeEvent struct {
 	OperationType string         `bson:"operationType"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
+	WallTime      *time.Time     `bson:"wallTime,omitempty"`
+}
+
+// getMongoClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
+	if c.client == nil {
+		return 0, errors.New("MongoDB client is nil")
+	}
+
+	requestStarted := time.Now()
+	var response struct {
+		LocalTime time.Time `bson:"localTime"`
+	}
+	err := c.client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&response)
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query MongoDB server time: %w", err)
+	}
+	if response.LocalTime.IsZero() {
+		return 0, errors.New("MongoDB hello response did not include localTime")
+	}
+
+	return response.LocalTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
 }
 
 // ChangeStream is defined as an interface, allowing tests inject mock change stream.
@@ -179,6 +203,10 @@ func (c *MongoConnector) PullRecords(
 
 	var resumeToken bson.Raw
 	var err error
+	mongoClockOffset, err := c.getMongoClockOffset(ctx)
+	if err != nil {
+		c.logger.Warn("failed to calculate MongoDB clock offset", slog.Any("error", err))
+	}
 
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
@@ -414,8 +442,16 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		clusterTime := time.Unix(int64(changeEvent.ClusterTime.T), 0)
-		clusterTimeNanos := clusterTime.UnixNano()
+		commitTime := clusterTime
+		if changeEvent.WallTime != nil {
+			// wallTime (MongoDB 6+) is the source server's wall-clock operation time;
+			// clusterTime is an oplog timestamp used primarily for ordering and is only second-resolution.
+			commitTime = changeEvent.WallTime.UTC()
+		}
+		commitTimeNanos := commitTime.UnixNano()
 		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
+		otelManager.Metrics.CommitLagGauge.Record(ctx,
+			time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Microseconds())
 
 		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -433,7 +469,7 @@ func (c *MongoConnector) PullRecords(
 			}
 
 			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				Items:                items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
@@ -446,7 +482,7 @@ func (c *MongoConnector) PullRecords(
 			}
 
 			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				NewItems:             items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
@@ -459,7 +495,7 @@ func (c *MongoConnector) PullRecords(
 			}
 
 			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				Items:                items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
@@ -471,7 +507,6 @@ func (c *MongoConnector) PullRecords(
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
-		otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(clusterTime).Microseconds())
 		checkpoint()
 	}
 
@@ -518,6 +553,7 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		bson.D{{Key: "$project", Value: bson.D{
 			{Key: "operationType", Value: 1},
 			{Key: "clusterTime", Value: 1},
+			{Key: "wallTime", Value: 1},
 			{Key: "documentKey", Value: 1},
 			{Key: "fullDocument", Value: 1},
 			{Key: "ns", Value: 1},

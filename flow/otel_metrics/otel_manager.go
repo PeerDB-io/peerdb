@@ -415,8 +415,8 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
 		metric.WithUnit("us"),
-		metric.WithDescription("Lag in microseconds from when a change event was committed on the source"+
-			" to when PeerDB processes it; subject to clock skew"),
+		metric.WithDescription("Lag in microseconds from a source event timestamp (transaction commit timestamp when available)"+
+			" to when PeerDB processes it; reset to zero on source heartbeats; subject to clock skew"),
 	); err != nil {
 		return err
 	}
