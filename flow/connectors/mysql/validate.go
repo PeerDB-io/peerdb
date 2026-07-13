@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -135,16 +136,17 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
-	return nil
-}
-
-// HasReplicaWithServerId reports whether the source lists a replica registered with serverID.
-func (c *MySqlConnector) HasReplicaWithServerId(ctx context.Context, serverID uint32) (bool, error) {
-	conn, err := c.connect(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to connect: %w", err)
+	// NOTE: This error might be recoverable depending on conditions checked by the caller,
+	// this means that it should be last or subsequent failed checks might be ignored in those cases.
+	if c.config.ServerId != nil {
+		if serverIdInUse, err := mysql_validation.HasReplicaWithServerId(conn, *c.config.ServerId); err != nil {
+			return fmt.Errorf("failed to check replicas registered on source peer %s: %w", cfg.SourceName, err)
+		} else if serverIdInUse {
+			return common.NewReplicaIdentifierInUseError(strconv.FormatUint(uint64(*c.config.ServerId), 10))
+		}
 	}
-	return mysql_validation.HasReplicaWithServerId(conn, serverID)
+
+	return nil
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
