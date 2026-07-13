@@ -741,8 +741,10 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
-				if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
-					return err
+				if isMariaDb {
+					if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
+						return err
+					}
 				}
 				// The issue is global, but only error if we see a table in the pipe
 				// Otherwise users could be confused
