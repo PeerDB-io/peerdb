@@ -43,7 +43,7 @@ type ChangeStream interface {
 	Next(ctx context.Context) bool
 	ResumeToken() bson.Raw
 	Err() error
-	Close(ctx context.Context) error
+	Close() error
 	Current() bson.Raw
 }
 
@@ -53,6 +53,17 @@ type changeStreamWrapper struct {
 
 func (w *changeStreamWrapper) Current() bson.Raw {
 	return w.ChangeStream.Current
+}
+
+func (w *changeStreamWrapper) Close() error {
+	// Intentionally not tied to the caller's context since Close often runs when
+	// context is already canceled, preventing Close from executing a killCursors
+	// command. This can lead to "Cannot open a new cursor since too many cursors
+	// are already opened" error on DocumentDB (which caps cursor per instance),
+	// as server's idle-cursor reaper can take time to kick in.
+	closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return w.ChangeStream.Close(closeCtx)
 }
 
 func (c *MongoConnector) GetTableSchema(
@@ -114,7 +125,7 @@ func (c *MongoConnector) SetupReplication(
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
-	defer changeStream.Close(ctx)
+	defer changeStream.Close()
 
 	c.logger.Info("SetupReplication started, waiting for initial resume token")
 	var resumeToken bson.Raw
@@ -212,7 +223,14 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to create change stream: %w", err)
 		}
 	}
-	defer changeStream.Close(ctx)
+	defer func() {
+		// Wrapped in a closure so changeStream is evaluated at return time. A direct
+		// `defer changeStream.Close()` would bind the original stream created above
+		// and miss any replacement made by recreateChangeStream.
+		if err := changeStream.Close(); err != nil {
+			c.logger.Warn("failed to close change stream", slog.Any("error", err))
+		}
+	}()
 
 	var recordCount uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
@@ -337,7 +355,7 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		// close existing change stream
-		if err := changeStream.Close(ctx); err != nil {
+		if err := changeStream.Close(); err != nil {
 			return fmt.Errorf("failed to close change stream: %w", err)
 		}
 
