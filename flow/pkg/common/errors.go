@@ -49,3 +49,15 @@ func (e *TablesNotInPublicationError) Error() string {
 	}
 	return fmt.Sprintf("tables not in publication %q: %s", e.Publication, strings.Join(parts, ", "))
 }
+
+type ReplicaIdentifierInUseError struct {
+	Id string
+}
+
+func NewReplicaIdentifierInUseError(id string) *ReplicaIdentifierInUseError {
+	return &ReplicaIdentifierInUseError{Id: id}
+}
+
+func (e *ReplicaIdentifierInUseError) Error() string {
+	return fmt.Sprintf("replica identifier %q is already in use by a replica registered on the source database", e.Id)
+}

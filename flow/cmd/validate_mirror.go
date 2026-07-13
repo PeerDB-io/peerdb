@@ -132,8 +132,27 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 				NewTablesNotInPublicationErrorInfo(notInPub.Publication),
 				NewTablesNotInPublicationPreconditionFailure(notInPub.Publication, notInPub.Tables))
 		}
-		return nil, NewFailedPreconditionApiError(
-			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+		if replicaIdErr, ok := errors.AsType[*common.ReplicaIdentifierInUseError](err); ok {
+			// Beyond other PeerDB mirrors, a replica id must not be already
+			// registered at source.
+			// We only enforce this check if the mirror doesn't already exist as
+			// a resync in that case might happen while the mirror is not paused thus
+			// detecting the same mirror as a conflict.
+			if mirrorExists, err := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName); err != nil {
+				return nil, NewInternalApiError(
+					fmt.Errorf("failed to check if mirror name exists: %w", err))
+			} else if !mirrorExists {
+				return nil, NewFailedPreconditionApiError(
+					fmt.Errorf("source peer %q pins a replica id = %s, which is already in use by a replica registered on the source database",
+						connectionConfigs.SourceName, replicaIdErr.Id),
+					NewMirrorErrorInfo(map[string]string{
+						common.ErrorMetadataOffendingField: "source_name",
+					}))
+			}
+		} else {
+			return nil, NewFailedPreconditionApiError(
+				fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+		}
 	}
 
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
