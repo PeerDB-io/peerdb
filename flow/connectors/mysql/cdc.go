@@ -396,6 +396,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
+		RowsEventDecodeFunc:   decodeRowsEvent,
 	}), nil
 }
 
@@ -734,19 +735,15 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.TableMapEvent:
 			schemaTable := string(ev.Schema) + "." + string(ev.Table)
 			tableIdToName[ev.TableID] = schemaTable
-			// Rows are decoded by go-mysql before PeerDB can filter them to tables in the
-			// mirror. Fail on any compressed column in the stream while the TABLE_MAP_EVENT
-			// is still available; otherwise the following rows event fails with an opaque
-			// "unsupport type" decoder error.
-			if err := checkTableMapForCompressedColumns(ev); err != nil {
-				return err
-			}
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
+					return err
+				}
 				// The issue is global, but only error if we see a table in the pipe
 				// Otherwise users could be confused
 				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
@@ -1032,6 +1029,18 @@ const (
 	mysqlColumnTypeBlobCompressed    = 140
 	mysqlColumnTypeVarcharCompressed = 141
 )
+
+// decodeRowsEvent overrides default RowsEvent Decode method
+func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
+	pos, err := ev.DecodeHeader(data)
+	if err != nil {
+		return err
+	}
+	if checkTableMapForCompressedColumns(ev.Table) != nil {
+		return nil
+	}
+	return ev.DecodeData(pos, data)
+}
 
 func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
 	var compressed []string
