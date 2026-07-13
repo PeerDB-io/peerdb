@@ -11,7 +11,7 @@ name: Deprecated connector
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, labeled, synchronize, reopened]
   pull_request:
     types: [labeled]
   issues:
