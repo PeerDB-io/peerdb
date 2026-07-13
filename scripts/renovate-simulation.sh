@@ -30,7 +30,13 @@ trap cleanup EXIT
 
 ## (3) Run Renovate locally
 echo "Running Renovate locally..."
-LOG_LEVEL=debug npx renovate --platform=local --require-config=optional --repository-cache=reset > renovate.out
+LOG_LEVEL=debug npx --yes renovate --platform=local --require-config=optional --repository-cache=reset > renovate.out
+renovate_exit=$?
+if [ $renovate_exit -ne 0 ]; then
+  echo "Renovate run failed (exit code $renovate_exit), last lines of renovate.out:"
+  tail -n 100 renovate.out
+  exit $renovate_exit
+fi
 
 ## (4) Extract update proposals
 cat renovate.out | sed '1,/packageFiles with updates/d' | sed 's/"config": {/{/' | sed '/DEBUG/,$d' | jq '.gomod[].deps[]' > update-proposals.json
