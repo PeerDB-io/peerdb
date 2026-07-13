@@ -733,8 +733,7 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.TableMapEvent:
-			schemaTable := string(ev.Schema) + "." + string(ev.Table)
-			tableIdToName[ev.TableID] = schemaTable
+			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
