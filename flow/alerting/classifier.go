@@ -89,6 +89,7 @@ const (
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
+	ErrorSourceGCS             ErrorSource = "gcs"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -949,6 +950,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			bqErrorInfo.Code = bqErr.Reason
 		}
 		return ErrorOther, bqErrorInfo
+	}
+
+	if _, ok := errors.AsType[*exceptions.GCSError](err); ok {
+		gcsErrorInfo := ErrorInfo{
+			Source: ErrorSourceGCS,
+			Code:   "UNKNOWN",
+		}
+		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			switch apiErr.Code {
+			case 503: // Service Unavailable
+				return ErrorRetryRecoverable, gcsErrorInfo
+			default:
+				return ErrorOther, gcsErrorInfo
+			}
+		}
+		return ErrorOther, gcsErrorInfo
 	}
 
 	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {

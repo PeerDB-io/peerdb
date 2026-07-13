@@ -1209,6 +1209,22 @@ func TestBigQueryGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
 	}, errInfo)
 }
 
+func TestGCSTransientErrorsShouldBeRecoverable(t *testing.T) {
+	apiErr := &googleapi.Error{
+		Code:    503,
+		Message: "We encountered an internal error. Please try again.",
+		Errors:  []googleapi.ErrorItem{{Reason: "backendError"}},
+	}
+	err := exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for a.avro: %w", apiErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceGCS,
+		Code:   strconv.Itoa(503),
+	}, errInfo)
+}
+
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
 	t.Parallel()
 
