@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -299,8 +300,14 @@ func IsVitess(conn *client.Conn) (bool, error) {
 	return true, nil // is a Vitess server
 }
 
+// MariaDB marks a compressed column in information_schema COLUMN_TYPE with an
+// executable comment, e.g. `blob /*M!100301 COMPRESSED*/`. Match that exact form
+// rather than a bare "COMPRESSED" substring, which would false-positive on values
+// like enum('compressed').
+var compressedColumnTypeRe = regexp.MustCompile(`(?i)/\*M!\d+\s+COMPRESSED\s*\*/`)
+
 func IsCompressedColumnType(columnType string) bool {
-	return strings.Contains(strings.ToUpper(columnType), "COMPRESSED")
+	return compressedColumnTypeRe.MatchString(columnType)
 }
 
 func CheckCompressedColumns(conn *client.Conn, schema string, table string) error {

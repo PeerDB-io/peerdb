@@ -16,6 +16,9 @@ func TestIsCompressedColumnType(t *testing.T) {
 		{"text", false},
 		{"blob", false},
 		{"int", false},
+		// values/identifiers containing "compressed" must not false-positive
+		{"enum('compressed','other')", false},
+		{"set('compressed')", false},
 	} {
 		t.Run(tc.columnType, func(t *testing.T) {
 			if got := IsCompressedColumnType(tc.columnType); got != tc.want {
