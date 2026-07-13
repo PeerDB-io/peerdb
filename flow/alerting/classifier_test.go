@@ -179,6 +179,27 @@ func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonDonorWalLaggingErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Neon's walsender failing to read WAL because the donor safekeeper is lagging behind
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message: "[walsender] Failed to read WAL (req_lsn=0/DD7D4000, len=8192): closing remote connection: " +
+				"requested WAL up to 0/DD7D6000, but current donor xxx.aws.neon.tech:6401 has only up to 0/DD7D5FF8",
+			File:    "walsender_hooks.c",
+			Line:    144,
+			Routine: "NeonWALPageRead",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo)
+}
+
 func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 	// Simulate a Postgres memory allocation error
 	err := &exceptions.PostgresWalError{

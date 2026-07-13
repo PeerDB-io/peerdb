@@ -72,6 +72,7 @@ var (
 	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
 	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
+	PostgresNeonDonorWalLaggingRe    = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
 	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe          = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
@@ -610,6 +611,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 					return ErrorNotifyConnectivity, pgErrorInfo
 				}
 				if strings.Contains(pgErr.Message, "lost synchronization with server") {
+					return ErrorRetryRecoverable, pgErrorInfo
+				}
+				if PostgresNeonDonorWalLaggingRe.MatchString(pgErr.Message) {
 					return ErrorRetryRecoverable, pgErrorInfo
 				}
 			}
