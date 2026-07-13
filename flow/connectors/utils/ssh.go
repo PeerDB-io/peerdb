@@ -110,7 +110,7 @@ func (tunnel *SSHTunnel) IsBad() bool {
 func (tunnel *SSHTunnel) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	conn, err := tunnel.Client.DialContext(ctx, network, address)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewSSHTunnelDialError(err)
 	}
 	return NewDeadlineCapableConn(conn), nil
 }

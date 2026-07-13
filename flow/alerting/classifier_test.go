@@ -72,6 +72,21 @@ func TestSSHTunnelConnectionErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestSSHTunnelRecoverableDialError(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to sync records: %w",
+		fmt.Errorf("failed to get schema for watermark table xxx.xxx: %w",
+			exceptions.NewMySQLExecuteError(exceptions.NewSSHTunnelDialError(
+				errors.New("ssh: unexpected packet in response to channel open: <nil>")))))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
 	t.Skip("Not a good idea to run this test in CI as it goes to Neon, maybe we need a better mock")
 	config, err := pgx.ParseConfig("postgres://random-endpoint-id-here.us-east-2.aws.neon.tech:5432/db?options=endpoint%3Dtest_endpoint")
