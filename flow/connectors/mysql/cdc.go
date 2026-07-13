@@ -1036,10 +1036,18 @@ func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if checkTableMapForCompressedColumns(ev.Table) != nil {
-		return nil
+
+	err = ev.DecodeData(pos, data)
+	if err != nil {
+		// avoid checking for every row event
+		if checkTableMapForCompressedColumns(ev.Table) != nil {
+			return nil
+		} else {
+			return err
+		}
 	}
-	return ev.DecodeData(pos, data)
+
+	return nil
 }
 
 func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
