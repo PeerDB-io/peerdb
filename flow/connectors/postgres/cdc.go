@@ -69,6 +69,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+	warnedTypeChanges                        sync.Map
 }
 
 type PostgresCDCConfig struct {
@@ -1320,13 +1321,17 @@ func processRelationMessage[Items model.Items](
 			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
 				column.Name, schemaDelta.SrcTableName))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
-			p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
-				attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
-				attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
-			)))
+			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
+				prevRelMap[column.Name], currRelMap[column.Name])
+			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
+				p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
+					column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+					attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+					attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+				)))
+			}
 		}
 	}
 	for _, column := range prevSchema.Columns {
