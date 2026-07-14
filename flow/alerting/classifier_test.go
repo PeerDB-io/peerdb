@@ -1186,6 +1186,14 @@ func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.
 		Source: ErrorSourceMySQL,
 		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
 	}, errInfo)
+
+	executeErrWrapper := exceptions.NewMySQLExecuteError(wrapped)
+	errorClass, errInfo = GetErrorClass(t.Context(), executeErrWrapper)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
 }
 
 func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
