@@ -410,7 +410,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 	}
 	excludedColumnsSQL := ""
 	if len(excludedColumns) > 0 {
-		excludedColumnsSQL = "AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
+		excludedColumnsSQL = " AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
 	}
 
 	getColumnsSQL := `
@@ -421,7 +421,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 		WHERE n.nspname = $1
 		AND c.relname = $2
 		AND a.attnum > 0
-		AND NOT a.attisdropped ` + excludedColumnsSQL
+		AND NOT a.attisdropped` + excludedColumnsSQL + ` ORDER BY a.attnum`
 
 	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Namespace, sourceTable.Table)
 	if err != nil {
