@@ -350,10 +350,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// A closed connection to source/destination is a connectivity issue the user should see,
+	// but it recovers on retry so it should not page us.
 	// Reference:
 	// https://github.dev/jackc/pgx/blob/master/pgconn/pgconn.go#L733-L740
 	if strings.Contains(err.Error(), "conn closed") {
-		return ErrorRetryRecoverable, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "UNKNOWN",
 		}
