@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -325,14 +324,14 @@ func (c *PostgresConnector) GetMaxValue(
 
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
-	catalogPool shared.CatalogPool,
+	_catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, catalogPool, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -340,45 +339,44 @@ func (c *PostgresConnector) PullQRepRecords(
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
-	catalogPool shared.CatalogPool,
+	_catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, catalogPool, config, partition, stream)
+	return corePullQRepRecords(c, ctx, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
-	catalogPool shared.CatalogPool,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
-	selectedColumns := "*"
-	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
-		tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, config.ParentMirrorName, config.DestinationTableIdentifier)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to load table schema: %w", err)
-		}
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(config.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, common.QuoteIdentifier(col.Name))
-			}
-		}
-		selectedColumns = strings.Join(quotedColumns, ",")
-	}
-
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
 	if err != nil {
 		c.logger.Error("unable to parse source table", slog.Any("error", err))
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
+	}
+
+	selectedColumns := "*"
+	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
+		// derive columns from the source directly; the catalog schema may be absent
+		// (e.g. resync/table-addition renames the destination) and isn't needed here
+		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, config.Exclude)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get selected columns: %w", err)
+		}
+		quotedColumns := make([]string, 0, len(columns))
+		for _, col := range columns {
+			quotedColumns = append(quotedColumns, common.QuoteIdentifier(col))
+		}
+		selectedColumns = strings.Join(quotedColumns, ",")
 	}
 
 	if partition.FullTablePartition {
