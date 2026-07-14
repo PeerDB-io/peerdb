@@ -5,7 +5,7 @@
 # - `renovate.out` With the raw debug output of the run.
 # - `update-proposals.json` with the list of proposed updates but INCLUDING DISABLED ones
 # - `final-updated-packages.txt` with the list of packages with updates in the resulting PRs (considering disabled/enabled).
-#
+# - `final-updated-packages-details.json` the final list of proposed changes with details.
 # WARNING: If the script is terminated before restoring the extension source (step 2), make sure you revert
 #          the changes to renovate.json5 manually.
 
@@ -43,6 +43,13 @@ cat renovate.out | sed '1,/packageFiles with updates/d' | sed 's/"config": {/{/'
 
 ## (5) Extract final updated packages
 cat renovate.out | grep 'flattened updates found' | tr ',' '\n' > final-updated-packages.txt
+
+## (6) Combine final updated packages details
+FINAL_UPDATES_FILE="final-updated-packages-details.json"
+cat "" > ${FINAL_UPDATES_FILE}
+for dep in $(cat final-updated-packages.txt | tail -n+2 | sort -u | awk '{print $1}'); do
+  jq --compact-output --arg dep "$dep" '. | select(.depName == $dep)' update-proposals.json >> ${FINAL_UPDATES_FILE}
+done
 
 echo "List of packages with proposed updates:"
 echo "----------------------------------------"
