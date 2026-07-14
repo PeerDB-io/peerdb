@@ -1250,8 +1250,8 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 	return incident, string(data[3:end])
 }
 
-func (c *MySqlConnector) recordColumnTypeChange(ctx context.Context, otelManager *otel_metrics.OtelManager, table, column string,
-	from, to types.QValueKind, eventType string) {
+func (c *MySqlConnector) recordColumnTypeChange(ctx context.Context, otelManager *otel_metrics.OtelManager,
+	table, column string, from, to types.QValueKind, eventType string) {
 	key := fmt.Sprintf("%s.%s.%s.%s", table, column, from, to)
 	if _, ok := c.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
 		c.logger.Warn("column type change detected, not propagating",
