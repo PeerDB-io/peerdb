@@ -1324,8 +1324,13 @@ func processRelationMessage[Items model.Items](
 			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
 				prevRelMap[column.Name], currRelMap[column.Name])
 			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
-				p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-					column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+				p.logger.Warn("column type change detected, not propagating",
+					slog.String("table", schemaDelta.SrcTableName),
+					slog.String("column", column.Name),
+					slog.String("from", prevRelMap[column.Name]),
+					slog.String("to", currRelMap[column.Name]),
+					slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
+				)
 				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
 					attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
