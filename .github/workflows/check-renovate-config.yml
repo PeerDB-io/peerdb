@@ -3,9 +3,10 @@ name: Check renovate config
 # Runs scripts/renovate-simulation.sh on PRs that touch the Renovate setup and
 # fails if the simulation fails or upon incorrect syntax.
 #Posts (and keeps updated) a single PR comment with:
-# - `update-proposals.json`: the list of proposed updates, INCLUDING disabled ones.
 # - `final-updated-packages.txt`: the list of packages with updates in the
 #   resulting PRs (considering disabled/enabled rules).
+# - a table of proposed updates (dependency / from / to) built from
+#   `final-updated-packages-details.json`.
 
 on:
   pull_request:
@@ -54,6 +55,7 @@ jobs:
             renovate.out
             update-proposals.json
             final-updated-packages.txt
+            final-updated-packages-details.json
           retention-days: 30
 
       - name: Post simulation report on the PR
@@ -70,7 +72,38 @@ jobs:
               ? text
               : text.slice(0, max) + `\n… truncated (${text.length - max} characters omitted, full file in the workflow run artifact)`;
             const finalPackages = clip(read('final-updated-packages.txt'), 5000) || '(empty)';
-            const proposals = clip(read('update-proposals.json'), 55000) || '(empty)';
+            // Build a table of proposed updates from the newline-delimited JSON
+            // in final-updated-packages-details.json (one object per line, with
+            // newValue nested under each entry's `updates`).
+            const escapeCell = (value) => String(value ?? '').replace(/\|/g, '\\|');
+            const seen = new Set();
+            const updateRows = read('final-updated-packages-details.json')
+              .split('\n')
+              .filter(Boolean)
+              .flatMap((line) => {
+                let entry;
+                try { entry = JSON.parse(line); } catch { return []; }
+                return (entry.updates || []).map((update) => ({
+                  dependency: entry.depName,
+                  from: entry.currentValue,
+                  to: update.newValue,
+                }));
+              })
+              .filter((row) => {
+                const key = `${row.dependency} :: ${row.from} :: ${row.to}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              })
+              .sort((a, b) => a.dependency.localeCompare(b.dependency));
+            const proposalsTable = updateRows.length
+              ? [
+                  '| dependency | from | to |',
+                  '| --- | --- | --- |',
+                  ...updateRows.map((row) =>
+                    `| ${escapeCell(row.dependency)} | ${escapeCell(row.from)} | ${escapeCell(row.to)} |`),
+                ].join('\n')
+              : '(no proposed updates)';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
@@ -86,14 +119,11 @@ jobs:
               finalPackages,
               '```',
               '',
-              '<details>',
-              '<summary><code>update-proposals.json</code> — proposed updates, INCLUDING disabled ones</summary>',
+              '#### Proposed updates',
               '',
-              '```json',
-              proposals,
-              '```',
+              'Dependency updates in the resulting PRs:',
               '',
-              '</details>',
+              proposalsTable,
             ].join('\n');
 
             const { owner, repo } = context.repo;
