@@ -111,6 +111,12 @@ jobs:
               '',
               `Output of \`scripts/renovate-simulation.sh\` for ${context.payload.pull_request.head.sha} ([workflow run](${runUrl})).`,
               '',
+              '#### Proposed updates',
+              '',
+              'Dependency updates in the resulting PRs:',
+              '',
+              proposalsTable,
+              '',
               '#### `final-updated-packages.txt`',
               '',
               'Packages with updates in the resulting PRs (considering disabled/enabled rules):',
@@ -119,11 +125,6 @@ jobs:
               finalPackages,
               '```',
               '',
-              '#### Proposed updates',
-              '',
-              'Dependency updates in the resulting PRs:',
-              '',
-              proposalsTable,
             ].join('\n');
 
             const { owner, repo } = context.repo;

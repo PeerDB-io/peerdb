@@ -42,7 +42,7 @@ fi
 cat renovate.out | sed '1,/packageFiles with updates/d' | sed 's/"config": {/{/' | sed '/DEBUG/,$d' | jq '.gomod[].deps[]' > update-proposals.json
 
 ## (5) Extract final updated packages
-cat renovate.out | grep 'flattened updates found' | tr ',' '\n' > final-updated-packages.txt
+cat renovate.out | grep 'flattened updates found' | tr ',' '\n' | tr ':' '\n' > final-updated-packages.txt
 
 ## (6) Combine final updated packages details
 FINAL_UPDATES_FILE="final-updated-packages-details.json"
