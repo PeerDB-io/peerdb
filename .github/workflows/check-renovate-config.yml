@@ -1,0 +1,140 @@
+name: Check renovate config
+
+# Runs scripts/renovate-simulation.sh on PRs that touch the Renovate setup and
+# fails if the simulation fails or upon incorrect syntax.
+#Posts (and keeps updated) a single PR comment with:
+# - `final-updated-packages.txt`: the list of packages with updates in the
+#   resulting PRs (considering disabled/enabled rules).
+# - a table of proposed updates (dependency / from / to) built from
+#   `final-updated-packages-details.json`.
+
+on:
+  pull_request:
+    branches: [main]
+    paths: &renovate_paths
+      - 'renovate.json5'
+      - 'scripts/renovate-simulation.sh'
+      - '.github/workflows/check-renovate-config.yml'
+  pull_request_target:
+    branches: [main]
+    paths: *renovate_paths
+
+permissions:
+  contents: read
+
+jobs:
+  check_renovate_config:
+    # Same fork-handling pattern as flow.yml
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+    environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+
+      - name: Run Renovate simulation
+        run: ./scripts/renovate-simulation.sh
+        env:
+          # Authenticated github.com lookups to allow
+          # Renovate use `github>PeerDB-io/.github:renovate-config` extension.
+          GITHUB_COM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload simulation output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: renovate-simulation-output
+          path: |
+            renovate.out
+            update-proposals.json
+            final-updated-packages.txt
+            final-updated-packages-details.json
+          retention-days: 30
+
+      - name: Post simulation report on the PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- renovate-simulation-report -->';
+            const read = (path) => {
+              try { return fs.readFileSync(path, 'utf8').trim(); } catch { return ''; }
+            };
+            // Keep the comment under GitHub's 65536-character body limit.
+            const clip = (text, max) => text.length <= max
+              ? text
+              : text.slice(0, max) + `\n… truncated (${text.length - max} characters omitted, full file in the workflow run artifact)`;
+            const finalPackages = clip(read('final-updated-packages.txt'), 5000) || '(empty)';
+            // Build a table of proposed updates from the newline-delimited JSON
+            // in final-updated-packages-details.json (one object per line, with
+            // newValue nested under each entry's `updates`).
+            const escapeCell = (value) => String(value ?? '').replace(/\|/g, '\\|');
+            const seen = new Set();
+            const updateRows = read('final-updated-packages-details.json')
+              .split('\n')
+              .filter(Boolean)
+              .flatMap((line) => {
+                let entry;
+                try { entry = JSON.parse(line); } catch { return []; }
+                return (entry.updates || []).map((update) => ({
+                  dependency: entry.depName,
+                  from: entry.currentValue,
+                  to: update.newValue,
+                }));
+              })
+              .filter((row) => {
+                const key = `${row.dependency} :: ${row.from} :: ${row.to}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              })
+              .sort((a, b) => a.dependency.localeCompare(b.dependency));
+            const proposalsTable = updateRows.length
+              ? [
+                  '| dependency | from | to |',
+                  '| --- | --- | --- |',
+                  ...updateRows.map((row) =>
+                    `| ${escapeCell(row.dependency)} | ${escapeCell(row.from)} | ${escapeCell(row.to)} |`),
+                ].join('\n')
+              : '(no proposed updates)';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '### Renovate simulation report',
+              '',
+              `Output of \`scripts/renovate-simulation.sh\` for ${context.payload.pull_request.head.sha} ([workflow run](${runUrl})).`,
+              '',
+              '#### Proposed updates',
+              '',
+              'Dependency updates in the resulting PRs:',
+              '',
+              proposalsTable,
+              '',
+              '#### `final-updated-packages.txt`',
+              '',
+              'Packages with updates in the resulting PRs (considering disabled/enabled rules):',
+              '',
+              '```',
+              finalPackages,
+              '```',
+              '',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              core.info(`Updated existing simulation report comment ${existing.id}.`);
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              core.info('Posted new simulation report comment.');
+            }
