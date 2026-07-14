@@ -126,10 +126,13 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 }
 
 func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Context) error {
-	// always populate table_schema_mapping; the pull path reads it when Exclude/child ranges are set
-	if err := q.setupTableSchema(ctx, q.config.WatermarkTable); err != nil {
-		q.logger.Error("failed to fetch schema for watermark table", slog.Any("error", err))
-		return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
+	// standalone mirrors have no CDC setup_flow to populate table_schema_mapping, so do it
+	// here (regardless of watermark setup); the pull path reads it when Exclude/child ranges are set
+	if q.config.ParentMirrorName == q.config.FlowJobName {
+		if err := q.setupTableSchema(ctx, q.config.WatermarkTable); err != nil {
+			q.logger.Error("failed to fetch schema for watermark table", slog.Any("error", err))
+			return fmt.Errorf("failed to fetch schema for watermark table: %w", err)
+		}
 	}
 
 	if q.config.SetupWatermarkTableOnDestination {
