@@ -185,6 +185,8 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		from information_schema.columns c
 		left join information_schema.statistics s
 			on cast(s.table_schema as binary) = cast(c.table_schema as binary)
+			and s.table_schema = c.table_schema
+			and s.table_name  = c.table_name
 			and cast(s.table_name as binary) = cast(c.table_name as binary)
 			and cast(s.column_name as binary) = cast(c.column_name as binary)
 			and s.index_name = 'PRIMARY'
