@@ -372,6 +372,9 @@ func corePullQRepRecords(
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to get selected columns: %w", err)
 		}
+		if len(columns) == 0 {
+			return 0, 0, fmt.Errorf("table %s doesn't have queriable columns", parsedSrcTable)
+		}
 		quotedColumns := make([]string, 0, len(columns))
 		for _, col := range columns {
 			quotedColumns = append(quotedColumns, common.QuoteIdentifier(col))
