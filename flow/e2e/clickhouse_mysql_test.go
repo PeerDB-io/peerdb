@@ -262,7 +262,8 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	// first exercise validation failure if a table already has a compressed column
 	tableWithCompressedColumn := s.attachSchemaSuffix("table_with_compressed_column")
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT COMPRESSED)`, tableWithCompressedColumn)))
+		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT COMPRESSED)`, tableWithCompressedColumn,
+	)))
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      tableWithCompressedColumn,
 		TableNameMapping: map[string]string{tableWithCompressedColumn: dstTableName},
@@ -285,9 +286,11 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	tables := []string{srcFullName, notInPipeFullName}
 	for _, t := range tables {
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-			`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, t)))
+			`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, t,
+		)))
 		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-			`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, t)))
+			`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, t,
+		)))
 	}
 
 	connectionGen = FlowConnectionGenerationConfig{
@@ -309,25 +312,31 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	// Seeing the snapshot row at the destination does not guarantee that the CDC activity has
 	// started. Prove that CDC is consuming this source before introducing the unsupported type.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name) VALUES (2, 'cdc-ready')`, srcFullName)))
+		`INSERT INTO %s (id, name) VALUES (2, 'cdc-ready')`, srcFullName,
+	)))
 	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id,name", 2)
 
 	// add compressed column to a table excluded from the pipe
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, notInPipeFullName)))
+		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, notInPipeFullName,
+	)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, notInPipeFullName)))
+		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, notInPipeFullName,
+	)))
 
 	// insert a row into tracked table and make sure it was replicated
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name) VALUES (3, 'works-after-unrelated-table-column-addition')`, srcFullName)))
+		`INSERT INTO %s (id, name) VALUES (3, 'works-after-unrelated-table-column-addition')`, srcFullName,
+	)))
 	EnvWaitForCount(env, s, "waiting for CDC to replicate this new row", dstTableName, "id,name", 3)
 
 	// add compressed column to pipe table
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName)))
+		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName,
+	)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, srcFullName)))
+		`INSERT INTO %s (id, name, val) VALUES (4, 'cdc', 'compressed value')`, srcFullName,
+	)))
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "cannot be replicated via CDC")
@@ -743,7 +752,8 @@ func (s ClickHouseSuite) Test_MySQL_TransactionPayloadCompression() {
 	pool, err := catalogTestAccessPool()
 	require.NoError(s.t, err)
 	var lastText string
-	require.NoError(s.t, pool.QueryRow(s.t.Context(),
+	require.NoError(s.t, pool.QueryRow(
+		s.t.Context(),
 		"SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1",
 		flowConnConfig.FlowJobName,
 	).Scan(&lastText))
@@ -881,10 +891,12 @@ func (s ClickHouseSuite) Test_MySQL_Binary_Trailing_Zeros() {
 	for _, tc := range snapshotCases {
 		snapshotValues = append(snapshotValues, fmt.Sprintf(
 			"(%d,'%s',UNHEX('%s'),UNHEX('%s'))",
-			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex))
+			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex,
+		))
 	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(snapshotValues, ","))))
+		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(snapshotValues, ","),
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -904,10 +916,12 @@ func (s ClickHouseSuite) Test_MySQL_Binary_Trailing_Zeros() {
 	for _, tc := range cdcCases {
 		cdcValues = append(cdcValues, fmt.Sprintf(
 			"(%d,'%s',UNHEX('%s'),UNHEX('%s'))",
-			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex))
+			tc.id, tc.label, tc.b16InsertHex, tc.b255InsertHex,
+		))
 	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(cdcValues, ","))))
+		`INSERT INTO %s (id,label,b16,b255) VALUES %s`, quotedSrcFullName, strings.Join(cdcValues, ","),
+	)))
 
 	EnvWaitForCount(env, s, "waiting for cdc rows", dstTableName, "id,label,b16,b255", len(cases))
 
@@ -1037,7 +1051,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency() {
 
 	// Insert row before snapshot
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -1056,7 +1071,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency() {
 
 	// Insert row via CDC — on old MySQL this comes as integer from binlog
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName,
+	)))
 
 	// Wait for CDC row
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status,tags", 2)
@@ -1103,7 +1119,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency_Version0() {
 	`, srcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -1122,7 +1139,8 @@ func (s ClickHouseSuite) Test_MySQL_Enum_Set_Consistency_Version0() {
 	EnvWaitForCount(env, s, "waiting on snapshot", dstTableName, "id,status,tags", 1)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName)))
+		`INSERT INTO %s (status, tags) VALUES ('active', 'a,b')`, srcFullName,
+	)))
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,status,tags", 2)
 
@@ -1177,7 +1195,8 @@ func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 	// transcodes these UTF-8 literals down into the columns' latin1/gbk storage encodings.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (latin1_col, gbk_col, latin1_enum, gbk_set) VALUES ('café', '你好', 'café', '你好,再见')`,
-		quotedSrcFullName)))
+		quotedSrcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -1196,7 +1215,8 @@ func (s ClickHouseSuite) Test_MySQL_Charset_Consistency() {
 	// Same values via CDC (binlog path).
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (latin1_col, gbk_col, latin1_enum, gbk_set) VALUES ('café', '你好', 'café', '你好,再见')`,
-		quotedSrcFullName)))
+		quotedSrcFullName,
+	)))
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,latin1_col,gbk_col,latin1_enum,gbk_set", 2)
 
@@ -1321,7 +1341,8 @@ func (s ClickHouseSuite) Test_MySQL_MariaDB_UUID_INET() {
 	insertVariants := func() {
 		for _, v := range variants {
 			require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
-				`INSERT INTO %s (u, ip4, ip6) VALUES ('%s', '%s', '%s')`, srcFullName, v.u, v.ip4, v.ip6)))
+				`INSERT INTO %s (u, ip4, ip6) VALUES ('%s', '%s', '%s')`, srcFullName, v.u, v.ip4, v.ip6,
+			)))
 		}
 	}
 
@@ -1895,7 +1916,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	// Simulate gh-ost applying it to ghost table
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
 		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10) VALUES(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-		ghostTableName)))
+		ghostTableName,
+	)))
 	EnvWaitForEqualTablesWithNames(env, s, "pre-cutover row", srcTable, dstTable, "id,c1")
 
 	// 4. gh-ost atomic cut-over: rename both tables simultaneously
@@ -1907,7 +1929,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
 		`INSERT INTO %s(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
 		VALUES(3, 300, 400, x'deadbeef', 'hello text', 123.45, 12345.67, 123456.789012, UNHEX('%s'), UNHEX('%s'))`,
-		srcTableName, fixedBinaryInsertHex, varBinaryWantHex)))
+		srcTableName, fixedBinaryInsertHex, varBinaryWantHex,
+	)))
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable,
 		"id,c1,coalesce(c2,0) c2,coalesce(c4,'') c4,coalesce(c5,'') c5,coalesce(c6,0) c6,coalesce(c7,0) c7,coalesce(c8,0) c8")
 
@@ -2049,7 +2072,8 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_AddColumnTypes() {
 
 	// 4. Insert a row with every new column populated (lands on the new table, formerly ghost).
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (%s) VALUES (2, %s)`, srcTableName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+		`INSERT INTO %s (%s) VALUES (2, %s)`, srcTableName, strings.Join(names, ", "), strings.Join(vals, ", "),
+	)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable, strings.Join(compareNames, ","))
 
@@ -2119,7 +2143,8 @@ func (s ClickHouseSuite) Test_MySQL_NumToVarcharCoercion() {
 	var numCount, f32Count, f64Count uint64
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.QueryRow(s.t.Context(),
+	require.NoError(s.t, ch.QueryRow(
+		s.t.Context(),
 		"SELECT count(distinct num), count(distinct f32), count(distinct f64) FROM "+clickhouse.QuoteIdentifier(dstTableName),
 	).Scan(&numCount, &f32Count, &f64Count))
 	require.Equal(s.t, uint64(1), numCount)
@@ -2159,7 +2184,8 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 		`INSERT INTO %s (d_pre1970, d_post1970, d_zero, d_zero_month, d_zero_day, d_dt3, d_dt6, d_ts, d_ts3, d_ts6) VALUES
 			('1926-02-02', '2025-02-02', '0000-00-00', '2000-00-01', '2000-01-00',
 			'1926-02-02', '1926-02-02', '2025-02-02', '2025-02-02', '2025-02-02')`,
-		quotedSrcFullName)))
+		quotedSrcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -2204,7 +2230,8 @@ func (s ClickHouseSuite) Test_MySQL_DateCoercion() {
 			'1926-02-02 03:00:00.123', '1926-02-02 03:00:00.123456',
 			'2025-02-02 03:00:00', '2025-02-02 03:00:00.654', '2025-02-02 03:00:00.654321'
 		)`,
-		quotedSrcFullName)))
+		quotedSrcFullName,
+	)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
@@ -2345,10 +2372,12 @@ func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 			dstTableName := fmt.Sprintf("test_position_shift_%s_dst", tc.name)
 
 			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-				`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+				`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName,
+			)))
 
 			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-				`INSERT INTO %s (c1) VALUES (1)`, srcFullName)))
+				`INSERT INTO %s (c1) VALUES (1)`, srcFullName,
+			)))
 
 			connectionGen := FlowConnectionGenerationConfig{
 				FlowJobName:      s.attachSuffix(srcTableName),
@@ -2365,7 +2394,8 @@ func (s ClickHouseSuite) Test_MySQL_Column_Position_Shifting_DDL_Error() {
 
 			// Execute position-shifting DDL - this should cause an error
 			require.NoError(t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-				`ALTER TABLE %s %s`, srcFullName, tc.ddlSQL)))
+				`ALTER TABLE %s %s`, srcFullName, tc.ddlSQL,
+			)))
 
 			catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 			require.NoError(t, err)
@@ -2425,7 +2455,8 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	dstTableName := "incident_dst"
 
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`CREATE TABLE %s (id INT PRIMARY KEY, val TEXT)`, srcFullName)))
+		`CREATE TABLE %s (id INT PRIMARY KEY, val TEXT)`, srcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "test_mysql_binlog_incident_" + suffix,
@@ -2449,7 +2480,8 @@ func (s ClickHouseSuite) Test_MySQL_BinlogIncident() {
 	// connector reuses a single connection, so sequential Exec calls satisfy this.
 	require.NoError(s.t, src.Exec(s.t.Context(), "SET SESSION debug='+d,binlog_inject_incident'"))
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, val) VALUES (1, 'incident')`, srcFullName)))
+		`INSERT INTO %s (id, val) VALUES (1, 'incident')`, srcFullName,
+	)))
 	require.NoError(s.t, src.Exec(s.t.Context(), "SET SESSION debug='-d,binlog_inject_incident'"))
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
@@ -2498,7 +2530,8 @@ func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
 	dstTableName := "partial_rows_dst"
 
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, srcFullName)))
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, srcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: "test_mariadb_partial_row_" + suffix,
@@ -2523,18 +2556,22 @@ func (s ClickHouseSuite) Test_MariaDB_PartialRowEvent() {
 	// A fragmented rows event on a table OUTSIDE the pipe must NOT fail the mirror
 	ignoredFullName := fmt.Sprintf("e2e_test_%s.partial_rows_ignored", suffix)
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, ignoredFullName)))
+		`CREATE TABLE %s (id INT PRIMARY KEY, payload LONGTEXT)`, ignoredFullName,
+	)))
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('y', 8192))`, ignoredFullName)))
+		`INSERT INTO %s (id, payload) VALUES (1, REPEAT('y', 8192))`, ignoredFullName,
+	)))
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, payload) VALUES (1, 'small')`, srcFullName)))
+		`INSERT INTO %s (id, payload) VALUES (1, 'small')`, srcFullName,
+	)))
 	EnvWaitForCount(env, s, "waiting for in-pipe row past out-of-pipe partial row event",
 		dstTableName, "id,payload", 1)
 
 	// An oversized row larger than the 1024-byte fragment threshold on the mirrored table itself is
 	// fragmented into PARTIAL_ROW_DATA_EVENTs, which we don't reassemble and must fail loudly on.
 	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, payload) VALUES (2, REPEAT('x', 8192))`, srcFullName)))
+		`INSERT INTO %s (id, payload) VALUES (2, REPEAT('x', 8192))`, srcFullName,
+	)))
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for partial row event error", func() bool {
 		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "fragmented oversized row events")
 		if err != nil {
@@ -2842,7 +2879,8 @@ func (s ClickHouseSuite) Test_MySQL_Invisible_Column_Consistency() {
 
 	// Pre-snapshot row with an explicit, non-default invisible value.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name, secret) VALUES (1, 'snap', 111)`, srcFullName)))
+		`INSERT INTO %s (id, name, secret) VALUES (1, 'snap', 111)`, srcFullName,
+	)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -2860,7 +2898,8 @@ func (s ClickHouseSuite) Test_MySQL_Invisible_Column_Consistency() {
 
 	// Post-snapshot CDC row with a distinct invisible value.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name, secret) VALUES (2, 'cdc', 222)`, srcFullName)))
+		`INSERT INTO %s (id, name, secret) VALUES (2, 'cdc', 222)`, srcFullName,
+	)))
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,name,secret", 2)
 
@@ -2903,7 +2942,8 @@ func (s ClickHouseSuite) Test_MySQL_GIPK_Consistency() {
 
 	// Pre-snapshot row: my_row_id auto-assigns 1.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (name) VALUES ('snap')`, srcFullName)))
+		`INSERT INTO %s (name) VALUES ('snap')`, srcFullName,
+	)))
 
 	// The default TableNameMapping path shards on "id", which this table lacks
 	// (its only key is the invisible my_row_id), so shard on the GIPK for the cluster suite.
@@ -2931,7 +2971,8 @@ func (s ClickHouseSuite) Test_MySQL_GIPK_Consistency() {
 
 	// Post-snapshot CDC row: my_row_id auto-assigns 2.
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (name) VALUES ('cdc')`, srcFullName)))
+		`INSERT INTO %s (name) VALUES ('cdc')`, srcFullName,
+	)))
 
 	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "my_row_id,name", 2)
 
