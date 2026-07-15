@@ -84,7 +84,6 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
 	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
-	replConfig.Config.RuntimeParams["idle_session_timeout"] = "0"
 	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
@@ -111,6 +110,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
 	}
+	setIdleSessionTimeout(ctx, conn, c.logger)
 	return conn, wst, nil
 }
 
