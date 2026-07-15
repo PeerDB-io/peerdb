@@ -257,36 +257,46 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	if mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("column compression is a MariaDB-only feature")
 	}
+	dstTableName := "compressed_columns"
 
-	// A compressed column produces a valid MariaDB binlog event that go-mysql cannot decode.
-	// Because every CDC reader consumes the server-wide binlog before table filtering, the event
-	// can terminate unrelated mirrors using the shared CI server. Use a dedicated throwaway
-	// MariaDB to isolate the unsupported event.
-	src, suffix := SetupMySQLTestContainerSource(s.t, "cmpcol", MySQLTestContainerConfig{
-		Image:                "mariadb:12.3",
-		Flavor:               protos.MySqlFlavor_MYSQL_MARIA,
-		ReplicationMechanism: mySource.Config.ReplicationMechanism,
-	})
-
-	srcTableName := "compressed_mid_cdc"
-	srcFullName := fmt.Sprintf("e2e_test_%s.%s", suffix, srcTableName)
-	dstTableName := "compressed_mid_cdc"
-
-	// The table starts without a compressed column, so mirror creation validation passes.
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, srcFullName)))
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, srcFullName)))
-
+	// first exercise validation failure if a table already has a compressed column
+	tableWithCompressedColumn := s.attachSchemaSuffix("table_with_compressed_column")
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT COMPRESSED)`, tableWithCompressedColumn)))
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_mariadb_compressed_mid_cdc_" + suffix,
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		FlowJobName:      tableWithCompressedColumn,
+		TableNameMapping: map[string]string{tableWithCompressedColumn: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	// The suite source is the shared CI MariaDB; point the mirror at our isolated source instead.
-	flowConnConfig.SourceName = src.GeneratePeer(s.t).Name
+
+	client, err := NewApiClient()
+	require.NoError(s.t, err)
+	_, err = client.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+
+	// now exercise compressed column added mid cdc
+	srcTableName := "compressed_mid_cdc"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	notInPipeFullName := s.attachSchemaSuffix("compressed_mid_cdc_not_in_pipe")
+
+	// The table starts without a compressed column, so mirror creation validation passes.
+	tables := []string{srcFullName, notInPipeFullName}
+	for _, t := range tables {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)`, t)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, t)))
+	}
+
+	connectionGen = FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig = connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -294,48 +304,29 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
-	s.t.Cleanup(func() {
-		if !s.t.Failed() {
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		rows, err := catalogPool.Query(ctx, `
-			SELECT error_type, error_message
-			FROM peerdb_stats.flow_errors
-			WHERE flow_name = $1
-			ORDER BY id`, flowConnConfig.FlowJobName)
-		if err != nil {
-			s.t.Log("failed to query flow logs after test failure:", err)
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var errorType, message string
-			if err := rows.Scan(&errorType, &message); err != nil {
-				s.t.Log("failed to scan flow log after test failure:", err)
-				return
-			}
-			s.t.Logf("flow log after test failure: type=%s message=%s", errorType, message)
-		}
-		if err := rows.Err(); err != nil {
-			s.t.Log("failed while reading flow logs after test failure:", err)
-		}
-	})
 
 	EnvWaitForCount(env, s, "waiting on initial snapshot", dstTableName, "id,name", 1)
 	// Seeing the snapshot row at the destination does not guarantee that the CDC activity has
 	// started. Prove that CDC is consuming this source before introducing the unsupported type.
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name) VALUES (2, 'cdc-ready')`, srcFullName)))
 	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id,name", 2)
 
-	// Add a COMPRESSED column mid-stream, then write a row so a row event carrying the undecodable
-	// wire type reaches the pipe and trips the TABLE_MAP detection.
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+	// add compressed column to a table excluded from the pipe
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, notInPipeFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, notInPipeFullName)))
+
+	// insert a row into tracked table and make sure it was replicated
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name) VALUES (2, 'works-after-unrelated-table-column-addition')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting for CDC to replicate this new row", dstTableName, "id,name", 3)
+
+	// add compressed column to pipe table
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`ALTER TABLE %s ADD COLUMN val TEXT COMPRESSED`, srcFullName)))
-	require.NoError(s.t, src.Exec(s.t.Context(), fmt.Sprintf(
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name, val) VALUES (3, 'cdc', 'compressed value')`, srcFullName)))
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error", func() bool {
