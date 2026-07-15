@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"syscall"
@@ -85,6 +86,20 @@ func TestSSHTunnelRecoverableDialError(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceSSH,
 		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelClosedPipeErrorShouldBeRetryable(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how deadlineCapableConn wraps net.Pipe teardown errors when an
+	// SSH-tunneled connection is torn down while a query is in flight.
+	err := fmt.Errorf("receive message failed: %w", exceptions.NewSSHTunnelClosedError(io.ErrClosedPipe))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_CLOSED",
 	}, errInfo)
 }
 

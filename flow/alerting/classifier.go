@@ -442,6 +442,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, errInfo
 	}
 
+	if _, ok := errors.AsType[*exceptions.SSHTunnelClosedError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "TUNNEL_CONNECTION_CLOSED",
+		}
+	}
+
 	// An SSH-tunneled connection that goes bad (e.g. keepalive failure) is wrapped explicitly.
 	if _, ok := errors.AsType[*exceptions.SSHTunnelConnectionError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{

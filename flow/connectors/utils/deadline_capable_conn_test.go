@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func TestNewDeadlineCapableConn_ReadDeadlineCanBeCleared(t *testing.T) {
@@ -147,7 +149,8 @@ func TestNewDeadlineCapableConn_SSHCloseClosesLocalAndRemote(t *testing.T) {
 
 	select {
 	case err := <-localDone:
-		require.ErrorIs(t, err, io.EOF)
+		var tunnelErr *exceptions.SSHTunnelClosedError
+		require.ErrorAs(t, err, &tunnelErr)
 	case <-time.After(time.Second):
 		t.Fatal("SSH close did not close local side")
 	}
@@ -176,10 +179,10 @@ func TestNewDeadlineCapableConn_RemoteCloseClosesSSHAndLocalSide(t *testing.T) {
 		sshDone <- err
 	}()
 
-	localDonn := make(chan error, 1)
+	localDone := make(chan error, 1)
 	go func() {
 		_, err := conn.Read(make([]byte, 1))
-		localDonn <- err
+		localDone <- err
 	}()
 
 	select {
@@ -196,8 +199,9 @@ func TestNewDeadlineCapableConn_RemoteCloseClosesSSHAndLocalSide(t *testing.T) {
 	}
 
 	select {
-	case err := <-localDonn:
-		require.ErrorIs(t, err, io.EOF)
+	case err := <-localDone:
+		var tunnelErr *exceptions.SSHTunnelClosedError
+		require.ErrorAs(t, err, &tunnelErr)
 	case <-time.After(time.Second):
 		t.Fatal("remote close did not close server side")
 	}
