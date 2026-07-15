@@ -719,7 +719,8 @@ func (c *MySqlConnector) PullRecords(
 				case ddlKindAlterTable:
 					if err := c.processAlterTableQuery(
 						ctx, catalogPool, otelManager, req, alterStmt,
-						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion); err != nil {
+						string(ev.Schema), binlogRowMetadataSupported, req.InternalVersion,
+					); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				case ddlKindRenameTable:
@@ -1253,10 +1254,12 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 }
 
 func (c *MySqlConnector) recordColumnTypeChange(ctx context.Context, otelManager *otel_metrics.OtelManager,
-	table, column string, from, to types.QValueKind, eventType string) {
+	table, column string, from, to types.QValueKind, eventType string,
+) {
 	key := fmt.Sprintf("%s.%s.%s.%s", table, column, from, to)
 	if _, ok := c.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
-		c.logger.Warn("column type change detected, not propagating",
+		c.logger.Warn(
+			"column type change detected, not propagating",
 			slog.String("table", table),
 			slog.String("column", column),
 			slog.Any("from", from),
