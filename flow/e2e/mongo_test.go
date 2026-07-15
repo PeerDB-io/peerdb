@@ -575,6 +575,53 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_excluded_op_types"
+	dstTable := "test_excluded_op_types_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES"] = "delete"
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	for i := range 2 {
+		insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: i}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{bson.E{Key: "key", Value: 0}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 2}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	// destination keeps all 3 rows (GetRows filters on FINAL and _peerdb_is_deleted = 0)
+	EnvWaitForCount(env, s, "insert after delete", dstTable, "_id,doc", 3)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 	t := s.T()
 

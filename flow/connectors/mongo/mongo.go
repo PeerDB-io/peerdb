@@ -66,6 +66,7 @@ type MongoConnector struct {
 	client             *mongo.Client
 	ssh                *utils.SSHTunnel
 	createChangeStream createChangeStreamFunc
+	excludedOps        []operationType
 	totalBytesRead     atomic.Int64
 	deltaBytesRead     atomic.Int64
 }

@@ -177,6 +177,109 @@ func TestResumeTokenHelpersRoundTrip(t *testing.T) {
 	require.Equal(t, toBsonTs(ts), bsonTs)
 }
 
+func TestCreatePipeline(t *testing.T) {
+	tableNameMapping := map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}}
+
+	// lookupInPipeline returns the first value found at the given path in any pipeline stage.
+	lookupInPipeline := func(t *testing.T, pipeline mongo.Pipeline, path ...string) bson.RawValue {
+		t.Helper()
+		for _, stage := range pipeline {
+			raw, err := bson.Marshal(stage)
+			require.NoError(t, err)
+			if value, err := bson.Raw(raw).LookupErr(path...); err == nil {
+				return value
+			}
+		}
+		return bson.RawValue{}
+	}
+
+	excludedOpsInPipeline := func(t *testing.T, pipeline mongo.Pipeline) []string {
+		t.Helper()
+		ninValue := lookupInPipeline(t, pipeline, "$match", "operationType", "$nin")
+		if ninValue.IsZero() {
+			return nil
+		}
+		values, err := ninValue.Array().Values()
+		require.NoError(t, err)
+		ops := make([]string, 0, len(values))
+		for _, value := range values {
+			ops = append(ops, value.StringValue())
+		}
+		return ops
+	}
+
+	requireProjectFields := func(t *testing.T, pipeline mongo.Pipeline) {
+		t.Helper()
+		for _, field := range []string{"operationType", "clusterTime", "documentKey", "fullDocument", "ns"} {
+			require.False(t, lookupInPipeline(t, pipeline, "$project", field).IsZero())
+		}
+	}
+
+	t.Run("pipeline without filters", func(t *testing.T) {
+		pipeline, err := createPipeline(nil, nil)
+		require.NoError(t, err)
+
+		requireProjectFields(t, pipeline)
+		require.True(t, lookupInPipeline(t, pipeline, "$match").IsZero())
+	})
+
+	t.Run("pipeline with table mapping", func(t *testing.T) {
+		pipeline, err := createPipeline(tableNameMapping, nil)
+		require.NoError(t, err)
+
+		requireProjectFields(t, pipeline)
+		require.Equal(t, "db", lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "0", "ns.db").StringValue())
+		require.Equal(t, "coll", lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "1", "ns.coll", "$in", "0").StringValue())
+		require.Empty(t, excludedOpsInPipeline(t, pipeline))
+	})
+
+	t.Run("pipeline with excluded operation types", func(t *testing.T) {
+		pipeline, err := createPipeline(nil, []operationType{operationTypeDelete})
+		require.NoError(t, err)
+
+		requireProjectFields(t, pipeline)
+		require.Equal(t, []string{"delete"}, excludedOpsInPipeline(t, pipeline))
+		require.Empty(t, lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "1", "ns.coll", "$in", "0"))
+		require.Empty(t, lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "0", "ns.db"))
+	})
+}
+
+func TestExcludedOperationTypes(t *testing.T) {
+	envKey := "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES"
+	resolve := func(t *testing.T, env map[string]string) ([]operationType, error) {
+		t.Helper()
+		connector := &MongoConnector{logger: internal.LoggerFromCtx(t.Context())}
+		if err := connector.SetupReplConn(t.Context(), env); err != nil {
+			return nil, err
+		}
+		return connector.excludedOps, nil
+	}
+
+	t.Run("valid operation types", func(t *testing.T) {
+		ops, err := resolve(t, map[string]string{envKey: "Delete, UPDATE"})
+		require.NoError(t, err)
+		require.Equal(t, []operationType{operationTypeDelete, operationTypeUpdate}, ops)
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		ops, err := resolve(t, map[string]string{envKey: ""})
+		require.NoError(t, err)
+		require.Empty(t, ops)
+	})
+
+	t.Run("invalid operation type is ignored", func(t *testing.T) {
+		ops, err := resolve(t, map[string]string{envKey: "delete,drop"})
+		require.NoError(t, err)
+		require.Equal(t, []operationType{operationTypeDelete}, ops)
+	})
+
+	t.Run("bad input is ignored", func(t *testing.T) {
+		ops, err := resolve(t, map[string]string{envKey: "123, bad input"})
+		require.NoError(t, err)
+		require.Empty(t, ops)
+	})
+}
+
 func TestDecodeEvent(t *testing.T) {
 	id := bson.NewObjectID()
 	insertTs := time.Now().UTC()
