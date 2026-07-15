@@ -84,6 +84,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
 	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["idle_session_timeout"] = "0"
 	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
