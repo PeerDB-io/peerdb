@@ -509,6 +509,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES",
+		Description: "Comma-separated list of MongoDB change stream operation types to exclude from CDC " +
+			"(allowed values: insert, update, replace, delete)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -900,4 +909,18 @@ func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (b
 
 func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_PG_AUTOMATED_SCHEMA_DUMP")
+}
+
+func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]string) ([]string, error) {
+	value, err := dynLookup(ctx, env, "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES")
+	if err != nil {
+		return nil, err
+	}
+	var ops []string
+	for op := range strings.SplitSeq(value, ",") {
+		if op := strings.ToLower(strings.TrimSpace(op)); op != "" {
+			ops = append(ops, op)
+		}
+	}
+	return ops, nil
 }
