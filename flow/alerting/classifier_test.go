@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/api/googleapi"
 
@@ -893,6 +894,29 @@ func TestMongoCursorErrors(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "43",
+	}, errInfo)
+}
+
+func TestMongoTLSInvalidServerCertSignatureShouldBeRecoverable(t *testing.T) {
+	de := driver.Error{
+		Labels: []string{driver.NetworkError},
+		Wrapped: topology.ConnectionError{
+			Wrapped: errors.New(
+				"failed to configure TLS for pl-1-us-east-1.xxxx.mongodb.net:1234: " +
+					"tls: invalid signature by the server certificate: crypto/rsa: verification error"),
+		},
+	}
+	err := mongo.CommandError{
+		Code:    de.Code,
+		Message: de.Message,
+		Labels:  de.Labels,
+		Wrapped: de,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
 	}, errInfo)
 }
 
