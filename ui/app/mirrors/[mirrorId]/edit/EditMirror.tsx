@@ -34,7 +34,6 @@ import {
   tablesSelectedCalloutHeaderStyle,
   tablesSelectedCalloutStyle,
 } from '../styles/edit.styles';
-import EnvOverrides from './EnvOverrides';
 
 type EditMirrorProps = {
   mirrorId: string;
@@ -260,13 +259,6 @@ export default function EditMirror({
             />
           </div>
         }
-      />
-
-      <EnvOverrides
-        sourceType={mirrorState.cdcStatus?.sourceType}
-        currentEnv={mirrorState.cdcStatus?.config?.env ?? {}}
-        updatedEnv={config.updatedEnv}
-        setUpdatedEnv={(env) => setConfig({ ...config, updatedEnv: env })}
       />
 
       <Label variant='action' as='label' style={{ marginTop: '1rem' }}>
