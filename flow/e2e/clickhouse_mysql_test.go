@@ -351,6 +351,58 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_Snapshot() {
+	if s.cluster {
+		s.t.Skip("source-side compressed column coverage does not need to run against ClickHouse cluster")
+	}
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	if mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("column compression is a MariaDB-only feature")
+	}
+
+	srcTableName := "compressed_snapshot"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "compressed_snapshot_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, name TEXT COMPRESSED)`, srcFullName,
+	)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, name) VALUES (1, 'snapshot')`, srcFullName,
+	)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	// skip validation to make sure mirror creation passes
+	flowConnConfig.SkipValidation = new(true)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for compressed column error during snapshot setup", func() bool {
+		count, err := GetLogCount(s.t.Context(), catalogPool, flowConnConfig.FlowJobName, "error", "COMPRESSED columns are not supported")
+		if err != nil {
+			s.t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Time() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
