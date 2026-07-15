@@ -87,6 +87,7 @@ func newPostgresConnector(
 
 	connConfig.Config.RuntimeParams["timezone"] = "UTC"
 	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	connConfig.Config.RuntimeParams["idle_session_timeout"] = "0"
 	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	// Required for QueryExecModeSimpleProtocol, which is set in some places while querying;
@@ -195,7 +196,8 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		}
 		tlsConfig, err := common.CreateTlsConfig(
 			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification,
-			clientCert)
+			clientCert,
+		)
 		if err != nil {
 			return nil, err
 		}

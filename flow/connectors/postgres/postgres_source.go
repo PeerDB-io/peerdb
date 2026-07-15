@@ -84,6 +84,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
 	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["idle_session_timeout"] = "0"
 	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
@@ -192,7 +193,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 	if c.replState != nil && (c.replState.Offset != lastOffset ||
 		c.replState.Slot != slotName ||
 		c.replState.Publication != publicationName) {
-		msg := fmt.Sprintf("replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
+		msg := fmt.Sprintf(
+			"replState changed, reset connector. slot name: old=%s new=%s, publication: old=%s new=%s, offset: old=%d new=%d",
 			c.replState.Slot, slotName, c.replState.Publication, publicationName, c.replState.Offset, lastOffset,
 		)
 		c.logger.Info(msg)
@@ -214,7 +216,8 @@ func (c *PostgresConnector) MaybeStartReplication(
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
 		if err := pglogrepl.StartReplication(
-			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
+			ctx, c.replConn.PgConn(), common.QuoteIdentifier(slotName), startLSN, replicationOpts,
+		); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
@@ -990,7 +993,8 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return err
 	}
 
-	slotMetricGauges.OpenReplicationConnectionsGauge.Record(ctx, replicationRes.CurrentOpenConnections,
+	slotMetricGauges.OpenReplicationConnectionsGauge.Record(
+		ctx, replicationRes.CurrentOpenConnections,
 		metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
@@ -1009,7 +1013,8 @@ func (c *PostgresConnector) HandleSlotInfo(
 		return nil
 	}
 	if intervalSinceLastNormalize != nil {
-		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(ctx, intervalSinceLastNormalize.Seconds(),
+		slotMetricGauges.IntervalSinceLastNormalizeGauge.Record(
+			ctx, intervalSinceLastNormalize.Seconds(),
 			metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 				attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
