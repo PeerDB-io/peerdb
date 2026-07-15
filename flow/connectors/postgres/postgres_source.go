@@ -957,7 +957,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	slotMetricGauges.LogicalDecodingWorkMemGauge.Record(ctx, slotInfo.LogicalDecodingWorkMemMb, attributeSet)
 
-	// PG 16+ statistics gauges
+	// pg_stat_replication_slots statistics gauges (PG 14+)
 	if slotInfo.StatsReset != nil {
 		slotMetricGauges.StatsResetGauge.Record(ctx, *slotInfo.StatsReset, attributeSet)
 	}

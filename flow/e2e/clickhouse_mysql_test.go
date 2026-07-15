@@ -29,6 +29,90 @@ func mysqlUsesOrdinals(source *MySqlSource) bool {
 		source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS
 }
 
+// mysqlAddColumnCase describes one ADD COLUMN test case: a column name, its DDL type, and a
+// literal value to insert into it.
+type mysqlAddColumnCase struct{ name, def, val string }
+
+// mysqlAddColumnTestCases returns a broad spectrum of MySQL/MariaDB column types, shared between
+// the DDL-based ADD COLUMN path (Test_MySQL_AlterTableAddColumnTypes) and the binlog-metadata-only
+// ADD COLUMN path (Test_MySQL_GhOst_AddColumnTypes), so both exercise identical type coverage.
+func mysqlAddColumnTestCases(flavor protos.MySqlFlavor) []mysqlAddColumnCase {
+	cols := []mysqlAddColumnCase{
+		// Integer widths: the signed minimum and unsigned maximum pin width + signedness.
+		{"c_tinyint", "TINYINT", "-128"},
+		{"c_tinyint_u", "TINYINT UNSIGNED", "255"},
+		{"c_bool", "TINYINT(1)", "1"},
+		{"c_smallint", "SMALLINT", "-32768"},
+		{"c_smallint_u", "SMALLINT UNSIGNED", "65535"},
+		{"c_mediumint", "MEDIUMINT", "-8388608"},
+		{"c_mediumint_u", "MEDIUMINT UNSIGNED", "16777215"},
+		{"c_int", "INT", "-2147483648"},
+		{"c_int_u", "INT UNSIGNED", "4294967295"},
+		{"c_bigint", "BIGINT", "-9223372036854775808"},
+		{"c_bigint_u", "BIGINT UNSIGNED", "18446744073709551615"},
+		{"c_integer", "INTEGER", "7"}, // synonym; normalizes to int through the parser
+		// Approximate + exact numeric.
+		{"c_float", "FLOAT", "1.5"},
+		{"c_double", "DOUBLE PRECISION", "2.5"}, // synonym; normalizes to double
+		{"c_decimal", "DECIMAL(10,2)", "123.45"},
+		{"c_decimal_big", "DECIMAL(60,3)", "780780780.780"},
+		// Bit.
+		{"c_bit", "BIT(20)", "b'11100011100011100011'"},
+		// Date and time.
+		{"c_date", "DATE", "'2020-01-02'"},
+		{"c_datetime", "DATETIME(3)", "'2020-01-02 03:04:05.678'"},
+		{"c_timestamp", "TIMESTAMP(6)", "'2020-01-02 03:04:05.678901'"},
+		{"c_time", "TIME", "'13:14:15'"},
+		{"c_year", "YEAR", "2021"},
+		// Strings.
+		{"c_char", "CHAR(10)", "'abc'"},
+		{"c_varchar", "VARCHAR(20)", "'hello world'"},
+		{"c_text", "TEXT", "'some text'"},
+		{"c_enum", "ENUM('a','b','c')", "'b'"},
+		{"c_set", "SET('x','y','z')", "'x,z'"},
+		// Binary. BINARY(4) holds exactly 4 bytes, so there is no trailing-zero padding to
+		// reconcile (that case has its own test, Test_MySQL_Binary_Trailing_Zeros).
+		{"c_binary", "BINARY(4)", "'abcd'"},
+		{"c_varbinary", "VARBINARY(10)", "'binblob'"},
+		{"c_blob", "BLOB", "'someblob'"},
+		// JSON.
+		{"c_json", "JSON", `'{"a":2}'`},
+	}
+
+	// MariaDB-specific alias spellings the TiDB parser normalizes to a supported canonical type.
+	// These mirror the MariaDB synonyms in TestAlterTableTypes; they are valid DDL on MariaDB but
+	// not (all) on MySQL, so they only run on MariaDB flavor.
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		cols = append(cols, []mysqlAddColumnCase{
+			// Integer synonyms INT1..INT8 / MIDDLEINT map to the sized integer.
+			{"c_int1", "INT1", "100"},               // -> tinyint
+			{"c_int2", "INT2", "30000"},             // -> smallint
+			{"c_int3", "INT3", "8000000"},           // -> mediumint
+			{"c_int4", "INT4", "2000000000"},        // -> int
+			{"c_int8", "INT8", "9000000000000000"},  // -> bigint
+			{"c_middleint", "MIDDLEINT", "8000000"}, // -> mediumint
+			// Exact-numeric synonyms normalize to decimal.
+			{"c_dec", "DEC(10,2)", "123.45"},
+			{"c_fixed", "FIXED(10,2)", "678.90"},
+			// Approximate-numeric synonym normalizes to double.
+			{"c_real", "REAL", "3.14159"},
+			// Char synonyms normalize to char.
+			{"c_nchar", "NCHAR(10)", "'nchar'"},
+			{"c_national_char", "NATIONAL CHAR(10)", "'natchar'"},
+			// Varchar synonyms normalize to varchar.
+			{"c_nvarchar", "NVARCHAR(20)", "'nvarchar val'"},
+			{"c_char_varying", "CHAR VARYING(20)", "'char varying'"},
+			{"c_varcharacter", "VARCHARACTER(20)", "'varcharacter'"},
+			{"c_national_varchar", "NATIONAL VARCHAR(20)", "'nat varchar'"},
+			// LONG / LONG VARCHAR normalize to mediumtext.
+			{"c_long", "LONG", "'long text'"},
+			{"c_long_varchar", "LONG VARCHAR", "'long varchar text'"},
+		}...)
+	}
+
+	return cols
+}
+
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
@@ -1322,78 +1406,7 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	cols := []struct{ name, def, val string }{
-		// Integer widths: the signed minimum and unsigned maximum pin width + signedness.
-		{"c_tinyint", "TINYINT", "-128"},
-		{"c_tinyint_u", "TINYINT UNSIGNED", "255"},
-		{"c_bool", "TINYINT(1)", "1"},
-		{"c_smallint", "SMALLINT", "-32768"},
-		{"c_smallint_u", "SMALLINT UNSIGNED", "65535"},
-		{"c_mediumint", "MEDIUMINT", "-8388608"},
-		{"c_mediumint_u", "MEDIUMINT UNSIGNED", "16777215"},
-		{"c_int", "INT", "-2147483648"},
-		{"c_int_u", "INT UNSIGNED", "4294967295"},
-		{"c_bigint", "BIGINT", "-9223372036854775808"},
-		{"c_bigint_u", "BIGINT UNSIGNED", "18446744073709551615"},
-		{"c_integer", "INTEGER", "7"}, // synonym; normalizes to int through the parser
-		// Approximate + exact numeric.
-		{"c_float", "FLOAT", "1.5"},
-		{"c_double", "DOUBLE PRECISION", "2.5"}, // synonym; normalizes to double
-		{"c_decimal", "DECIMAL(10,2)", "123.45"},
-		{"c_decimal_big", "DECIMAL(60,3)", "780780780.780"},
-		// Bit.
-		{"c_bit", "BIT(20)", "b'11100011100011100011'"},
-		// Date and time.
-		{"c_date", "DATE", "'2020-01-02'"},
-		{"c_datetime", "DATETIME(3)", "'2020-01-02 03:04:05.678'"},
-		{"c_timestamp", "TIMESTAMP(6)", "'2020-01-02 03:04:05.678901'"},
-		{"c_time", "TIME", "'13:14:15'"},
-		{"c_year", "YEAR", "2021"},
-		// Strings.
-		{"c_char", "CHAR(10)", "'abc'"},
-		{"c_varchar", "VARCHAR(20)", "'hello world'"},
-		{"c_text", "TEXT", "'some text'"},
-		{"c_enum", "ENUM('a','b','c')", "'b'"},
-		{"c_set", "SET('x','y','z')", "'x,z'"},
-		// Binary. BINARY(4) holds exactly 4 bytes, so there is no trailing-zero padding to
-		// reconcile (that case has its own test, Test_MySQL_Binary_Trailing_Zeros).
-		{"c_binary", "BINARY(4)", "'abcd'"},
-		{"c_varbinary", "VARBINARY(10)", "'binblob'"},
-		{"c_blob", "BLOB", "'someblob'"},
-		// JSON.
-		{"c_json", "JSON", `'{"a":2}'`},
-	}
-
-	// MariaDB-specific alias spellings the TiDB parser normalizes to a supported canonical type.
-	// These mirror the MariaDB synonyms in TestAlterTableTypes; they are valid DDL on MariaDB but
-	// not (all) on MySQL, so they only run on MariaDB flavor.
-	if mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		cols = append(cols, []struct{ name, def, val string }{
-			// Integer synonyms INT1..INT8 / MIDDLEINT map to the sized integer.
-			{"c_int1", "INT1", "100"},               // -> tinyint
-			{"c_int2", "INT2", "30000"},             // -> smallint
-			{"c_int3", "INT3", "8000000"},           // -> mediumint
-			{"c_int4", "INT4", "2000000000"},        // -> int
-			{"c_int8", "INT8", "9000000000000000"},  // -> bigint
-			{"c_middleint", "MIDDLEINT", "8000000"}, // -> mediumint
-			// Exact-numeric synonyms normalize to decimal.
-			{"c_dec", "DEC(10,2)", "123.45"},
-			{"c_fixed", "FIXED(10,2)", "678.90"},
-			// Approximate-numeric synonym normalizes to double.
-			{"c_real", "REAL", "3.14159"},
-			// Char synonyms normalize to char.
-			{"c_nchar", "NCHAR(10)", "'nchar'"},
-			{"c_national_char", "NATIONAL CHAR(10)", "'natchar'"},
-			// Varchar synonyms normalize to varchar.
-			{"c_nvarchar", "NVARCHAR(20)", "'nvarchar val'"},
-			{"c_char_varying", "CHAR VARYING(20)", "'char varying'"},
-			{"c_varcharacter", "VARCHARACTER(20)", "'varcharacter'"},
-			{"c_national_varchar", "NATIONAL VARCHAR(20)", "'nat varchar'"},
-			// LONG / LONG VARCHAR normalize to mediumtext.
-			{"c_long", "LONG", "'long text'"},
-			{"c_long_varchar", "LONG VARCHAR", "'long varchar text'"},
-		}...)
-	}
+	cols := mysqlAddColumnTestCases(mysource.Config.Flavor)
 
 	adds := make([]string, len(cols))
 	names := make([]string, 0, len(cols)+1)
@@ -1956,6 +1969,117 @@ func (s ClickHouseSuite) Test_MySQL_GhOst_Schema_Changes() {
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
 	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_GhOst_AddColumnTypes() {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("only applies to mysql")
+	}
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("gh-ost ADD COLUMN type detection requires binlog row metadata")
+	}
+
+	t := s.T()
+	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
+	if !ok {
+		t.Skip("skipping schema assertion because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	srcTable := "test_ghost_add_col_types"
+	dstTable := "test_ghost_add_col_types_dst"
+	srcTableName := AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	ghostTable := "_" + srcTable + "_gho"
+	ghostTableName := AttachSchema(s, ghostTable)
+	oldTable := "_" + srcTable + "_del"
+	oldTableName := AttachSchema(s, oldTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      AddSuffix(s, srcTable),
+		TableNameMapping: map[string]string{AttachSchema(s, srcTable): dstTable},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(id) VALUES(1)`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "initial row", srcTable, dstTable, "id")
+
+	// Remove the pre-cutover row once CDC is confirmed working.
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE id = 1`, srcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "row deleted", srcTable, dstTable, "id")
+
+	cols := mysqlAddColumnTestCases(mysource.Config.Flavor)
+
+	defs := make([]string, len(cols))
+	names := make([]string, 0, len(cols)+1)
+	// exclude c_bool: TINYINT(1) this type discrepancy is asserted explicitly later
+	compareNames := make([]string, 0, len(cols)+1)
+	vals := make([]string, len(cols))
+	names = append(names, "id")
+	compareNames = append(compareNames, "id")
+	for i, c := range cols {
+		defs[i] = c.name + " " + c.def
+		names = append(names, c.name)
+		if c.name != "c_bool" {
+			compareNames = append(compareNames, c.name)
+		}
+		vals[i] = c.val
+	}
+
+	// 1. gh-ost creates ghost table with the original id column plus every new column, all
+	// nullable so the pre-cutover backfill (step 2) can leave them unset.
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (id INT PRIMARY KEY, %s)
+	`, ghostTableName, strings.Join(defs, ", "))))
+
+	// 2. gh-ost copies existing data to the ghost table (we simulate this).
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (id) SELECT id FROM %s
+	`, ghostTableName, srcTableName)))
+
+	// 3. gh-ost atomic cut-over: rename both tables simultaneously.
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		RENAME TABLE %s TO %s, %s TO %s
+	`, srcTableName, oldTableName, ghostTableName, srcTableName)))
+
+	// 4. Insert a row with every new column populated (lands on the new table, formerly ghost).
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (%s) VALUES (2, %s)`, srcTableName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+
+	EnvWaitForEqualTablesWithNames(env, s, "post-cutover row", srcTable, dstTable, strings.Join(compareNames, ","))
+
+	// TINYINT(1)/BOOL has no display width in TABLE_MAP_EVENT metadata, so it lands as a plain
+	// signed TINYINT (Int8) rather than Boolean -- confirm that known discrepancy explicitly.
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	EnvNoError(t, env, err)
+	dstSchema := output[dstTableName]
+	require.NotNil(t, dstSchema)
+	boolColName := ExpectedDestinationIdentifier(s, "c_bool")
+	foundBoolCol := false
+	for _, col := range dstSchema.Columns {
+		if col.Name == boolColName {
+			foundBoolCol = true
+			require.Equal(t, string(types.QValueKindInt8), col.Type,
+				"TINYINT(1) added via the binlog-metadata-only path is expected to be Int8, not Boolean")
+			break
+		}
+	}
+	require.True(t, foundBoolCol, "expected column %s in destination schema", boolColName)
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)

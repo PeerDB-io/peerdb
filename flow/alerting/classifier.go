@@ -72,6 +72,7 @@ var (
 	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
 	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
+	PostgresNeonDonorWalLaggingRe    = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
 	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe          = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
@@ -88,6 +89,7 @@ const (
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
+	ErrorSourceGCS             ErrorSource = "gcs"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -431,6 +433,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if sshDialErr, ok := errors.AsType[*exceptions.SSHTunnelDialError](err); ok {
+		errInfo := ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "TUNNEL_DIAL_ERROR",
+		}
+		if sshDialErr.Retryable {
+			return ErrorRetryRecoverable, errInfo
+		}
+		return ErrorOther, errInfo
+	}
+
 	// An SSH-tunneled connection that goes bad (e.g. keepalive failure) is wrapped explicitly.
 	if _, ok := errors.AsType[*exceptions.SSHTunnelConnectionError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
@@ -613,6 +626,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 					return ErrorNotifyConnectivity, pgErrorInfo
 				}
 				if strings.Contains(pgErr.Message, "lost synchronization with server") {
+					return ErrorRetryRecoverable, pgErrorInfo
+				}
+				if PostgresNeonDonorWalLaggingRe.MatchString(pgErr.Message) {
 					return ErrorRetryRecoverable, pgErrorInfo
 				}
 			}
@@ -809,6 +825,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
+		if mongoCmdErr.HasErrorMessage(MongoIncompleteReadOfMessageHeader) {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
 		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
 		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
@@ -946,6 +966,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, bqErrorInfo
 	}
 
+	if _, ok := errors.AsType[*exceptions.GCSError](err); ok {
+		gcsErrorInfo := ErrorInfo{
+			Source: ErrorSourceGCS,
+			Code:   "UNKNOWN",
+		}
+		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			switch apiErr.Code {
+			case 503: // Service Unavailable
+				return ErrorRetryRecoverable, gcsErrorInfo
+			default:
+				return ErrorOther, gcsErrorInfo
+			}
+		}
+		return ErrorOther, gcsErrorInfo
+	}
+
 	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
@@ -970,6 +1007,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrUnknownDatabase,
 			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
+		case chproto.ErrUnexpectedZookeeperError:
+			if strings.Contains(chException.Message, "ZNODEEXISTS") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case chproto.ErrKeeperException:
 			if chException.Message == "Session expired" || strings.HasPrefix(chException.Message, "Coordination error: Connection loss") {
 				return ErrorRetryRecoverable, chErrorInfo
@@ -1166,17 +1207,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
-		errClass := ErrorOther
-		if mysqlExecuteError.Retryable {
-			errClass = ErrorRetryRecoverable
-		}
-		return errClass, ErrorInfo{
-			Source: ErrorSourceMySQL,
-			Code:   "EXECUTE_ERROR",
-		}
-	}
-
 	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
 		return ErrorRetryRecoverable, ErrorInfo{
 			Source: ErrorSourceMySQL,
@@ -1206,6 +1236,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorUnsupportedDatatype, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+		}
+	}
+
+	// mysql execute error is a generic error that can happen when interacting with mysql server;
+	// intentionally checked this after other more specific mysql errors above
+	if mysqlExecuteError, ok := errors.AsType[*exceptions.MySQLExecuteError](err); ok {
+		errClass := ErrorOther
+		if mysqlExecuteError.Retryable {
+			errClass = ErrorRetryRecoverable
+		}
+		return errClass, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "EXECUTE_ERROR",
 		}
 	}
 

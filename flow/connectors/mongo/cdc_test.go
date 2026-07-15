@@ -71,10 +71,10 @@ func (cs *mockChangeStream) Next(context.Context) bool {
 	}
 }
 
-func (cs *mockChangeStream) ResumeToken() bson.Raw       { return cs.resumeToken }
-func (cs *mockChangeStream) Err() error                  { return cs.err }
-func (cs *mockChangeStream) Current() bson.Raw           { return cs.current }
-func (cs *mockChangeStream) Close(context.Context) error { return nil }
+func (cs *mockChangeStream) ResumeToken() bson.Raw { return cs.resumeToken }
+func (cs *mockChangeStream) Err() error            { return cs.err }
+func (cs *mockChangeStream) Current() bson.Raw     { return cs.current }
+func (cs *mockChangeStream) Close() error          { return nil }
 
 var _ ChangeStream = (*mockChangeStream)(nil)
 

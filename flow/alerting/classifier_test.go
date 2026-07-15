@@ -72,6 +72,21 @@ func TestSSHTunnelConnectionErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestSSHTunnelRecoverableDialError(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to sync records: %w",
+		fmt.Errorf("failed to get schema for watermark table xxx.xxx: %w",
+			exceptions.NewMySQLExecuteError(exceptions.NewSSHTunnelDialError(
+				errors.New("ssh: unexpected packet in response to channel open: <nil>")))))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
 	t.Skip("Not a good idea to run this test in CI as it goes to Neon, maybe we need a better mock")
 	config, err := pgx.ParseConfig("postgres://random-endpoint-id-here.us-east-2.aws.neon.tech:5432/db?options=endpoint%3Dtest_endpoint")
@@ -179,6 +194,27 @@ func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonDonorWalLaggingErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Neon's walsender failing to read WAL because the donor safekeeper is lagging behind
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message: "[walsender] Failed to read WAL (req_lsn=0/DD7D4000, len=8192): closing remote connection: " +
+				"requested WAL up to 0/DD7D6000, but current donor xxx.aws.neon.tech:6401 has only up to 0/DD7D5FF8",
+			File:    "walsender_hooks.c",
+			Line:    144,
+			Routine: "NeonWALPageRead",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo)
+}
+
 func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 	// Simulate a Postgres memory allocation error
 	err := &exceptions.PostgresWalError{
@@ -268,6 +304,20 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseUnexpectedZookeeperZnodeExistsErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnexpectedZookeeperError),
+		Message: "Got unexpected ZooKeeper error ZNODEEXISTS (at index 10) for part all_0_0_1",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: QRepSync Error: %w", err), "", ""))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnexpectedZookeeperError)),
+	}, errInfo)
 }
 
 func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
@@ -1136,6 +1186,14 @@ func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.
 		Source: ErrorSourceMySQL,
 		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
 	}, errInfo)
+
+	executeErrWrapper := exceptions.NewMySQLExecuteError(wrapped)
+	errorClass, errInfo = GetErrorClass(t.Context(), executeErrWrapper)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
 }
 
 func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
@@ -1185,6 +1243,22 @@ func TestBigQueryGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
 		Code:   "404",
+	}, errInfo)
+}
+
+func TestGCSTransientErrorsShouldBeRecoverable(t *testing.T) {
+	apiErr := &googleapi.Error{
+		Code:    503,
+		Message: "We encountered an internal error. Please try again.",
+		Errors:  []googleapi.ErrorItem{{Reason: "backendError"}},
+	}
+	err := exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for a.avro: %w", apiErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceGCS,
+		Code:   strconv.Itoa(503),
 	}, errInfo)
 }
 

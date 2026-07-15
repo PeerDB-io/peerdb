@@ -185,6 +185,8 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		from information_schema.columns c
 		left join information_schema.statistics s
 			on cast(s.table_schema as binary) = cast(c.table_schema as binary)
+			and s.table_schema = c.table_schema
+			and s.table_name  = c.table_name
 			and cast(s.table_name as binary) = cast(c.table_name as binary)
 			and cast(s.column_name as binary) = cast(c.column_name as binary)
 			and s.index_name = 'PRIMARY'
@@ -1168,12 +1170,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				qkind := types.QValueKind(fd.Type)
 
 				if oldType, exists := existingColTypes[col.Name.OrigColName()]; exists && oldType != string(qkind) {
-					c.logger.Warn("column type change detected via ALTER TABLE, not propagating",
-						slog.String("table", sourceTableName),
-						slog.String("column", col.Name.OrigColName()),
-						slog.String("from", oldType),
-						slog.String("to", string(qkind)))
-					c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(oldType), qkind,
+					c.recordColumnTypeChange(ctx, otelManager,
+						sourceTableName, col.Name.OrigColName(), types.QValueKind(oldType), qkind,
 						otel_metrics.SourceEventTypeDDL)
 				}
 
@@ -1305,15 +1303,23 @@ func parseIncidentEvent(data []byte) (uint16, string) {
 	return incident, string(data[3:end])
 }
 
-func (c *MySqlConnector) recordColumnTypeChange(
-	ctx context.Context, otelManager *otel_metrics.OtelManager, from types.QValueKind, to types.QValueKind,
-	eventType string,
-) {
-	otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
-		attribute.String(otel_metrics.TypeChangeToKey, string(to)),
-		attribute.String(otel_metrics.SourceEventTypeKey, eventType),
-	)))
+func (c *MySqlConnector) recordColumnTypeChange(ctx context.Context, otelManager *otel_metrics.OtelManager,
+	table, column string, from, to types.QValueKind, eventType string) {
+	key := fmt.Sprintf("%s.%s.%s.%s", table, column, from, to)
+	if _, ok := c.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
+		c.logger.Warn("column type change detected, not propagating",
+			slog.String("table", table),
+			slog.String("column", column),
+			slog.Any("from", from),
+			slog.Any("to", to),
+			slog.String("event", eventType),
+		)
+		otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.TypeChangeFromKey, string(from)),
+			attribute.String(otel_metrics.TypeChangeToKey, string(to)),
+			attribute.String(otel_metrics.SourceEventTypeKey, eventType),
+		)))
+	}
 }
 
 // processTableMapEventSchema compares the TABLE_MAP_EVENT schema against the cached schema
@@ -1355,22 +1361,30 @@ func (c *MySqlConnector) processTableMapEventSchema(
 			charset = uint16(collation)
 		}
 
+		// TABLE_MAP_EVENT reports ENUM/SET columns with the generic MYSQL_TYPE_STRING type,
+		// with the real type packed into the high byte of ColumnMeta; unpack it here so
+		// qkindFromMysqlType sees MYSQL_TYPE_ENUM/MYSQL_TYPE_SET instead of falling through to
+		// a plain string, which would lose the enum/set decoding for columns added mid-stream.
+		mytype := tableMap.ColumnType[idx]
+		if mytype == mysql.MYSQL_TYPE_STRING {
+			if tableMap.IsEnumColumn(idx) {
+				mytype = mysql.MYSQL_TYPE_ENUM
+			} else if tableMap.IsSetColumn(idx) {
+				mytype = mysql.MYSQL_TYPE_SET
+			}
+		}
+
 		if fd, exists := existingCols[colName]; exists {
 			newFds[idx] = fd
 
 			if qkind, err := qkindFromMysqlType(
-				tableMap.ColumnType[idx], unsignedMap[idx], charset, req.InternalVersion,
+				mytype, unsignedMap[idx], charset, req.InternalVersion,
 			); err == nil && shouldReportColumnTypeChange(types.QValueKind(fd.Type), qkind, c.config.Flavor) {
-				c.logger.Warn("column type change detected from TABLE_MAP_EVENT, not propagating",
-					slog.String("table", sourceTableName),
-					slog.String("column", colName),
-					slog.String("from", fd.Type),
-					slog.String("to", string(qkind)))
-				c.recordColumnTypeChange(ctx, otelManager, types.QValueKind(fd.Type), qkind, otel_metrics.SourceEventTypeEventMetadata)
+				c.recordColumnTypeChange(ctx, otelManager, sourceTableName, colName,
+					types.QValueKind(fd.Type), qkind, otel_metrics.SourceEventTypeEventMetadata)
 			}
 		} else {
 			// New column detected - get type from TABLE_MAP_EVENT
-			mytype := tableMap.ColumnType[idx]
 			qkind, err := qkindFromMysqlType(mytype, unsignedMap[idx], charset, req.InternalVersion)
 			if err != nil {
 				c.logger.Warn("Unknown MySQL type for new column, skipping",
