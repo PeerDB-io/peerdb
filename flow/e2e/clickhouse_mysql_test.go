@@ -320,7 +320,7 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 
 	// insert a row into tracked table and make sure it was replicated
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, name) VALUES (2, 'works-after-unrelated-table-column-addition')`, srcFullName)))
+		`INSERT INTO %s (id, name) VALUES (3, 'works-after-unrelated-table-column-addition')`, srcFullName)))
 	EnvWaitForCount(env, s, "waiting for CDC to replicate this new row", dstTableName, "id,name", 3)
 
 	// add compressed column to pipe table
