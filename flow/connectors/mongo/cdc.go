@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -604,15 +605,16 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 	if err != nil {
 		return fmt.Errorf("failed to get excluded operation types: %w", err)
 	}
-	validOps := make([]operationType, 0, len(excludedOps))
+	c.excludedOps = make([]operationType, 0, len(excludedOps))
 	for _, op := range excludedOps {
 		if parsed, ok := parseOperationType(op); ok {
-			validOps = append(validOps, parsed)
+			if !slices.Contains(c.excludedOps, parsed) {
+				c.excludedOps = append(c.excludedOps, parsed)
+			}
 		} else {
-			c.logger.Warn("ignoring invalid operation type", slog.String("operationType", op))
+			c.logger.Warn("ignoring invalid operation type in exclusion list", slog.String("operationType", op))
 		}
 	}
-	c.excludedOps = validOps
 	if len(c.excludedOps) > 0 {
 		c.logger.Info("excluding operation types from replication", slog.Any("operationTypes", c.excludedOps))
 	}
