@@ -101,7 +101,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.4.2@sha256:e182d810a437e30ad7d0221fc153910a06d9be5b05e57e59e7983467b89e41e2
+        image: elasticsearch:9.4.3@sha256:7e951dbda7692c1402de66b02523d349b7807d99269d9d2cd54092acd4ce5e0e
         ports:
           - 9200:9200
         env:
@@ -109,7 +109,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.155.0@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+        image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
         ports:
           - 4317:4317
       toxiproxy:
@@ -129,7 +129,7 @@ jobs:
           - 14002:14002
           - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:67d4c3a1402179a6579aa217a38b52ced557eb8a0c17a8e32fe986a4549fdee4
+        image: linuxserver/openssh-server:latest@sha256:204b64775f7dfb17761ed0644df348ba3cd811628334cc723aa69d61f4db893d
         ports:
           - 2222:2222
         env:
@@ -150,7 +150,7 @@ jobs:
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.5'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos and pg_dump
@@ -207,7 +207,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
