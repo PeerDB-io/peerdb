@@ -20,11 +20,12 @@ fi
 npx --yes --package renovate -- renovate-config-validator renovate.json5 || exit 1
 
 ## (2) Temporarily change the renovate.json5 to point to the local extension source
-sed -i 's/local>PeerDB-io/github>PeerDB-io/' renovate.json5
+## Use perl for portable in-place editing (GNU `sed -i` and BSD/macOS `sed -i` are incompatible).
+perl -i -pe 's/local>PeerDB-io/github>PeerDB-io/' renovate.json5
 
 function cleanup {
   echo "Restoring renovate.json5 to point to the GitHub extension source"
-  sed -i 's/github>PeerDB-io/local>PeerDB-io/' renovate.json5
+  perl -i -pe 's/github>PeerDB-io/local>PeerDB-io/' renovate.json5
 }
 trap cleanup EXIT
 
@@ -46,7 +47,7 @@ cat renovate.out | grep 'flattened updates found' | tr ',' '\n' | tr ':' '\n' > 
 
 ## (6) Combine final updated packages details
 FINAL_UPDATES_FILE="final-updated-packages-details.json"
-cat "" > ${FINAL_UPDATES_FILE}
+: > ${FINAL_UPDATES_FILE}
 for dep in $(cat final-updated-packages.txt | tail -n+2 | sort -u | awk '{print $1}'); do
   jq --compact-output --arg dep "$dep" '. | select(.depName == $dep)' update-proposals.json >> ${FINAL_UPDATES_FILE}
 done
