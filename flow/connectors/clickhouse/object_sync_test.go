@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 1)
@@ -46,7 +47,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 3)
@@ -67,7 +68,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 150, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 150, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 3)
 		for i, batch := range batches {
@@ -86,11 +87,30 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, 60, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 60, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 2)
 		require.Len(t, batches[0].objects, 2)
 		require.Len(t, batches[1].objects, 1)
+	})
+
+	t.Run("objects split by url count limit", func(t *testing.T) {
+		stream := model.NewQObjectStream(5)
+		go func() {
+			for i := range 5 {
+				stream.Objects <- &model.Object{URL: "http://example.com/" + strconv.Itoa(i) + ".parquet", Size: 1}
+			}
+			stream.Close(nil)
+		}()
+
+		// A count cap of 2 splits five objects into batches of 2, 2 and 1,
+		// even though neither the data size nor URL byte limit is reached.
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 2, longInterval)
+		batches := collectBatches(batchCh)
+		require.Len(t, batches, 3)
+		require.Len(t, batches[0].objects, 2)
+		require.Len(t, batches[1].objects, 2)
+		require.Len(t, batches[2].objects, 1)
 	})
 
 	t.Run("empty stream", func(t *testing.T) {
@@ -99,7 +119,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Empty(t, batches)
 	})
@@ -112,7 +132,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 500, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 500, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 2)
 	})
@@ -121,7 +141,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		stream := model.NewQObjectStream(2)
 		shortInterval := 50 * time.Millisecond
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, shortInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 1000, shortInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
@@ -149,7 +169,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		stream := model.NewQObjectStream(10)
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 1000, longInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
