@@ -20,12 +20,12 @@ fi
 npx --yes --package renovate -- renovate-config-validator renovate.json5 || exit 1
 
 ## (2) Temporarily change the renovate.json5 to point to the local extension source
-## Use perl for portable in-place editing (GNU `sed -i` and BSD/macOS `sed -i` are incompatible).
-perl -i -pe 's/local>PeerDB-io/github>PeerDB-io/' renovate.json5
+## Edit via a temp file for portability (GNU `sed -i` and BSD/macOS `sed -i` are incompatible).
+sed 's/local>PeerDB-io/github>PeerDB-io/' renovate.json5 > renovate.json5.tmp && mv renovate.json5.tmp renovate.json5
 
 function cleanup {
   echo "Restoring renovate.json5 to point to the GitHub extension source"
-  perl -i -pe 's/github>PeerDB-io/local>PeerDB-io/' renovate.json5
+  sed 's/github>PeerDB-io/local>PeerDB-io/' renovate.json5 > renovate.json5.tmp && mv renovate.json5.tmp renovate.json5
 }
 trap cleanup EXIT
 
