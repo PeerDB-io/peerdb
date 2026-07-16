@@ -30,7 +30,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 1)
@@ -46,7 +46,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 3)
@@ -67,12 +67,30 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 150, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 150, 1<<20, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 3)
 		for i, batch := range batches {
 			require.Len(t, batch.objects, 1, "batch %d should have 1 object", i)
 		}
+	})
+
+	t.Run("objects split by url byte limit", func(t *testing.T) {
+		stream := model.NewQObjectStream(3)
+		go func() {
+			// Each URL is 28 bytes (+1 separator = 29). A 60-byte budget fits two
+			// URLs but not a third, even though the data size limit is not reached.
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 1}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 1}
+			stream.Objects <- &model.Object{URL: "http://example.com/3.parquet", Size: 1}
+			stream.Close(nil)
+		}()
+
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 60, longInterval)
+		batches := collectBatches(batchCh)
+		require.Len(t, batches, 2)
+		require.Len(t, batches[0].objects, 2)
+		require.Len(t, batches[1].objects, 1)
 	})
 
 	t.Run("empty stream", func(t *testing.T) {
@@ -81,7 +99,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, longInterval)
 		batches := collectBatches(batchCh)
 		require.Empty(t, batches)
 	})
@@ -94,7 +112,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 500, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 500, 1<<20, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 2)
 	})
@@ -103,7 +121,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		stream := model.NewQObjectStream(2)
 		shortInterval := 50 * time.Millisecond
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, shortInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, shortInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
@@ -131,7 +149,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		stream := model.NewQObjectStream(10)
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, longInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
