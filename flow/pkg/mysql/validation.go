@@ -11,6 +11,8 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
@@ -310,34 +312,66 @@ func IsCompressedColumnType(columnType string) bool {
 	return compressedColumnTypeRe.MatchString(columnType)
 }
 
-func CheckCompressedColumns(conn *client.Conn, schema string, table string) error {
-	rs, err := conn.Execute(fmt.Sprintf(
-		"SELECT column_name, column_type FROM information_schema.columns WHERE table_schema = '%s' AND table_name = '%s'",
-		mysql.Escape(schema), mysql.Escape(table)))
-	if err != nil {
-		return fmt.Errorf("failed to fetch column types for %s.%s: %w", schema, table, err)
+// CheckCompressedColumns fetches column types for all tables in a single query to
+// avoid a per-table round trip during validation, which is costly for mirrors with
+// many tables against a distant database.
+func CheckCompressedColumns(conn *client.Conn, tables []*common.QualifiedTable) error {
+	if len(tables) == 0 {
+		return nil
 	}
 
-	var compressed []string
+	predicates := make([]string, 0, len(tables))
+	for _, table := range tables {
+		predicates = append(predicates, fmt.Sprintf("('%s', '%s')",
+			mysql.Escape(table.Namespace), mysql.Escape(table.Table)))
+	}
+
+	rs, err := conn.Execute(fmt.Sprintf(
+		"SELECT table_schema, table_name, column_name, column_type FROM information_schema.columns "+
+			"WHERE (table_schema, table_name) IN (%s)",
+		strings.Join(predicates, ", ")))
+	if err != nil {
+		return fmt.Errorf("failed to fetch column types: %w", err)
+	}
+
+	compressed := make(map[string][]string)
 	for idx := range rs.RowNumber() {
-		columnType, err := rs.GetString(idx, 1)
+		columnType, err := rs.GetString(idx, 3)
 		if err != nil {
 			return err
 		}
-		if IsCompressedColumnType(columnType) {
-			columnName, err := rs.GetString(idx, 0)
-			if err != nil {
-				return err
-			}
-			compressed = append(compressed, columnName)
+		if !IsCompressedColumnType(columnType) {
+			continue
 		}
+		schema, err := rs.GetString(idx, 0)
+		if err != nil {
+			return err
+		}
+		table, err := rs.GetString(idx, 1)
+		if err != nil {
+			return err
+		}
+		columnName, err := rs.GetString(idx, 2)
+		if err != nil {
+			return err
+		}
+		key := schema + "." + table
+		compressed[key] = append(compressed[key], columnName)
 	}
 
 	if len(compressed) > 0 {
+		offending := make([]string, 0, len(compressed))
+		for _, table := range tables {
+			key := table.Namespace + "." + table.Table
+			if columns, ok := compressed[key]; ok {
+				offending = append(offending, fmt.Sprintf("%s [%s]", key, strings.Join(columns, ", ")))
+				delete(compressed, key) // avoid duplicates if a table is listed more than once
+			}
+		}
 		return fmt.Errorf(
-			"table %s.%s has MariaDB COMPRESSED column(s) [%s], which cannot be replicated via CDC; "+
-				"convert them to a non-compressed type or remove the table from the mirror",
-			schema, table, strings.Join(compressed, ", "))
+			"the following table(s) have MariaDB COMPRESSED column(s), which cannot be replicated via CDC; "+
+				"convert them to a non-compressed type or remove the table from the mirror: %s",
+			strings.Join(offending, "; "))
 	}
 	return nil
 }

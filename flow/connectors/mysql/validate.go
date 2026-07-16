@@ -127,10 +127,8 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	// maria compressed columns aren't supported yet
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		for _, table := range sourceTables {
-			if err := mysql_validation.CheckCompressedColumns(conn, table.Namespace, table.Table); err != nil {
-				return err
-			}
+		if err := mysql_validation.CheckCompressedColumns(conn, sourceTables); err != nil {
+			return err
 		}
 	}
 
