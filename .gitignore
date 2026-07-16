@@ -28,5 +28,6 @@ volumes/ch_*
 
 # Renovate debug files
 final-updated-packages.txt
+final-updated-packages-details.json
 renovate.out
 update-proposals.json
