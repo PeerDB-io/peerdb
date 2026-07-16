@@ -67,6 +67,18 @@ func NewPostgresConnector(
 	return newPostgresConnector(ctx, env, pgConfig, protos.DBType_DBTYPE_UNKNOWN)
 }
 
+// setIdleSessionTimeout best-effort disables idle_session_timeout on conn.
+// The GUC only exists on PG14+, so on older supported versions (PG12/13) the
+// server rejects it with SQLSTATE 42704, which we ignore.
+func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logger) {
+	if _, err := conn.Exec(ctx, "SET idle_session_timeout = 0"); err != nil {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UndefinedObject {
+			return
+		}
+		logger.Warn("failed to set idle_session_timeout", slog.Any("error", err))
+	}
+}
+
 func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
@@ -124,6 +136,7 @@ func newPostgresConnector(
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
+	setIdleSessionTimeout(ctx, conn, logger)
 
 	metadataSchema := "_peerdb_internal"
 	if pgConfig.MetadataSchema != nil {

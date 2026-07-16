@@ -110,6 +110,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
 	}
+	setIdleSessionTimeout(ctx, conn, c.logger)
 	return conn, wst, nil
 }
 
