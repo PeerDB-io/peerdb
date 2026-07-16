@@ -54,9 +54,7 @@ type urlBatchLimits struct {
 }
 
 // fetchURLBatchLimits reads the effective max_query_size and
-// table_function_remote_max_addresses from ClickHouse so that raising either
-// setting takes effect without a redeploy, falling back to ClickHouse's defaults
-// on any error.
+// table_function_remote_max_addresses from ClickHouse directly.
 func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) urlBatchLimits {
 	maxQuerySize := defaultMaxQuerySize
 	remoteMaxAddresses := defaultRemoteMaxAddresses
