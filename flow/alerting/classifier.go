@@ -351,12 +351,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Reference:
-	// https://github.dev/jackc/pgx/blob/master/pgconn/pgconn.go#L733-L740
-	if strings.Contains(err.Error(), "conn closed") {
-		return ErrorRetryRecoverable, ErrorInfo{
+	if errors.Is(err, pgconn.ErrConnClosed) {
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
-			Code:   "UNKNOWN",
+			Code:   "CONN_CLOSED",
 		}
 	}
 
@@ -597,7 +595,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
+				strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding") ||
 				//nolint:lll
 				// Handle missing record during logical decoding
 				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
