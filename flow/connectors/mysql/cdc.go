@@ -49,9 +49,26 @@ const (
 
 const mariadbPartialRowDataEvent replication.EventType = 172
 
-// getMySQLClockOffset estimates the difference between the source server clock
-// and this process's clock.
+const clockOffsetTTL = time.Hour
+
+// getMySQLClockOffset returns the cached difference between the source server
+// clock and this process's clock.
 func (c *MySqlConnector) getMySQLClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < clockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryMySQLClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// queryMySQLClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MySqlConnector) queryMySQLClockOffset(ctx context.Context) (time.Duration, error) {
 	requestStarted := time.Now()
 	result, err := c.Execute(ctx, "SELECT UTC_TIMESTAMP(6)")
 	responseReceived := time.Now()
@@ -645,7 +662,7 @@ func (c *MySqlConnector) PullRecords(
 
 		if timestampMicros > 0 {
 			otelManager.Metrics.CommitLagGauge.Record(ctx,
-				time.Now().UTC().Add(time.Duration(mysqlClockOffset)*time.Microsecond).
+				time.Now().UTC().Add(mysqlClockOffset).
 					Sub(time.UnixMicro(timestampMicros)).Microseconds())
 		}
 	}

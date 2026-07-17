@@ -42,6 +42,8 @@ type MySqlConnector struct {
 	warnedUnsupportedEventTypes sync.Map
 	warnedCharsets              sync.Map
 	binlogHeartbeatPeriod       time.Duration
+	clockOffset                 time.Duration
+	clockOffsetUpdatedAt        time.Time
 	totalBytesRead              atomic.Int64
 	deltaBytesRead              atomic.Int64
 }

@@ -52,6 +52,9 @@ type PostgresConnector struct {
 	closeLock              sync.Mutex
 	pgVersion              shared.PGVersion
 
+	clockOffset          time.Duration
+	clockOffsetUpdatedAt time.Time
+
 	cdcStoreEnabled bool
 }
 

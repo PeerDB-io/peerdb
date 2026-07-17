@@ -87,16 +87,33 @@ type PostgresCDCConfig struct {
 	InternalVersion                          uint32
 }
 
-// getPostgresClockOffset estimates the difference between the source server
+const clockOffsetTTL = time.Hour
+
+// getPostgresClockOffset returns the cached difference between the source server
 // clock and this process's clock.
-func (p *PostgresCDCSource) getPostgresClockOffset(ctx context.Context) (time.Duration, error) {
-	if p.conn == nil {
+func (c *PostgresConnector) getPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < clockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryPostgresClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// queryPostgresClockOffset estimates the difference between the source server
+// clock and this process's clock.
+func (c *PostgresConnector) queryPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if c.conn == nil {
 		return 0, errors.New("PostgreSQL connection is nil")
 	}
 
 	requestStarted := time.Now()
 	var serverTime time.Time
-	err := p.conn.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&serverTime)
+	err := c.conn.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&serverTime)
 	responseReceived := time.Now()
 	if err != nil {
 		return 0, fmt.Errorf("failed to query PostgreSQL server time: %w", err)

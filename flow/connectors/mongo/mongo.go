@@ -60,14 +60,16 @@ type createChangeStreamFunc func(
 ) (ChangeStream, error)
 
 type MongoConnector struct {
-	logger             log.Logger
-	metadataStore      metadataStore
-	config             *protos.MongoConfig
-	client             *mongo.Client
-	ssh                *utils.SSHTunnel
-	createChangeStream createChangeStreamFunc
-	totalBytesRead     atomic.Int64
-	deltaBytesRead     atomic.Int64
+	logger                    log.Logger
+	metadataStore             metadataStore
+	config                    *protos.MongoConfig
+	client                    *mongo.Client
+	ssh                       *utils.SSHTunnel
+	createChangeStream        createChangeStreamFunc
+	mongoClockOffset          time.Duration
+	mongoClockOffsetUpdatedAt time.Time
+	totalBytesRead            atomic.Int64
+	deltaBytesRead            atomic.Int64
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {

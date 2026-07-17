@@ -39,9 +39,26 @@ type ChangeEvent struct {
 	WallTime      *time.Time     `bson:"wallTime,omitempty"`
 }
 
-// getMongoClockOffset estimates the difference between the source server clock
-// and this process's clock.
+const mongoClockOffsetTTL = time.Hour
+
+// getMongoClockOffset returns the cached difference between the source server
+// clock and this process's clock.
 func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.mongoClockOffsetUpdatedAt) < mongoClockOffsetTTL {
+		return c.mongoClockOffset, nil
+	}
+	offset, err := c.queryMongoClockOffset(ctx)
+	if err != nil {
+		return c.mongoClockOffset, err
+	}
+	c.mongoClockOffset = offset
+	c.mongoClockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// queryMongoClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MongoConnector) queryMongoClockOffset(ctx context.Context) (time.Duration, error) {
 	if c.client == nil {
 		return 0, errors.New("MongoDB client is nil")
 	}
