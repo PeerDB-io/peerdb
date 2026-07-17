@@ -358,6 +358,52 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_First_Row_Lag_Times_Recorded() {
+	srcTableName := "test_first_row_lag_times"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_first_row_lag_times_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			ky TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_first_row_lag_times"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky")
+
+	EnvWaitFor(s.t, env, time.Minute, "first row lag times persisted", func() bool {
+		var populated bool
+		var skewSeconds float64
+		if err := s.catalog.QueryRow(s.t.Context(),
+			`SELECT first_row_received_at IS NOT NULL AND first_row_commit_time IS NOT NULL,
+			 COALESCE(ABS(EXTRACT(EPOCH FROM (first_row_received_at - first_row_commit_time))), 0)
+			 FROM peerdb_stats.cdc_batches
+			 WHERE flow_name = $1 AND first_row_received_at IS NOT NULL
+			 ORDER BY batch_id DESC LIMIT 1`,
+			flowConnConfig.FlowJobName,
+		).Scan(&populated, &skewSeconds); err != nil {
+			return false
+		}
+		return populated && skewSeconds < 300
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	srcTableName := "test_nullable_column"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
