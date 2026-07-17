@@ -676,7 +676,7 @@ func PullCdcRecords[Items model.Items](
 				}
 				lastEmptyBatchPkmSentTime = time.Now()
 				// Caught up with no records for this flow: clear any stale source lag.
-				p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+				p.otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
 			}
 
 			if err := sendStandbyAfterReplLock("pkm-response", false); err != nil {
@@ -806,7 +806,7 @@ func PullCdcRecords[Items model.Items](
 				// Server has nothing beyond what we've consumed (no WAL to any table):
 				// fully idle, so clear any stale source lag. Compared before the bump below.
 				if pkm.ServerWALEnd <= clientXLogPos {
-					p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+					p.otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
 				}
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
@@ -1025,7 +1025,7 @@ func processMessage[Items model.Items](
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
-		p.otelManager.Metrics.CommitLagGauge.Record(ctx,
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
 			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
@@ -1041,7 +1041,7 @@ func processMessage[Items model.Items](
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
-		p.otelManager.Metrics.CommitLagGauge.Record(ctx,
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
 			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:

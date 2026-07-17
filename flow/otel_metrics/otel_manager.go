@@ -54,6 +54,9 @@ const (
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
 	CommitLagGaugeName                   = "commit_lag"
+	SourceLagGaugeName                   = "source_lag"
+	DestinationLagGaugeName              = "destination_lag"
+	E2ELagGaugeName                      = "e2e_lag"
 	ServerSideCommitLagGaugeName         = "server_side_commit_lag"
 	NormalizeLagGaugeName                = "normalize_lag"
 	ErrorEmittedGaugeName                = "error_emitted"
@@ -113,7 +116,9 @@ type Metrics struct {
 	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
 	AllFetchedBytesCounter           metric.Int64Counter
 	FetchedBytesCounter              metric.Int64Counter
-	CommitLagGauge                   metric.Int64Gauge
+	SourceLagGauge                   metric.Int64Gauge
+	DestinationLagGauge              metric.Int64Gauge
+	E2ELagGauge                      metric.Int64Gauge
 	ServerSideCommitLagGauge         metric.Int64Gauge
 	NormalizeLagGauge                metric.Int64Gauge
 	ErrorEmittedGauge                metric.Int64Gauge
@@ -413,10 +418,23 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
+	if om.Metrics.SourceLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SourceLagGaugeName),
 		metric.WithUnit("us"),
-		metric.WithDescription("Lag in microseconds from a source event timestamp (transaction commit timestamp when available)"+
-			" to when PeerDB processes it; reset to zero on source heartbeats; best effort is made to mitigate clock skew"),
+		metric.WithDescription("Lag in microseconds from a source event's commit timestamp to when PeerDB receives it"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.DestinationLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(DestinationLagGaugeName),
+		metric.WithUnit("us"),
+		metric.WithDescription("Lag in microseconds from when PeerDB receives a source event to when it is written to the destination"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
+		metric.WithUnit("us"),
+		metric.WithDescription("End-to-end lag in microseconds from a source event's commit timestamp to when it is written to the destination"),
 	); err != nil {
 		return err
 	}

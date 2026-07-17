@@ -643,7 +643,7 @@ func (c *MySqlConnector) PullRecords(
 			// A heartbeat means there is currently no source change event to lag behind.
 			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
 			// the old source-lag value.
-			otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+			otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
 			return
 		}
 
@@ -663,7 +663,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		if timestampMicros > 0 {
-			otelManager.Metrics.CommitLagGauge.Record(ctx,
+			otelManager.Metrics.SourceLagGauge.Record(ctx,
 				time.Now().UTC().Add(mysqlClockOffset).
 					Sub(time.UnixMicro(timestampMicros)).Microseconds())
 		}
