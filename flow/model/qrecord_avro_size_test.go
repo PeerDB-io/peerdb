@@ -778,7 +778,7 @@ func TestAllQValueKindsSizeCovered(t *testing.T) {
 
 	// Parse kind.go to get all QValueKind constant identifier names
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "../shared/types/kind.go", nil, 0)
+	node, err := parser.ParseFile(fset, "../pkg/types/kind.go", nil, 0)
 	require.NoError(t, err)
 
 	var allKinds []string

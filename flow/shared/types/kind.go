@@ -1,170 +1,75 @@
 package types
 
 import (
-	"strings"
+	pkgtypes "github.com/PeerDB-io/peerdb/flow/pkg/types"
 )
 
-type QValueKind string
+// QValueKind and its constants live in flow/pkg/types so that code in the
+// flow/pkg module can use them; the aliases below keep existing importers of
+// this package working.
+type QValueKind = pkgtypes.QValueKind
 
 const (
-	QValueKindInvalid     QValueKind = "invalid"
-	QValueKindFloat32     QValueKind = "float32"
-	QValueKindFloat64     QValueKind = "float64"
-	QValueKindInt8        QValueKind = "int8"
-	QValueKindInt16       QValueKind = "int16"
-	QValueKindInt32       QValueKind = "int32"
-	QValueKindInt64       QValueKind = "int64"
-	QValueKindInt256      QValueKind = "int256"
-	QValueKindUInt8       QValueKind = "uint8"
-	QValueKindUInt16      QValueKind = "uint16"
-	QValueKindUInt32      QValueKind = "uint32"
-	QValueKindUInt64      QValueKind = "uint64"
-	QValueKindUInt256     QValueKind = "uint256"
-	QValueKindBoolean     QValueKind = "bool"
-	QValueKindQChar       QValueKind = "qchar"
-	QValueKindString      QValueKind = "string"
-	QValueKindEnum        QValueKind = "enum"
-	QValueKindUint16Enum  QValueKind = "uint16enum"
-	QValueKindUint64Set   QValueKind = "uint64set"
-	QValueKindTimestamp   QValueKind = "timestamp"
-	QValueKindTimestampTZ QValueKind = "timestamptz"
-	QValueKindDate        QValueKind = "date"
-	QValueKindTime        QValueKind = "time"
-	QValueKindTimeTZ      QValueKind = "timetz"
-	QValueKindInterval    QValueKind = "interval"
-	QValueKindNumeric     QValueKind = "numeric"
-	QValueKindBytes       QValueKind = "bytes"
-	QValueKindUUID        QValueKind = "uuid"
-	QValueKindJSON        QValueKind = "json"
-	QValueKindJSONB       QValueKind = "jsonb"
-	QValueKindHStore      QValueKind = "hstore"
-	QValueKindGeography   QValueKind = "geography"
-	QValueKindGeometry    QValueKind = "geometry"
-	QValueKindPoint       QValueKind = "point"
+	QValueKindInvalid     = pkgtypes.QValueKindInvalid
+	QValueKindFloat32     = pkgtypes.QValueKindFloat32
+	QValueKindFloat64     = pkgtypes.QValueKindFloat64
+	QValueKindInt8        = pkgtypes.QValueKindInt8
+	QValueKindInt16       = pkgtypes.QValueKindInt16
+	QValueKindInt32       = pkgtypes.QValueKindInt32
+	QValueKindInt64       = pkgtypes.QValueKindInt64
+	QValueKindInt256      = pkgtypes.QValueKindInt256
+	QValueKindUInt8       = pkgtypes.QValueKindUInt8
+	QValueKindUInt16      = pkgtypes.QValueKindUInt16
+	QValueKindUInt32      = pkgtypes.QValueKindUInt32
+	QValueKindUInt64      = pkgtypes.QValueKindUInt64
+	QValueKindUInt256     = pkgtypes.QValueKindUInt256
+	QValueKindBoolean     = pkgtypes.QValueKindBoolean
+	QValueKindQChar       = pkgtypes.QValueKindQChar
+	QValueKindString      = pkgtypes.QValueKindString
+	QValueKindEnum        = pkgtypes.QValueKindEnum
+	QValueKindUint16Enum  = pkgtypes.QValueKindUint16Enum
+	QValueKindUint64Set   = pkgtypes.QValueKindUint64Set
+	QValueKindTimestamp   = pkgtypes.QValueKindTimestamp
+	QValueKindTimestampTZ = pkgtypes.QValueKindTimestampTZ
+	QValueKindDate        = pkgtypes.QValueKindDate
+	QValueKindTime        = pkgtypes.QValueKindTime
+	QValueKindTimeTZ      = pkgtypes.QValueKindTimeTZ
+	QValueKindInterval    = pkgtypes.QValueKindInterval
+	QValueKindNumeric     = pkgtypes.QValueKindNumeric
+	QValueKindBytes       = pkgtypes.QValueKindBytes
+	QValueKindUUID        = pkgtypes.QValueKindUUID
+	QValueKindJSON        = pkgtypes.QValueKindJSON
+	QValueKindJSONB       = pkgtypes.QValueKindJSONB
+	QValueKindHStore      = pkgtypes.QValueKindHStore
+	QValueKindGeography   = pkgtypes.QValueKindGeography
+	QValueKindGeometry    = pkgtypes.QValueKindGeometry
+	QValueKindPoint       = pkgtypes.QValueKindPoint
 
 	// network types
-	QValueKindCIDR    QValueKind = "cidr"
-	QValueKindINET    QValueKind = "inet"
-	QValueKindMacaddr QValueKind = "macaddr"
+	QValueKindCIDR    = pkgtypes.QValueKindCIDR
+	QValueKindINET    = pkgtypes.QValueKindINET
+	QValueKindMacaddr = pkgtypes.QValueKindMacaddr
 
 	// array types
-	QValueKindArrayFloat32     QValueKind = "array_float32"
-	QValueKindArrayFloat64     QValueKind = "array_float64"
-	QValueKindArrayInt16       QValueKind = "array_int16"
-	QValueKindArrayInt32       QValueKind = "array_int32"
-	QValueKindArrayInt64       QValueKind = "array_int64"
-	QValueKindArrayString      QValueKind = "array_string"
-	QValueKindArrayEnum        QValueKind = "array_enum"
-	QValueKindArrayDate        QValueKind = "array_date"
-	QValueKindArrayInterval    QValueKind = "array_interval"
-	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
-	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
-	QValueKindArrayBoolean     QValueKind = "array_bool"
-	QValueKindArrayJSON        QValueKind = "array_json"
-	QValueKindArrayJSONB       QValueKind = "array_jsonb"
-	QValueKindArrayUUID        QValueKind = "array_uuid"
-	QValueKindArrayNumeric     QValueKind = "array_numeric"
+	QValueKindArrayFloat32     = pkgtypes.QValueKindArrayFloat32
+	QValueKindArrayFloat64     = pkgtypes.QValueKindArrayFloat64
+	QValueKindArrayInt16       = pkgtypes.QValueKindArrayInt16
+	QValueKindArrayInt32       = pkgtypes.QValueKindArrayInt32
+	QValueKindArrayInt64       = pkgtypes.QValueKindArrayInt64
+	QValueKindArrayString      = pkgtypes.QValueKindArrayString
+	QValueKindArrayEnum        = pkgtypes.QValueKindArrayEnum
+	QValueKindArrayDate        = pkgtypes.QValueKindArrayDate
+	QValueKindArrayInterval    = pkgtypes.QValueKindArrayInterval
+	QValueKindArrayTimestamp   = pkgtypes.QValueKindArrayTimestamp
+	QValueKindArrayTimestampTZ = pkgtypes.QValueKindArrayTimestampTZ
+	QValueKindArrayBoolean     = pkgtypes.QValueKindArrayBoolean
+	QValueKindArrayJSON        = pkgtypes.QValueKindArrayJSON
+	QValueKindArrayJSONB       = pkgtypes.QValueKindArrayJSONB
+	QValueKindArrayUUID        = pkgtypes.QValueKindArrayUUID
+	QValueKindArrayNumeric     = pkgtypes.QValueKindArrayNumeric
 )
 
-func (kind QValueKind) IsArray() bool {
-	return strings.HasPrefix(string(kind), "array_")
-}
-
-var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
-	QValueKindBoolean:     "BOOLEAN",
-	QValueKindInt8:        "INTEGER",
-	QValueKindInt16:       "INTEGER",
-	QValueKindInt32:       "INTEGER",
-	QValueKindInt64:       "INTEGER",
-	QValueKindUInt8:       "INTEGER",
-	QValueKindUInt16:      "INTEGER",
-	QValueKindUInt32:      "INTEGER",
-	QValueKindUInt64:      "INTEGER",
-	QValueKindFloat32:     "FLOAT",
-	QValueKindFloat64:     "FLOAT",
-	QValueKindQChar:       "CHAR",
-	QValueKindString:      "STRING",
-	QValueKindEnum:        "STRING",
-	QValueKindUint16Enum:  "INTEGER",
-	QValueKindUint64Set:   "INTEGER",
-	QValueKindJSON:        "VARIANT",
-	QValueKindJSONB:       "VARIANT",
-	QValueKindTimestamp:   "TIMESTAMP_NTZ",
-	QValueKindTimestampTZ: "TIMESTAMP_TZ",
-	QValueKindInterval:    "VARIANT",
-	QValueKindTime:        "TIME",
-	QValueKindTimeTZ:      "TIME",
-	QValueKindDate:        "DATE",
-	QValueKindBytes:       "BINARY",
-	QValueKindUUID:        "STRING",
-	QValueKindInvalid:     "STRING",
-	QValueKindHStore:      "VARIANT",
-	QValueKindGeography:   "GEOGRAPHY",
-	QValueKindGeometry:    "GEOMETRY",
-	QValueKindPoint:       "GEOMETRY",
-
-	// array types will be mapped to VARIANT
-	QValueKindArrayFloat32:     "VARIANT",
-	QValueKindArrayFloat64:     "VARIANT",
-	QValueKindArrayInt32:       "VARIANT",
-	QValueKindArrayInt64:       "VARIANT",
-	QValueKindArrayInt16:       "VARIANT",
-	QValueKindArrayString:      "VARIANT",
-	QValueKindArrayEnum:        "VARIANT",
-	QValueKindArrayDate:        "VARIANT",
-	QValueKindArrayInterval:    "VARIANT",
-	QValueKindArrayTimestamp:   "VARIANT",
-	QValueKindArrayTimestampTZ: "VARIANT",
-	QValueKindArrayBoolean:     "VARIANT",
-	QValueKindArrayJSON:        "VARIANT",
-	QValueKindArrayJSONB:       "VARIANT",
-	QValueKindArrayUUID:        "VARIANT",
-	QValueKindArrayNumeric:     "VARIANT",
-}
-
-var QValueKindToClickHouseTypeMap = map[QValueKind]string{
-	QValueKindBoolean:     "Bool",
-	QValueKindInt8:        "Int8",
-	QValueKindInt16:       "Int16",
-	QValueKindInt32:       "Int32",
-	QValueKindInt64:       "Int64",
-	QValueKindInt256:      "Int256",
-	QValueKindUInt8:       "UInt8",
-	QValueKindUInt16:      "UInt16",
-	QValueKindUInt32:      "UInt32",
-	QValueKindUInt64:      "UInt64",
-	QValueKindUInt256:     "UInt256",
-	QValueKindFloat32:     "Float32",
-	QValueKindFloat64:     "Float64",
-	QValueKindQChar:       "FixedString(1)",
-	QValueKindString:      "String",
-	QValueKindEnum:        "LowCardinality(String)",
-	QValueKindUint16Enum:  "UInt16",
-	QValueKindUint64Set:   "UInt64",
-	QValueKindJSON:        "String",
-	QValueKindTimestamp:   "DateTime64(6)",
-	QValueKindTimestampTZ: "DateTime64(6)",
-	QValueKindTime:        "DateTime64(6)",
-	QValueKindTimeTZ:      "DateTime64(6)",
-	QValueKindDate:        "Date32",
-	QValueKindBytes:       "String",
-	QValueKindUUID:        "UUID",
-	QValueKindInvalid:     "String",
-	QValueKindHStore:      "String",
-
-	QValueKindArrayFloat32:     "Array(Float32)",
-	QValueKindArrayFloat64:     "Array(Float64)",
-	QValueKindArrayInt16:       "Array(Int16)",
-	QValueKindArrayInt32:       "Array(Int32)",
-	QValueKindArrayInt64:       "Array(Int64)",
-	QValueKindArrayString:      "Array(String)",
-	QValueKindArrayEnum:        "Array(LowCardinality(String))",
-	QValueKindArrayBoolean:     "Array(Bool)",
-	QValueKindArrayDate:        "Array(Date)",
-	QValueKindArrayInterval:    "Array(String)",
-	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
-	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
-	QValueKindArrayJSON:        "String",
-	QValueKindArrayJSONB:       "String",
-	QValueKindArrayUUID:        "Array(UUID)",
-}
+var (
+	QValueKindToSnowflakeTypeMap  = pkgtypes.QValueKindToSnowflakeTypeMap
+	QValueKindToClickHouseTypeMap = pkgtypes.QValueKindToClickHouseTypeMap
+)

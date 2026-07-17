@@ -422,7 +422,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 			string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := CustomTypeToQKind(typeData, version)
+		customQKind := pkg_pg.CustomTypeToQKind(typeData, version)
 		switch customQKind {
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -1250,7 +1250,7 @@ func processRelationMessage[Items model.Items](
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
 				if typeName, ok := customTypeMapping[column.DataType]; ok {
-					qKind = CustomTypeToQKind(typeName, p.internalVersion)
+					qKind = pkg_pg.CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)

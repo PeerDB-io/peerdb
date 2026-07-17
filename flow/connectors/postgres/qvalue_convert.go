@@ -29,7 +29,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
 ) types.QValueKind {
-	colType, err := PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
+	colType, err := pkg_pg.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
 	if err != nil {
 		if _, warned := c.hushWarnOID[recvOID]; !warned {
 			c.logger.Warn(

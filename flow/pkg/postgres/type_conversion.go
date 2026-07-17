@@ -1,18 +1,17 @@
-package connpostgres
+package postgres
 
 import (
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
-	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/pkg/types"
 )
 
 func PostgresOIDToQValueKind(
 	recvOID uint32,
-	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	customTypeMapping map[uint32]CustomDataType,
 	typeMap *pgtype.Map,
 	version uint32,
 ) (types.QValueKind, error) {
@@ -115,7 +114,7 @@ func PostgresOIDToQValueKind(
 	}
 }
 
-func CustomTypeToQKind(typeData pkg_pg.CustomDataType, version uint32) types.QValueKind {
+func CustomTypeToQKind(typeData CustomDataType, version uint32) types.QValueKind {
 	if typeData.Type == 'e' {
 		if typeData.Delim != 0 {
 			return types.QValueKindArrayEnum
@@ -136,7 +135,7 @@ func CustomTypeToQKind(typeData pkg_pg.CustomDataType, version uint32) types.QVa
 	case "hstore":
 		return types.QValueKindHStore
 	case "vector", "halfvec", "sparsevec":
-		if version >= shared.InternalVersion_PgVectorAsFloatArray {
+		if version >= common.InternalVersion_PgVectorAsFloatArray {
 			return types.QValueKindArrayFloat32
 		} else {
 			return types.QValueKindString

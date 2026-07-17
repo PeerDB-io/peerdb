@@ -9,27 +9,19 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-type NumericDestinationType struct {
-	IsString         bool
-	Precision, Scale int16
-}
+type NumericDestinationType = peerdb_clickhouse.NumericDestinationType
 
 func GetNumericDestinationType(
 	precision, scale int16, targetDWH protos.DBType, unboundedNumericAsString bool,
 ) NumericDestinationType {
 	if targetDWH == protos.DBType_CLICKHOUSE {
-		if precision == 0 && scale == 0 && unboundedNumericAsString {
-			return NumericDestinationType{IsString: true}
-		}
-		if precision > datatypes.PeerDBClickHouseMaxPrecision {
-			return NumericDestinationType{IsString: true}
-		}
+		return peerdb_clickhouse.GetNumericDestinationType(precision, scale, unboundedNumericAsString)
 	}
 	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 	return NumericDestinationType{
@@ -37,19 +29,6 @@ func GetNumericDestinationType(
 		Precision: destPrecision,
 		Scale:     destScale,
 	}
-}
-
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
-	precision, scale := common.ParseNumericTypmod(typeModifier)
-	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-	if err != nil {
-		return "", err
-	}
-	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString)
-	if destinationType.IsString {
-		return "String", nil
-	}
-	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
 }
 
 func ToDWHColumnType(
@@ -77,36 +56,22 @@ func ToDWHColumnType(
 			colType += " NOT NULL"
 		}
 	case protos.DBType_CLICKHOUSE:
-		if kind == types.QValueKindNumeric {
-			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
+		opts := peerdb_clickhouse.TypeMappingOptions{
+			Time64Enabled:   slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled),
+			NullableEnabled: nullableEnabled,
+		}
+		// resolve dynamic settings only for the kinds that consult them
+		switch kind {
+		case types.QValueKindNumeric, types.QValueKindArrayNumeric:
+			asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 			if err != nil {
 				return "", err
 			}
-		} else if kind == types.QValueKindArrayNumeric {
-			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
-			if err != nil {
-				return "", err
-			}
-			colType = fmt.Sprintf("Array(%s)", colType)
-		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
-			colType = "JSON"
-		} else if (kind == types.QValueKindTime || kind == types.QValueKindTimeTZ) &&
-			slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled) {
-			colType = "Time64(6)"
-		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
-			colType = val
-		} else {
-			colType = "String"
+			opts.NumericAsString = asString
+		case types.QValueKindJSON, types.QValueKindJSONB:
+			opts.UseNativeJSONType = ShouldUseNativeJSONType(ctx, env, dwhVersion)
 		}
-		if nullableEnabled && column.Nullable && !kind.IsArray() {
-			if colType == "LowCardinality(String)" {
-				colType = "LowCardinality(Nullable(String))"
-			} else {
-				colType = fmt.Sprintf("Nullable(%s)", colType)
-			}
-		}
+		colType = peerdb_clickhouse.QValueKindToClickHouseType(kind, column.TypeModifier, column.Nullable, opts)
 	default:
 		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
 	}

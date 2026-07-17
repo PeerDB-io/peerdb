@@ -1,115 +1,33 @@
 package datatypes
 
-import "github.com/PeerDB-io/peerdb/flow/pkg/common"
-
-const (
-	// defaults
-	PeerDBBigQueryScale   = 20
-	PeerDBSnowflakeScale  = 20
-	PeerDBClickHouseScale = 38
-
-	PeerDBClickHouseMaxPrecision = 76
-	VARHDRSZ                     = 4
+import (
+	pkgdatatypes "github.com/PeerDB-io/peerdb/flow/pkg/datatypes"
 )
 
-type WarehouseNumericCompatibility interface {
-	MaxPrecision() int16
-	MaxScale() int16
-	DefaultPrecisionAndScale() (int16, int16)
-}
+// The numeric warehouse-compatibility helpers live in flow/pkg/datatypes so
+// that code in the flow/pkg module can use them; the aliases below keep
+// existing importers of this package working.
+const (
+	PeerDBBigQueryScale   = pkgdatatypes.PeerDBBigQueryScale
+	PeerDBSnowflakeScale  = pkgdatatypes.PeerDBSnowflakeScale
+	PeerDBClickHouseScale = pkgdatatypes.PeerDBClickHouseScale
 
-type ClickHouseNumericCompatibility struct{}
+	PeerDBClickHouseMaxPrecision = pkgdatatypes.PeerDBClickHouseMaxPrecision
+	VARHDRSZ                     = pkgdatatypes.VARHDRSZ
+)
 
-func (ClickHouseNumericCompatibility) MaxPrecision() int16 {
-	return PeerDBClickHouseMaxPrecision
-}
+type (
+	WarehouseNumericCompatibility  = pkgdatatypes.WarehouseNumericCompatibility
+	ClickHouseNumericCompatibility = pkgdatatypes.ClickHouseNumericCompatibility
+	SnowflakeNumericCompatibility  = pkgdatatypes.SnowflakeNumericCompatibility
+	BigQueryNumericCompatibility   = pkgdatatypes.BigQueryNumericCompatibility
+	DefaultNumericCompatibility    = pkgdatatypes.DefaultNumericCompatibility
+)
 
-func (ClickHouseNumericCompatibility) MaxScale() int16 {
-	return 76
-}
-
-func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return c.MaxPrecision(), PeerDBClickHouseScale
-}
-
-type SnowflakeNumericCompatibility struct{}
-
-func (SnowflakeNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (SnowflakeNumericCompatibility) MaxScale() int16 {
-	return 37
-}
-
-func (s SnowflakeNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return s.MaxPrecision(), PeerDBSnowflakeScale
-}
-
-type BigQueryNumericCompatibility struct{}
-
-func (BigQueryNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (BigQueryNumericCompatibility) MaxScale() int16 {
-	return 20
-}
-
-func (b BigQueryNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return b.MaxPrecision(), PeerDBBigQueryScale
-}
-
-type DefaultNumericCompatibility struct{}
-
-func (DefaultNumericCompatibility) MaxPrecision() int16 {
-	return 38
-}
-
-func (DefaultNumericCompatibility) MaxScale() int16 {
-	return 37
-}
-
-func (DefaultNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {
-	return 38, 20
-}
-
-func IsValidPrecision(precision int16, warehouseNumeric WarehouseNumericCompatibility) bool {
-	return precision <= warehouseNumeric.MaxPrecision()
-}
-
-func IsValidPrecisionAndScale(precision, scale int16, warehouseNumeric WarehouseNumericCompatibility) bool {
-	return IsValidPrecision(precision, warehouseNumeric) && scale <= warehouseNumeric.MaxScale()
-}
-
-func MakeNumericTypmod(precision int32, scale int32) int32 {
-	if precision == 0 && scale == 0 {
-		return -1
-	}
-	return (precision << 16) | (scale & 0x7ff) + VARHDRSZ
-}
-
-func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
-	if typmod == -1 {
-		return warehouseNumeric.DefaultPrecisionAndScale()
-	}
-
-	precision, scale := common.ParseNumericTypmod(typmod)
-	return GetNumericTypeForWarehousePrecisionScale(precision, scale, warehouseNumeric)
-}
-
-func GetNumericTypeForWarehousePrecisionScale(precision int16, scale int16, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
-	if precision == 0 && scale == 0 {
-		return warehouseNumeric.DefaultPrecisionAndScale()
-	}
-
-	if !IsValidPrecision(precision, warehouseNumeric) {
-		precision = warehouseNumeric.MaxPrecision()
-	}
-
-	if !IsValidPrecisionAndScale(precision, scale, warehouseNumeric) {
-		precision, scale = warehouseNumeric.DefaultPrecisionAndScale()
-	}
-
-	return precision, scale
-}
+var (
+	IsValidPrecision                         = pkgdatatypes.IsValidPrecision
+	IsValidPrecisionAndScale                 = pkgdatatypes.IsValidPrecisionAndScale
+	MakeNumericTypmod                        = pkgdatatypes.MakeNumericTypmod
+	GetNumericTypeForWarehouse               = pkgdatatypes.GetNumericTypeForWarehouse
+	GetNumericTypeForWarehousePrecisionScale = pkgdatatypes.GetNumericTypeForWarehousePrecisionScale
+)
