@@ -419,22 +419,22 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	}
 
 	if om.Metrics.SourceLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SourceLagGaugeName),
-		metric.WithUnit("us"),
-		metric.WithDescription("Lag in microseconds from a source event's commit timestamp to when PeerDB receives it"),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Lag in milliseconds from a source event's commit timestamp to when PeerDB receives it"),
 	); err != nil {
 		return err
 	}
 
 	if om.Metrics.DestinationLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(DestinationLagGaugeName),
-		metric.WithUnit("us"),
-		metric.WithDescription("Lag in microseconds from when PeerDB receives a source event to when it is written to the destination"),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Lag in milliseconds from when PeerDB receives a source event to when it is written to the destination"),
 	); err != nil {
 		return err
 	}
 
 	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
-		metric.WithUnit("us"),
-		metric.WithDescription("End-to-end lag in microseconds from a source event's commit timestamp to destination write"),
+		metric.WithUnit("ms"),
+		metric.WithDescription("End-to-end lag in milliseconds from a source event's commit timestamp to destination write"),
 	); err != nil {
 		return err
 	}

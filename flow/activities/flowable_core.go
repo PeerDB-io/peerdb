@@ -783,8 +783,8 @@ func (a *FlowableActivity) recordDeliveryLag(ctx context.Context, flowJobName st
 
 	now := time.Now().UTC()
 	attrs := metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, flowJobName)))
-	a.OtelManager.Metrics.DestinationLagGauge.Record(ctx, now.Sub(receivedAt).Microseconds(), attrs)
-	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(commitTime).Microseconds(), attrs)
+	a.OtelManager.Metrics.DestinationLagGauge.Record(ctx, now.Sub(receivedAt).Milliseconds(), attrs)
+	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(commitTime).Milliseconds(), attrs)
 }
 
 // Suitable to be run as goroutine

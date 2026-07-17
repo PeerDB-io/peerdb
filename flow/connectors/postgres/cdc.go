@@ -1031,7 +1031,7 @@ func processMessage[Items model.Items](
 	case *pglogrepl.BeginMessage:
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
 		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
-			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
@@ -1047,7 +1047,7 @@ func processMessage[Items model.Items](
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
 		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
-			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Microseconds())
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		originalRelID := msg.RelationID

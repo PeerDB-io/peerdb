@@ -511,7 +511,7 @@ func (c *MongoConnector) PullRecords(
 		commitTimeNanos := commitTime.UnixNano()
 		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
 		otelManager.Metrics.SourceLagGauge.Record(ctx,
-			time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Microseconds())
+			time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Milliseconds())
 
 		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name

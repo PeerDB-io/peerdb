@@ -670,7 +670,7 @@ func (c *MySqlConnector) PullRecords(
 		if timestampMicros > 0 {
 			otelManager.Metrics.SourceLagGauge.Record(ctx,
 				time.Now().UTC().Add(mysqlClockOffset).
-					Sub(time.UnixMicro(timestampMicros)).Microseconds())
+					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
