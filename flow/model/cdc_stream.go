@@ -17,16 +17,17 @@ type CDCStream[T Items] struct {
 	lastCheckpointText string
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta
+
+	firstRowReceivedAt time.Time
+	firstRowCommitTime time.Time
+
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID  int64
 	lastCheckpointSet bool
 	needsNormalize    bool
 	empty             bool
 	emptySet          bool
-
-	firstRowReceivedAt time.Time
-	firstRowCommitTime time.Time
-	firstRowSet        bool
+	firstRowSet       bool
 }
 
 type CdcCheckpoint struct {
@@ -148,6 +149,6 @@ func (r *CDCStream[T]) NeedsNormalize() bool {
 
 // FirstRowTimes returns the received/commit timestamps of the batch's first row event.
 // ok is false if the batch had no row events (e.g. schema-delta-only batch).
-func (r *CDCStream[T]) FirstRowTimes() (receivedAt time.Time, commitTime time.Time, ok bool) {
+func (r *CDCStream[T]) FirstRowTimes() (time.Time, time.Time, bool) {
 	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
 }

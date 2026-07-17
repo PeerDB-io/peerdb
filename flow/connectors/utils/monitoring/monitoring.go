@@ -124,7 +124,7 @@ func GetFirstRowTimesForBatchRange(
 	flowJobName string,
 	startBatchID int64,
 	endBatchID int64,
-) (receivedAt time.Time, commitTime time.Time, ok bool, err error) {
+) (time.Time, time.Time, bool, error) {
 	var minReceivedAt, minCommitTime *time.Time
 	if err := pool.QueryRow(ctx,
 		`SELECT MIN(first_row_received_at), MIN(first_row_commit_time)
