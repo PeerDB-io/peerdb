@@ -801,10 +801,12 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
-				// A keepalive means there is currently no source change event to lag behind.
-				// Reset the gauge so a previously backlogged, now-idle pipe does not retain
-				// the old source-lag value.
-				p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+				// Only reset lag once we've consumed everything the server has. A keepalive
+				// alone isn't proof of idleness: PG also emits them mid-decode of a large tx,
+				// where ServerWALEnd runs ahead of clientXLogPos and lag is real.
+				if pkm.ServerWALEnd <= clientXLogPos {
+					p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
+				}
 
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
