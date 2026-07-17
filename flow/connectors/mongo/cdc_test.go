@@ -388,7 +388,7 @@ func TestDecodeEvent(t *testing.T) {
 }
 
 func TestCreatePipelineProjectsWallTime(t *testing.T) {
-	pipeline, err := createPipeline(nil)
+	pipeline, err := createPipeline(nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, pipeline)
 
