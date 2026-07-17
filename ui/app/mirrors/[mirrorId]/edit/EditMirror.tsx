@@ -21,10 +21,7 @@ import { TextField } from '@/lib/TextField';
 import { useRouter } from 'next/navigation';
 import React, { useMemo, useState, useTransition } from 'react';
 import TablePicker from '../../create/cdc/tablemapping';
-import {
-  changesToTablesMapping,
-  reformattedTableMapping,
-} from '../../create/handlers';
+import { changesToTablesMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
 import { tableMappingSchema } from '../../create/schema';
 import * as styles from '../../create/styles';
@@ -111,14 +108,24 @@ export default function EditMirror({
   }, [rows, alreadySelectedTablesMapping]);
 
   const sendFlowStateChangeRequest = () => {
-    if (rows.length > 0) {
-      const tablesValidity = tableMappingSchema.safeParse(
-        reformattedTableMapping(rows)
-      );
+    // validate only added tables; a pure removal empties the selected set which is valid when editing
+    if (additionalTables.length > 0) {
+      const tablesValidity = tableMappingSchema.safeParse(additionalTables);
       if (!tablesValidity.success) {
         notifyErr(tablesValidity.error.issues[0].message);
         return;
       }
+    }
+    const existingTableCount =
+      mirrorState.cdcStatus?.config?.tableMappings.length ?? 0;
+    if (
+      existingTableCount + additionalTables.length - removedTables.length <=
+      0
+    ) {
+      notifyErr(
+        'Cannot remove all tables from a mirror; drop the mirror instead'
+      );
+      return;
     }
     startSubmit(async () => {
       const req: FlowStateChangeRequest = {
@@ -262,9 +269,9 @@ export default function EditMirror({
       />
 
       <Label variant='action' as='label' style={{ marginTop: '1rem' }}>
-        Adding Tables
+        Add or Remove Tables
       </Label>
-      {!isNotPaused && rows.some((row) => row.selected) && (
+      {!isNotPaused && additionalTables.length > 0 && (
         <div style={tablesSelectedCalloutStyle(theme.theme)}>
           <div style={tablesSelectedCalloutHeaderStyle}>
             Note on adding tables
@@ -277,6 +284,18 @@ export default function EditMirror({
           For custom publications, ensure that the tables are part of the
           publication you provided. This can be done with{' '}
           <code>ALTER PUBLICATION pubname ADD TABLE table1, table2;</code>
+        </div>
+      )}
+      {!isNotPaused && removedTables.length > 0 && (
+        <div style={tablesSelectedCalloutStyle(theme.theme)}>
+          <div style={tablesSelectedCalloutHeaderStyle}>
+            Note on removing tables
+          </div>
+          Deselect a currently mirrored table to remove it from this mirror.
+          <br />
+          For custom publications, also drop the table from the publication
+          yourself with{' '}
+          <code>ALTER PUBLICATION pubname DROP TABLE table1, table2;</code>
         </div>
       )}
 
