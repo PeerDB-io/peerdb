@@ -78,7 +78,6 @@ func AddCDCBatchForFlow(ctx context.Context, pool shared.CatalogPool, flowJobNam
 	return nil
 }
 
-// update num records and end-lsn for a cdc batch
 func UpdateNumRowsAndEndLSNForCDCBatch(
 	ctx context.Context,
 	pool shared.CatalogPool,
@@ -86,12 +85,16 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	batchID int64,
 	numRows uint32,
 	batchEndCheckpoint model.CdcCheckpoint,
+	firstRowReceivedAt *time.Time,
+	firstRowCommitTime *time.Time,
 ) error {
 	if _, err := pool.Exec(ctx,
 		`UPDATE peerdb_stats.cdc_batches
-		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW()
-		WHERE flow_name=$4 AND batch_id=$5`,
-		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
+		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW(),
+		first_row_received_at=$4, first_row_commit_time=$5
+		WHERE flow_name=$6 AND batch_id=$7`,
+		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text,
+		firstRowReceivedAt, firstRowCommitTime, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
@@ -113,6 +116,28 @@ func UpdateEndTimeForCDCBatch(
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
 	return nil
+}
+
+func GetFirstRowTimesForBatchRange(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	startBatchID int64,
+	endBatchID int64,
+) (receivedAt time.Time, commitTime time.Time, ok bool, err error) {
+	var minReceivedAt, minCommitTime *time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT MIN(first_row_received_at), MIN(first_row_commit_time)
+		FROM peerdb_stats.cdc_batches
+		WHERE flow_name=$1 AND batch_id BETWEEN $2 AND $3 AND first_row_received_at IS NOT NULL`,
+		flowJobName, startBatchID, endBatchID,
+	).Scan(&minReceivedAt, &minCommitTime); err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("error while querying first row times: %w", err)
+	}
+	if minReceivedAt == nil || minCommitTime == nil {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	return *minReceivedAt, *minCommitTime, true, nil
 }
 
 func GetPendingNormalizeLagByFlow(

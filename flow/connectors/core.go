@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
@@ -339,6 +340,14 @@ type GetServerSideCommitLagConnector interface {
 	Connector
 
 	GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error)
+}
+
+// SourceClockOffsetConnector exposes the source connector's estimated clock offset
+// (source clock minus worker clock).
+type SourceClockOffsetConnector interface {
+	Connector
+
+	SourceClockOffset(ctx context.Context) (time.Duration, error)
 }
 
 type DatabaseVariantConnector interface {
@@ -777,6 +786,10 @@ var (
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
 
 	_ GetServerSideCommitLagConnector = &connmongo.MongoConnector{}
+
+	_ SourceClockOffsetConnector = &connpostgres.PostgresConnector{}
+	_ SourceClockOffsetConnector = &connmysql.MySqlConnector{}
+	_ SourceClockOffsetConnector = &connmongo.MongoConnector{}
 
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}

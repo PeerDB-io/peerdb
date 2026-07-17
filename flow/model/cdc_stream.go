@@ -23,6 +23,10 @@ type CDCStream[T Items] struct {
 	needsNormalize    bool
 	empty             bool
 	emptySet          bool
+
+	firstRowReceivedAt time.Time
+	firstRowCommitTime time.Time
+	firstRowSet        bool
 }
 
 type CdcCheckpoint struct {
@@ -64,6 +68,11 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
 			r.needsNormalize = true
+			if !r.firstRowSet {
+				r.firstRowSet = true
+				r.firstRowReceivedAt = time.Now().UTC()
+				r.firstRowCommitTime = record.GetCommitTime().UTC()
+			}
 		}
 	}
 
@@ -135,4 +144,10 @@ func (r *CDCStream[T]) AddSchemaDelta(
 
 func (r *CDCStream[T]) NeedsNormalize() bool {
 	return r.needsNormalize
+}
+
+// FirstRowTimes returns the received/commit timestamps of the batch's first row event.
+// ok is false if the batch had no row events (e.g. schema-delta-only batch).
+func (r *CDCStream[T]) FirstRowTimes() (receivedAt time.Time, commitTime time.Time, ok bool) {
+	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
 }

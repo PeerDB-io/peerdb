@@ -66,6 +66,11 @@ func (c *MySqlConnector) getMySQLClockOffset(ctx context.Context) (time.Duration
 	return offset, nil
 }
 
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *MySqlConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getMySQLClockOffset(ctx)
+}
+
 // queryMySQLClockOffset estimates the difference between the source server clock
 // and this process's clock.
 func (c *MySqlConnector) queryMySQLClockOffset(ctx context.Context) (time.Duration, error) {

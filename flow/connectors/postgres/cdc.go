@@ -105,6 +105,11 @@ func (c *PostgresConnector) getPostgresClockOffset(ctx context.Context) (time.Du
 	return offset, nil
 }
 
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *PostgresConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getPostgresClockOffset(ctx)
+}
+
 // queryPostgresClockOffset estimates the difference between the source server
 // clock and this process's clock.
 func (c *PostgresConnector) queryPostgresClockOffset(ctx context.Context) (time.Duration, error) {

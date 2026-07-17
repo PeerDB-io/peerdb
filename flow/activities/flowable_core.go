@@ -369,8 +369,22 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 
+	var firstRowReceivedAt, firstRowCommitTime *time.Time
+	if receivedAt, commitTime, ok := recordBatchPull.FirstRowTimes(); ok {
+		// Shift the source commit time into the worker clock frame so end-to-end lag,
+		// computed at normalize time as (worker now - stored), is corrected for clock skew.
+		if offsetConn, ok := any(srcConn).(connectors.SourceClockOffsetConnector); ok {
+			if offset, err := offsetConn.SourceClockOffset(ctx); err != nil {
+				logger.Warn("failed to get source clock offset for e2e lag", slog.Any("error", err))
+			} else {
+				commitTime = commitTime.Add(-offset)
+			}
+		}
+		firstRowReceivedAt, firstRowCommitTime = &receivedAt, &commitTime
+	}
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
+		firstRowReceivedAt, firstRowCommitTime,
 	); err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
@@ -742,6 +756,8 @@ func (a *FlowableActivity) startNormalize(
 			}
 		}
 
+		a.recordDeliveryLag(ctx, config.FlowJobName, res.StartBatchID, res.EndBatchID)
+
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
 		normalizeResponses.Update(res.EndBatchID)
@@ -749,6 +765,26 @@ func (a *FlowableActivity) startNormalize(
 			return nil
 		}
 	}
+}
+
+// recordDeliveryLag reports destination and end-to-end lag for a range of batches that just
+// finished normalizing.
+func (a *FlowableActivity) recordDeliveryLag(ctx context.Context, flowJobName string, startBatchID int64, endBatchID int64) {
+	receivedAt, commitTime, ok, err := monitoring.GetFirstRowTimesForBatchRange(
+		ctx, a.CatalogPool, flowJobName, startBatchID, endBatchID,
+	)
+	if err != nil {
+		internal.LoggerFromCtx(ctx).Error("failed to query first row times for delivery lag", slog.Any("error", err))
+		return
+	}
+	if !ok {
+		return
+	}
+
+	now := time.Now().UTC()
+	attrs := metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, flowJobName)))
+	a.OtelManager.Metrics.DestinationLagGauge.Record(ctx, now.Sub(receivedAt).Microseconds(), attrs)
+	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(commitTime).Microseconds(), attrs)
 }
 
 // Suitable to be run as goroutine

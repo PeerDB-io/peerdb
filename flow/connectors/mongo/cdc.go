@@ -76,6 +76,11 @@ func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration
 	return offset, nil
 }
 
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *MongoConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getMongoClockOffset(ctx)
+}
+
 // queryMongoClockOffset estimates the difference between the source server clock
 // and this process's clock.
 func (c *MongoConnector) queryMongoClockOffset(ctx context.Context) (time.Duration, error) {
