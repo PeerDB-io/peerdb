@@ -675,6 +675,8 @@ func PullCdcRecords[Items model.Items](
 					return err
 				}
 				lastEmptyBatchPkmSentTime = time.Now()
+				// Caught up with no records for this flow: clear any stale source lag.
+				p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
 			}
 
 			if err := sendStandbyAfterReplLock("pkm-response", false); err != nil {
@@ -801,13 +803,11 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
-				// Only reset lag once we've consumed everything the server has. A keepalive
-				// alone isn't proof of idleness: PG also emits them mid-decode of a large tx,
-				// where ServerWALEnd runs ahead of clientXLogPos and lag is real.
+				// Server has nothing beyond what we've consumed (no WAL to any table):
+				// fully idle, so clear any stale source lag. Compared before the bump below.
 				if pkm.ServerWALEnd <= clientXLogPos {
 					p.otelManager.Metrics.CommitLagGauge.Record(ctx, 0)
 				}
-
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
 				}
