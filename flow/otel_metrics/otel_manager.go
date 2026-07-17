@@ -434,7 +434,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
 		metric.WithUnit("us"),
-		metric.WithDescription("End-to-end lag in microseconds from a source event's commit timestamp to when it is written to the destination"),
+		metric.WithDescription("End-to-end lag in microseconds from a source event's commit timestamp to destination write"),
 	); err != nil {
 		return err
 	}

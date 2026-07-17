@@ -52,11 +52,11 @@ type Namespace struct {
 
 type ChangeEvent struct {
 	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
+	WallTime      *time.Time     `bson:"wallTime,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
-	WallTime      *time.Time     `bson:"wallTime,omitempty"`
 }
 
 const mongoClockOffsetTTL = time.Hour

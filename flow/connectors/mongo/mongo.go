@@ -60,6 +60,7 @@ type createChangeStreamFunc func(
 ) (ChangeStream, error)
 
 type MongoConnector struct {
+	mongoClockOffsetUpdatedAt time.Time
 	logger                    log.Logger
 	metadataStore             metadataStore
 	config                    *protos.MongoConfig
@@ -70,7 +71,6 @@ type MongoConnector struct {
 	totalBytesRead            atomic.Int64
 	deltaBytesRead            atomic.Int64
 	mongoClockOffset          time.Duration
-	mongoClockOffsetUpdatedAt time.Time
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {

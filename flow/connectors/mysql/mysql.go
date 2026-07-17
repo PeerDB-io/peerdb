@@ -30,21 +30,21 @@ import (
 )
 
 type MySqlConnector struct {
+	clockOffsetUpdatedAt time.Time
+	logger               log.Logger
+	collationCharset     atomic.Pointer[map[uint64]string]
+	conn                 atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts             atomic.Pointer[chan context.Context]
+	ssh                  *utils.SSHTunnel
+	rdsAuth              *utils.RDSAuth
+	config               *protos.MySqlConfig
 	*metadataStore.PostgresMetadata
-	config                      *protos.MySqlConfig
-	ssh                         *utils.SSHTunnel
-	conn                        atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts                    atomic.Pointer[chan context.Context]
-	logger                      log.Logger
-	rdsAuth                     *utils.RDSAuth
-	serverVersion               string
-	collationCharset            atomic.Pointer[map[uint64]string]
 	warnedUnsupportedEventTypes sync.Map
 	warnedCharsets              sync.Map
 	warnedTypeChanges           sync.Map
+	serverVersion               string
 	binlogHeartbeatPeriod       time.Duration
 	clockOffset                 time.Duration
-	clockOffsetUpdatedAt        time.Time
 	totalBytesRead              atomic.Int64
 	deltaBytesRead              atomic.Int64
 }
