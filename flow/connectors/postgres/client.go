@@ -326,7 +326,7 @@ func getSlotInfo(
 		NULL::bigint
 	`
 	statsJoin := ""
-	if pgversion >= shared.POSTGRES_16 {
+	if pgversion >= shared.POSTGRES_14 {
 		statsSelect = `
 			EXTRACT(EPOCH FROM psrs.stats_reset)::bigint,
 			psrs.spill_txns,

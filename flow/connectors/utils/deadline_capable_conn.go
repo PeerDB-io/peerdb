@@ -1,9 +1,12 @@
 package utils
 
 import (
+	"errors"
 	"io"
 	"net"
 	"sync"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type deadlineCapableConn struct {
@@ -47,6 +50,23 @@ func NewDeadlineCapableConn(sshConn net.Conn) net.Conn {
 	}()
 
 	return dcConn
+}
+
+func (c *deadlineCapableConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	return n, translateErr(err)
+}
+
+func (c *deadlineCapableConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	return n, translateErr(err)
+}
+
+func translateErr(err error) error {
+	if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) {
+		return exceptions.NewSSHTunnelClosedError(err)
+	}
+	return err
 }
 
 func (c *deadlineCapableConn) Close() error {

@@ -15,7 +15,7 @@ func HeartbeatRoutine(
 	counter := 0
 	return Interval(
 		ctx,
-		15*time.Second,
+		2*time.Second,
 		func() {
 			counter += 1
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))

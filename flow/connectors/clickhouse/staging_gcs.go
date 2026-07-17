@@ -17,6 +17,7 @@ import (
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const gcsSignedURLExpiry = 1 * time.Hour
@@ -50,7 +51,7 @@ func newGCSStagingStore(ctx context.Context, bucketName string) (StagingStore, e
 	// Uses Application Default Credentials (Workload Identity on GKE)
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCS client: %w", err)
+		return nil, exceptions.NewGCSError(fmt.Errorf("failed to create GCS client: %w", err))
 	}
 
 	return &gcsStagingStore{
@@ -69,10 +70,10 @@ func (g *gcsStagingStore) Upload(ctx context.Context, env map[string]string, key
 
 	if _, err := io.Copy(w, body); err != nil {
 		w.Close()
-		return fmt.Errorf("failed to write to GCS object %s: %w", key, err)
+		return exceptions.NewGCSError(fmt.Errorf("failed to write to GCS object %s: %w", key, err))
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("failed to finalize GCS upload for %s: %w", key, err)
+		return exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for %s: %w", key, err))
 	}
 
 	logger.Info("finished GCS upload", slog.String("key", key))
@@ -85,7 +86,7 @@ func (g *gcsStagingStore) TableFunctionExpr(ctx context.Context, key string, for
 		Expires: time.Now().Add(gcsSignedURLExpiry),
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to generate signed URL for gs://%s/%s: %w", g.bucket, key, err)
+		return "", exceptions.NewGCSError(fmt.Errorf("failed to generate signed URL for gs://%s/%s: %w", g.bucket, key, err))
 	}
 
 	var expr strings.Builder
@@ -109,10 +110,10 @@ func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to list GCS objects: %w", err)
+			return exceptions.NewGCSError(fmt.Errorf("failed to list GCS objects: %w", err))
 		}
 		if err := g.client.Bucket(g.bucket).Object(attrs.Name).Delete(ctx); err != nil {
-			return fmt.Errorf("failed to delete GCS object %s: %w", attrs.Name, err)
+			return exceptions.NewGCSError(fmt.Errorf("failed to delete GCS object %s: %w", attrs.Name, err))
 		}
 	}
 

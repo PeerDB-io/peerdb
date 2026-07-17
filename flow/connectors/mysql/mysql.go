@@ -41,6 +41,7 @@ type MySqlConnector struct {
 	collationCharset            atomic.Pointer[map[uint64]string]
 	warnedUnsupportedEventTypes sync.Map
 	warnedCharsets              sync.Map
+	warnedTypeChanges           sync.Map
 	binlogHeartbeatPeriod       time.Duration
 	clockOffset                 time.Duration
 	clockOffsetUpdatedAt        time.Time

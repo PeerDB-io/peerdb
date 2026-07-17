@@ -47,6 +47,13 @@
       "allowedVersions": "/^8\\.0\\./",
       "automerge": false
     },
+    // Default docker versioning can't parse cargo-chef's compound `latest-rust-<version>-alpine`
+    // tag, so the rust version never rolls forward. Regex versioning captures the embedded version.
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["lukemathwalker/cargo-chef"],
+      "versioning": "regex:^latest-rust-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-alpine$"
+    },
     // Disable updates on generated and dependencies without explicit versions in their life cycles.
     // Disabled updates means that Renovate will not proactively propose changes for these dependencies
     // but its reliance on go MVS might generate update PRs with updates on these if transitively required.

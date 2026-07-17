@@ -66,10 +66,11 @@ type MongoConnector struct {
 	client                    *mongo.Client
 	ssh                       *utils.SSHTunnel
 	createChangeStream        createChangeStreamFunc
-	mongoClockOffset          time.Duration
-	mongoClockOffsetUpdatedAt time.Time
+	excludedOps               []operationType
 	totalBytesRead            atomic.Int64
 	deltaBytesRead            atomic.Int64
+	mongoClockOffset          time.Duration
+	mongoClockOffsetUpdatedAt time.Time
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
