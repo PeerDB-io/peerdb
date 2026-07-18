@@ -439,6 +439,22 @@ func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) 
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresProgramLimitExceededErrorShouldBeNotifyTelemetry(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ProgramLimitExceeded,
+		Message:  `index row size 3176 exceeds btree version 4 maximum 2704 for index "script_outputs_result_idx"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to sync records: failed to copy records into destination table: %w", err))
+	assert.Equal(t, ErrorNotifyProgramLimitExceeded, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyTelemetry, errorClass.ErrorAction(), "Unexpected error action")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ProgramLimitExceeded,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",

@@ -254,6 +254,13 @@ var (
 	ErrorNotifyWalSegmentRemoved = ErrorClass{
 		Class: "NOTIFY_WAL_SEGMENT_REMOVED", action: NotifyUser,
 	}
+	// SQLSTATE class 54 (program limit exceeded): row/statement/column limits,
+	// e.g. an oversized btree index entry on the destination. Retrying can never
+	// succeed; needs internal attention, so give it a dedicated class instead of
+	// letting it drown in OTHER.
+	ErrorNotifyProgramLimitExceeded = ErrorClass{
+		Class: "NOTIFY_PROGRAM_LIMIT_EXCEEDED", action: NotifyTelemetry,
+	}
 	ErrorNotifyClickHouseSupportIsDisabledError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_SUPPORT_IS_DISABLED_ERROR", action: NotifyUser,
 	}
@@ -729,6 +736,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
+
+		case pgerrcode.ProgramLimitExceeded,
+			pgerrcode.StatementTooComplex,
+			pgerrcode.TooManyColumns,
+			pgerrcode.TooManyArguments:
+			// e.g. `index row size 3176 exceeds btree version 4 maximum 2704 for index "..."`
+			// when a destination btree indexes an oversized value
+			return ErrorNotifyProgramLimitExceeded, pgErrorInfo
 
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
