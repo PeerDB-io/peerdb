@@ -370,8 +370,8 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		case *protos.PartitionRange_StringRange:
-			rangeStart = "'" + mysql.Escape(x.StringRange.Start) + "'"
-			rangeEnd = "'" + mysql.Escape(x.StringRange.End) + "'"
+			rangeStart = "'" + escapeWithNoBackslashEscapes(x.StringRange.Start) + "'"
+			rangeEnd = "'" + escapeWithNoBackslashEscapes(x.StringRange.End) + "'"
 			if config.Query != "" {
 				// custom query is only possible for standalone QRepFlowWorkflow;
 				// this is a legacy feature and string partitioning is not supported

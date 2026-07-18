@@ -281,6 +281,12 @@ func (c *MySqlConnector) setSessionSettings() error {
 	return nil
 }
 
+func escapeWithNoBackslashEscapes(s string) string {
+	// mysql.Escape must NOT be used because MySQL connector session has sql_mode set
+	// to NO_BACKSLASH_ESCAPES (see setSessionSettings). Only quotes needs to be escaped.
+	return strings.ReplaceAll(s, "'", "''")
+}
+
 // withRetries return an iterable over connections,
 // consumer should break out of loop on success or error,
 // to retry for mysql.ErrBadConn

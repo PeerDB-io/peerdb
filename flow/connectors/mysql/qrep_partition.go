@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
@@ -281,7 +280,7 @@ func (c *MySqlConnector) fetchNextRealKey(
 ) (string, bool, error) {
 	query := fmt.Sprintf(
 		"SELECT %[1]s FROM %[2]s WHERE %[1]s >= '%[3]s' AND %[1]s > '%[4]s' AND %[1]s < '%[5]s' ORDER BY %[1]s LIMIT 1",
-		quotedCol, tableName, mysql.Escape(midpoint), mysql.Escape(start), mysql.Escape(end))
+		quotedCol, tableName, escapeWithNoBackslashEscapes(midpoint), escapeWithNoBackslashEscapes(start), escapeWithNoBackslashEscapes(end))
 	return c.fetchRealKey(ctx, query)
 }
 
@@ -294,7 +293,7 @@ func (c *MySqlConnector) fetchPrevRealKey(
 ) (string, bool, error) {
 	query := fmt.Sprintf(
 		"SELECT %[1]s FROM %[2]s WHERE %[1]s < '%[3]s' AND %[1]s > '%[4]s' AND %[1]s < '%[5]s' ORDER BY %[1]s DESC LIMIT 1",
-		quotedCol, tableName, mysql.Escape(midpoint), mysql.Escape(start), mysql.Escape(end))
+		quotedCol, tableName, escapeWithNoBackslashEscapes(midpoint), escapeWithNoBackslashEscapes(start), escapeWithNoBackslashEscapes(end))
 	return c.fetchRealKey(ctx, query)
 }
 
@@ -325,7 +324,7 @@ func (c *MySqlConnector) estimateRowsInRange(
 ) (uint64, error) {
 	query := fmt.Sprintf(
 		"EXPLAIN FORMAT=TRADITIONAL SELECT 1 FROM %[1]s WHERE %[2]s >= '%[3]s' AND %[2]s < '%[4]s'",
-		tableName, quotedCol, mysql.Escape(start), mysql.Escape(end))
+		tableName, quotedCol, escapeWithNoBackslashEscapes(start), escapeWithNoBackslashEscapes(end))
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
 		return 0, err

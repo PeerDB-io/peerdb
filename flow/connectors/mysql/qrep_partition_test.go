@@ -214,6 +214,25 @@ func TestBase95RoundTrip(t *testing.T) {
 	}
 }
 
+func TestEscapeStringValue(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		expected string
+	}{
+		{"plain", "key_0042", "key_0042"},
+		{"backslash untouched", `Z:\tmp`, `Z:\tmp`},
+		{"quotes doubled", `x' OR '1'='1`, `x'' OR ''1''=''1`},
+		{"midpoint-synthesized quotes", "'''", "''''''"},
+		{"control bytes raw", "a\x00b\nc\td", "a\x00b\nc\td"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, escapeWithNoBackslashEscapes(tc.in))
+		})
+	}
+}
+
 func TestStringPartitionHeapPopsLargest(t *testing.T) {
 	h := &stringPartitionHeap{}
 	heap.Init(h)
