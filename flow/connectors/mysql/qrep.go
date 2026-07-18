@@ -167,9 +167,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			stringPartitions, err := buildAdaptiveStringPartitions(
 				ctx, c, c.logger, parsedWatermarkTable, config.WatermarkColumn, start, end, numPartitions)
 			if err != nil {
-				c.logger.Warn("failed to build adaptive string partitions, falling back to full table partition",
-					slog.Any("error", err))
-				return utils.FullTablePartition(), nil
+				return nil, fmt.Errorf("failed to build adaptive string partitions: %w", err)
 			}
 			partitionHelper.AddPartitions(stringPartitions)
 		}

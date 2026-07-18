@@ -324,14 +324,34 @@ func verifyFullCoverage(t *testing.T, partitions []*protos.QRepPartition, keys [
 	t.Helper()
 	require.NotEmpty(t, partitions)
 
-	// verify one end-inclusive partition exists
-	count := 0
-	for _, p := range partitions {
-		if p.GetRange().GetStringRange().EndInclusive {
-			count++
+	minKey, maxKey := keys[0], keys[0]
+	for _, k := range keys[1:] {
+		if less(k, minKey) {
+			minKey = k
+		}
+		if less(maxKey, k) {
+			maxKey = k
 		}
 	}
-	require.Equal(t, 1, count)
+
+	// verify the partitions form a contiguous chain over [minKey, maxKey]
+	sorted := slices.Clone(partitions)
+	slices.SortFunc(sorted, func(a *protos.QRepPartition, b *protos.QRepPartition) int {
+		if less(a.GetRange().GetStringRange().GetStart(), b.GetRange().GetStringRange().GetStart()) {
+			return -1
+		}
+		return 1
+	})
+	require.Equal(t, minKey, sorted[0].GetRange().GetStringRange().GetStart())
+	require.Equal(t, maxKey, sorted[len(sorted)-1].GetRange().GetStringRange().GetEnd())
+	for i, p := range sorted {
+		sr := p.GetRange().GetStringRange()
+		require.NotNil(t, sr)
+		if i > 0 {
+			require.Equal(t, sorted[i-1].GetRange().GetStringRange().GetEnd(), sr.GetStart())
+		}
+		require.Equal(t, i == len(sorted)-1, sr.GetEndInclusive())
+	}
 
 	// verify each key belongs to exactly one partition
 	for _, key := range keys {
@@ -375,10 +395,8 @@ func TestBuildAdaptiveStringPartitions_NumKeysLessThanNumPartitions(t *testing.T
 
 func TestBuildAdaptiveStringPartitions_LowCardinality(t *testing.T) {
 	keys := []string{"aaa", "aaa", "aaa", "ooo", "ooo", "zzz", "zzz", "zzz", "zzz"}
-	distinct := len(slices.Compact(slices.Clone(keys)))
 	partitions := runAdaptiveStringPartitions(t, keys, binaryLess, 8)
-	require.LessOrEqual(t, len(partitions), distinct-1)
-	require.GreaterOrEqual(t, len(partitions), 1)
+	require.Len(t, partitions, 2)
 	verifyFullCoverage(t, partitions, keys, binaryLess)
 }
 

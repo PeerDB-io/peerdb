@@ -3,6 +3,7 @@ package connmysql
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -68,7 +69,7 @@ func buildUuidStringPartitions(
 		return nil, fmt.Errorf("failed to convert max uuid to bigint: %w", err)
 	}
 	if minInt.Cmp(maxInt) > 0 {
-		return nil, fmt.Errorf("min uuid (%s) greater than max uuid (%s)", minVal, maxVal)
+		return nil, errors.New("min uuid greater than max uuid")
 	}
 
 	var partitions []*protos.QRepPartition
@@ -119,6 +120,8 @@ func stringMidpoint(s1 string, s2 string) string {
 	for i < len(s1) && i < len(s2) && s1[i] == s2[i] {
 		i++
 	}
+	// This can break multibyte characters in the middle but the queries still
+	// succeed and the whole range is covered, even if with a skew
 	sharedPrefix := s1[:i]
 	s1, s2 = s1[i:], s2[i:]
 	mid := (stringToBase95Integer(s1) + stringToBase95Integer(s2)) / 2
@@ -209,7 +212,7 @@ func buildAdaptiveStringPartitions(
 
 	totalRows, err := prober.estimateRowsInRange(ctx, tableName, quotedCol, minVal, maxVal)
 	if err != nil {
-		return nil, fmt.Errorf("failed to estimate rows for [%s, %s]: %w", minVal, maxVal, err)
+		return nil, fmt.Errorf("failed to estimate rows: %w", err)
 	}
 	h := &stringPartitionHeap{{start: minVal, end: maxVal, rows: totalRows}}
 	heap.Init(h)
@@ -226,7 +229,7 @@ func buildAdaptiveStringPartitions(
 		mid := stringMidpoint(p.start, p.end)
 		k, found, err := prober.fetchNextRealKey(ctx, tableName, quotedCol, mid, p.start, p.end)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch next real key for [%s, %s]: %w", p.start, p.end, err)
+			return nil, fmt.Errorf("failed to fetch next real key: %w", err)
 		}
 		if !found {
 			// The interpolated midpoint can overshoot every key in the range when
@@ -234,7 +237,7 @@ func buildAdaptiveStringPartitions(
 			// backwards before declaring the partition unsplittable.
 			k, found, err = prober.fetchPrevRealKey(ctx, tableName, quotedCol, mid, p.start, p.end)
 			if err != nil {
-				return nil, fmt.Errorf("failed to fetch prev real key for [%s, %s]: %w", p.start, p.end, err)
+				return nil, fmt.Errorf("failed to fetch prev real key: %w", err)
 			}
 		}
 		if !found {
@@ -244,11 +247,11 @@ func buildAdaptiveStringPartitions(
 
 		leftRows, err := prober.estimateRowsInRange(ctx, tableName, quotedCol, p.start, k)
 		if err != nil {
-			return nil, fmt.Errorf("failed to estimate rows for [%s, %s]: %w", p.start, k, err)
+			return nil, fmt.Errorf("failed to estimate rows: %w", err)
 		}
 		rightRows, err := prober.estimateRowsInRange(ctx, tableName, quotedCol, k, p.end)
 		if err != nil {
-			return nil, fmt.Errorf("failed to estimate rows for [%s, %s]: %w", k, p.end, err)
+			return nil, fmt.Errorf("failed to estimate rows: %w", err)
 		}
 		heap.Push(h, stringPartitionEntry{start: p.start, end: k, rows: leftRows})
 		heap.Push(h, stringPartitionEntry{start: k, end: p.end, rows: rightRows})
@@ -329,7 +332,7 @@ func (c *MySqlConnector) estimateRowsInRange(
 	}
 	defer rs.Close()
 	if rs.RowNumber() == 0 {
-		return 0, fmt.Errorf("no resultset for table %s", tableName)
+		return 0, fmt.Errorf("EXPLAIN returned no rows for table %s", tableName)
 	}
 	rows, err := rs.GetUintByName(0, "rows")
 	if err != nil {
