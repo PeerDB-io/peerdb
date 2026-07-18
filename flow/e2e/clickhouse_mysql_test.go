@@ -2611,6 +2611,84 @@ func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_Parallel_Snap
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_MySQL_String_Partition_Key_Special_Chars_Parallel_Snapshot guards against
+// silent endpoint data loss when a watermark value contains a backslash, which
+// the session sql_mode (NO_BACKSLASH_ESCAPES) treats as literal but mysql.Escape
+// would wrongly escape it (\ -> \\), potentially sorting below the real max value
+func (s ClickHouseSuite) Test_MySQL_String_Partition_Key_Special_Chars_Parallel_Snapshot() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTable := "test_string_pk_special_chars"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_string_pk_special_chars_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin PRIMARY KEY, val INT NOT NULL)",
+			srcFullName)))
+
+	const numRows = 50
+	const numPartitions = 8
+	keys := make([]string, numRows)
+	for i := range numRows - 1 {
+		keys[i] = fmt.Sprintf("key_%02d", i)
+	}
+	// wrongly escaped, `key_99\\max` sorts before `key_99\max` under binary collation:
+	// key_99\max bytes:  6B 65 79 5F 39 39 5C 6D 61 78
+	// key_99\\max bytes: 6B 65 79 5F 39 39 5C 5C 6D 61 78
+	keys[numRows-1] = `key_99\max`
+
+	// insert via hex literals so the insert itself is independent of escaping
+	values := make([]string, len(keys))
+	for i, key := range keys {
+		values[i] = fmt.Sprintf("(X'%s', %d)", hex.EncodeToString([]byte(key)), i)
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, val) VALUES %s", srcFullName, strings.Join(values, ","))))
+
+	// to make stats more accurate on a freshly generated table
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "ANALYZE TABLE "+srcFullName))
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	for _, tm := range tableMappings {
+		tm.ShardingKey = "cityHash64(id)"
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   s.attachSuffix("string_pk_special_chars"),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	partitionRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer partitionRows.Close()
+
+	var totalRows int64
+	for partitionRows.Next() {
+		var rowsInPartition int64
+		require.NoError(s.t, partitionRows.Scan(&rowsInPartition))
+		totalRows += rowsInPartition
+	}
+	require.NoError(s.t, partitionRows.Err())
+	require.EqualValues(s.t, numRows, totalRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_NoPrimaryKey_CDC() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
