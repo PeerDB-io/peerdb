@@ -86,6 +86,12 @@ func clampDates(dateExpr string) string {
 	return fmt.Sprintf("if(isNull(%s), NULL, %s)", dateExpr, upperAndLowerBounded)
 }
 
+var (
+	minBound    = fmt.Sprintf("toDateTime64('%d-01-01 00:00:00',6,'UTC')", qvalue.ClickHouseMinYear)
+	maxBound    = fmt.Sprintf("toDateTime64('%d-12-31 23:59:59.999999',6,'UTC')", qvalue.ClickHouseMaxYear)
+	maxDayStart = fmt.Sprintf("toDateTime64('%d-12-31 00:00:00',6,'UTC')", qvalue.ClickHouseMaxYear)
+)
+
 // clampTimestamps bounds a DateTime64(6) SQL expression to PeerDB's supported
 // range, matching the Go-side clamp applied during initial load
 // (processGeneralTime): out-of-range values move to the boundary date with
@@ -93,9 +99,6 @@ func clampDates(dateExpr string) string {
 // already clamps, making this a no-op; on >= 26.7 the parse passes
 // out-of-range values through.
 func clampTimestamps(timestampExpr string) string {
-	minBound := fmt.Sprintf("toDateTime64('%d-01-01 00:00:00',6,'UTC')", qvalue.ClickHouseMinYear)
-	maxBound := fmt.Sprintf("toDateTime64('%d-12-31 23:59:59.999999',6,'UTC')", qvalue.ClickHouseMaxYear)
-	maxDayStart := fmt.Sprintf("toDateTime64('%d-12-31 00:00:00',6,'UTC')", qvalue.ClickHouseMaxYear)
 	// Time-of-day is rebuilt from epoch microseconds instead of calendar
 	// functions which misbehave on out-of-range inputs.
 	timeOfDay := fmt.Sprintf("positiveModulo(toUnixTimestamp64Micro(%s), toInt64(86400000000))", timestampExpr)
