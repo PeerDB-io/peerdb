@@ -372,8 +372,8 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 }
 
 const (
-	clickHouseMinYear = 1900
-	clickHouseMaxYear = 2299
+	ClickHouseMinYear = 1900
+	ClickHouseMaxYear = 2299
 )
 
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
@@ -390,10 +390,10 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isD
 			}
 		}
 	case protos.DBType_CLICKHOUSE:
-		if year := t.Year(); year < clickHouseMinYear {
-			t = time.Date(clickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
-		} else if year > clickHouseMaxYear {
-			t = time.Date(clickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		if year := t.Year(); year < ClickHouseMinYear {
+			t = time.Date(ClickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		} else if year > ClickHouseMaxYear {
+			t = time.Date(ClickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 		}
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form
