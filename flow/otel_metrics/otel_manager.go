@@ -53,7 +53,6 @@ const (
 	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
-	CommitLagGaugeName                   = "commit_lag"
 	SourceLagGaugeName                   = "source_lag"
 	DestinationLagGaugeName              = "destination_lag"
 	E2ELagGaugeName                      = "e2e_lag"
