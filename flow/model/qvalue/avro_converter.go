@@ -372,6 +372,11 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 }
 
 const (
+	// TODO:
+	// This limits match the current ClickHouse stable version ranges.
+	// These are being expended with https://github.com/ClickHouse/ClickHouse/issues/65380
+	// Follow-up to update these limits or make them dynamic in function of the target ClickHouse dp
+	// capabilities.
 	ClickHouseMinYear = 1900
 	ClickHouseMaxYear = 2299
 )
