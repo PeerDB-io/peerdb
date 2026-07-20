@@ -86,6 +86,26 @@ func clampDates(dateExpr string) string {
 	return fmt.Sprintf("if(isNull(%s), NULL, %s)", dateExpr, upperAndLowerBounded)
 }
 
+// clampTimestamps bounds a DateTime64(6) SQL expression to PeerDB's supported
+// range, matching the Go-side clamp applied during initial load
+// (processGeneralTime): out-of-range values move to the boundary date with
+// time-of-day preserved. On ClickHouse < 26.7 parseDateTime64BestEffort*
+// already clamps, making this a no-op; on >= 26.7 the parse passes
+// out-of-range values through.
+func clampTimestamps(timestampExpr string) string {
+	minBound := fmt.Sprintf("toDateTime64('%d-01-01 00:00:00',6,'UTC')", qvalue.ClickHouseMinYear)
+	maxBound := fmt.Sprintf("toDateTime64('%d-12-31 23:59:59.999999',6,'UTC')", qvalue.ClickHouseMaxYear)
+	maxDayStart := fmt.Sprintf("toDateTime64('%d-12-31 00:00:00',6,'UTC')", qvalue.ClickHouseMaxYear)
+	// Time-of-day is rebuilt from epoch microseconds instead of calendar
+	// functions which misbehave on out-of-range inputs.
+	timeOfDay := fmt.Sprintf("positiveModulo(toUnixTimestamp64Micro(%s), toInt64(86400000000))", timestampExpr)
+	return fmt.Sprintf("multiIf(isNull(%s), NULL, %s < %s, addMicroseconds(%s, %s), %s > %s, addMicroseconds(%s, %s), %s)",
+		timestampExpr,
+		timestampExpr, minBound, minBound, timeOfDay,
+		timestampExpr, maxBound, maxDayStart, timeOfDay,
+		timestampExpr)
+}
+
 func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error) {
 	selectQuery := strings.Builder{}
 	selectQuery.WriteString("SELECT ")
@@ -194,27 +214,31 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			} else {
 				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					"%s AS %s,",
+					clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')",
+						peerdb_clickhouse.QuoteLiteral(colName))),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+						"%s AS %s,",
+						clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC')",
+							peerdb_clickhouse.QuoteLiteral(colName))),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
 			}
 		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
 			fmt.Fprintf(&projection,
-				`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+				`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+				clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+					clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
