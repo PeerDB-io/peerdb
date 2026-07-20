@@ -64,15 +64,15 @@ const mongoClockOffsetTTL = time.Hour
 // getMongoClockOffset returns the cached difference between the source server
 // clock and this process's clock.
 func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
-	if time.Since(c.mongoClockOffsetUpdatedAt) < mongoClockOffsetTTL {
-		return c.mongoClockOffset, nil
+	if time.Since(c.clockOffsetUpdatedAt) < mongoClockOffsetTTL {
+		return c.clockOffset, nil
 	}
 	offset, err := c.queryMongoClockOffset(ctx)
 	if err != nil {
-		return c.mongoClockOffset, err
+		return c.clockOffset, err
 	}
-	c.mongoClockOffset = offset
-	c.mongoClockOffsetUpdatedAt = time.Now()
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
 	return offset, nil
 }
 
