@@ -55,21 +55,20 @@ type urlBatchLimits struct {
 
 // fetchURLBatchLimits reads the effective max_query_size and
 // table_function_remote_max_addresses from ClickHouse directly.
-func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) urlBatchLimits {
+func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) (urlBatchLimits, error) {
 	maxQuerySize := defaultMaxQuerySize
 	remoteMaxAddresses := defaultRemoteMaxAddresses
 
 	rows, err := c.query(ctx,
 		"SELECT name, value FROM system.settings WHERE name IN ('max_query_size', 'table_function_remote_max_addresses')")
 	if err != nil {
-		c.logger.Warn("failed to read ClickHouse batch-limit settings, using defaults", slog.Any("error", err))
+		return urlBatchLimits{}, fmt.Errorf("failed to read ClickHouse batch-limit settings: %w", err)
 	} else {
 		defer rows.Close()
 		for rows.Next() {
 			var name, value string
 			if err := rows.Scan(&name, &value); err != nil {
-				c.logger.Warn("failed to scan ClickHouse setting, using default", slog.Any("error", err))
-				continue
+				return urlBatchLimits{}, fmt.Errorf("failed to scan ClickHouse settings: %w", err)
 			}
 			parsed, err := strconv.ParseInt(value, 10, 64)
 			if err != nil || parsed <= 0 {
@@ -83,7 +82,7 @@ func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) urlBatchL
 			}
 		}
 		if err := rows.Err(); err != nil {
-			c.logger.Warn("error reading ClickHouse batch-limit settings, using partial values", slog.Any("error", err))
+			return urlBatchLimits{}, fmt.Errorf("failed to read ClickHouse batch settings: %w", err)
 		}
 	}
 
@@ -94,7 +93,7 @@ func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) urlBatchL
 	return urlBatchLimits{
 		maxURLBytes: maxQuerySize * 3 / 4,
 		maxURLCount: maxURLCount,
-	}
+	}, nil
 }
 
 // collectAndBatchObjects collects objects from stream and groups them into batches
@@ -210,7 +209,10 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 		return 0, nil, fmt.Errorf("failed to get batch size config: %w", err)
 	}
 
-	limits := c.fetchURLBatchLimits(ctx)
+	limits, err := c.fetchURLBatchLimits(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
 
 	batches := collectAndBatchObjects(ctx, stream, maxBatchSize, limits.maxURLBytes, limits.maxURLCount, defaultBatchFlushInterval)
 
