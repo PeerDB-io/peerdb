@@ -221,56 +221,6 @@ services:
       timeout: 10s
       retries: 5
 
-  redpanda:
-    container_name: peerdb-redpanda
-    image: ${REDPANDA_IMAGE}
-    command:
-      - redpanda
-      - start
-      - --kafka-addr=0.0.0.0:9092
-      - --advertise-kafka-addr=host.docker.internal:${CI_KAFKA_PORT:-9092}
-      - --smp=1
-      - --memory=1G
-      - --reserve-memory=0M
-      - --overprovisioned
-    restart: unless-stopped
-    volumes:
-      - redpanda_data:/var/lib/redpanda/data
-    ports:
-      - "${CI_KAFKA_PORT:-9092}:9092"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
-      interval: 2s
-      timeout: 10s
-      retries: 15
-
-  elasticsearch:
-    container_name: peerdb-elasticsearch
-    image: ${ELASTICSEARCH_IMAGE}
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: false
-      xpack.security.enrollment.enabled: false
-      ES_JAVA_OPTS: -Xms1g -Xmx1g
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    ports:
-      - "${CI_ELASTICSEARCH_PORT:-9200}:9200"
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
-      interval: 2s
-      timeout: 10s
-      retries: 60
-
   dozzle:
     container_name: dozzle-compose-monitor
     image: amir20/dozzle:latest
@@ -333,8 +283,6 @@ services:
 volumes:
   postgres_data:
   postgres2_data:
-  redpanda_data:
-  elasticsearch_data:
   clickhouse_data:
   clickhouse_keeper_data:
   clickhouse_02_data:
