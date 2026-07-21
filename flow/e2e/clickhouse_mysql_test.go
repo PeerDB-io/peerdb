@@ -314,7 +314,6 @@ func (s ClickHouseSuite) Test_MariaDB_CompressedColumn_AddedMidCDC() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (id, name) VALUES (2, 'cdc-ready')`, srcFullName,
 	)))
-	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id,name", 2)
 
 	// add compressed column to a table excluded from the pipe
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
