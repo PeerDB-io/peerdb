@@ -122,6 +122,24 @@ on:
         required: false
       CI_O11Y_TARGET_QUERY_ENDPOINT:
         required: false
+      # Cloud-destination test credentials, used by the BigQuery/PubSub,
+      # Snowflake, GCS and EventHubs suites.
+      GCP_GH_CI_PKEY:
+        required: false
+      SNOWFLAKE_GH_CI_PKEY:
+        required: false
+      GCS_CREDS:
+        required: false
+      EH_CREDS:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        required: false
 
 permissions:
   contents: read
@@ -404,6 +422,38 @@ jobs:
         run: go install gotest.tools/gotestsum@latest
 
       # ----------------------------------------------------------------------
+      # Credentials for the cloud-destination suites (BigQuery/PubSub via the
+      # GCP service account, Snowflake, GCS, EventHubs).
+      # ----------------------------------------------------------------------
+      - name: setup gcp service account
+        id: gcp-service-account
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "bq_service_account.json"
+          json: ${{ secrets.GCP_GH_CI_PKEY }}
+
+      - name: setup snowflake credentials
+        id: sf-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "snowflake_creds.json"
+          json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+
+      - name: setup GCS credentials
+        id: gcs-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "gcs_creds.json"
+          json: ${{ secrets.GCS_CREDS }}
+
+      - name: setup Eventhubs credentials
+        id: eventhubs-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "eh_creds.json"
+          json: ${{ secrets.EH_CREDS }}
+
+      # ----------------------------------------------------------------------
       # Run the tests on the host against the Tilt-provided stack, selected by
       # the Go test matcher. Unlike flow.yml we do NOT start temporal/peer-flow
       # here — those run as containers managed by Tilt — but the gotestsum +
@@ -415,6 +465,14 @@ jobs:
         env:
           TEST_MATCHER: ${{ inputs.test_matcher }}
           TEST_ENV: ${{ inputs.test_env }}
+          TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
+          TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
+          TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
+          TEST_EH_CREDS: ${{ github.workspace }}/eh_creds.json
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the artifact upload; keep nounset.
