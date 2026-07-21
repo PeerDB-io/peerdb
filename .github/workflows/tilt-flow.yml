@@ -1,30 +1,11 @@
 name: tilt-flow
 run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
 
-# Like flow.yml, but instead of provisioning every service from scratch on the
-# runner, it brings the whole stack up through Tilt (repo_root/Tiltfile). Tilt
-# drives docker-compose-dev.yml (core PeerDB services) and
-# ancillary-docker-compose.yml (test databases + infra). The tests themselves run
-# on the host via gotestsum (selected by a Go test matcher) against that stack.
-# Coverage and results are saved as a build artifact, and the test results are
-# ingested into the CI observability store (shared with flow.yml).
+# Tilt orchestrated e2e tests flow.
 #
 # This workflow can be triggered manually (workflow_dispatch) or reused by another
 # workflow (workflow_call, e.g. flow.yml): pick the Go test matcher to run and the
 # ancillary services it needs.
-#
-# How a caller would invoke it (a reusable workflow runs as its own job, so it is
-# referenced at jobs.<id>.uses, not as a step):
-#
-#   jobs:
-#     pg-ch-e2e:
-#       uses: ./.github/workflows/tilt-flow.yml
-#       with:
-#         test_matcher: TestGenericCH_PG
-#         ancillary_services: postgres clickhouse
-#         postgres_image: imresamu/postgis:18-3.5-alpine   # optional version pinning
-#       secrets: inherit   # or pass CI_O11Y_TARGET_* explicitly; omit to skip ingestion
-
 on:
   workflow_dispatch:
     inputs: &tilt_flow_inputs
@@ -40,9 +21,6 @@ on:
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
-          e2e tests need clickhouse plus their source DB (e.g. "postgres clickhouse",
-          "mysql-gtid clickhouse", "mongodb clickhouse"); connector tests need just
-          their DB. Append "toxiproxy openssh" for SSH/chaos tests.
         type: string
         required: false
         default: postgres clickhouse
@@ -57,18 +35,14 @@ on:
       test_env:
         description: >-
           Newline-separated KEY=VALUE pairs exported into the test run's
-          environment, overriding what the tests load from the project-root
-          .env.example.
+          environment.
         type: string
         required: false
         default: ''
       run_label:
         description: >-
           Short label identifying this run's version/flavor combination; used in
-          the artifact name and the test-results combination id, so it must be
-          unique among the calls within one workflow run. Restricted to
-          [A-Za-z0-9._-]. Leave empty to derive it from the test matcher and
-          image inputs.
+          the artifact name and the test-results combination id.
         type: string
         required: false
         default: ''
@@ -88,8 +62,6 @@ on:
       mysql_pos_image:
         description: >-
           Docker image for the mysql-pos ancillary service (MYSQL_POS_IMAGE).
-          The local default is biarms/mysql:5.7 (multi-arch); CI passes the
-          official mysql:5.7 image.
         type: string
         required: false
         default: ''
@@ -254,12 +226,7 @@ jobs:
           # loopback so the host can reach the docker-compose published ports.
           echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
 
-      # ----------------------------------------------------------------------
-      # Start Tilt. This replaces all of flow.yml's per-service provisioning:
-      # `tilt up` builds/starts the core PeerDB services (and proto-gen) via
-      # docker-compose. Ancillary DBs and test launchers are auto_init=False and
-      # are started explicitly in the steps below.
-      # ----------------------------------------------------------------------
+      # Start Tilt.
       - name: Start Tilt
         run: |
           set -euo pipefail
@@ -282,13 +249,11 @@ jobs:
             sleep 2
           done
 
-      # ----------------------------------------------------------------------
       # Bring up the core PeerDB services, recovering any that fail to
       # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
       # occasionally come up unhealthy on a cold start; when that happens we
       # reload the individual resource with `tilt trigger` and wait again, up to
       # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
-      # ----------------------------------------------------------------------
       - name: Bring up core PeerDB services (with recovery)
         run: |
           set -uo pipefail
@@ -368,10 +333,8 @@ jobs:
           fi
           echo "Core PeerDB services are up."
 
-      # ----------------------------------------------------------------------
-      # Previous-to-last step: start the requested ancillary services and wait
+      # Start the requested ancillary services and wait
       # until they (and their provisioning steps) are confirmed up and running.
-      # ----------------------------------------------------------------------
       - name: Start requested ancillary services
         env:
           ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
@@ -421,10 +384,8 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
-      # ----------------------------------------------------------------------
       # Credentials for the cloud-destination suites (BigQuery/PubSub via the
       # GCP service account, Snowflake, GCS, EventHubs).
-      # ----------------------------------------------------------------------
       - name: setup gcp service account
         id: gcp-service-account
         uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
@@ -453,13 +414,8 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
-      # ----------------------------------------------------------------------
       # Run the tests on the host against the Tilt-provided stack, selected by
-      # the Go test matcher. Unlike flow.yml we do NOT start temporal/peer-flow
-      # here — those run as containers managed by Tilt — but the gotestsum +
-      # coverage invocation otherwise mirrors flow.yml's "run tests" step. The
-      # tests auto-load connection settings from the project-root .env.
-      # ----------------------------------------------------------------------
+      # the Go test matcher.
       - name: Run tests
         working-directory: ./flow
         env:

@@ -11,8 +11,8 @@ fi
 #VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
 VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[-1]') # Select last version row in the matrix.
 
-# Resolve a flavor label (e.g. maria-11) to its docker image using the
-# version-configs mapping in the flow.yml matrix.
+# Resolve a flavor label to its docker image using the
+# version-configs mapping in the flow.yml matrix for the default version (last row).
 flavor_image() {
     cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.\"version-configs\"[-1].$1.\"$2\""
 }

@@ -58,8 +58,6 @@ jobs:
               maria-12: mariadb:12-ubi
               maria-13: mariadb:13.0-ubi-rc
             clickhouse:
-              # lts and stable mirror the previously pinned binary versions
-              # v25.8.28.1-lts and v26.3.16.16-lts.
               lts: clickhouse/clickhouse-server:25.8.28.1
               stable: clickhouse/clickhouse-server:26.3.16.16
               latest: clickhouse/clickhouse-server:latest
