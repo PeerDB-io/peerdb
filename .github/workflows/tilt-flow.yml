@@ -22,6 +22,7 @@ run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary
 #       with:
 #         test_matcher: TestGenericCH_PG
 #         ancillary_services: postgres clickhouse
+#         postgres_image: imresamu/postgis:18-3.5-alpine   # optional version pinning
 #       secrets: inherit   # or pass CI_O11Y_TARGET_* explicitly; omit to skip ingestion
 
 on:
@@ -45,6 +46,70 @@ on:
         type: string
         required: false
         default: postgres clickhouse
+      checkout_ref:
+        description: >-
+          Git ref or SHA to check out. Leave empty to use the triggering event's
+          default; callers running on pull_request_target must pass the PR head
+          SHA explicitly, or the base branch gets tested instead of the PR.
+        type: string
+        required: false
+        default: ''
+      test_env:
+        description: >-
+          Newline-separated KEY=VALUE pairs exported into the test run's
+          environment, overriding what the tests load from the project-root
+          .env.example.
+        type: string
+        required: false
+        default: ''
+      run_label:
+        description: >-
+          Short label identifying this run's version/flavor combination; used in
+          the artifact name and the test-results combination id, so it must be
+          unique among the calls within one workflow run. Restricted to
+          [A-Za-z0-9._-]. Leave empty to derive it from the test matcher and
+          image inputs.
+        type: string
+        required: false
+        default: ''
+      # The <db>_image inputs pin the docker images of the ancillary DBs.
+      # When empty, default to last combination declared at flow.yml
+      # following generate-test-environment.sh's defaults.
+      postgres_image:
+        description: Docker image for the postgres/postgres2 ancillary services (POSTGRES_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mysql_gtid_image:
+        description: Docker image for the mysql-gtid ancillary service (MYSQL_GTID_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mysql_pos_image:
+        description: >-
+          Docker image for the mysql-pos ancillary service (MYSQL_POS_IMAGE).
+          The local default is biarms/mysql:5.7 (multi-arch); CI passes the
+          official mysql:5.7 image.
+        type: string
+        required: false
+        default: ''
+      mariadb_image:
+        description: Docker image for the mariadb ancillary service (MARIADB_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mongodb_image:
+        description: Docker image for the mongodb ancillary service (MONGODB_IMAGE).
+        type: string
+        required: false
+        default: ''
+      clickhouse_image:
+        description: >-
+          Docker image for the clickhouse, clickhouse-keeper and clickhouse-02
+          ancillary services (CLICKHOUSE_IMAGE).
+        type: string
+        required: false
+        default: ''
   # Reuse the exact same inputs when invoked from another workflow. The o11y
   # secrets are optional: a caller can pass them explicitly or via
   # `secrets: inherit`; when absent, test-results ingestion is skipped.
@@ -62,8 +127,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: tilt-flow-${{ github.ref }}-${{ inputs.test_matcher }}
-  cancel-in-progress: true
+  # Keyed per PR (falling back to the ref) and per input combination, so the
+  # matrix fan-out from flow.yml doesn't cancel its own sibling jobs, and fork
+  # PRs (pull_request_target runs on the base ref) don't collide with pushes
+  # to main.
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
@@ -81,6 +150,15 @@ env:
   # health polls.
   MIN_RECOVERY_TIME: "3"
   MAX_RECOVERY_TIME: "5"
+  # Ancillary DB image pins consumed by generate-test-environment.sh, which the
+  # Tiltfile runs on `tilt up`. Empty values fall back to the script's
+  # defaults.
+  POSTGRES_IMAGE: ${{ inputs.postgres_image }}
+  MYSQL_GTID_IMAGE: ${{ inputs.mysql_gtid_image }}
+  MYSQL_POS_IMAGE: ${{ inputs.mysql_pos_image }}
+  MARIADB_IMAGE: ${{ inputs.mariadb_image }}
+  MONGODB_IMAGE: ${{ inputs.mongodb_image }}
+  CLICKHOUSE_IMAGE: ${{ inputs.clickhouse_image }}
 
 jobs:
   tilt_flow_test:
@@ -88,6 +166,21 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Empty = the event's default checkout; callers on pull_request_target
+          # pass the PR head SHA here.
+          ref: ${{ inputs.checkout_ref }}
+
+      # Combination id for test-results ingestion steps
+      - name: Compute run identity
+        id: run-identity
+        env:
+          RUN_LABEL: ${{ inputs.run_label }}
+          RAW_IDENTITY: "${{ inputs.test_matcher }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }}"
+        run: |
+          label="${RUN_LABEL:-$RAW_IDENTITY}"
+          suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
+          echo "suffix=${suffix:-all}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -280,23 +373,29 @@ jobs:
             tilt --port "$TILT_PORT" trigger "$svc"
           done
 
+          wait_ready() {
+            local res="$1"
+            echo "Waiting for $res to be Ready..."
+            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$res" --timeout=600s; then
+              echo "::error::$res did not become Ready."
+              tilt --port "$TILT_PORT" logs --tail 200 "$res" || true
+              exit 1
+            fi
+          }
+
           # Wait until each service is Ready. Data stores also have an autostarted
           # provision-<svc> step (gated on the DB) — wait for that too so the
           # service is genuinely usable before the test runs.
           for svc in $ANCILLARY_SERVICES; do
-            echo "Waiting for $svc to be Ready..."
-            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$svc" --timeout=600s; then
-              echo "::error::$svc did not become Ready."
-              tilt --port "$TILT_PORT" logs --tail 200 "$svc" || true
-              exit 1
-            fi
+            wait_ready "$svc"
             if tilt --port "$TILT_PORT" get uiresource "provision-$svc" >/dev/null 2>&1; then
-              echo "Waiting for provision-$svc to be Ready..."
-              if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/provision-$svc" --timeout=600s; then
-                echo "::error::provision-$svc did not become Ready."
-                tilt --port "$TILT_PORT" logs --tail 200 "provision-$svc" || true
-                exit 1
-              fi
+              wait_ready "provision-$svc"
+            fi
+            # The 2-node ClickHouse cluster has an extra provisioning resource
+            # gated on node 2 + keeper (+ provision-clickhouse); wait for it too
+            # so cluster tests can't race it.
+            if [ "$svc" = "clickhouse-02" ]; then
+              wait_ready "provision-clickhouse-cluster"
             fi
           done
           echo "All requested ancillary services are up and running."
@@ -315,10 +414,21 @@ jobs:
         working-directory: ./flow
         env:
           TEST_MATCHER: ${{ inputs.test_matcher }}
+          TEST_ENV: ${{ inputs.test_env }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the artifact upload; keep nounset.
           set +e -u
+
+          # Per-run test environment overrides (e.g. the MySQL flavor under
+          # test). Exported before gotestsum runs: the tests' .env auto-load
+          # (godotenv) never overrides variables already present in the
+          # process environment, so these take precedence.
+          while IFS= read -r override; do
+            [ -n "$override" ] || continue
+            echo "test env override: $override"
+            export "$override"
+          done < <(printf '%s\n' "$TEST_ENV")
 
           # Write coverage OUTSIDE the flow/ tree. `tilt up` keeps live-watching
           # flow/ for the whole job (the flow images use docker_build only=['flow/']),
@@ -385,7 +495,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: tilt-flow-logs
+          name: tilt-flow-logs-${{ steps.run-identity.outputs.suffix }}
           path: |
             logs/
             coverage.out
@@ -395,7 +505,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "tilt-${{ inputs.test_matcher }}"
+          combination-id: "tilt-${{ steps.run-identity.outputs.suffix }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
