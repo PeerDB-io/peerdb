@@ -155,6 +155,9 @@ var (
 	ErrorNotifyBinlogPartialJsonUnsupported = ErrorClass{
 		Class: "NOTIFY_BINLOG_PARTIAL_JSON_UNSUPPORTED", action: NotifyUser,
 	}
+	ErrorNotifyMySQLCompressedColumnUnsupported = ErrorClass{
+		Class: "NOTIFY_MYSQL_COMPRESSED_COLUMN_UNSUPPORTED", action: NotifyUser,
+	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
 	}
@@ -1185,6 +1188,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNSUPPORTED_PARTIAL_JSON",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", partialJsonUnsupportedError.Schema, partialJsonUnsupportedError.Table),
+			},
+		}
+	}
+
+	if compressedColumnError, ok := errors.AsType[*exceptions.MySQLUnsupportedCompressedColumnError](err); ok {
+		return ErrorNotifyMySQLCompressedColumnUnsupported, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_COMPRESSED_COLUMN",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: fmt.Sprintf("%s.%s", compressedColumnError.SchemaName, compressedColumnError.TableName),
 			},
 		}
 	}
