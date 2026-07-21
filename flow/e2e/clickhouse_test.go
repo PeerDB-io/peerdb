@@ -25,6 +25,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -670,6 +671,39 @@ func (s ClickHouseSuite) Test_WeirdTable_Question() {
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
 	s.WeirdTable("table-group%a%b%c")
+}
+
+func (s ClickHouseSuite) Test_ValidatePartitionByExpression() {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	logger := internal.LoggerFromCtx(s.t.Context())
+	const targetTable = "replicated_events"
+	columnNames := []string{"id", "val"}
+
+	for _, tc := range []struct {
+		name       string
+		expression string
+		wantErr    bool
+	}{
+		{name: "invalid_syntax_rejected", expression: "INVALID EXPRESSION", wantErr: true},
+		{name: "missing_column_rejected", expression: "i_am_not_a_column % 2", wantErr: true},
+		{name: "aggregate_expression_rejected", expression: "MAX(id)", wantErr: true},
+		{name: "valid_expression_passes", expression: "id % 2", wantErr: false},
+		{name: "empty_expression_passes", expression: "", wantErr: false},
+	} {
+		s.t.Run(tc.name, func(t *testing.T) {
+			err := clickhouse.ValidatePartitionByExpression(
+				s.t.Context(), logger, ch, tc.expression, targetTable, columnNames, nil)
+			if tc.wantErr {
+				require.ErrorContains(t, err,
+					fmt.Sprintf("invalid partition expression (%s) for table %s", tc.expression, targetTable))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
