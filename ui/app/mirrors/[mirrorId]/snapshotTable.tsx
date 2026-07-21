@@ -71,10 +71,11 @@ export default function SnapshotTable({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedLoads = useMemo(() => {
-    const shownRows = tableLoads.filter((row: TableCloneSummary) =>
-      row.cloneTableSummary.tableName
-        ?.toLowerCase()
-        .includes(searchQuery.toLowerCase())
+    const query = searchQuery.toLowerCase();
+    const shownRows = tableLoads.filter(
+      (row: TableCloneSummary) =>
+        row.cloneTableSummary.tableName?.toLowerCase().includes(query) ||
+        row.cloneTableSummary.sourceTable?.toLowerCase().includes(query)
     );
     shownRows.sort((a, b) => {
       const aValue = a[sortField];
@@ -185,7 +186,8 @@ export default function SnapshotTable({
       header={
         <TableRow>
           {[
-            'Table Identifier',
+            'Source Table',
+            'Destination Table',
             'Status',
             'Sync Start',
             'Progress Partitions',
@@ -201,6 +203,9 @@ export default function SnapshotTable({
     >
       {displayedLoads.map((clone, index) => (
         <TableRow key={index}>
+          <TableCell>
+            <Label>{clone.cloneTableSummary.sourceTable}</Label>
+          </TableCell>
           <TableCell>
             <Label>{clone.cloneTableSummary.tableName}</Label>
           </TableCell>
