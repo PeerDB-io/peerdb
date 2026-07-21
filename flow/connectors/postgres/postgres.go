@@ -34,25 +34,26 @@ type ReplState struct {
 }
 
 type PostgresConnector struct {
+	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
+	rdsAuth                *utils.RDSAuth
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
-	ssh                    *utils.SSHTunnel
-	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
 	Config                 *protos.PostgresConfig
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
-	rdsAuth                *utils.RDSAuth
+	ssh                    *utils.SSHTunnel
+	conn                   *pgx.Conn
 	connStr                string
 	metadataSchema         string
 	walSenderTimeout       walSenderTimeout
+	clockOffset            time.Duration
 	replLock               sync.Mutex
 	closeLock              sync.Mutex
 	pgVersion              shared.PGVersion
-
-	cdcStoreEnabled bool
+	cdcStoreEnabled        bool
 }
 
 func NewPostgresConnectorWithCDCDestination(
@@ -65,6 +66,18 @@ func NewPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig,
 ) (*PostgresConnector, error) {
 	return newPostgresConnector(ctx, env, pgConfig, protos.DBType_DBTYPE_UNKNOWN)
+}
+
+// setIdleSessionTimeout best-effort disables idle_session_timeout on conn.
+// The GUC only exists on PG14+, so on older supported versions (PG12/13) the
+// server rejects it with SQLSTATE 42704, which we ignore.
+func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logger) {
+	if _, err := conn.Exec(ctx, "SET idle_session_timeout = 0"); err != nil {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UndefinedObject {
+			return
+		}
+		logger.Warn("failed to set idle_session_timeout", slog.Any("error", err))
+	}
 }
 
 func newPostgresConnector(
@@ -124,6 +137,7 @@ func newPostgresConnector(
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
+	setIdleSessionTimeout(ctx, conn, logger)
 
 	metadataSchema := "_peerdb_internal"
 	if pgConfig.MetadataSchema != nil {

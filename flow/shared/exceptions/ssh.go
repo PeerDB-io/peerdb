@@ -60,3 +60,19 @@ func (e *SSHTunnelConnectionError) Error() string {
 func (e *SSHTunnelConnectionError) Unwrap() error {
 	return e.error
 }
+
+type SSHTunnelClosedError struct {
+	error
+}
+
+func NewSSHTunnelClosedError(err error) *SSHTunnelClosedError {
+	return &SSHTunnelClosedError{err}
+}
+
+func (e *SSHTunnelClosedError) Error() string {
+	return "SSH Tunnel Closed: " + e.error.Error()
+}
+
+func (e *SSHTunnelClosedError) Unwrap() error {
+	return e.error
+}

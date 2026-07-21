@@ -179,9 +179,7 @@ function validateQRepFields(
   }
 }
 
-export function reformattedTableMapping(
-  tableMapping: TableMapRow[]
-): TableMapping[] {
+function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
   return tableMapping
     .filter((row) => row?.selected === true && row?.canMirror === true)
     .map((row) => ({

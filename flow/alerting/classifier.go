@@ -45,6 +45,7 @@ const (
 	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
+	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -353,12 +354,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Reference:
-	// https://github.dev/jackc/pgx/blob/master/pgconn/pgconn.go#L733-L740
-	if strings.Contains(err.Error(), "conn closed") {
-		return ErrorRetryRecoverable, ErrorInfo{
+	if errors.Is(err, pgconn.ErrConnClosed) {
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
-			Code:   "UNKNOWN",
+			Code:   "CONN_CLOSED",
 		}
 	}
 
@@ -442,6 +441,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, errInfo
 		}
 		return ErrorOther, errInfo
+	}
+
+	if _, ok := errors.AsType[*exceptions.SSHTunnelClosedError](err); ok {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "TUNNEL_CONNECTION_CLOSED",
+		}
 	}
 
 	// An SSH-tunneled connection that goes bad (e.g. keepalive failure) is wrapped explicitly.
@@ -592,7 +598,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
+				strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding") ||
 				//nolint:lll
 				// Handle missing record during logical decoding
 				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
@@ -838,6 +844,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		// This should recover, but we notify if exceed default threshold
 		if mongoCmdErr.HasErrorLabel(driver.TransientTransactionError) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		}
+
+		// TLS handshake failures during connection checkout is typically retryable. We've observed
+		// Atlas briefly serving a mismatched cert/key pair during rolling cert rotation that auto-recovers
+		if strings.Contains(err.Error(), MongoTLSInvalidServerCertSignature) {
+			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/

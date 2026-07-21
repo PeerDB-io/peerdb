@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -25,6 +27,24 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+type operationType string
+
+const (
+	operationTypeInsert  operationType = "insert"
+	operationTypeUpdate  operationType = "update"
+	operationTypeReplace operationType = "replace"
+	operationTypeDelete  operationType = "delete"
+)
+
+func parseOperationType(s string) (operationType, bool) {
+	switch op := operationType(s); op {
+	case operationTypeInsert, operationTypeUpdate, operationTypeReplace, operationTypeDelete:
+		return op, true
+	default:
+		return "", false
+	}
+}
+
 type Namespace struct {
 	Db   string `bson:"db"`
 	Coll string `bson:"coll"`
@@ -32,10 +52,56 @@ type Namespace struct {
 
 type ChangeEvent struct {
 	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
+	WallTime      *time.Time     `bson:"wallTime,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
 	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
+}
+
+const mongoClockOffsetTTL = time.Hour
+
+// getMongoClockOffset returns the cached difference between the source server
+// clock and this process's clock.
+func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < mongoClockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryMongoClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *MongoConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getMongoClockOffset(ctx)
+}
+
+// queryMongoClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MongoConnector) queryMongoClockOffset(ctx context.Context) (time.Duration, error) {
+	if c.client == nil {
+		return 0, errors.New("MongoDB client is nil")
+	}
+
+	requestStarted := time.Now()
+	var response struct {
+		LocalTime time.Time `bson:"localTime"`
+	}
+	err := c.client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&response)
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query MongoDB server time: %w", err)
+	}
+	if response.LocalTime.IsZero() {
+		return 0, errors.New("MongoDB hello response did not include localTime")
+	}
+
+	return response.LocalTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
 }
 
 // ChangeStream is defined as an interface, allowing tests inject mock change stream.
@@ -117,7 +183,7 @@ func (c *MongoConnector) SetupReplication(
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup)
 
-	pipeline, err := createPipeline(nil)
+	pipeline, err := createPipeline(nil, nil)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
 	}
@@ -190,6 +256,10 @@ func (c *MongoConnector) PullRecords(
 
 	var resumeToken bson.Raw
 	var err error
+	mongoClockOffset, err := c.getMongoClockOffset(ctx)
+	if err != nil {
+		c.logger.Warn("failed to calculate MongoDB clock offset", slog.Any("error", err))
+	}
 
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
@@ -201,7 +271,7 @@ func (c *MongoConnector) PullRecords(
 		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
-	pipeline, err := createPipeline(req.TableNameMapping)
+	pipeline, err := createPipeline(req.TableNameMapping, c.excludedOps)
 	if err != nil {
 		return err
 	}
@@ -432,8 +502,16 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		clusterTime := time.Unix(int64(changeEvent.ClusterTime.T), 0)
-		clusterTimeNanos := clusterTime.UnixNano()
+		commitTime := clusterTime
+		if changeEvent.WallTime != nil {
+			// wallTime (MongoDB 6+) is the source server's wall-clock operation time;
+			// clusterTime is an oplog timestamp used primarily for ordering and is only second-resolution.
+			commitTime = changeEvent.WallTime.UTC()
+		}
+		commitTimeNanos := commitTime.UnixNano()
 		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
+		otelManager.Metrics.SourceLagGauge.Record(ctx,
+			time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Milliseconds())
 
 		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -444,40 +522,40 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		items := model.NewMongoRecordItems(2)
-		switch changeEvent.OperationType {
-		case "insert":
+		switch operationType(changeEvent.OperationType) {
+		case operationTypeInsert:
 			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				Items:                items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
 			}); err != nil {
 				return fmt.Errorf("failed to add insert record: %w", err)
 			}
-		case "update", "replace":
+		case operationTypeUpdate, operationTypeReplace:
 			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				NewItems:             items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
 			}); err != nil {
 				return fmt.Errorf("failed to add update record: %w", err)
 			}
-		case "delete":
+		case operationTypeDelete:
 			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
 				return fmt.Errorf("failed to process document: %w", err)
 			}
 
 			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
 				Items:                items,
 				SourceTableName:      sourceTableName,
 				DestinationTableName: destinationTableName,
@@ -489,14 +567,13 @@ func (c *MongoConnector) PullRecords(
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
-		otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(clusterTime).Microseconds())
 		checkpoint()
 	}
 
 	return nil
 }
 
-func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pipeline, error) {
+func createPipeline(tableNameMapping map[string]model.NameAndExclude, excludedOps []operationType) (mongo.Pipeline, error) {
 	pipeline := mongo.Pipeline{}
 
 	// filter out events from tables that are not in the mapping
@@ -528,6 +605,13 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		}}})
 	}
 
+	// filter out excluded operation types
+	if len(excludedOps) > 0 {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{
+			{Key: "operationType", Value: bson.D{{Key: "$nin", Value: excludedOps}}},
+		}}})
+	}
+
 	// Mongo recommends using '$project' first to reduce change event size, and only use
 	// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
 	// themselves have a 16MB limit, project required fields for now for code simplicity.
@@ -536,6 +620,7 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		bson.D{{Key: "$project", Value: bson.D{
 			{Key: "operationType", Value: 1},
 			{Key: "clusterTime", Value: 1},
+			{Key: "wallTime", Value: 1},
 			{Key: "documentKey", Value: 1},
 			{Key: "fullDocument", Value: 1},
 			{Key: "ns", Value: 1},
@@ -569,7 +654,28 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplConn(context.Context, map[string]string) error {
+func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	// Unlike Postgres, MongoDB doesn't need a dedicated replication connection:
+	// change streams are cursors served by the connector's pooled client.
+	// Since SetupReplConn is called once per SyncFlow activity, resolving
+	// dynamic config here avoids per-batch catalog reads.
+	excludedOps, err := internal.PeerDBMongoDBExcludedOperationTypes(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to get excluded operation types: %w", err)
+	}
+	c.excludedOps = make([]operationType, 0, len(excludedOps))
+	for _, op := range excludedOps {
+		if parsed, ok := parseOperationType(op); ok {
+			if !slices.Contains(c.excludedOps, parsed) {
+				c.excludedOps = append(c.excludedOps, parsed)
+			}
+		} else {
+			c.logger.Warn("ignoring invalid operation type in exclusion list", slog.String("operationType", op))
+		}
+	}
+	if len(c.excludedOps) > 0 {
+		c.logger.Info("excluding operation types from replication", slog.Any("operationTypes", c.excludedOps))
+	}
 	return nil
 }
 

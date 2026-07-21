@@ -110,6 +110,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
 	}
+	setIdleSessionTimeout(ctx, conn, c.logger)
 	return conn, wst, nil
 }
 
@@ -410,7 +411,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 	}
 	excludedColumnsSQL := ""
 	if len(excludedColumns) > 0 {
-		excludedColumnsSQL = "AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
+		excludedColumnsSQL = " AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
 	}
 
 	getColumnsSQL := `
@@ -421,7 +422,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 		WHERE n.nspname = $1
 		AND c.relname = $2
 		AND a.attnum > 0
-		AND NOT a.attisdropped ` + excludedColumnsSQL
+		AND NOT a.attisdropped` + excludedColumnsSQL + ` ORDER BY a.attnum`
 
 	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Namespace, sourceTable.Table)
 	if err != nil {

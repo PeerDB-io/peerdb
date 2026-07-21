@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"syscall"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/api/googleapi"
 
@@ -78,12 +80,27 @@ func TestSSHTunnelRecoverableDialError(t *testing.T) {
 	err := fmt.Errorf("failed to sync records: %w",
 		fmt.Errorf("failed to get schema for watermark table xxx.xxx: %w",
 			exceptions.NewMySQLExecuteError(exceptions.NewSSHTunnelDialError(
-				errors.New("ssh: unexpected packet in response to channel open: <nil>")))))
+				errors.New("ssh: unexpected packet in response to channel open: <nil>"),
+			))))
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceSSH,
 		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelClosedPipeErrorShouldBeRetryable(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how deadlineCapableConn wraps net.Pipe teardown errors when an
+	// SSH-tunneled connection is torn down while a query is in flight.
+	err := fmt.Errorf("receive message failed: %w", exceptions.NewSSHTunnelClosedError(io.ErrClosedPipe))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_CLOSED",
 	}, errInfo)
 }
 
@@ -327,7 +344,8 @@ func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
 		exceptions.NewNormalizationError(fmt.Errorf(
-			"failed to normalize records: failed to copy avro stages to destination: %w", err)))
+			"failed to normalize records: failed to copy avro stages to destination: %w", err,
+		)))
 	assert.Equal(t, ErrorNotifyClickHousePermissionsError, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -514,6 +532,30 @@ func TestPostgresReorderbufferSpillFileBadAddressErrorShouldBeRecoverable(t *tes
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresConnClosedErrorShouldBeNotifyConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Drive real pgx to produce the "conn closed" error rather than hand-building one, so this
+	// guards against a pgx upgrade changing how the sentinel is wrapped (errors.Is must still match).
+	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
+	config, err := pgx.ParseConfig(connectionString)
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(t.Context(), config)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(t.Context()))
+
+	// Using the connection after it has been closed yields pgconn.ErrConnClosed (wrapped in connLockError).
+	_, err = conn.Exec(t.Context(), "SELECT 1")
+	require.ErrorIs(t, err, pgconn.ErrConnClosed)
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   "CONN_CLOSED",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a "could not read from reorderbuffer spill file: Bad file descriptor" error
 	err := &exceptions.PostgresWalError{
@@ -605,7 +647,8 @@ func TestConnectionResetDuringPeerCreateShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
 	err := exceptions.NewPeerCreateError(
-		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET))
+		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET),
+	)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to recreate destination connector: %w", err))
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -896,6 +939,29 @@ func TestMongoCursorErrors(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoTLSInvalidServerCertSignatureShouldBeRecoverable(t *testing.T) {
+	de := driver.Error{
+		Labels: []string{driver.NetworkError},
+		Wrapped: topology.ConnectionError{
+			Wrapped: errors.New(
+				"failed to configure TLS for pl-1-us-east-1.xxxx.mongodb.net:1234: " +
+					"tls: invalid signature by the server certificate: crypto/rsa: verification error"),
+		},
+	}
+	err := mongo.CommandError{
+		Code:    de.Code,
+		Message: de.Message,
+		Labels:  de.Labels,
+		Wrapped: de,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo)
+}
+
 func TestAuroraMySQLZeroDowntimePatchErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate Aurora MySQL Zero Downtime Patch error
 	mysqlErr := &mysql.MyError{
@@ -960,7 +1026,8 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
-		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch))
+		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch),
+	)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", err))
 	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -971,7 +1038,8 @@ func TestMySQLBinlogChecksumMismatch(t *testing.T) {
 
 func TestMySQLExecuteError(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
-		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
+		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"},
+	)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -980,7 +1048,8 @@ func TestMySQLExecuteError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 
 	err = exceptions.NewMySQLExecuteError(
-		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
+		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"},
+	)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -1081,7 +1150,8 @@ func TestClickHouseLockingAttemptForAlterTimedOutShouldBeRecoverable(t *testing.
 		Message: `Locking attempt for ALTER on "my_database.my_table" has timed out! (120000 ms) Possible deadlock avoided. Client should retry.`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
-		"failed to push records: failed to sync schema changes: failed to add column case_number for table my_table: %w", err))
+		"failed to push records: failed to sync schema changes: failed to add column case_number for table my_table: %w", err,
+	))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -1254,7 +1324,8 @@ func TestGCSTransientErrorsShouldBeRecoverable(t *testing.T) {
 	}
 	err := exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for a.avro: %w", apiErr))
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
-		"failed to push records: failed to upload to staging: %w", err))
+		"failed to push records: failed to upload to staging: %w", err,
+	))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceGCS,

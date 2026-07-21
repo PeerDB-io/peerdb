@@ -323,3 +323,60 @@ func ValidateClusterShardingKey(cluster, shardingKey, sourceTable string, hasPri
 		sourceTable,
 	)
 }
+
+// ValidatePartitionByExpression validates the "PARTITION BY <expr>" expression of a table mapping.
+//
+// NOTE: it currently spot-checks the expression without type validation, for simplicity.
+// The expression runs against a "fake table": a subquery exposing every replicable column
+// of the mapping, all typed Dynamic, as in the following example:
+//
+//	SELECT (toYYYYMM(t))
+//	FROM (
+//	    SELECT CAST(NULL, 'Dynamic') AS `id`,
+//	           CAST(NULL, 'Dynamic') AS `t`
+//	)
+//	LIMIT 0
+//
+// This catches references to unknown or excluded columns and syntax errors while staying
+// type-agnostic — a sweet spot between no validation and a full validation requiring type
+// awareness, which adds several layers of complexity. Type misuse and DDL-only rules
+// (deterministic expressions, nullable keys) still surface at destination-table creation.
+func ValidatePartitionByExpression(
+	ctx context.Context,
+	logger log.Logger,
+	conn clickhouse.Conn,
+	expression string,
+	targetTable string,
+	columnNames []string,
+	excludedColumns []string,
+) error {
+	if expression == "" {
+		// Nothing to validate
+		return nil
+	}
+
+	// If the validation query fails to execute in CH, we deem the expression invalid
+	rows, err := Query(ctx, logger, conn, buildPartitionByValidationQuery(expression, columnNames, excludedColumns))
+	if err != nil {
+		return fmt.Errorf("invalid partition expression (%s) for table %s: %w", expression, targetTable, err)
+	}
+	rows.Close()
+	return nil
+}
+
+// buildPartitionByValidationQuery renders the type-agnostic probe query: the mapping's
+// replicable columns as Dynamic placeholders. PeerDB's metadata columns (_peerdb_*) are
+// deliberately not exposed, so expressions may only reference replicated source columns.
+func buildPartitionByValidationQuery(expression string, columnNames, excludedColumns []string) string {
+	excludedSet := make(map[string]struct{}, len(excludedColumns))
+	for _, col := range excludedColumns {
+		excludedSet[col] = struct{}{}
+	}
+	placeholders := make([]string, 0, len(columnNames))
+	for _, column := range columnNames {
+		if _, excluded := excludedSet[column]; !excluded {
+			placeholders = append(placeholders, "CAST(NULL, 'Dynamic') AS "+QuoteIdentifier(column))
+		}
+	}
+	return fmt.Sprintf("SELECT (%s) FROM (SELECT %s) LIMIT 0", expression, strings.Join(placeholders, ", "))
+}
