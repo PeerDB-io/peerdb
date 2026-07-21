@@ -88,6 +88,46 @@ type PostgresCDCConfig struct {
 	InternalVersion                          uint32
 }
 
+const clockOffsetTTL = time.Hour
+
+// getPostgresClockOffset returns the cached difference between the source server
+// clock and this process's clock.
+func (c *PostgresConnector) getPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < clockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryPostgresClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *PostgresConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getPostgresClockOffset(ctx)
+}
+
+// queryPostgresClockOffset estimates the difference between the source server
+// clock and this process's clock.
+func (c *PostgresConnector) queryPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if c.conn == nil {
+		return 0, errors.New("PostgreSQL connection is nil")
+	}
+
+	requestStarted := time.Now()
+	var serverTime time.Time
+	err := c.conn.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&serverTime)
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query PostgreSQL server time: %w", err)
+	}
+
+	return serverTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
+}
+
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
 	childToParentRelIDMap, idToRelKindMap, err := getChildToParentRelIDMap(ctx,
@@ -488,6 +528,10 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
+	postgresClockOffset, err := p.getPostgresClockOffset(ctx)
+	if err != nil {
+		logger.Warn("failed to calculate PostgreSQL clock offset", slog.Any("error", err))
+	}
 
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
@@ -495,7 +539,9 @@ func PullCdcRecords[Items model.Items](
 		replLock.Lock()
 		defer replLock.Unlock()
 		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+			pglogrepl.StandbyStatusUpdate{
+				WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load()),
+			},
 		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
@@ -759,7 +805,6 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
-
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
 				}
@@ -783,7 +828,8 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor, warnedReplIdentTables)
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, postgresClockOffset,
+					processor, warnedReplIdentTables)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -955,6 +1001,7 @@ func processMessage[Items model.Items](
 	batch *model.CDCStream[Items],
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
+	postgresClockOffset time.Duration,
 	processor replProcessor[Items],
 	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
@@ -975,6 +1022,8 @@ func processMessage[Items model.Items](
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
@@ -989,7 +1038,8 @@ func processMessage[Items model.Items](
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
-		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		originalRelID := msg.RelationID
