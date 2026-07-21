@@ -14,8 +14,13 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
+
+func kafkaBroker() string {
+	return internal.GetEnvString("CI_KAFKA_BROKER", "localhost:9092")
+}
 
 type KafkaSuite struct {
 	t      *testing.T
@@ -49,7 +54,7 @@ func (s KafkaSuite) Peer() *protos.Peer {
 		Type: protos.DBType_KAFKA,
 		Config: &protos.Peer_KafkaConfig{
 			KafkaConfig: &protos.KafkaConfig{
-				Servers:    []string{"localhost:9092"},
+				Servers:    []string{kafkaBroker()},
 				DisableTls: true,
 			},
 		},
@@ -116,7 +121,7 @@ func (s KafkaSuite) TestSimple() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
 		kafka, err := kgo.NewClient(
-			kgo.SeedBrokers("localhost:9092"),
+			kgo.SeedBrokers(kafkaBroker()),
 			kgo.ConsumeTopics(flowName),
 		)
 		if err != nil {
@@ -174,7 +179,7 @@ func (s KafkaSuite) TestMessage() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize message", func() bool {
 		kafka, err := kgo.NewClient(
-			kgo.SeedBrokers("localhost:9092"),
+			kgo.SeedBrokers(kafkaBroker()),
 			kgo.ConsumeTopics("topic"),
 		)
 		if err != nil {
@@ -226,7 +231,7 @@ func (s KafkaSuite) TestDefault() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
 		kafka, err := kgo.NewClient(
-			kgo.SeedBrokers("localhost:9092"),
+			kgo.SeedBrokers(kafkaBroker()),
 			kgo.ConsumeTopics(flowName),
 		)
 		if err != nil {
@@ -281,7 +286,7 @@ func (s KafkaSuite) TestInitialLoad() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
 		kafka, err := kgo.NewClient(
-			kgo.SeedBrokers("localhost:9092"),
+			kgo.SeedBrokers(kafkaBroker()),
 			kgo.ConsumeTopics(flowName),
 		)
 		if err != nil {
@@ -340,7 +345,7 @@ func (s KafkaSuite) TestOriginMetadata() {
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
 		kafka, err := kgo.NewClient(
-			kgo.SeedBrokers("localhost:9092"),
+			kgo.SeedBrokers(kafkaBroker()),
 			kgo.ConsumeTopics(flowName),
 		)
 		if err != nil {
