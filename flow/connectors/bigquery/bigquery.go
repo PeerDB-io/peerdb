@@ -2,7 +2,6 @@ package connbigquery
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -67,42 +66,41 @@ type BigQueryConnector struct {
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	datasetID := config.GetDatasetId()
-	projectID := config.GetProjectId()
-	projectPart, datasetPart, found := strings.Cut(datasetID, ".")
-	if found && strings.Contains(datasetPart, ".") {
-		return nil,
-			fmt.Errorf("invalid dataset ID: %s. Ensure that it is just a single string or string1.string2", datasetID)
-	}
-	if projectPart != "" && datasetPart != "" {
-		datasetID = datasetPart
-		projectID = projectPart
-	}
-
-	serviceAccount, err := NewBigQueryServiceAccount(config)
+	projectID, datasetID, err := resolveBigQueryResource(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %w", err)
+		return nil, err
 	}
 
-	saJSON, err := json.Marshal(serviceAccount) //nolint:gosec // G117: credential struct marshaled for inline use
+	credentialConfig, err := newBigQueryCredentialConfig(ctx, config, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal service account: %v", err)
+		return nil, err
 	}
 
-	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
-		CredentialsJSON: saJSON,
+	detectOptions := &credentials.DetectOptions{
 		Scopes: []string{
 			bigquery.Scope,
 			storage.ScopeFullControl, // we should split it into two clients later
 		},
-	})
+	}
+	var creds *auth.Credentials
+	if credentialConfig.credentialType == credentials.ExternalAccount {
+		creds, err = credentials.NewCredentialsFromJSON(
+			credentials.ExternalAccount,
+			credentialConfig.credentialsJSON,
+			detectOptions,
+		)
+	} else {
+		// Keep the legacy service-account-key path unchanged.
+		detectOptions.CredentialsJSON = credentialConfig.credentialsJSON //nolint:staticcheck // Preserve legacy service-account-key behavior.
+		creds, err = credentials.DetectDefault(detectOptions)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create credentials: %v", err)
 	}
 
 	client, err := bigquery.NewClient(
 		ctx,
-		bigquery.DetectProjectID,
+		credentialConfig.clientProjectID,
 		option.WithAuthCredentials(creds),
 	)
 	if err != nil {
