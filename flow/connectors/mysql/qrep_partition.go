@@ -9,7 +9,9 @@ import (
 	"math/big"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
@@ -119,8 +121,13 @@ func stringMidpoint(s1 string, s2 string) string {
 	for i < len(s1) && i < len(s2) && s1[i] == s2[i] {
 		i++
 	}
-	// This can break multibyte characters in the middle but the queries still
-	// succeed and the whole range is covered, even if with a skew
+	// Back off so the prefix doesn't end in the middle of a multibyte character.
+	// The midpoint is sent to MySQL as utf8mb4 literal (the session charset),
+	// When the column charset differs from utf8mb4, the server transcodes the
+	// literal for comparison and fails on invalid UTF-8.
+	for i > 0 && i < len(s1) && !utf8.RuneStart(s1[i]) {
+		i--
+	}
 	sharedPrefix := s1[:i]
 	s1, s2 = s1[i:], s2[i:]
 	mid := (stringToBase95Integer(s1) + stringToBase95Integer(s2)) / 2
@@ -300,6 +307,12 @@ func (c *MySqlConnector) fetchPrevRealKey(
 func (c *MySqlConnector) fetchRealKey(ctx context.Context, query string) (string, bool, error) {
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
+		// The interpolated midpoint may be unrepresentable in the column charset,
+		// in which case the server cannot transcode the string literal for comparison
+		// and fails with ERROR 3854 (ER_CANNOT_CONVERT_STRING). Treat it as "no key found".
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == 3854 {
+			return "", false, nil
+		}
 		return "", false, err
 	}
 	defer rs.Close()

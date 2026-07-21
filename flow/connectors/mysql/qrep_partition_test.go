@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -195,6 +196,27 @@ func TestStringMidpoint(t *testing.T) {
 			assert.Equal(t, tc.expected, mid)
 			assert.LessOrEqual(t, tc.s1, mid)
 			assert.LessOrEqual(t, mid, tc.s2)
+		})
+	}
+}
+
+func TestStringMidpointRemainsValidUTF8(t *testing.T) {
+	cases := []struct {
+		name  string
+		left  string
+		right string
+	}{
+		{"partial 2-byte char", "café", "cafü"},
+		{"partial 3-byte char", "日", "本"},
+		{"partial 4-byte emoji", "😀", "😂"},
+		{"full runes then partial char", "日本語", "日本誰"},
+		{"divergence on a rune boundary", "日本語あ", "日本語漢"},
+		{"no shared prefix", "а", "я"},
+		{"ascii vs multibyte", "a", "日"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.True(t, utf8.ValidString(stringMidpoint(tc.left, tc.right)))
 		})
 	}
 }
