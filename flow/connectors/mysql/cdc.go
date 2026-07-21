@@ -446,6 +446,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
+		RowsEventDecodeFunc:   decodeRowsEvent,
 	}), nil
 }
 
@@ -818,6 +819,11 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				if isMariaDb {
+					if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
+						return err
+					}
+				}
 				// The issue is global, but only error if we see a table in the pipe
 				// Otherwise users could be confused
 				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
@@ -1094,6 +1100,51 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// MariaDB COMPRESSED columns binlog as these wire types
+// which go-mysql cannot decode.
+const (
+	mysqlColumnTypeBlobCompressed    = 140
+	mysqlColumnTypeVarcharCompressed = 141
+)
+
+// decodeRowsEvent overrides default RowsEvent Decode method
+func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
+	pos, err := ev.DecodeHeader(data)
+	if err != nil {
+		return err
+	}
+
+	err = ev.DecodeData(pos, data)
+	if err != nil {
+		// avoid checking for every row event
+		if checkTableMapForCompressedColumns(ev.Table) != nil {
+			return nil
+		} else {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
+	var compressed []string
+	for i, t := range ev.ColumnType {
+		if t != mysqlColumnTypeVarcharCompressed && t != mysqlColumnTypeBlobCompressed {
+			continue
+		}
+		name := fmt.Sprintf("column #%d", i)
+		if i < len(ev.ColumnName) && len(ev.ColumnName[i]) > 0 {
+			name = string(ev.ColumnName[i])
+		}
+		compressed = append(compressed, name)
+	}
+	if len(compressed) > 0 {
+		return exceptions.NewMySQLUnsupportedCompressedColumnError(string(ev.Schema), string(ev.Table), compressed)
 	}
 	return nil
 }

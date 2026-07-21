@@ -55,6 +55,23 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedCompressedColumnError struct {
+	SchemaName string
+	TableName  string
+	Columns    []string
+}
+
+func NewMySQLUnsupportedCompressedColumnError(schema string, table string, columns []string) *MySQLUnsupportedCompressedColumnError {
+	return &MySQLUnsupportedCompressedColumnError{SchemaName: schema, TableName: table, Columns: columns}
+}
+
+func (e *MySQLUnsupportedCompressedColumnError) Error() string {
+	return fmt.Sprintf(
+		"table %s.%s has MariaDB COMPRESSED column(s) [%s], which cannot be replicated via CDC; "+
+			"convert them to a non-compressed type or remove the table from the mirror",
+		e.SchemaName, e.TableName, strings.Join(e.Columns, ", "))
+}
+
 type MySQLUnsupportedBinlogRowValueOptionsError struct {
 	Schema string
 	Table  string
