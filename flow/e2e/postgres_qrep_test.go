@@ -507,9 +507,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", srcSchemaQualified)
 
-	_, err := s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "pgtransform", "lua", "function transformRow(row) row.myreal = 1729 end")
 
 	jobName := AddSuffix(s, srcTable)
 	qrepConfig := CreateQRepWorkflowConfig(
@@ -538,7 +536,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	var exists bool
-	err = s.Conn().QueryRow(s.t.Context(),
+	err := s.Conn().QueryRow(s.t.Context(),
 		fmt.Sprintf("select exists(select * from %s where myreal <> 1729)", dstSchemaQualified)).Scan(&exists)
 	require.NoError(s.t, err)
 	require.False(s.t, exists)

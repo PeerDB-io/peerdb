@@ -82,6 +82,19 @@ func AddSuffix(s Suite, str string) string {
 	return fmt.Sprintf("%s_%s", str, s.Suffix())
 }
 
+// InsertScript registers a transform script in the catalog's public.scripts
+// table.
+func InsertScript(t *testing.T, name string, lang string, source string) {
+	t.Helper()
+
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(),
+		"insert into public.scripts (name, lang, source) values ($1, $2, $3) on conflict do nothing",
+		name, lang, source)
+	require.NoError(t, err)
+}
+
 // Helper function to assert errors in go routines running concurrent to workflows
 // This achieves two goals:
 // 1. cancel workflow to avoid waiting on goroutine which has failed

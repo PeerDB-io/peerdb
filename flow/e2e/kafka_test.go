@@ -95,9 +95,7 @@ func (s KafkaSuite) TestSimple() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_kasimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_kasimple", "lua", "function onRecord(r) return r.row and r.row.val end")
 
 	flowName := AddSuffix(s, "kasimple")
 	connectionGen := FlowConnectionGenerationConfig{
@@ -152,10 +150,8 @@ func (s KafkaSuite) TestMessage() {
 		`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `INSERT INTO public.scripts (name, lang, source) values ('e2e_kamessage', 'lua',
-	'function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end'
-	) ON CONFLICT DO NOTHING`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_kamessage", "lua",
+		`function onRecord(r) if r.kind == "message" then return { topic = r.prefix, value = r.content } end end`)
 
 	flowName := AddSuffix(s, "kamessage")
 	connectionGen := FlowConnectionGenerationConfig{
@@ -321,11 +317,8 @@ func (s KafkaSuite) TestOriginMetadata() {
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_kaorigin', 'lua',
-		'function onRecord(r) return peerdb.type(r.transaction_id) .. tostring(r.row._peerdb_origin_transaction_id == r.transaction_id) end')
-		on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_kaorigin", "lua",
+		"function onRecord(r) return peerdb.type(r.transaction_id) .. tostring(r.row._peerdb_origin_transaction_id == r.transaction_id) end")
 
 	flowName := AddSuffix(s, "kaorigin")
 	connectionGen := FlowConnectionGenerationConfig{
