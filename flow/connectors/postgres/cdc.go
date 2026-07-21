@@ -535,13 +535,12 @@ func PullCdcRecords[Items model.Items](
 
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
-	sendStandbyAfterReplLock := func(updateType string, requestReply bool) error {
+	sendStandbyAfterReplLock := func(updateType string) error {
 		replLock.Lock()
 		defer replLock.Unlock()
 		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
 			pglogrepl.StandbyStatusUpdate{
 				WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load()),
-				ReplyRequested:   requestReply,
 			},
 		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
@@ -572,7 +571,7 @@ func PullCdcRecords[Items model.Items](
 	var clientXLogPos pglogrepl.LSN
 	if req.LastOffset.ID > 0 {
 		clientXLogPos = pglogrepl.LSN(req.LastOffset.ID)
-		if err := sendStandbyAfterReplLock("initial-flush", false); err != nil {
+		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
 			return err
 		}
 	}
@@ -680,11 +679,9 @@ func PullCdcRecords[Items model.Items](
 					return err
 				}
 				lastEmptyBatchPkmSentTime = time.Now()
-				// Caught up with no records for this flow: clear any stale source lag.
-				p.otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
 			}
 
-			if err := sendStandbyAfterReplLock("pkm-response", false); err != nil {
+			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
 				return err
 			}
 			pkmRequiresResponse = false
@@ -780,7 +777,7 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && pgconn.Timeout(err) {
 			// On timeout, always send a ping before moving on to read more messages
-			if err := sendStandbyAfterReplLock("receive-timeout", true); err != nil {
+			if err := sendStandbyAfterReplLock("receive-timeout"); err != nil {
 				return err
 			}
 			// After that, we let the condition checks at the beginging of the loop,
@@ -807,11 +804,6 @@ func PullCdcRecords[Items model.Items](
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
-				}
-				// Server has nothing beyond what we've consumed (no WAL to any table):
-				// fully idle, so clear any stale source lag. Compared before the bump below.
-				if pkm.ServerWALEnd <= clientXLogPos {
-					p.otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
 				}
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
