@@ -254,6 +254,14 @@ dc_resource('postgres2', labels=['Ancillary-DB'], links=[
     link('http://localhost:' + resolve_ancillary_env('PG2_PORT', '5437'), 'PostgreSQL (secondary)'),
 ], auto_init=False)
 
+dc_resource('redpanda', labels=['Ancillary-DB'], links=[
+    link('http://localhost:' + resolve_ancillary_env('CI_KAFKA_PORT', '9092'), 'Redpanda (Kafka)'),
+], auto_init=False)
+
+dc_resource('elasticsearch', labels=['Ancillary-DB'], links=[
+    link('http://localhost:' + resolve_ancillary_env('CI_ELASTICSEARCH_PORT', '9200'), 'Elasticsearch'),
+], auto_init=False)
+
 local_resource(
     'all-test-resources',
     cmd=' '.join([

@@ -68,7 +68,7 @@ jobs:
       # Empty matcher to run the whole test suite until test selection is routed through flow cases.
       test_matcher: ''
       # This is the list of services Tilt will enable for this run.
-      ancillary_services: postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb ${{ matrix.db-version.mysql }} mariadb toxiproxy openssh
+      ancillary_services: postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb ${{ matrix.db-version.mysql }} mariadb redpanda elasticsearch toxiproxy openssh
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       run_label: pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}
       postgres_image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
