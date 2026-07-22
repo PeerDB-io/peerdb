@@ -464,6 +464,19 @@ func (c *MySqlConnector) startStreaming(
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
 		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
+		skipGTIDs, err := internal.PeerDBMySQLSkipGTIDSet(ctx, env)
+		if err != nil {
+			return nil, nil, nil, mysql.Position{}, err
+		}
+		if skipGTIDs != "" {
+			if err := parsedOffset.gset.Update(skipGTIDs); err != nil {
+				return nil, nil, nil, mysql.Position{},
+					fmt.Errorf("failed to merge PEERDB_MYSQL_SKIP_GTID_SET %q into offset: %w", skipGTIDs, err)
+			}
+			c.logger.Info("[mysql] skipping GTID transactions per PEERDB_MYSQL_SKIP_GTID_SET",
+				slog.String("skipGTIDSet", skipGTIDs),
+				slog.String("offset", parsedOffset.gset.String()))
+		}
 		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
