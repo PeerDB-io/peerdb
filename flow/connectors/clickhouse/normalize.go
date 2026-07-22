@@ -495,9 +495,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	defer periodicLogger()
 
 	type queryInfo struct {
+		generator       *NormalizeQueryGenerator
 		table           string
 		query           string
-		generator       *NormalizeQueryGenerator
 		lastNormBatchID int64
 	}
 	queriesCh := make(chan queryInfo)
