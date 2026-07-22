@@ -101,6 +101,7 @@ func drainMongoCDCRecordsAsync(t *testing.T, stream *model.CDCStream[model.Recor
 }
 
 func newInsertChangeEvent(id bson.ObjectID, ts time.Time) bson.Raw {
+	wallTime := ts.UTC().Truncate(time.Millisecond)
 	event, _ := bson.Marshal(bson.D{
 		{Key: "ns", Value: bson.D{
 			{Key: "db", Value: "db"},
@@ -113,6 +114,7 @@ func newInsertChangeEvent(id bson.ObjectID, ts time.Time) bson.Raw {
 			{Key: "val", Value: "test"},
 		}},
 		{Key: "clusterTime", Value: toBsonTs(ts)},
+		{Key: "wallTime", Value: wallTime},
 	})
 	return event
 }
@@ -283,6 +285,7 @@ func TestExcludedOperationTypes(t *testing.T) {
 func TestDecodeEvent(t *testing.T) {
 	id := bson.NewObjectID()
 	insertTs := time.Now().UTC()
+	insertWallTime := insertTs.Truncate(time.Millisecond)
 	deleteTs := time.Now().Add(time.Second).UTC()
 
 	mustMarshal := func(v any) bson.Raw {
@@ -333,6 +336,7 @@ func TestDecodeEvent(t *testing.T) {
 				DocumentKey:   mustMarshal(bson.D{{Key: "_id", Value: id}}),
 				FullDocument:  &fullDocument,
 				ClusterTime:   toBsonTs(insertTs),
+				WallTime:      &insertWallTime,
 			},
 		},
 		{
@@ -381,4 +385,16 @@ func TestDecodeEvent(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestCreatePipelineProjectsWallTime(t *testing.T) {
+	pipeline, err := createPipeline(nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, pipeline)
+
+	projectStage := pipeline[len(pipeline)-1]
+	require.Len(t, projectStage, 1)
+	projectFields, ok := projectStage[0].Value.(bson.D)
+	require.True(t, ok)
+	require.Contains(t, projectFields, bson.E{Key: "wallTime", Value: 1})
 }

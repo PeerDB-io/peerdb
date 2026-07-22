@@ -34,25 +34,26 @@ type ReplState struct {
 }
 
 type PostgresConnector struct {
+	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
+	rdsAuth                *utils.RDSAuth
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
-	ssh                    *utils.SSHTunnel
-	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
 	Config                 *protos.PostgresConfig
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
-	rdsAuth                *utils.RDSAuth
+	ssh                    *utils.SSHTunnel
+	conn                   *pgx.Conn
 	connStr                string
 	metadataSchema         string
 	walSenderTimeout       walSenderTimeout
+	clockOffset            time.Duration
 	replLock               sync.Mutex
 	closeLock              sync.Mutex
 	pgVersion              shared.PGVersion
-
-	cdcStoreEnabled bool
+	cdcStoreEnabled        bool
 }
 
 func NewPostgresConnectorWithCDCDestination(

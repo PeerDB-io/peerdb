@@ -3,11 +3,15 @@ package connclickhouse
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
@@ -30,7 +34,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 1)
@@ -46,7 +50,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 1)
 		require.Len(t, batches[0].objects, 3)
@@ -67,12 +71,49 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 150, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 150, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 3)
 		for i, batch := range batches {
 			require.Len(t, batch.objects, 1, "batch %d should have 1 object", i)
 		}
+	})
+
+	t.Run("objects split by url byte limit", func(t *testing.T) {
+		stream := model.NewQObjectStream(3)
+		go func() {
+			// Each URL is 28 bytes (+1 separator = 29). A 60-byte budget fits two
+			// URLs but not a third, even though the data size limit is not reached.
+			stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 1}
+			stream.Objects <- &model.Object{URL: "http://example.com/2.parquet", Size: 1}
+			stream.Objects <- &model.Object{URL: "http://example.com/3.parquet", Size: 1}
+			stream.Close(nil)
+		}()
+
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 60, 1000, longInterval)
+		batches := collectBatches(batchCh)
+		require.Len(t, batches, 2)
+		require.Len(t, batches[0].objects, 2)
+		require.Len(t, batches[1].objects, 1)
+	})
+
+	t.Run("objects split by url count limit", func(t *testing.T) {
+		stream := model.NewQObjectStream(5)
+		go func() {
+			for i := range 5 {
+				stream.Objects <- &model.Object{URL: "http://example.com/" + strconv.Itoa(i) + ".parquet", Size: 1}
+			}
+			stream.Close(nil)
+		}()
+
+		// A count cap of 2 splits five objects into batches of 2, 2 and 1,
+		// even though neither the data size nor URL byte limit is reached.
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 2, longInterval)
+		batches := collectBatches(batchCh)
+		require.Len(t, batches, 3)
+		require.Len(t, batches[0].objects, 2)
+		require.Len(t, batches[1].objects, 2)
+		require.Len(t, batches[2].objects, 1)
 	})
 
 	t.Run("empty stream", func(t *testing.T) {
@@ -81,7 +122,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 1000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 1000, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Empty(t, batches)
 	})
@@ -94,7 +135,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			stream.Close(nil)
 		}()
 
-		batchCh := collectAndBatchObjects(ctx, stream, 500, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 500, 1<<20, 1000, longInterval)
 		batches := collectBatches(batchCh)
 		require.Len(t, batches, 2)
 	})
@@ -103,7 +144,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		stream := model.NewQObjectStream(2)
 		shortInterval := 50 * time.Millisecond
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, shortInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 1000, shortInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
@@ -131,7 +172,7 @@ func TestCollectAndBatchObjects(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		stream := model.NewQObjectStream(10)
 
-		batchCh := collectAndBatchObjects(ctx, stream, 10000, longInterval)
+		batchCh := collectAndBatchObjects(ctx, stream, 10000, 1<<20, 1000, longInterval)
 
 		stream.Objects <- &model.Object{URL: "http://example.com/1.parquet", Size: 100}
 
@@ -144,6 +185,46 @@ func TestCollectAndBatchObjects(t *testing.T) {
 			t.Fatal("channel should be closed after context cancellation")
 		}
 	})
+}
+
+func TestFetchURLBatchLimits(t *testing.T) {
+	ctx := t.Context()
+
+	conn, err := NewClickHouseConnector(ctx, nil, &protos.ClickhouseConfig{
+		Host:       internal.ClickHouseTestHost(),
+		Port:       internal.ClickHouseTestPort(),
+		Database:   "default",
+		DisableTls: true,
+	})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Baseline: whatever the server's effective defaults are.
+	baseline, err := conn.fetchURLBatchLimits(ctx)
+	require.NoError(t, err)
+	require.Positive(t, baseline.maxURLBytes)
+	require.Positive(t, baseline.maxURLCount)
+
+	// Override the two settings for this query only. Values are deliberately distinct
+	// from any plausible server default so the assertions can't pass by coincidence.
+	const overrideMaxQuerySize int64 = 128 * 1024
+	const overrideRemoteMaxAddresses int64 = 42
+	overrideCtx := clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"max_query_size":                      overrideMaxQuerySize,
+		"table_function_remote_max_addresses": overrideRemoteMaxAddresses,
+	}))
+
+	overridden, err := conn.fetchURLBatchLimits(overrideCtx)
+	require.NoError(t, err)
+	require.Equal(t, overrideMaxQuerySize*3/4, overridden.maxURLBytes)
+	require.Equal(t, int(overrideRemoteMaxAddresses*9/10), overridden.maxURLCount)
+	require.NotEqual(t, baseline, overridden, "override should change the computed limits")
+
+	// The override was scoped to overrideCtx; a plain query still sees the baseline,
+	// proving the setting did not leak into the shared connection (and other tests).
+	after, err := conn.fetchURLBatchLimits(ctx)
+	require.NoError(t, err)
+	require.Equal(t, baseline, after)
 }
 
 func TestBuildURLTableFunction(t *testing.T) {

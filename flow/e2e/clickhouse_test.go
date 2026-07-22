@@ -25,6 +25,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -358,6 +359,52 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_First_Row_Lag_Times_Recorded() {
+	srcTableName := "test_first_row_lag_times"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_first_row_lag_times_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			ky TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_first_row_lag_times"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky")
+
+	EnvWaitFor(s.t, env, time.Minute, "first row lag times persisted", func() bool {
+		var populated bool
+		var skewSeconds float64
+		if err := s.catalog.QueryRow(s.t.Context(),
+			`SELECT first_row_received_at IS NOT NULL AND first_row_commit_time IS NOT NULL,
+			 COALESCE(ABS(EXTRACT(EPOCH FROM (first_row_received_at - first_row_commit_time))), 0)
+			 FROM peerdb_stats.cdc_batches
+			 WHERE flow_name = $1 AND first_row_received_at IS NOT NULL
+			 ORDER BY batch_id DESC LIMIT 1`,
+			flowConnConfig.FlowJobName,
+		).Scan(&populated, &skewSeconds); err != nil {
+			return false
+		}
+		return populated && skewSeconds < 300
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	srcTableName := "test_nullable_column"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -670,6 +717,39 @@ func (s ClickHouseSuite) Test_WeirdTable_Question() {
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
 	s.WeirdTable("table-group%a%b%c")
+}
+
+func (s ClickHouseSuite) Test_ValidatePartitionByExpression() {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	logger := internal.LoggerFromCtx(s.t.Context())
+	const targetTable = "replicated_events"
+	columnNames := []string{"id", "val"}
+
+	for _, tc := range []struct {
+		name       string
+		expression string
+		wantErr    bool
+	}{
+		{name: "invalid_syntax_rejected", expression: "INVALID EXPRESSION", wantErr: true},
+		{name: "missing_column_rejected", expression: "i_am_not_a_column % 2", wantErr: true},
+		{name: "aggregate_expression_rejected", expression: "MAX(id)", wantErr: true},
+		{name: "valid_expression_passes", expression: "id % 2", wantErr: false},
+		{name: "empty_expression_passes", expression: "", wantErr: false},
+	} {
+		s.t.Run(tc.name, func(t *testing.T) {
+			err := clickhouse.ValidatePartitionByExpression(
+				s.t.Context(), logger, ch, tc.expression, targetTable, columnNames, nil)
+			if tc.wantErr {
+				require.ErrorContains(t, err,
+					fmt.Sprintf("invalid partition expression (%s) for table %s", tc.expression, targetTable))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
