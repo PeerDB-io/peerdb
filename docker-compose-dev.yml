@@ -38,6 +38,9 @@ x-flow-worker-env: &flow-worker-env
   # <yournamespace>.<id>.tmprl.cloud:7233
   TEMPORAL_HOST_PORT: temporal:7233
   PEERDB_TEMPORAL_NAMESPACE: default
+  # Auto-create topics for Kafka/PubSub test mirrors (the legacy CI set this on
+  # the host-run worker); only queue mirrors read it.
+  PEERDB_QUEUE_FORCE_TOPIC_CREATION: true
   # For the below 2 cert and key variables,
   # paste as base64 encoded strings.
   TEMPORAL_CLIENT_CERT:
