@@ -3930,6 +3930,14 @@ func (s ClickHouseSuite) Test_Normalize_After_Destination_Column_Drop() {
 }
 
 func (s ClickHouseSuite) Test_Column_Added_Back_After_Destination_Column_Drop() {
+	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("source DROP COLUMN requires binlog_row_metadata")
+		}
+	}
+
 	srcTableName := "test_dst_col_readd"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_dst_col_readd_dst"
