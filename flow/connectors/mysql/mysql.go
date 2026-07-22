@@ -88,8 +88,8 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			case <-ssh.GetKeepaliveChan(ctx):
 				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
-				// close the SSH client so that BinlogSyncer notices too
-				if err := ssh.Client.Close(); err != nil {
+				// close the SSH tunnel so that BinlogSyncer notices too
+				if err := ssh.Close(); err != nil {
 					c.logger.Error("Failed to close SSH client", slog.Any("error", err))
 				}
 				if conn := c.conn.Swap(nil); conn != nil {
@@ -171,7 +171,7 @@ func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh != nil && c.ssh.Client != nil {
+	if c.ssh.IsActive() {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.DialContext)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)

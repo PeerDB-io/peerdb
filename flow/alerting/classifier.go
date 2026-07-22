@@ -24,7 +24,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
-	"golang.org/x/crypto/ssh"
 	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -437,14 +436,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceSSH,
 			Code:   "TUNNEL_DIAL_ERROR",
 		}
-		if sshDialErr.Retryable {
+		switch {
+		case sshDialErr.Retryable:
 			return ErrorRetryRecoverable, errInfo
+		case errors.Is(sshDialErr, net.ErrClosed) ||
+			strings.HasSuffix(sshDialErr.Error(), "use of closed network connection"):
+			// We force-closed our own tunnel (syncer.Close hung / keepalive failure) and then
+			// dialed on the dead client. Transient and self-heals on reconnect.
+			return ErrorRetryRecoverable, errInfo
+		default:
+			// SSH server rejected the forwarded connection to the source
+			return ErrorNotifyConnectivity, errInfo
 		}
-		return ErrorOther, errInfo
 	}
 
+	// Keepalive failure
 	if _, ok := errors.AsType[*exceptions.SSHTunnelClosedError](err); ok {
-		return ErrorRetryRecoverable, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceSSH,
 			Code:   "TUNNEL_CONNECTION_CLOSED",
 		}
@@ -477,13 +485,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   netErr.Err.Error(),
-		}
-	}
-
-	if sshOpenChanErr, ok := errors.AsType[*ssh.OpenChannelError](err); ok {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   sshOpenChanErr.Reason.String(),
 		}
 	}
 
