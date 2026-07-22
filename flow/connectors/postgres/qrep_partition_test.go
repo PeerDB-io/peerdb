@@ -570,10 +570,10 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 		numPartitions: 8,
 		logger:        log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testOffsetBounds"))),
 	}
-	leafBlocks := map[string]int64{
-		"public.t1": 100,
-		"public.t2": 45,
-		"public.t3": 10,
+	leafBlocks := map[string]tableBlockStats{
+		"public.t1": tableBlockStats{blockCount: 100},
+		"public.t2": tableBlockStats{blockCount: 45},
+		"public.t3": tableBlockStats{blockCount: 10},
 	}
 	// blocksPerPartition = DivCeil(155, 8) = 20
 	partitions, err := ctidPartitionsForChildTables(pp, leafBlocks)
@@ -777,6 +777,160 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)
+}
+
+// analyzeTables runs ANALYZE on each table so that pg_class.reltuples/relpages are
+// populated; without this the density-based row estimate is 0 and ComputeNumPartitions
+// falls back to a precise COUNT(*) instead of exercising the estimation path.
+func analyzeTables(t *testing.T, conn *pgx.Conn, tables []string) {
+	t.Helper()
+	for _, tbl := range tables {
+		if _, err := conn.Exec(t.Context(), "ANALYZE "+tbl); err != nil {
+			t.Fatalf("Failed to ANALYZE %s: %v", tbl, err)
+		}
+	}
+}
+
+// TestComputeNumPartitionsForPartitionedTable verifies that ComputeNumPartitions sums the
+// estimated row counts of the leaf partitions (the partitioned parent itself stores no rows).
+func TestComputeNumPartitionsForPartitionedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	parentTable := schemaName + ".partitioned_est"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, parentTable))
+	require.NoError(t, err)
+
+	numChildTables := 5
+	rowsPerChild := 90
+	totalRows := numChildTables * rowsPerChild
+	tablesToAnalyze := []string{parentTable}
+	for i := range numChildTables {
+		child := fmt.Sprintf("%s.child_est_%d", schemaName, i)
+		lo := i * rowsPerChild
+		hi := (i + 1) * rowsPerChild
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			child, parentTable, lo, hi))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, child)
+	}
+	for i := range numChildTables {
+		for j := range rowsPerChild {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (partition_key, value) VALUES ($1, $2)`, parentTable),
+				i*rowsPerChild+j, fmt.Sprintf("val_%d_%d", i, j))
+			require.NoError(t, err)
+		}
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	logger := log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testComputePartitioned")))
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(t.Context()) })
+
+	// Directly verify the summed estimate covers only the leaf partitions and is close to
+	// the actual row count.
+	tc, err := classifyTable(t.Context(), tx, parentTable)
+	require.NoError(t, err)
+	require.Equal(t, "p", tc.relkind)
+	blockStats, err := getPartitionedTables(t.Context(), tx, tc.oid)
+	require.NoError(t, err)
+	require.Len(t, blockStats, numChildTables)
+	var estimated int64
+	for _, bs := range blockStats {
+		estimated += int64(bs.blockDensity * float64(bs.blockCount))
+	}
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// ...and the user-facing partition computation uses that estimate rather than COUNT(*).
+	pp := PartitionParams{
+		tx:              tx,
+		watermarkTable:  parentTable,
+		watermarkColumn: `"partition_key"`,
+		logger:          logger,
+	}
+	rowsPerPartition := int64(100)
+	numPartitions, err := ComputeNumPartitions(t.Context(), pp, rowsPerPartition)
+	require.NoError(t, err)
+	require.Equal(t, shared.DivCeil(int64(totalRows), rowsPerPartition), numPartitions)
+}
+
+// TestComputeNumPartitionsForInheritedTable verifies that ComputeNumPartitions sums the
+// estimated row counts across the whole inheritance hierarchy, including the parent, which
+// (unlike a partitioned parent) stores its own rows.
+func TestComputeNumPartitionsForInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	parentTable := schemaName + ".parent_est"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTable))
+	require.NoError(t, err)
+
+	numChildren := 4
+	rowsPerTable := 90
+	// Parent stores its own rows in the inheritance case, so it counts toward the total.
+	totalRows := (numChildren + 1) * rowsPerTable
+	tablesToAnalyze := []string{parentTable}
+	children := make([]string, numChildren)
+	for i := range numChildren {
+		children[i] = fmt.Sprintf("%s.child_inh_est_%d", schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, children[i], parentTable))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, children[i])
+	}
+	for j := range rowsPerTable {
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s (value) VALUES ($1)`, parentTable), fmt.Sprintf("parent_%d", j))
+		require.NoError(t, err)
+	}
+	for i, child := range children {
+		for j := range rowsPerTable {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s (value) VALUES ($1)`, child), fmt.Sprintf("child_%d_%d", i, j))
+			require.NoError(t, err)
+		}
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	logger := log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testComputeInherited")))
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(t.Context()) })
+
+	// Directly verify the summed estimate covers the parent plus every child and is close to
+	// the actual row count.
+	tc, err := classifyTable(t.Context(), tx, parentTable)
+	require.NoError(t, err)
+	require.True(t, tc.relhassubclass)
+	blockStats, err := getInheritedTables(t.Context(), tx, tc.oid, tc.qualifiedName)
+	require.NoError(t, err)
+	require.Len(t, blockStats, numChildren+1)
+	var estimated int64
+	for _, bs := range blockStats {
+		estimated += int64(bs.blockDensity * float64(bs.blockCount))
+	}
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// ...and the user-facing partition computation uses that estimate rather than COUNT(*).
+	pp := PartitionParams{
+		tx:              tx,
+		watermarkTable:  parentTable,
+		watermarkColumn: `"id"`,
+		logger:          logger,
+	}
+	rowsPerPartition := int64(100)
+	numPartitions, err := ComputeNumPartitions(t.Context(), pp, rowsPerPartition)
+	require.NoError(t, err)
+	require.Equal(t, shared.DivCeil(int64(totalRows), rowsPerPartition), numPartitions)
 }
 
 // returns the number of rows inserted
