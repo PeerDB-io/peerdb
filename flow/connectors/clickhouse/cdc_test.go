@@ -137,6 +137,8 @@ func TestCreateRawTableHasTTL(t *testing.T) {
 				"TTL should reference _peerdb_timestamp: %s", engineFull)
 			require.Contains(t, engineFull, fmt.Sprintf("toIntervalDay(%d)", tc.expectedDays),
 				"TTL interval should be %d days: %s", tc.expectedDays, engineFull)
+			require.Contains(t, engineFull, "ttl_only_drop_parts = 1",
+				"raw table should drop whole parts on TTL, not row-by-row: %s", engineFull)
 		})
 	}
 }
