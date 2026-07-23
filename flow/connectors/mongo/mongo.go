@@ -60,15 +60,17 @@ type createChangeStreamFunc func(
 ) (ChangeStream, error)
 
 type MongoConnector struct {
-	logger             log.Logger
-	metadataStore      metadataStore
-	config             *protos.MongoConfig
-	client             *mongo.Client
-	ssh                *utils.SSHTunnel
-	createChangeStream createChangeStreamFunc
-	excludedOps        []operationType
-	totalBytesRead     atomic.Int64
-	deltaBytesRead     atomic.Int64
+	clockOffsetUpdatedAt time.Time
+	logger               log.Logger
+	metadataStore        metadataStore
+	config               *protos.MongoConfig
+	client               *mongo.Client
+	ssh                  *utils.SSHTunnel
+	createChangeStream   createChangeStreamFunc
+	excludedOps          []operationType
+	totalBytesRead       atomic.Int64
+	deltaBytesRead       atomic.Int64
+	clockOffset          time.Duration
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
@@ -100,7 +102,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
-	if sshTunnel != nil && sshTunnel.Client != nil {
+	if sshTunnel.IsActive() {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.DialContext)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)

@@ -141,6 +141,9 @@ async fn gcp_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow:
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
     let migration_report = embedded::migrations::runner()
+        // Tolerate a schema history that is ahead of the binary to support release rollbacks.
+        // Divergent migrations with same version but different checksum will still abort.
+        .set_abort_missing(false)
         .run_async(client)
         .await
         .context("Failed to run migrations")?;

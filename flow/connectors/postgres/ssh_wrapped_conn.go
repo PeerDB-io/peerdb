@@ -19,7 +19,7 @@ func NewPostgresConnFromConfig(
 	rdsAuth *utils.RDSAuth,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
-	if tunnel != nil && tunnel.Client != nil {
+	if tunnel.IsActive() {
 		connConfig.DialFunc = tunnel.DialContext
 		// DNS lookup seems to happen before connection is established which can be an issue if given host
 		// can only be resolved on the SSH host https://github.com/jackc/pgx/issues/1724

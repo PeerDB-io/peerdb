@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,8 +22,9 @@ import (
 // objectBatch holds a group of objects that can be inserted together
 // (cumulative size within limit)
 type objectBatch struct {
-	objects []*model.Object
-	size    int64
+	objects  []*model.Object
+	size     int64
+	urlBytes int64
 }
 
 func (b *objectBatch) urls() []string {
@@ -35,6 +37,65 @@ func (b *objectBatch) urls() []string {
 
 const defaultBatchFlushInterval = 5 * time.Second
 
+const (
+	defaultMaxQuerySize       int64 = 256 * 1024
+	defaultRemoteMaxAddresses int64 = 1000
+)
+
+// urlBatchLimits bounds how many object URLs can be inlined into a single INSERT.
+// The URLs are packed into a brace-expanded list (url('{url1,url2,...}', ...)),
+// constrained by two ClickHouse settings:
+//   - max_query_size: the whole query text, including the URL list, must fit.
+//   - table_function_remote_max_addresses: the brace list is expanded like
+//     remote() shard addresses and rejected past this count.
+type urlBatchLimits struct {
+	maxURLBytes int64
+	maxURLCount int
+}
+
+// fetchURLBatchLimits reads the effective max_query_size and
+// table_function_remote_max_addresses from ClickHouse directly.
+func (c *ClickHouseConnector) fetchURLBatchLimits(ctx context.Context) (urlBatchLimits, error) {
+	maxQuerySize := defaultMaxQuerySize
+	remoteMaxAddresses := defaultRemoteMaxAddresses
+
+	rows, err := c.query(ctx,
+		"SELECT name, value FROM system.settings WHERE name IN ('max_query_size', 'table_function_remote_max_addresses')")
+	if err != nil {
+		return urlBatchLimits{}, fmt.Errorf("failed to read ClickHouse batch-limit settings: %w", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var name, value string
+			if err := rows.Scan(&name, &value); err != nil {
+				return urlBatchLimits{}, fmt.Errorf("failed to scan ClickHouse settings: %w", err)
+			}
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || parsed <= 0 {
+				continue
+			}
+			switch name {
+			case "max_query_size":
+				maxQuerySize = parsed
+			case "table_function_remote_max_addresses":
+				remoteMaxAddresses = parsed
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return urlBatchLimits{}, fmt.Errorf("failed to read ClickHouse batch settings: %w", err)
+		}
+	}
+
+	// Reserve a quarter of the query budget for the non-URL parts of the INSERT
+	// (headers with auth tokens, column list, SELECT expressions), and stay a
+	// margin below the address cap.
+	maxURLCount := max(int(remoteMaxAddresses*9/10), 1)
+	return urlBatchLimits{
+		maxURLBytes: maxQuerySize * 3 / 4,
+		maxURLCount: maxURLCount,
+	}, nil
+}
+
 // collectAndBatchObjects collects objects from stream and groups them into batches
 // based on size limits. It returns a channel that receives batches as they become
 // ready (either full or after a flush interval).
@@ -43,6 +104,8 @@ func collectAndBatchObjects(
 	ctx context.Context,
 	stream *model.QObjectStream,
 	maxBatchSize int64,
+	maxURLBytes int64,
+	maxURLCount int,
 	flushInterval time.Duration,
 ) <-chan *objectBatch {
 	batches := make(chan *objectBatch)
@@ -80,15 +143,24 @@ func collectAndBatchObjects(
 					return
 				}
 
-				// Check if we can add to current batch (size limit check only)
-				if currentBatch != nil && currentBatch.size+object.Size <= maxBatchSize {
+				// Account for the URL plus its separator in the brace-expanded list.
+				objURLBytes := int64(len(object.URL)) + 1
+
+				// Add to the current batch only if it stays within both the data
+				// size limit and the query-length limit; otherwise start a new batch.
+				if currentBatch != nil &&
+					currentBatch.size+object.Size <= maxBatchSize &&
+					currentBatch.urlBytes+objURLBytes <= maxURLBytes &&
+					len(currentBatch.objects) < maxURLCount {
 					currentBatch.objects = append(currentBatch.objects, object)
 					currentBatch.size += object.Size
+					currentBatch.urlBytes += objURLBytes
 				} else {
 					flushCurrentBatch()
 					currentBatch = &objectBatch{
-						objects: []*model.Object{object},
-						size:    object.Size,
+						objects:  []*model.Object{object},
+						size:     object.Size,
+						urlBytes: objURLBytes,
 					}
 				}
 			}
@@ -137,10 +209,17 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 		return 0, nil, fmt.Errorf("failed to get batch size config: %w", err)
 	}
 
-	batches := collectAndBatchObjects(ctx, stream, maxBatchSize, defaultBatchFlushInterval)
+	limits, err := c.fetchURLBatchLimits(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	batches := collectAndBatchObjects(ctx, stream, maxBatchSize, limits.maxURLBytes, limits.maxURLCount, defaultBatchFlushInterval)
 
 	c.logger.Info("Started batching objects for processing",
 		slog.Int64("maxBatchSize", maxBatchSize),
+		slog.Int64("maxURLBytes", limits.maxURLBytes),
+		slog.Int("maxURLCount", limits.maxURLCount),
 		slog.Duration("flushInterval", defaultBatchFlushInterval))
 
 	columnNameFieldMap := c.constructColumnNameFieldMap(schema.Fields)

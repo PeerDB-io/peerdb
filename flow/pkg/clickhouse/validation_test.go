@@ -214,3 +214,19 @@ func TestValidateClusterShardingKey(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildPartitionByValidationQuery(t *testing.T) {
+	t.Run("columns as dynamic placeholders", func(t *testing.T) {
+		query := buildPartitionByValidationQuery("toYYYYMM(t)", []string{"id", "t"}, nil)
+		require.Equal(t,
+			"SELECT (toYYYYMM(t)) FROM (SELECT "+
+				"CAST(NULL, 'Dynamic') AS `id`, "+
+				"CAST(NULL, 'Dynamic') AS `t`) LIMIT 0",
+			query)
+	})
+
+	t.Run("excluded columns are omitted", func(t *testing.T) {
+		query := buildPartitionByValidationQuery("id % 2", []string{"id", "secret"}, []string{"secret"})
+		require.Equal(t, "SELECT (id % 2) FROM (SELECT CAST(NULL, 'Dynamic') AS `id`) LIMIT 0", query)
+	})
+}

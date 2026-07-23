@@ -90,14 +90,42 @@ func TestSSHTunnelRecoverableDialError(t *testing.T) {
 	}, errInfo)
 }
 
-func TestSSHTunnelClosedPipeErrorShouldBeRetryable(t *testing.T) {
+func TestSSHTunnelDialConnectFailedShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// The SSH bastion rejected the forwarded connection to the source (DNS / refused / timeout).
+	err := fmt.Errorf("failed to create connection: %w",
+		exceptions.NewSSHTunnelDialError(errors.New("ssh: rejected: connect failed (Name or service not known)")))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelDialClosedConnShouldBeRetryable(t *testing.T) {
+	t.Parallel()
+
+	// We force-closed our own tunnel (syncer.Close hung / keepalive failure), then dialed on the dead client.
+	err := fmt.Errorf("connection to source down: %w",
+		exceptions.NewSSHTunnelDialError(&net.OpError{Op: "dial", Err: net.ErrClosed}))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelClosedPipeErrorShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
 	// Mirrors how deadlineCapableConn wraps net.Pipe teardown errors when an
 	// SSH-tunneled connection is torn down while a query is in flight.
 	err := fmt.Errorf("receive message failed: %w", exceptions.NewSSHTunnelClosedError(io.ErrClosedPipe))
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
-	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceSSH,
 		Code:   "TUNNEL_CONNECTION_CLOSED",
@@ -1425,6 +1453,21 @@ func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJs
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "UNSUPPORTED_PARTIAL_JSON",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedCompressedColumnErrorShouldBeNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedCompressedColumnError("mydb", "mytable", []string{"v"})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyMySQLCompressedColumnUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_COMPRESSED_COLUMN",
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "mydb.mytable",
 		},

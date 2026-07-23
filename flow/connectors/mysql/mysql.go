@@ -30,19 +30,21 @@ import (
 )
 
 type MySqlConnector struct {
+	clockOffsetUpdatedAt time.Time
+	logger               log.Logger
+	collationCharset     atomic.Pointer[map[uint64]string]
+	conn                 atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts             atomic.Pointer[chan context.Context]
+	ssh                  *utils.SSHTunnel
+	rdsAuth              *utils.RDSAuth
+	config               *protos.MySqlConfig
 	*metadataStore.PostgresMetadata
-	config                      *protos.MySqlConfig
-	ssh                         *utils.SSHTunnel
-	conn                        atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts                    atomic.Pointer[chan context.Context]
-	logger                      log.Logger
-	rdsAuth                     *utils.RDSAuth
-	serverVersion               string
-	collationCharset            atomic.Pointer[map[uint64]string]
 	warnedUnsupportedEventTypes sync.Map
 	warnedCharsets              sync.Map
 	warnedTypeChanges           sync.Map
+	serverVersion               string
 	binlogHeartbeatPeriod       time.Duration
+	clockOffset                 time.Duration
 	totalBytesRead              atomic.Int64
 	deltaBytesRead              atomic.Int64
 }
@@ -86,8 +88,8 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			case <-ssh.GetKeepaliveChan(ctx):
 				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
-				// close the SSH client so that BinlogSyncer notices too
-				if err := ssh.Client.Close(); err != nil {
+				// close the SSH tunnel so that BinlogSyncer notices too
+				if err := ssh.Close(); err != nil {
 					c.logger.Error("Failed to close SSH client", slog.Any("error", err))
 				}
 				if conn := c.conn.Swap(nil); conn != nil {
@@ -169,7 +171,7 @@ func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh != nil && c.ssh.Client != nil {
+	if c.ssh.IsActive() {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.DialContext)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)

@@ -44,9 +44,57 @@ import (
 
 const (
 	defaultBinlogHeartbeatPeriod = time.Minute
+	mysqlUTCTimestampLayout      = "2006-01-02 15:04:05.000000"
 )
 
 const mariadbPartialRowDataEvent replication.EventType = 172
+
+const clockOffsetTTL = time.Hour
+
+// getMySQLClockOffset returns the cached difference between the source server
+// clock and this process's clock.
+func (c *MySqlConnector) getMySQLClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < clockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryMySQLClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *MySqlConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getMySQLClockOffset(ctx)
+}
+
+// queryMySQLClockOffset estimates the difference between the source server clock
+// and this process's clock.
+func (c *MySqlConnector) queryMySQLClockOffset(ctx context.Context) (time.Duration, error) {
+	requestStarted := time.Now()
+	result, err := c.Execute(ctx, "SELECT UTC_TIMESTAMP(6)")
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query MySQL server time: %w", err)
+	}
+	if result == nil || result.RowNumber() != 1 {
+		return 0, fmt.Errorf("expected one MySQL server time row")
+	}
+
+	serverTimestamp, err := result.GetString(0, 0)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read MySQL server time: %w", err)
+	}
+	serverTime, err := time.ParseInLocation(mysqlUTCTimestampLayout, serverTimestamp, time.UTC)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse MySQL server time %q: %w", serverTimestamp, err)
+	}
+
+	return serverTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
+}
 
 const (
 	partialRowsHeaderLen        = 4 + 4 + 1
@@ -398,6 +446,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
+		RowsEventDecodeFunc:   decodeRowsEvent,
 	}), nil
 }
 
@@ -415,6 +464,19 @@ func (c *MySqlConnector) startStreaming(
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
 		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
+		skipGTIDs, err := internal.PeerDBMySQLSkipGTIDSet(ctx, env)
+		if err != nil {
+			return nil, nil, nil, mysql.Position{}, err
+		}
+		if skipGTIDs != "" {
+			if err := parsedOffset.gset.Update(skipGTIDs); err != nil {
+				return nil, nil, nil, mysql.Position{},
+					fmt.Errorf("failed to merge PEERDB_MYSQL_SKIP_GTID_SET %q into offset: %w", skipGTIDs, err)
+			}
+			c.logger.Info("[mysql] skipping GTID transactions per PEERDB_MYSQL_SKIP_GTID_SET",
+				slog.String("skipGTIDSet", skipGTIDs),
+				slog.String("offset", parsedOffset.gset.String()))
+		}
 		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
@@ -506,6 +568,12 @@ func (c *MySqlConnector) PullRecords(
 		return fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
 
+	mysqlClockOffset, err := c.getMySQLClockOffset(ctx)
+	if err != nil {
+		c.logger.Warn("failed to calculate MySQL clock offset",
+			slog.Any("error", err))
+	}
+
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
 	if err != nil {
 		return err
@@ -589,10 +657,34 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordCommitLagMetric := func(ctx context.Context, commitTs uint64) {
-		if commitTs > 0 {
-			otelManager.Metrics.CommitLagGauge.Record(ctx,
-				time.Now().UTC().Sub(time.UnixMicro(int64(commitTs))).Microseconds())
+	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
+		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
+			// A heartbeat means there is currently no source change event to lag behind.
+			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
+			// the old source-lag value.
+			otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
+			return
+		}
+
+		// GTID commit timestamps are precise transaction timestamps. Other binlog
+		// events only have the common header timestamp, which is seconds-resolution
+		// but lets older MySQL/MariaDB versions report source lag as well.
+		timestampMicros := int64(event.Header.Timestamp) * int64(time.Second/time.Microsecond)
+		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		case *replication.GtidTaggedLogEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		}
+
+		if timestampMicros > 0 {
+			otelManager.Metrics.SourceLagGauge.Record(ctx,
+				time.Now().UTC().Add(mysqlClockOffset).
+					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
@@ -624,11 +716,9 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
+		recordSourceEventLag(ctx, event)
+
 		switch ev := event.Event.(type) {
-		case *replication.GTIDEvent:
-			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
-		case *replication.GtidTaggedLogEvent: // MySQL 8.4+ tagged GTIDs
-			recordCommitLagMetric(ctx, ev.ImmediateCommitTimestamp)
 		case *replication.XIDEvent:
 			advanceCheckpoint(ev.GSet, event.Header.LogPos)
 			inTx = false
@@ -742,6 +832,11 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				if isMariaDb {
+					if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
+						return err
+					}
+				}
 				// The issue is global, but only error if we see a table in the pipe
 				// Otherwise users could be confused
 				if binlogRowMetadataSupported && ev.Table.ColumnName == nil {
@@ -939,7 +1034,8 @@ func (c *MySqlConnector) PullRecords(
 			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
 			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
 			*replication.MariadbAnnotateRowsEvent, *replication.MariadbBinlogCheckPointEvent,
-			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent:
+			*replication.MariadbGTIDListEvent, *replication.MariadbGTIDEvent,
+			*replication.GTIDEvent, *replication.GtidTaggedLogEvent:
 			// benign events we intentionally don't process (binlog-file headers, heartbeats,
 			// rows-query/SBR context, MariaDB GTID/annotate markers)
 		default:
@@ -1017,6 +1113,51 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// MariaDB COMPRESSED columns binlog as these wire types
+// which go-mysql cannot decode.
+const (
+	mysqlColumnTypeBlobCompressed    = 140
+	mysqlColumnTypeVarcharCompressed = 141
+)
+
+// decodeRowsEvent overrides default RowsEvent Decode method
+func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
+	pos, err := ev.DecodeHeader(data)
+	if err != nil {
+		return err
+	}
+
+	err = ev.DecodeData(pos, data)
+	if err != nil {
+		// avoid checking for every row event
+		if checkTableMapForCompressedColumns(ev.Table) != nil {
+			return nil
+		} else {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
+	var compressed []string
+	for i, t := range ev.ColumnType {
+		if t != mysqlColumnTypeVarcharCompressed && t != mysqlColumnTypeBlobCompressed {
+			continue
+		}
+		name := fmt.Sprintf("column #%d", i)
+		if i < len(ev.ColumnName) && len(ev.ColumnName[i]) > 0 {
+			name = string(ev.ColumnName[i])
+		}
+		compressed = append(compressed, name)
+	}
+	if len(compressed) > 0 {
+		return exceptions.NewMySQLUnsupportedCompressedColumnError(string(ev.Schema), string(ev.Table), compressed)
 	}
 	return nil
 }
