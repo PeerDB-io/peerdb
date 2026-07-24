@@ -59,8 +59,11 @@ func (r RecordItems) GetColumnValue(col string) types.QValue {
 // We return the slice of col names that were updated.
 func (r RecordItems) UpdateIfNotExists(input_ Items) []string {
 	input := input_.(RecordItems)
-	updatedCols := make([]string, 0, len(input.ColToVal))
-	for col, val := range input.ColToVal {
+	// clone input map to avoid concurrent map access, since input may reference
+	// a record that was already sent to the CDCStream channel for the sync goroutine
+	inputColToVal := maps.Clone(input.ColToVal)
+	updatedCols := make([]string, 0, len(inputColToVal))
+	for col, val := range inputColToVal {
 		if _, ok := r.ColToVal[col]; !ok {
 			r.ColToVal[col] = val
 			updatedCols = append(updatedCols, col)
