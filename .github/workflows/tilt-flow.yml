@@ -1,29 +1,11 @@
 name: tilt-flow
 run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
 
-# Like flow.yml, but instead of provisioning every service from scratch on the
-# runner, it brings the whole stack up through Tilt (repo_root/Tiltfile). Tilt
-# drives docker-compose-dev.yml (core PeerDB services) and
-# ancillary-docker-compose.yml (test databases + infra). The tests themselves run
-# on the host via gotestsum (selected by a Go test matcher) against that stack.
-# Coverage and results are saved as a build artifact, and the test results are
-# ingested into the CI observability store (shared with flow.yml).
+# Tilt orchestrated e2e tests flow.
 #
 # This workflow can be triggered manually (workflow_dispatch) or reused by another
 # workflow (workflow_call, e.g. flow.yml): pick the Go test matcher to run and the
 # ancillary services it needs.
-#
-# How a caller would invoke it (a reusable workflow runs as its own job, so it is
-# referenced at jobs.<id>.uses, not as a step):
-#
-#   jobs:
-#     pg-ch-e2e:
-#       uses: ./.github/workflows/tilt-flow.yml
-#       with:
-#         test_matcher: TestGenericCH_PG
-#         ancillary_services: postgres clickhouse
-#       secrets: inherit   # or pass CI_O11Y_TARGET_* explicitly; omit to skip ingestion
-
 on:
   workflow_dispatch:
     inputs: &tilt_flow_inputs
@@ -39,12 +21,67 @@ on:
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
-          e2e tests need clickhouse plus their source DB (e.g. "postgres clickhouse",
-          "mysql-gtid clickhouse", "mongodb clickhouse"); connector tests need just
-          their DB. Append "toxiproxy openssh" for SSH/chaos tests.
         type: string
         required: false
         default: postgres clickhouse
+      checkout_ref:
+        description: >-
+          Git ref or SHA to check out. Leave empty to use the triggering event's
+          default; callers running on pull_request_target must pass the PR head
+          SHA explicitly, or the base branch gets tested instead of the PR.
+        type: string
+        required: false
+        default: ''
+      test_env:
+        description: >-
+          Newline-separated KEY=VALUE pairs exported into the test run's
+          environment.
+        type: string
+        required: false
+        default: ''
+      run_label:
+        description: >-
+          Short label identifying this run's version/flavor combination; used in
+          the artifact name and the test-results combination id.
+        type: string
+        required: false
+        default: ''
+      # The <db>_image inputs pin the docker images of the ancillary DBs.
+      # When empty, default to last combination declared at flow.yml
+      # following generate-test-environment.sh's defaults.
+      postgres_image:
+        description: Docker image for the postgres/postgres2 ancillary services (POSTGRES_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mysql_gtid_image:
+        description: Docker image for the mysql-gtid ancillary service (MYSQL_GTID_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mysql_pos_image:
+        description: >-
+          Docker image for the mysql-pos ancillary service (MYSQL_POS_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mariadb_image:
+        description: Docker image for the mariadb ancillary service (MARIADB_IMAGE).
+        type: string
+        required: false
+        default: ''
+      mongodb_image:
+        description: Docker image for the mongodb ancillary service (MONGODB_IMAGE).
+        type: string
+        required: false
+        default: ''
+      clickhouse_image:
+        description: >-
+          Docker image for the clickhouse, clickhouse-keeper and clickhouse-02
+          ancillary services (CLICKHOUSE_IMAGE).
+        type: string
+        required: false
+        default: ''
   # Reuse the exact same inputs when invoked from another workflow. The o11y
   # secrets are optional: a caller can pass them explicitly or via
   # `secrets: inherit`; when absent, test-results ingestion is skipped.
@@ -57,13 +94,35 @@ on:
         required: false
       CI_O11Y_TARGET_QUERY_ENDPOINT:
         required: false
+      # Cloud-destination test credentials, used by the BigQuery/PubSub,
+      # Snowflake, GCS and EventHubs suites.
+      GCP_GH_CI_PKEY:
+        required: false
+      SNOWFLAKE_GH_CI_PKEY:
+        required: false
+      GCS_CREDS:
+        required: false
+      EH_CREDS:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: tilt-flow-${{ github.ref }}-${{ inputs.test_matcher }}
-  cancel-in-progress: true
+  # Keyed per PR (falling back to the ref) and per input combination, so the
+  # matrix fan-out from flow.yml doesn't cancel its own sibling jobs, and fork
+  # PRs (pull_request_target runs on the base ref) don't collide with pushes
+  # to main.
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
@@ -81,13 +140,40 @@ env:
   # health polls.
   MIN_RECOVERY_TIME: "3"
   MAX_RECOVERY_TIME: "5"
+  # Ancillary DB image pins consumed by generate-test-environment.sh, which the
+  # Tiltfile runs on `tilt up`. Empty values fall back to the script's
+  # defaults.
+  POSTGRES_IMAGE: ${{ inputs.postgres_image }}
+  MYSQL_GTID_IMAGE: ${{ inputs.mysql_gtid_image }}
+  MYSQL_POS_IMAGE: ${{ inputs.mysql_pos_image }}
+  MARIADB_IMAGE: ${{ inputs.mariadb_image }}
+  MONGODB_IMAGE: ${{ inputs.mongodb_image }}
+  CLICKHOUSE_IMAGE: ${{ inputs.clickhouse_image }}
 
 jobs:
   tilt_flow_test:
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 60
     steps:
+      - uses: Kesin11/actions-timeline@v3.1.1
+        with:
+          expand-composite-actions: true
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Empty = the event's default checkout; callers on pull_request_target
+          # pass the PR head SHA here.
+          ref: ${{ inputs.checkout_ref }}
+
+      # Combination id for test-results ingestion steps
+      - name: Compute run identity
+        id: run-identity
+        env:
+          RUN_LABEL: ${{ inputs.run_label }}
+          RAW_IDENTITY: "${{ inputs.test_matcher }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }}"
+        run: |
+          label="${RUN_LABEL:-$RAW_IDENTITY}"
+          suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
+          echo "suffix=${suffix:-all}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -143,12 +229,7 @@ jobs:
           # loopback so the host can reach the docker-compose published ports.
           echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
 
-      # ----------------------------------------------------------------------
-      # Start Tilt. This replaces all of flow.yml's per-service provisioning:
-      # `tilt up` builds/starts the core PeerDB services (and proto-gen) via
-      # docker-compose. Ancillary DBs and test launchers are auto_init=False and
-      # are started explicitly in the steps below.
-      # ----------------------------------------------------------------------
+      # Start Tilt.
       - name: Start Tilt
         run: |
           set -euo pipefail
@@ -171,13 +252,11 @@ jobs:
             sleep 2
           done
 
-      # ----------------------------------------------------------------------
       # Bring up the core PeerDB services, recovering any that fail to
       # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
       # occasionally come up unhealthy on a cold start; when that happens we
       # reload the individual resource with `tilt trigger` and wait again, up to
       # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
-      # ----------------------------------------------------------------------
       - name: Bring up core PeerDB services (with recovery)
         run: |
           set -uo pipefail
@@ -257,10 +336,8 @@ jobs:
           fi
           echo "Core PeerDB services are up."
 
-      # ----------------------------------------------------------------------
-      # Previous-to-last step: start the requested ancillary services and wait
+      # Start the requested ancillary services and wait
       # until they (and their provisioning steps) are confirmed up and running.
-      # ----------------------------------------------------------------------
       - name: Start requested ancillary services
         env:
           ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
@@ -280,23 +357,29 @@ jobs:
             tilt --port "$TILT_PORT" trigger "$svc"
           done
 
+          wait_ready() {
+            local res="$1"
+            echo "Waiting for $res to be Ready..."
+            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$res" --timeout=600s; then
+              echo "::error::$res did not become Ready."
+              tilt --port "$TILT_PORT" logs --tail 200 "$res" || true
+              exit 1
+            fi
+          }
+
           # Wait until each service is Ready. Data stores also have an autostarted
           # provision-<svc> step (gated on the DB) — wait for that too so the
           # service is genuinely usable before the test runs.
           for svc in $ANCILLARY_SERVICES; do
-            echo "Waiting for $svc to be Ready..."
-            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$svc" --timeout=600s; then
-              echo "::error::$svc did not become Ready."
-              tilt --port "$TILT_PORT" logs --tail 200 "$svc" || true
-              exit 1
-            fi
+            wait_ready "$svc"
             if tilt --port "$TILT_PORT" get uiresource "provision-$svc" >/dev/null 2>&1; then
-              echo "Waiting for provision-$svc to be Ready..."
-              if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/provision-$svc" --timeout=600s; then
-                echo "::error::provision-$svc did not become Ready."
-                tilt --port "$TILT_PORT" logs --tail 200 "provision-$svc" || true
-                exit 1
-              fi
+              wait_ready "provision-$svc"
+            fi
+            # The 2-node ClickHouse cluster has an extra provisioning resource
+            # gated on node 2 + keeper (+ provision-clickhouse); wait for it too
+            # so cluster tests can't race it.
+            if [ "$svc" = "clickhouse-02" ]; then
+              wait_ready "provision-clickhouse-cluster"
             fi
           done
           echo "All requested ancillary services are up and running."
@@ -304,21 +387,65 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
-      # ----------------------------------------------------------------------
+      # Credentials for the cloud-destination suites (BigQuery/PubSub via the
+      # GCP service account, Snowflake, GCS, EventHubs).
+      - name: setup gcp service account
+        id: gcp-service-account
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "bq_service_account.json"
+          json: ${{ secrets.GCP_GH_CI_PKEY }}
+
+      - name: setup snowflake credentials
+        id: sf-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "snowflake_creds.json"
+          json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+
+      - name: setup GCS credentials
+        id: gcs-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "gcs_creds.json"
+          json: ${{ secrets.GCS_CREDS }}
+
+      - name: setup Eventhubs credentials
+        id: eventhubs-credentials
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        with:
+          name: "eh_creds.json"
+          json: ${{ secrets.EH_CREDS }}
+
       # Run the tests on the host against the Tilt-provided stack, selected by
-      # the Go test matcher. Unlike flow.yml we do NOT start temporal/peer-flow
-      # here — those run as containers managed by Tilt — but the gotestsum +
-      # coverage invocation otherwise mirrors flow.yml's "run tests" step. The
-      # tests auto-load connection settings from the project-root .env.
-      # ----------------------------------------------------------------------
+      # the Go test matcher.
       - name: Run tests
         working-directory: ./flow
         env:
           TEST_MATCHER: ${{ inputs.test_matcher }}
+          TEST_ENV: ${{ inputs.test_env }}
+          TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
+          TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
+          TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
+          TEST_EH_CREDS: ${{ github.workspace }}/eh_creds.json
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the artifact upload; keep nounset.
           set +e -u
+
+          # Per-run test environment overrides (e.g. the MySQL flavor under
+          # test). Exported before gotestsum runs: the tests' .env auto-load
+          # (godotenv) never overrides variables already present in the
+          # process environment, so these take precedence.
+          while IFS= read -r override; do
+            [ -n "$override" ] || continue
+            echo "test env override: $override"
+            export "$override"
+          done < <(printf '%s\n' "$TEST_ENV")
 
           # Write coverage OUTSIDE the flow/ tree. `tilt up` keeps live-watching
           # flow/ for the whole job (the flow images use docker_build only=['flow/']),
@@ -385,7 +512,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: tilt-flow-logs
+          name: tilt-flow-logs-${{ steps.run-identity.outputs.suffix }}
           path: |
             logs/
             coverage.out
@@ -395,7 +522,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          combination-id: "tilt-${{ inputs.test_matcher }}"
+          combination-id: "tilt-${{ steps.run-identity.outputs.suffix }}"
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}

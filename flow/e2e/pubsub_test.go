@@ -136,9 +136,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_pscreate', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_pscreate", "lua", "function onRecord(r) return r.row and r.row.val end")
 
 	flowName := AddSuffix(s, "e2epscreate")
 	connectionGen := FlowConnectionGenerationConfig{
@@ -193,9 +191,7 @@ func (s PubSubSuite) TestSimple() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_pssimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_pssimple", "lua", "function onRecord(r) return r.row and r.row.val end")
 
 	flowName := AddSuffix(s, "e2epssimple")
 	connectionGen := FlowConnectionGenerationConfig{
@@ -268,9 +264,7 @@ func (s PubSubSuite) TestInitialLoad() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_psinitial', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_psinitial", "lua", "function onRecord(r) return r.row and r.row.val end")
 
 	flowName := AddSuffix(s, "e2epsinitial")
 	connectionGen := FlowConnectionGenerationConfig{

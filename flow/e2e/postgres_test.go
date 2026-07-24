@@ -1202,9 +1202,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-		('cdc_transform_record', 'lua', 'function transformRecord(r) if r.row then r.row.val = 1729 end end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "cdc_transform_record", "lua", "function transformRecord(r) if r.row then r.row.val = 1729 end end")
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_transrecord_pg"),
@@ -1251,9 +1249,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 		)`, srcTableName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('cdc_transform_row', 'lua', 'function transformRow(r) r.val = 1729 end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "cdc_transform_row", "lua", "function transformRow(r) r.val = 1729 end")
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_transrow_pg"),

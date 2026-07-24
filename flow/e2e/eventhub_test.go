@@ -138,9 +138,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	ehCreds, err := EventhubsCreds()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
-	('e2e_eh_simple_script', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
-	require.NoError(s.t, err)
+	InsertScript(s.t, "e2e_eh_simple_script", "lua", "function onRecord(r) return r.row and r.row.val end")
 
 	flowName := AddSuffix(s, "e2e_eh_simple")
 	scopedEventhubName := fmt.Sprintf("%s.%s.id",
