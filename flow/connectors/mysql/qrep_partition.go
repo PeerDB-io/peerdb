@@ -116,7 +116,11 @@ const (
 	base95Width = 8 // 95^8 to fit in an uint64
 )
 
-func stringMidpoint(s1 string, s2 string) string {
+func stringMidpoint(s1 string, s2 string) (string, bool) {
+	if s1 == s2 {
+		return "", false
+	}
+
 	i := 0
 	for i < len(s1) && i < len(s2) && s1[i] == s2[i] {
 		i++
@@ -130,8 +134,23 @@ func stringMidpoint(s1 string, s2 string) string {
 	}
 	sharedPrefix := s1[:i]
 	s1, s2 = s1[i:], s2[i:]
+
+	// When the first differing byte in both strings are outside printable ASCII
+	// (both below or both above), treat it as unsplittable so we aren't rabbit-holing
+	// into generating a lot of single-row partitions.
+	var b1, b2 byte
+	if s1 != "" {
+		b1 = s1[0]
+	}
+	if s2 != "" {
+		b2 = s2[0]
+	}
+	if max(b1, b2) < base95Min || min(b1, b2) > base95Max {
+		return "", false
+	}
+
 	mid := (stringToBase95Integer(s1) + stringToBase95Integer(s2)) / 2
-	return strings.TrimRight(sharedPrefix+base95IntegerToString(mid), " ")
+	return strings.TrimRight(sharedPrefix+base95IntegerToString(mid), " "), true
 }
 
 func stringToBase95Integer(s string) uint64 {
@@ -227,12 +246,12 @@ func buildAdaptiveStringPartitions(
 	for int64(len(outputs)+h.Len()) < numPartitions && h.Len() > 0 {
 		p := heap.Pop(h).(stringPartitionEntry)
 
-		if p.start == p.end {
+		mid, exists := stringMidpoint(p.start, p.end)
+		if !exists {
 			outputs = append(outputs, p)
 			continue
 		}
 
-		mid := stringMidpoint(p.start, p.end)
 		k, found, err := prober.fetchNextRealKey(ctx, tableName, quotedCol, mid, p.start, p.end)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch next real key: %w", err)

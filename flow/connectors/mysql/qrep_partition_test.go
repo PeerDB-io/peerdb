@@ -177,46 +177,48 @@ func TestBuildUuidStringPartitionsInvalid(t *testing.T) {
 }
 
 func TestStringMidpoint(t *testing.T) {
-	cases := []struct {
+	splittableCases := []struct {
 		name     string
 		s1       string
 		s2       string
 		expected string
 	}{
-		{"identical", "abc", "abc", "abc"},
-		{"empty bounds", "", "", ""},
 		{"with spaces", " m e", " o ghi", " n fDDOOO"},
 		{"numeric string", "111", "999", "555"},
 		{"with shared prefix", "prefix-hello", "prefix-world", "prefix-p;@=:"},
 		{"max length", "qwertyuiop", "zxcvbnmlkj", "vHdtktB;"},
+		{"one prefix of the other", "app", "apple", "appFBOOOOOO"},
+		{"non-ascii shared prefix", "🍕-0001", "🍕-9999", "🍕-4d4dOOOO"},
+		{"spans ascii boundary", "café", "🍟fries", "q@r~rIDr"},
+		{"empty lower bound", "", "hello", "DBuuw"},
+		{"ascii vs multibyte", "a", "日", "o~~OOOOO"},
 	}
-	for _, tc := range cases {
+	nonSplittableCases := []struct {
+		name string
+		s1   string
+		s2   string
+	}{
+		{"identical", "same", "same"},
+		{"empty bounds", "", ""},
+		{"2-byte char", "café", "cafü"},
+		{"3-byte char", "日", "本"},
+		{"4-byte char", "😀", "😂"},
+		{"divergence on a rune boundary", "日本語あ", "日本語漢"},
+	}
+	for _, tc := range splittableCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mid := stringMidpoint(tc.s1, tc.s2)
-			assert.Equal(t, tc.expected, mid)
-			assert.LessOrEqual(t, tc.s1, mid)
-			assert.LessOrEqual(t, mid, tc.s2)
+			midpoint, exists := stringMidpoint(tc.s1, tc.s2)
+			require.True(t, exists)
+			assert.Equal(t, tc.expected, midpoint)
+			assert.LessOrEqual(t, tc.s1, midpoint)
+			assert.LessOrEqual(t, midpoint, tc.s2)
+			require.True(t, utf8.ValidString(midpoint))
 		})
 	}
-}
-
-func TestStringMidpointRemainsValidUTF8(t *testing.T) {
-	cases := []struct {
-		name  string
-		left  string
-		right string
-	}{
-		{"partial 2-byte char", "café", "cafü"},
-		{"partial 3-byte char", "日", "本"},
-		{"partial 4-byte emoji", "😀", "😂"},
-		{"full runes then partial char", "日本語", "日本誰"},
-		{"divergence on a rune boundary", "日本語あ", "日本語漢"},
-		{"no shared prefix", "а", "я"},
-		{"ascii vs multibyte", "a", "日"},
-	}
-	for _, tc := range cases {
+	for _, tc := range nonSplittableCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.True(t, utf8.ValidString(stringMidpoint(tc.left, tc.right)))
+			_, exists := stringMidpoint(tc.s1, tc.s2)
+			require.False(t, exists)
 		})
 	}
 }
@@ -473,7 +475,9 @@ func TestBuildAdaptiveStringPartitions_NarrowRange(t *testing.T) {
 	// demonstrate fetchNextRealKey would not return a valid key
 	// (e.g. "key_00_" sorts after "key_0099") so splitting these
 	// keys relies on the fetchPrevRealKey fallback
-	require.Equal(t, "key_00_`", stringMidpoint("key_0001", "key_0100"))
+	midpoint, ok := stringMidpoint("key_0001", "key_0100")
+	require.True(t, ok)
+	require.Equal(t, "key_00_`", midpoint)
 
 	partitions := runAdaptiveStringPartitions(t, keys, binaryLess, 8)
 	require.Len(t, partitions, 8)
