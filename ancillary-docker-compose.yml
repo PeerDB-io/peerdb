@@ -175,6 +175,23 @@ services:
       timeout: 10s
       retries: 5
 
+  cockroachdb:
+    container_name: peerdb-cockroachdb
+    image: cockroachdb/cockroach:v25.4.13
+    command: ["start-single-node", "--insecure"]
+    restart: unless-stopped
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+    ports:
+      - "${CI_COCKROACH_PORT}:26257"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "./cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
   postgres:
     container_name: peerdb-postgres
     image: ${POSTGRES_IMAGE}
@@ -290,6 +307,7 @@ volumes:
   mysql_gtid_data:
   mysql_pos_data:
   mariadb_data:
+  cockroach_data:
 
 networks:
   default:

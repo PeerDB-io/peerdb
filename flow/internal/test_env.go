@@ -211,6 +211,16 @@ func GetMariaDBConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlRe
 	}
 }
 
+func GetCockroachDBConfigFromEnv() *protos.CockroachDBConfig {
+	return &protos.CockroachDBConfig{
+		Host:     GetEnvString("CI_COCKROACH_HOST", "localhost"),
+		Port:     uint32(getEnvUint[uint16]("CI_COCKROACH_PORT", 26257)),
+		User:     GetEnvString("CI_COCKROACH_USER", "root"),
+		Password: GetEnvString("CI_COCKROACH_PASSWORD", ""),
+		Database: GetEnvString("CI_COCKROACH_DATABASE", "defaultdb"),
+	}
+}
+
 // setupAWSCredsFromEnv copies the three AWS_* credential env vars from sources
 // named "<sourcePrefix>AWS_ACCESS_KEY_ID" etc. into the unprefixed AWS_* names
 // for the duration of the test. Each source must be non-empty.

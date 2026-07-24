@@ -89,6 +89,7 @@ fn parse_peer_type(parser: &mut Parser) -> Result<PeerType, ParserError> {
             "PUBSUB" => Ok(PeerType::PubSub),
             "ELASTICSEARCH" => Ok(PeerType::Elasticsearch),
             "CLICKHOUSE" => Ok(PeerType::Clickhouse),
+            "COCKROACHDB" => Ok(PeerType::CockroachDB),
             other => Err(ParserError::ParserError(format!(
                 "expected peer type, got {other}"
             ))),
