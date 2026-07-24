@@ -68,8 +68,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Controls whether to enable the store for recovering unchanged Postgres TOAST values within a CDC batch",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED",
+		Description:      "Override PEERDB_CDC_STORE_ENABLED when destination is ClickHouse",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
@@ -175,6 +183,31 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_PROVIDER",
+		Description:      "Cloud storage provider for ClickHouse staging: s3 (default) or gcs",
+		DefaultValue:     "s3",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME",
+		Description:      "Staging bucket name for ClickHouse mirrors (provider-agnostic, preferred over legacy env vars)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP",
+		Description: "Skip deleting ClickHouse staging avro files after a QRep/snapshot flow completes. " +
+			"Enable to retain staging artifacts for downstream pipelines that consume them",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_S3_UUID_PREFIX",
 		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
 		DefaultValue:     "false",
@@ -193,17 +226,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name:             "PEERDB_S3_BYTES_PER_AVRO_FILE",
-		Description:      "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		Description:      "S3 upload chunk size in bytes before compression, needed for large unpartitioned initial loads.",
 		DefaultValue:     "1000000000",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
-	{
-		Name:             "PEERDB_S3_CHUNK_ON_UNCOMPRESSED",
-		Description:      "Track uncompressed Avro size during initial load, following the in-memory size on the destination.",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
@@ -302,6 +327,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "peerdb",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS",
+		Description:      "Days to retain rows in the ClickHouse _peerdb_raw table before TTL eviction. Applies to newly created raw tables",
+		DefaultValue:     "90",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
@@ -430,18 +463,68 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE",
 		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_MONGODB_DIRECT_BSON_CONVERTER",
-		Description: "Use direct BSON-to-JSON converter for MongoDB (faster, no intermediate deserialization). " +
-			"Set to false to fall back to legacy converter.",
+		Name:             "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED",
+		Description:      "Enables automatic detection of a default partition key from primary key for MySQL initial load",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_OFFLOAD_PARTITION_RANGES",
+		Description:      "Encrypt QRep partition ranges and offload them to the catalog instead of passing them through Temporal",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_PG_AUTOMATED_SCHEMA_DUMP",
+		Description: "For PG-to-PG mirrors, run pg_dump --schema-only from source into psql on destination " +
+			"during setup so destination schema/tables/indexes match the source.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
+	},
+	{
+		Name:             "PEERDB_MYSQL_EVENT_CACHE_COUNT",
+		Description:      "Maximum number of events the MySQL Go driver loads in memory at once, useful when pushing large rows",
+		DefaultValue:     "10240",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_MYSQL_BINLOG_STALENESS_SECONDS",
+		Description:      "Maximum time to wait for MySQL binlog events before treating the CDC connection as stale",
+		DefaultValue:     "180",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_MYSQL_SKIP_GTID_SET",
+		Description: "GTID set merged into MySQL CDC checkpoint at stream start, skipping those transactions, " +
+			"which can cause data loss. Set per mirror to recover from purged binlogs, using missing set reported by error 1236",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES",
+		Description: "Comma-separated list of MongoDB change stream operation types to exclude from CDC " +
+			"(allowed values: insert, update, replace, delete)",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
@@ -597,6 +680,22 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
+func PeerDBMySQLEventCacheCount(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_MYSQL_EVENT_CACHE_COUNT")
+}
+
+func PeerDBMySQLBinlogStalenessSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_MYSQL_BINLOG_STALENESS_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBMySQLSkipGTIDSet(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_MYSQL_SKIP_GTID_SET")
+}
+
 func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_BUFFER_HOURS")
 }
@@ -619,6 +718,10 @@ func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, 
 
 func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CDC_STORE_ENABLED")
+}
+
+func PeerDBClickHouseCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_CDC_STORE_ENABLED")
 }
 
 func PeerDBCDCDiskSpillRecordsThreshold(ctx context.Context, env map[string]string) (int64, error) {
@@ -694,6 +797,10 @@ func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (str
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_CLIENT_NAME")
 }
 
+func PeerDBClickHouseRawTableTTLDays(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
 }
@@ -704,6 +811,18 @@ func PeerDBSnowflakeSkipCompression(ctx context.Context, env map[string]string) 
 
 func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
+}
+
+func PeerDBClickHouseStagingProvider(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_PROVIDER")
+}
+
+func PeerDBClickHouseStagingBucketName(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_STAGING_BUCKET_NAME")
+}
+
+func PeerDBClickHouseSkipStagingCleanup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_SKIP_STAGING_CLEANUP")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
@@ -789,14 +908,32 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 	return dynamicConfBool(ctx, env, "PEERDB_METRICS_RECORD_AGGREGATES_ENABLED")
 }
 
-func PeerDBS3ChunkOnUncompressed(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_S3_CHUNK_ON_UNCOMPRESSED")
-}
-
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
 }
 
-func PeerDBMongoDBDirectBsonConverter(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DIRECT_BSON_CONVERTER")
+func PeerDBMySQLDefaultPartitionKeyEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED")
+}
+
+func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_OFFLOAD_PARTITION_RANGES")
+}
+
+func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_PG_AUTOMATED_SCHEMA_DUMP")
+}
+
+func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]string) ([]string, error) {
+	value, err := dynLookup(ctx, env, "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES")
+	if err != nil {
+		return nil, err
+	}
+	var ops []string
+	for op := range strings.SplitSeq(value, ",") {
+		if op := strings.ToLower(strings.TrimSpace(op)); op != "" {
+			ops = append(ops, op)
+		}
+	}
+	return ops, nil
 }

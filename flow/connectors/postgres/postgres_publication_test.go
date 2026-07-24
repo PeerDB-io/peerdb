@@ -10,12 +10,12 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func createSchema(t *testing.T, conn *pgx.Conn) string {
 	t.Helper()
-	schema := "pub_" + strings.ToLower(shared.RandomString(8))
+	schema := "pub_" + strings.ToLower(common.RandomString(8))
 	_, err := conn.Exec(t.Context(), "CREATE SCHEMA "+schema)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -49,7 +49,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	t.Cleanup(func() { connector.Close() })
 
 	schema := createSchema(t, connector.conn)
-	flowJobName := "remove_pub_" + strings.ToLower(shared.RandomString(6))
+	flowJobName := "remove_pub_" + strings.ToLower(common.RandomString(6))
 	pubName := GetDefaultPublicationName(flowJobName)
 	createPublication(t, connector.conn, pubName)
 	createTableInPublication(t, connector.conn, schema, "stay", pubName)
@@ -98,7 +98,7 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	require.Equal(t, []string{"stay"}, remaining)
 
 	// Verify custom publication skips removal entirely
-	customPub := "custom_pub_" + strings.ToLower(shared.RandomString(6))
+	customPub := "custom_pub_" + strings.ToLower(common.RandomString(6))
 	createPublication(t, connector.conn, customPub)
 	createTableInPublication(t, connector.conn, schema, "custom_stay", customPub)
 	require.NoError(t, connector.RemoveTablesFromPublication(t.Context(), &protos.RemoveTablesFromPublicationInput{

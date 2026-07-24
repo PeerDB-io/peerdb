@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -100,6 +101,8 @@ func (c *BigQueryConnector) PullQRepObjects(
 		return 0, totalBytes, nil
 	}
 
+	// Partition ranges are inclusive on both ends, but GCS EndOffset is exclusive.
+	// We must explicitly fetch endOffSet below.
 	it := bucket.Objects(ctx, &storage.Query{
 		Prefix:      prefix,
 		Delimiter:   "/", // to avoid listing "folders"
@@ -129,6 +132,15 @@ func (c *BigQueryConnector) PullQRepObjects(
 		if err := processObject(attrs); err != nil {
 			return 0, totalBytes, err
 		}
+	}
+
+	endAttrs, err := bucket.Object(endOffset).Attrs(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get end object attrs for bucket %s with prefix %s and object %s: %w",
+			bucketName, prefix, endOffset, err)
+	}
+	if err := processObject(endAttrs); err != nil {
+		return 0, totalBytes, err
 	}
 
 	c.logger.Info("finished pulling downloadable objects",
@@ -320,9 +332,18 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	_ = c.LogFlowInfo(ctx, flowName, "Starting snapshot BigQuery export to GCS staging bucket")
 
+	// Make the staging path unique per-run so it can be cleaned up asynchronously on resync.
+	activityInfo := activity.GetInfo(ctx)
+	basePath, err := parseGCSPath(cfg.SnapshotStagingPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse snapshot staging path %q: %w", cfg.SnapshotStagingPath, err)
+	}
+	runSnapshotStagingPath := basePath.JoinPath(activityInfo.WorkflowExecution.RunID).String()
+	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
+
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, cfg.SnapshotStagingPath)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
@@ -330,8 +351,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		q := c.client.Query(exportSQL)
 		job, err := q.Run(ctx)
 		if err != nil {
-			var apiErr *googleapi.Error
-			if errors.As(err, &apiErr) {
+			if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 				if apiErr.Code == 403 {
 					_ = c.LogFlowInfo(ctx, flowName, fmt.Sprintf(
 						"Permission denied error when starting export job for table %s: %s",
@@ -355,7 +375,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
 
-	return nil, cfg.SnapshotStagingPath, nil
+	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
 }
 
 // bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
@@ -479,10 +499,6 @@ func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) er
 	return nil
 }
 
-func (c *BigQueryConnector) ReplPing(context.Context) error {
-	return nil
-}
-
 func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
 	return nil
 }
@@ -491,6 +507,9 @@ func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *BigQueryConnector) SetupReplication(
+	context.Context, shared.CatalogPool,
+	*protos.SetupReplicationInput,
+) (model.SetupReplicationResult, error) {
 	return model.SetupReplicationResult{}, nil
 }

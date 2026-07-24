@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"time"
@@ -83,9 +84,11 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		ScheduleToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout:    3 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
+			MaximumAttempts: 3,
 		},
 	})
 
@@ -94,7 +97,6 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	}
 
 	s.logger.Info("closed slot keep alive for peer flow")
-
 	return nil
 }
 
@@ -102,6 +104,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
 	boundSelector *shared.BoundSelector,
 	snapshotName string,
+	stagingPathOverride string,
 	mapping *protos.TableMapping,
 	sourcePeerType protos.DBType,
 	destinationPeerType protos.DBType,
@@ -209,7 +212,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition:        numRowsPerPartition,
 		NumPartitionsOverride:      numPartitionsOverride,
 		MaxParallelWorkers:         numWorkers,
-		StagingPath:                s.config.SnapshotStagingPath,
+		StagingPath:                cmp.Or(stagingPathOverride, s.config.SnapshotStagingPath),
 		SyncedAtColName:            s.config.SyncedAtColName,
 		SoftDeleteColName:          s.config.SoftDeleteColName,
 		WriteMode:                  snapshotWriteMode,
@@ -231,6 +234,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	snapshotType snapshotType,
 	slotName string,
 	snapshotName string,
+	stagingPathOverride string,
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
@@ -273,7 +277,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, v, sourcePeerType, destinationPeerType); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, stagingPathOverride, v, sourcePeerType, destinationPeerType); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			return err
 		}
@@ -316,6 +320,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		SNAPSHOT_TYPE_SLOT,
 		slotName,
 		snapshotName,
+		"",
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
@@ -350,14 +355,17 @@ func SnapshotFlowWorkflow(
 	defer workflow.CompleteSession(sessionCtx)
 
 	if !config.DoInitialSnapshot && !config.InitialSnapshotOnly {
+		defer func() {
+			dCtx, cancel := workflow.NewDisconnectedContext(sessionCtx)
+			defer cancel()
+			if err := se.closeSlotKeepAlive(dCtx); err != nil {
+				se.logger.Error("failed to close slot keep alive", slog.Any("error", err))
+			}
+		}()
+
 		if _, err := se.setupReplication(sessionCtx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
-
-		if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
-			return fmt.Errorf("failed to close slot keep alive: %w", err)
-		}
-
 		return nil
 	}
 
@@ -411,6 +419,7 @@ func SnapshotFlowWorkflow(
 			SNAPSHOT_TYPE_TX,
 			"",
 			txnSnapshotState.SnapshotName,
+			txnSnapshotState.SnapshotStagingPath,
 			numTablesInParallel,
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)

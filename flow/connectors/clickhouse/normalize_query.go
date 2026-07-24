@@ -52,7 +52,7 @@ func NewNormalizeQueryGenerator(
 	version uint32,
 	flags []string,
 ) *NormalizeQueryGenerator {
-	isDeletedColumn := isDeletedColName
+	isDeletedColumn := defaultIsDeletedColName
 	if configuredSoftDeleteColName != "" {
 		isDeletedColumn = configuredSoftDeleteColName
 	}
@@ -72,6 +72,41 @@ func NewNormalizeQueryGenerator(
 		version:                         version,
 		flags:                           flags,
 	}
+}
+
+// clampDates bounds a Date32 SQL expression to PeerDB's supported range,
+// matching the Go-side clamp applied during initial load (processGeneralTime).
+// On ClickHouse < 26.7 parseDateTime64BestEffort* already clamps, making this
+// a no-op; on >= 26.7 the parse passes out-of-range values through.
+func clampDates(dateExpr string) string {
+	lowerBounded := fmt.Sprintf("greatest(toDate32('%d-01-01'), %s)", qvalue.ClickHouseMinYear, dateExpr)
+	upperAndLowerBounded := fmt.Sprintf("least(toDate32('%d-12-31'), %s)", qvalue.ClickHouseMaxYear, lowerBounded)
+	// isNull guard is required: greatest/least ignore NULL arguments on
+	// current ClickHouse, which would otherwise turn NULL dates into the bound.
+	return fmt.Sprintf("if(isNull(%s), NULL, %s)", dateExpr, upperAndLowerBounded)
+}
+
+var (
+	minBound    = fmt.Sprintf("toDateTime64('%d-01-01 00:00:00',6,'UTC')", qvalue.ClickHouseMinYear)
+	maxBound    = fmt.Sprintf("toDateTime64('%d-12-31 23:59:59.999999',6,'UTC')", qvalue.ClickHouseMaxYear)
+	maxDayStart = fmt.Sprintf("toDateTime64('%d-12-31 00:00:00',6,'UTC')", qvalue.ClickHouseMaxYear)
+)
+
+// clampTimestamps bounds a DateTime64(6) SQL expression to PeerDB's supported
+// range, matching the Go-side clamp applied during initial load
+// (processGeneralTime): out-of-range values move to the boundary date with
+// time-of-day preserved. On ClickHouse < 26.7 parseDateTime64BestEffort*
+// already clamps, making this a no-op; on >= 26.7 the parse passes
+// out-of-range values through.
+func clampTimestamps(timestampExpr string) string {
+	// Time-of-day is rebuilt from epoch microseconds instead of calendar
+	// functions which misbehave on out-of-range inputs.
+	timeOfDay := fmt.Sprintf("positiveModulo(toUnixTimestamp64Micro(%s), toInt64(86400000000))", timestampExpr)
+	return fmt.Sprintf("multiIf(isNull(%s), NULL, %s < %s, addMicroseconds(%s, %s), %s > %s, addMicroseconds(%s, %s), %s)",
+		timestampExpr,
+		timestampExpr, minBound, minBound, timeOfDay,
+		timestampExpr, maxBound, maxDayStart, timeOfDay,
+		timestampExpr)
 }
 
 func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error) {
@@ -151,14 +186,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			}
 		case "Date32", "Nullable(Date32)":
 			fmt.Fprintf(&projection,
-				"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')) AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
+				"%s AS %s,",
+				clampDates(fmt.Sprintf("toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC'))",
+					peerdb_clickhouse.QuoteLiteral(colName))),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC')) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					"%s AS %s,",
+					clampDates(fmt.Sprintf("toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC'))",
+						peerdb_clickhouse.QuoteLiteral(colName))),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -180,27 +217,31 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			} else {
 				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					"%s AS %s,",
+					clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')",
+						peerdb_clickhouse.QuoteLiteral(colName))),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+						"%s AS %s,",
+						clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC')",
+							peerdb_clickhouse.QuoteLiteral(colName))),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
 			}
 		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
 			fmt.Fprintf(&projection,
-				`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+				`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+				clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+					clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -283,8 +324,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	// add _peerdb_sign as _peerdb_record_type / 2
-	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
-	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
+	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
+	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
 
 	// add _peerdb_timestamp as _peerdb_version
 	fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
@@ -301,7 +342,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
+		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(t.isDeletedColName))
 		// decrement timestamp by 1 so delete is ordered before latest data,
 		// could be same if deletion records were only generated when ordering updated
 		fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))

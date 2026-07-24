@@ -24,8 +24,7 @@ func wrapMySQLError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var mysqlErr *mysql.MyError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, ok := errors.AsType[*mysql.MyError](err); ok {
 		return &UpstreamError{Resp: &pgproto3.ErrorResponse{
 			Severity: "ERROR",
 			Code:     "HY000",

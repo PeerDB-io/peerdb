@@ -259,8 +259,7 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 	// Terminate the parent workflow
 	err = a.TemporalClient.TerminateWorkflow(ctx, workflowId, "", "Canceling due to table addition cancellation")
 	if err != nil {
-		var notFoundErr *serviceerror.NotFound
-		if errors.As(err, &notFoundErr) {
+		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			slog.InfoContext(ctx, "Workflow already not found during cleanup of current parent mirror",
 				slog.String("flowName", flowJobName),
 				slog.String("workflowId", workflowId))
@@ -294,8 +293,7 @@ func (a *CancelTableAdditionActivity) CleanupCurrentParentMirror(ctx context.Con
 				execution.Execution.RunId,
 				"Canceling child workflow due to table addition cancellation")
 			if childErr != nil {
-				var notFoundErr *serviceerror.NotFound
-				if errors.As(childErr, &notFoundErr) {
+				if _, ok := errors.AsType[*serviceerror.NotFound](childErr); ok {
 					slog.InfoContext(ctx, "Child workflow already not found during cleanup",
 						slog.String("flowName", flowJobName),
 						slog.String("childWorkflowId", execution.Execution.WorkflowId))
@@ -452,8 +450,7 @@ func (a *CancelTableAdditionActivity) getRunIDOfLatestRunningPeerFlow(ctx contex
 	// Describe to get latest run
 	describeResp, err := a.TemporalClient.DescribeWorkflowExecution(ctx, workflowId, "")
 	if err != nil {
-		var notFoundErr *serviceerror.NotFound
-		if errors.As(err, &notFoundErr) {
+		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return "", fmt.Errorf("workflow %s not found: %w", workflowId, err)
 		} else {
 			return "", fmt.Errorf("failed to describe workflow %s: %w", workflowId, err)

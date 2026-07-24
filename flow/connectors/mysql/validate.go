@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -15,10 +16,18 @@ import (
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*common.QualifiedTable) error {
+	var missingTables []common.QualifiedTable
 	for _, parsedTable := range tableNames {
 		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", parsedTable.MySQL())); err != nil {
+			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_NO_SUCH_TABLE {
+				missingTables = append(missingTables, *parsedTable)
+				continue
+			}
 			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 	return nil
 }
@@ -45,38 +54,36 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-
-		switch c.config.Flavor {
-		case protos.MySqlFlavor_MYSQL_MARIA:
-			// check if binlog_row_metadata is supported is done inside this function
-			return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
-		case protos.MySqlFlavor_MYSQL_MYSQL:
-			cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
-			if err != nil {
-				return fmt.Errorf("failed to get server version: %w", err)
-			}
-			if cmp < 0 {
-				// as we're dispatching to a function that doesn't know about binlog_row_metadata,
-				// perform the check here instead of inside
-				if requireRowMetadata {
-					return fmt.Errorf("MySQL version too old for column exclusion support, "+
-						"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
-						mysql_validation.MySQLMinVersionForBinlogRowMetadata)
-				}
-				c.logger.Warn("Falling back to MySQL 5.7 check")
-				return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
-			} else {
-				return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
-			}
-		default:
-			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
-		}
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
-	return fmt.Errorf("failed to connect to MySQL server")
+
+	switch c.config.Flavor {
+	case protos.MySqlFlavor_MYSQL_MARIA:
+		// check if binlog_row_metadata is supported is done inside this function
+		return mysql_validation.CheckMariaDBBinlogSettings(conn, c.logger, requireRowMetadata)
+	case protos.MySqlFlavor_MYSQL_MYSQL:
+		cmp, err := c.CompareServerVersion(ctx, mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		if err != nil {
+			return fmt.Errorf("failed to get server version: %w", err)
+		}
+		if cmp < 0 {
+			// as we're dispatching to a function that doesn't know about binlog_row_metadata,
+			// perform the check here instead of inside
+			if requireRowMetadata {
+				return fmt.Errorf("MySQL version too old for column exclusion support, "+
+					"please disable it or upgrade to >=%s (binlog_row_metadata needed)",
+					mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+			}
+			c.logger.Warn("Falling back to MySQL 5.7 check")
+			return mysql_validation.CheckMySQL5BinlogSettings(conn, c.logger)
+		} else {
+			return mysql_validation.CheckMySQL8BinlogSettings(conn, c.logger)
+		}
+	default:
+		return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
+	}
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -101,15 +108,27 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to connect: %w", err)
+	}
 
-		if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
+	if isVitess, err := mysql_validation.IsVitess(conn); err != nil {
+		return err
+	} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
+		return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
+	}
+	if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
+	}
+	if err := mysql_validation.CheckLogReplicaUpdates(conn); err != nil {
+		return fmt.Errorf("check log replica updates error: %w", err)
+	}
+
+	// maria compressed columns aren't supported yet
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		if err := mysql_validation.CheckCompressedColumns(conn, sourceTables); err != nil {
 			return err
-		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
-			return fmt.Errorf("vitess is currently not supported for MySQL mirrors in CDC")
 		}
 	}
 
@@ -123,12 +142,14 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	if err := c.CheckBinlogSettings(ctx, requireRowMetadata); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-		if err := mysql_validation.CheckRDSBinlogSettings(conn, c.logger); err != nil {
-			return fmt.Errorf("binlog configuration error: %w", err)
+
+	// NOTE: This error might be recoverable depending on conditions checked by the caller,
+	// this means that it should be last or subsequent failed checks might be ignored in those cases.
+	if c.config.ServerId != nil {
+		if serverIdInUse, err := mysql_validation.HasReplicaWithServerId(conn, *c.config.ServerId); err != nil {
+			return fmt.Errorf("failed to check replicas registered on source peer %s: %w", cfg.SourceName, err)
+		} else if serverIdInUse {
+			return common.NewReplicaIdentifierInUseError(strconv.FormatUint(uint64(*c.config.ServerId), 10))
 		}
 	}
 
@@ -140,21 +161,19 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("flavor is set to unknown")
 	}
 
-	for conn, err := range c.withRetries(ctx) {
-		if err != nil {
-			return err
-		}
-		return c.validateFlavor(conn)
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
-	return fmt.Errorf("failed to connect to MySQL server")
+
+	return c.validateFlavor(conn)
 }
 
 func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
 	// MariaDB specific setting, introduced in MariaDB 10.0.3
 	if rs, err := conn.Execute("SELECT @@gtid_strict_mode"); err != nil {
-		var mErr *mysql.MyError
 		// seems to be MySQL
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 				return fmt.Errorf("server appears to be MySQL but MariaDB source has been selected")
 			}

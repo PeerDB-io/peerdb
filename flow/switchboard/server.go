@@ -122,8 +122,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	// Handle the session - this will set pid/secret and register for cancels
 	if err := session.Handle(ctx, s); err != nil {
 		// Check if it's a cancel request during startup
-		var cancelErr *CancelRequestError
-		if errors.As(err, &cancelErr) {
+		if cancelErr, ok := errors.AsType[*CancelRequestError](err); ok {
 			s.handleCancelRequest(cancelErr.ProcessID, cancelErr.SecretKey)
 			return
 		}

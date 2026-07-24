@@ -8,12 +8,13 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const (
-	toxiproxyDownProxyPort    = 49001
-	toxiproxyLatencyProxyPort = 49002
-	toxiproxyResetProxyPort   = 49003
+	toxiproxyDownProxyPort    = 14001
+	toxiproxyLatencyProxyPort = 14002
+	toxiproxyResetProxyPort   = 14003
 )
 
 func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
@@ -23,19 +24,20 @@ func setupPostgresConnectorWithSSH(ctx context.Context, t *testing.T, proxyName 
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
-	connector, err := NewPostgresConnector(ctx, nil, &protos.PostgresConfig{
-		Host:     "catalog",
-		Port:     5432,
-		User:     "postgres",
-		Password: "postgres",
-		Database: "postgres",
-		SshConfig: &protos.SSHConfig{
-			Host:     "localhost",
-			Port:     uint32(proxyPort),
-			User:     "testuser",
-			Password: "testpass",
-		},
-	})
+	// In local set-up environments like Tilt, when a non catalog
+	// instance of Postgres is present, we use it instead of the catalog.
+	pgConfig := internal.GetAncillaryPostgresConfigFromEnv()
+	// In CI, SSH_POSTGRES_HOST is set, usually pointing to 'catalog' network,
+	// in this case, we override the host in pgConfig with the value from SSH_POSTGRES_HOST.
+	pgConfig.Host = internal.PostgresSSHUpstreamHostWithFallback(pgConfig.Host)
+	pgConfig.SshConfig = &protos.SSHConfig{
+		Host:     "localhost",
+		Port:     uint32(proxyPort),
+		User:     "testuser",
+		Password: "testpass",
+	}
+
+	connector, err := NewPostgresConnector(ctx, nil, pgConfig)
 	require.NoError(t, err)
 
 	// Test initial connection works

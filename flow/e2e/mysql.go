@@ -3,16 +3,21 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -20,135 +25,138 @@ import (
 type MySqlSource struct {
 	*connmysql.MySqlConnector
 	Config *protos.MySqlConfig
+	// peer name, defaults to "mysql"
+	Name string
 }
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	myVersion := os.Getenv("CI_MYSQL_VERSION")
-	if myVersion == "" {
-		t.Error("Expected CI_MYSQL_VERSION to be set")
-	}
-	var replicationMode protos.MySqlReplicationMechanism
-	var mysqlFlavor protos.MySqlFlavor
-	switch myVersion {
-	case "mysql-gtid":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "mysql-pos":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MYSQL
-	case "maria":
-		replicationMode = protos.MySqlReplicationMechanism_MYSQL_GTID
-		mysqlFlavor = protos.MySqlFlavor_MYSQL_MARIA
-	default:
-		t.Error("unexpected mysql version", myVersion)
-	}
-	return SetupMyCore(t, suffix, replicationMode, mysqlFlavor)
+	flavor, replication := internal.MySQLTestFlavorAndMechanism(t)
+	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
 }
 
-func mysqlHost() string {
-	if host := os.Getenv("CI_MYSQL_HOST"); host != "" {
-		return host
-	}
-	return "localhost"
-}
-
-func SetupMyCore(t *testing.T, suffix string, replication protos.MySqlReplicationMechanism, flavor protos.MySqlFlavor) (*MySqlSource, error) {
+func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	config := &protos.MySqlConfig{
-		Host:                 mysqlHost(),
-		Port:                 3306,
-		User:                 "root",
-		Password:             "cipass",
-		Database:             "",
-		Setup:                nil,
-		Compression:          0,
-		DisableTls:           true,
-		Flavor:               flavor,
-		ReplicationMechanism: replication,
+	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
+	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
+}
+
+// MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
+type MySQLTestContainerConfig struct {
+	Image string
+	// ExtraServerFlags are appended to a common small-footprint server flag base (which already
+	// includes flavor-aware low-resource flags), e.g. "--binlog-row-event-fragment-threshold=1024".
+	ExtraServerFlags     []string
+	Flavor               protos.MySqlFlavor
+	ReplicationMechanism protos.MySqlReplicationMechanism
+}
+
+// SetupMySQLTestContainerSource starts a throwaway MySQL/MariaDB server in a testcontainer and
+// returns a MySqlSource pointed at it, plus the generated suffix used for its e2e database. It
+// registers container and database cleanup on t. Use it to replace the shared CI source with an
+// isolated server a test can reconfigure (custom image, extra server flags) - typically by assigning
+// the returned source's peer to flowConnConfig.SourceName.
+func SetupMySQLTestContainerSource(
+	t *testing.T, namePrefix string, cfg MySQLTestContainerConfig,
+) (*MySqlSource, string) {
+	t.Helper()
+
+	rootPassword := internal.MySQLTestRootPasswordWithFallback("cipass")
+	env := map[string]string{}
+	if cfg.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		env["MARIADB_ROOT_PASSWORD"] = rootPassword
+		env["MARIADB_ROOT_HOST"] = "%"
+	} else {
+		env["MYSQL_ROOT_PASSWORD"] = rootPassword
+		env["MYSQL_ROOT_HOST"] = "%"
 	}
 
+	// Common small-footprint server flags valid on both MySQL 8 and MariaDB. Both official
+	// entrypoints prepend the server binary when the first arg starts with "-", so none is needed.
+	// These throwaway servers run alongside every other container on the machine, so keep their
+	// resource usage low.
+	cmd := []string{
+		"--server-id=1",
+		"--log-bin=mysql-bin",
+		"--binlog-format=ROW",
+		"--innodb-buffer-pool-size=64M",
+		"--innodb-log-buffer-size=8M",
+		"--performance-schema=OFF",
+		"--max-connections=20",
+		"--table-open-cache=64",
+		"--table-definition-cache=128",
+	}
+	// Flavor-specific low-resource flags for options that only exist on one server.
+	if cfg.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		cmd = append(cmd, "--aria-pagecache-buffer-size=8M")
+	} else {
+		cmd = append(cmd, "--mysqlx=0")
+	}
+	cmd = append(cmd, cfg.ExtraServerFlags...)
+
+	req := testcontainers.ContainerRequest{
+		Image:        cfg.Image,
+		Env:          env,
+		Cmd:          cmd,
+		ExposedPorts: []string{"3306/tcp"},
+		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
+	}
+
+	ctr, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	testcontainers.CleanupContainer(t, ctr, testcontainers.StopTimeout(30*time.Second))
+	require.NoError(t, err)
+
+	mapped, err := ctr.MappedPort(t.Context(), "3306/tcp")
+	require.NoError(t, err)
+	port, err := strconv.ParseUint(mapped.Port(), 10, 32)
+	require.NoError(t, err)
+
+	suffix := namePrefix + "_" + strings.ToLower(common.RandomString(8))
+	config := &protos.MySqlConfig{
+		// host.docker.internal resolves both from the test process (to the published port) and from
+		// the flow worker container (via host-gateway), unlike the container's own hostname.
+		Host:                 internal.MySQLTestHost(),
+		Port:                 uint32(port),
+		User:                 "root",
+		Password:             rootPassword,
+		DisableTls:           true,
+		Flavor:               cfg.Flavor,
+		ReplicationMechanism: cfg.ReplicationMechanism,
+	}
+	src, err := setupMyConnector(t, suffix, config, suffix)
+	require.NoError(t, err)
+	t.Cleanup(func() { src.Teardown(t, context.Background(), suffix) })
+
+	return src, suffix
+}
+
+func setupMyConnector(t *testing.T, suffix string, config *protos.MySqlConfig, peerName string) (*MySqlSource, error) {
+	t.Helper()
 	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mysql connection: %w", err)
 	}
 
-	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS `e2e_test_%s`", suffix),
-	); err != nil {
-		connector.Close()
-		return nil, err
-	}
-
-	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("CREATE DATABASE `e2e_test_%s`", suffix),
-	); err != nil {
-		connector.Close()
-		return nil, err
-	}
-
-	setupSql := []string{
-		"set global binlog_format=row",
-		"set global binlog_row_image=full",
-		"set global max_connections=500",
-	}
-
-	if cmp, err := connector.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata); err != nil {
-		t.Fatal(err)
-	} else if cmp >= 0 {
-		setupSql = append(setupSql, "set global binlog_row_metadata=full")
-	}
-
-	if flavor != protos.MySqlFlavor_MYSQL_MARIA {
-		rs, err := connector.Execute(t.Context(), "select @@gtid_mode")
-		if err != nil {
-			connector.Close()
-			return nil, err
-		}
-		gtidMode, err := rs.GetString(0, 0)
-		if err != nil {
-			connector.Close()
-			return nil, err
-		}
-		if replication == protos.MySqlReplicationMechanism_MYSQL_GTID {
-			if strings.EqualFold(gtidMode, "off") {
-				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
-				// OFF <-> OFF_PERMISSIVE <-> ON_PERMISSIVE <-> ON
-				setupSql = append(setupSql,
-					"select get_lock('settings',-1)",
-					"set global enforce_gtid_consistency=on",
-					"set global gtid_mode=off_permissive",
-					"set global gtid_mode=on_permissive",
-					"set global gtid_mode=on",
-					"do release_lock('settings')",
-				)
-			}
-		} else if replication == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
-			if strings.EqualFold(gtidMode, "on") {
-				// The value of @@GLOBAL.GTID_MODE can only be changed one step at a time:
-				// ON <-> ON_PERMISSIVE <-> OFF_PERMISSIVE <-> OFF
-				setupSql = append(setupSql,
-					"select get_lock('settings',-1)",
-					"set global enforce_gtid_consistency=off",
-					"set global gtid_mode=on_permissive",
-					"set global gtid_mode=off_permissive",
-					"set global gtid_mode=off",
-					"do release_lock('settings')",
-				)
-			}
-		} else {
-			return nil, fmt.Errorf("unexpected replication mechanism: %v", replication)
-		}
-	}
-
-	for _, sql := range setupSql {
+	dbName := "e2e_test_" + suffix
+	for _, sql := range []string{
+		fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName),
+		fmt.Sprintf("CREATE DATABASE `%s`", dbName),
+	} {
 		if _, err := connector.Execute(t.Context(), sql); err != nil {
 			connector.Close()
-			return nil, fmt.Errorf("error executing %s: %v", sql, err)
+			return nil, err
 		}
 	}
 
-	return &MySqlSource{MySqlConnector: connector, Config: config}, nil
+	if err := connmysql.ConfigureReplication(t, connector, config); err != nil {
+		connector.Close()
+		return nil, err
+	}
+
+	return &MySqlSource{MySqlConnector: connector, Config: config, Name: peerName}, nil
 }
 
 func (s *MySqlSource) Connector() connectors.Connector {
@@ -168,8 +176,12 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
+	name := s.Name
+	if name == "" {
+		name = "mysql"
+	}
 	peer := &protos.Peer{
-		Name: "mysql",
+		Name: name,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,
@@ -200,7 +212,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 		return nil, err
 	}
 
-	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields)
+	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields, shared.InternalVersion_Latest)
 	if err != nil {
 		return nil, err
 	}

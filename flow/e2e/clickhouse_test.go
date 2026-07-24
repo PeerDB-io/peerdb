@@ -19,6 +19,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	protojson "google.golang.org/protobuf/encoding/protojson"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -28,6 +29,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -39,7 +41,7 @@ var testData embed.FS
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgch_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -48,8 +50,17 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mych_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mach_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }
@@ -57,7 +68,7 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -66,8 +77,17 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	}))
 }
@@ -207,6 +227,98 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Removing one of several source tables feeding a shared destination must keep
+// that destination's raw rows & catalog schema mapping intact, otherwise the
+// surviving source can no longer normalize into it. Disjoint id ranges keep the
+// two sources' rows distinct under the destination's ReplacingMergeTree.
+func (s ClickHouseSuite) Test_Removal_Shared_Destination() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableA := s.attachSchemaSuffix("test_shared_dst_a")
+	srcTableB := s.attachSchemaSuffix("test_shared_dst_b")
+	dstTableName := "test_shared_dst_target"
+
+	for _, srcTableName := range []string{srcTableA, srcTableB} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id INT PRIMARY KEY,
+				"key" TEXT NOT NULL
+			);
+		`, srcTableName)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhousesharedremoval"),
+		TableNameMapping: map[string]string{srcTableA: dstTableName, srcTableB: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 1
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'a1')`, srcTableA)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (101,'b1')`, srcTableB)))
+	EnvWaitForCount(env, s, "both sources reach shared destination", dstTableName, "id,\"key\"", 2)
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing for removing shared table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		conn := pgconn.Conn()
+		_, err := conn.Exec(s.t.Context(),
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousesharedremoval")))
+		require.NoError(s.t, err)
+
+		EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+			rows, err := conn.Query(s.t.Context(),
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousesharedremoval")))
+			require.NoError(s.t, err)
+			defer rows.Close()
+			return !rows.Next()
+		})
+	}
+
+	runID := EnvGetRunID(s.t, env)
+	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableA,
+			DestinationTableIdentifier: dstTableName,
+		}},
+	})
+
+	EnvWaitFor(s.t, env, 4*time.Minute, "removing shared source", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitFor(s.t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != EnvGetRunID(s.t, env)
+	})
+
+	// removed source: must not replicate; surviving source: must still reach shared destination
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'a2')`, srcTableA)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (102,'b2')`, srcTableB)))
+
+	EnvWaitForCount(env, s, "surviving source still reaches shared destination", dstTableName, "id,\"key\"", 3)
+
+	rows, err := s.GetRows(dstTableName, "id")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "removed source must not leak into shared destination")
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	srcTableName := "test_nullable_mirror"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -242,6 +354,52 @@ func (s ClickHouseSuite) Test_NullableMirrorSetting() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky,val,n,t")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_First_Row_Lag_Times_Recorded() {
+	srcTableName := "test_first_row_lag_times"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_first_row_lag_times_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			ky TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_first_row_lag_times"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky")
+
+	EnvWaitFor(s.t, env, time.Minute, "first row lag times persisted", func() bool {
+		var populated bool
+		var skewSeconds float64
+		if err := s.catalog.QueryRow(s.t.Context(),
+			`SELECT first_row_received_at IS NOT NULL AND first_row_commit_time IS NOT NULL,
+			 COALESCE(ABS(EXTRACT(EPOCH FROM (first_row_received_at - first_row_commit_time))), 0)
+			 FROM peerdb_stats.cdc_batches
+			 WHERE flow_name = $1 AND first_row_received_at IS NOT NULL
+			 ORDER BY batch_id DESC LIMIT 1`,
+			flowConnConfig.FlowJobName,
+		).Scan(&populated, &skewSeconds); err != nil {
+			return false
+		}
+		return populated && skewSeconds < 300
+	})
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -388,7 +546,7 @@ func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
 		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_chunking_enabled"),
+		FlowJobName:      s.attachSuffix("ch_pkey_update_chunking_enabled"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -433,7 +591,7 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_replident_full_toast"),
+		FlowJobName:      s.attachSuffix("ch_replident_full_toast"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -488,7 +646,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
+		FlowJobName: s.attachSuffix("ch_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
 			DestinationTableIdentifier: dstTableName,
@@ -558,7 +716,40 @@ func (s ClickHouseSuite) Test_WeirdTable_Question() {
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
-	s.WeirdTable("table-group%c%i%t%i%z%e%n")
+	s.WeirdTable("table-group%a%b%c")
+}
+
+func (s ClickHouseSuite) Test_ValidatePartitionByExpression() {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	logger := internal.LoggerFromCtx(s.t.Context())
+	const targetTable = "replicated_events"
+	columnNames := []string{"id", "val"}
+
+	for _, tc := range []struct {
+		name       string
+		expression string
+		wantErr    bool
+	}{
+		{name: "invalid_syntax_rejected", expression: "INVALID EXPRESSION", wantErr: true},
+		{name: "missing_column_rejected", expression: "i_am_not_a_column % 2", wantErr: true},
+		{name: "aggregate_expression_rejected", expression: "MAX(id)", wantErr: true},
+		{name: "valid_expression_passes", expression: "id % 2", wantErr: false},
+		{name: "empty_expression_passes", expression: "", wantErr: false},
+	} {
+		s.t.Run(tc.name, func(t *testing.T) {
+			err := clickhouse.ValidatePartitionByExpression(
+				s.t.Context(), logger, ch, tc.expression, targetTable, columnNames, nil)
+			if tc.wantErr {
+				require.ErrorContains(t, err,
+					fmt.Sprintf("invalid partition expression (%s) for table %s", tc.expression, targetTable))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
@@ -759,7 +950,7 @@ func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(fmt.Sprintf("clickhouse_test_unbounded_numerics_ff_%v", ffValue)),
+		FlowJobName:      s.attachSuffix(fmt.Sprintf("ch_unbounded_numerics_ff_%v", ffValue)),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -805,12 +996,9 @@ func (s ClickHouseSuite) Test_Unbounded_Numeric_Without_FF() {
 }
 
 func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
-	var pgSource *PostgresSource
-	var ok bool
-	if pgSource, ok = s.source.(*PostgresSource); !ok {
+	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
-
 	nines := func(integer, fraction int) string {
 		integerStr := strings.Repeat("9", integer)
 		if integer == 0 {
@@ -821,7 +1009,6 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		}
 		return integerStr
 	}
-	//nolint:govet // it's a test, no need for fieldalignment
 	tests := []struct {
 		SrcType          string
 		SrcValue         string
@@ -862,8 +1049,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	sb.WriteString(")")
 
 	createQuery := sb.String()
-	err := s.Source().Exec(s.t.Context(), createQuery)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), createQuery))
 
 	sb.Reset()
 	fmt.Fprintf(&sb, "INSERT INTO %s(", srcFullName)
@@ -887,7 +1073,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	fmt.Fprint(&sb, ")")
 	insertQuery := sb.String()
 
-	err = s.Source().Exec(s.t.Context(), insertQuery)
+	err := s.Source().Exec(s.t.Context(), insertQuery)
 	require.NoError(s.t, err)
 
 	flowJobName := s.attachSuffix(fmt.Sprintf("clickhouse_test_num_trunc_ff_%v", unbNumAsStringFf))
@@ -906,28 +1092,30 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 1)
 	if totalCleared > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared*2 // positive and negative
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared
 		})
 	}
 	if totalTruncated > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
+			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // positive and negative
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 2 NUMERIC values too precise to fit into the destination column",
+			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated
 		})
@@ -939,28 +1127,32 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 
 	if totalCleared > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
+			msg := "cleared 1 NUMERIC value too big to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 2 NUMERIC values too big to fit into the destination column",
+			msg := "cleared 2 NUMERIC values too big to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalCleared*2 // snapshot and cdc
 		})
 	}
 	if totalTruncated > 0 {
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
+			msg := "truncated 1 NUMERIC value too precise to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2*2 // positive and negative, snapshot and cdc
 		})
 		EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
-			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 2 NUMERIC values too precise to fit into the destination column",
+			msg := "truncated 2 NUMERIC values too precise to fit into the destination column"
+			count, err := GetLogCount(
+				s.t.Context(), s.catalog, flowJobName, "warn", msg,
 			)
 			return err == nil && count == totalTruncated*2 // snapshot and cdc
 		})
@@ -1346,6 +1538,9 @@ func (s ClickHouseSuite) Test_Time64() {
 	`, srcFullName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('14:21:00', '08:30:00.123456', NULL)`, srcFullName)))
+	// Regression test for precise conversion - these values were losing 1us when tripped through floating point
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (t, t_nullable, t_nullable_2) VALUES ('00:00:00.000249', '00:00:00.000251', '00:00:00.000493')`, srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -2093,7 +2288,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_unprivileged_columns"),
+		FlowJobName: s.attachSuffix("ch_unprivileged_columns"),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
@@ -2161,9 +2356,7 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 // Test_Normalize_Metadata_With_Retry tests the chunking normalization
 // with a push to ClickHouse thrown in via renaming a target table.
 func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
-	var pgSource *PostgresSource
-	var ok bool
-	if pgSource, ok = s.source.(*PostgresSource); !ok {
+	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("todo: only applies to postgres for now")
 	}
 
@@ -2221,18 +2414,14 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for first sync to complete", func() bool {
-		rows, err := pgSource.Query(s.t.Context(),
-			fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'",
-				flowConnConfig.FlowJobName))
-		if err != nil {
+		var syncBatchID pgtype.Int8
+		queryErr := s.catalog.QueryRow(s.t.Context(),
+			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
+			flowConnConfig.FlowJobName).Scan(&syncBatchID)
+		if queryErr != nil {
 			return false
 		}
-
-		if len(rows.Records) == 0 {
-			return false
-		}
-
-		return rows.Records[0][0].Value().(int64) == 1
+		return syncBatchID.Valid && syncBatchID.Int64 == 1
 	})
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for raw table push to complete", func() bool {
@@ -2249,8 +2438,8 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	})
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
-		errorCount, err := pgSource.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
+		errorCount, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
 		)
 		return err == nil && errorCount > 0
 	})
@@ -2262,17 +2451,14 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName1)))
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for second sync to complete", func() bool {
-		rows, err := pgSource.Query(s.t.Context(),
-			fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'",
-				flowConnConfig.FlowJobName))
-		if err != nil {
+		var syncBatchID pgtype.Int8
+		queryErr := s.catalog.QueryRow(s.t.Context(),
+			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
+			flowConnConfig.FlowJobName).Scan(&syncBatchID)
+		if queryErr != nil {
 			return false
 		}
-
-		if len(rows.Records) == 0 {
-			return false
-		}
-		return rows.Records[0][0].Value().(int64) == 2
+		return syncBatchID.Valid && syncBatchID.Int64 == 2
 	})
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for second raw table push to complete", func() bool {
@@ -2288,21 +2474,22 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	})
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "check normalize table metadata after normalize", func() bool {
-		rows, err := pgSource.Query(s.t.Context(), fmt.Sprintf(`
+		var batchID1, batchID2 pgtype.Int8
+		queryErr := s.catalog.QueryRow(s.t.Context(), fmt.Sprintf(`
 		SELECT (table_batch_id_data->>'%s')::bigint, (table_batch_id_data->>'%s')::bigint
-		FROM metadata_last_sync_state WHERE job_name='%s'`,
-			dstTableName1, dstTableName2, flowConnConfig.FlowJobName))
-		if err != nil {
-			s.t.Log("error querying metadata_last_sync_state:", err)
+		FROM metadata_last_sync_state WHERE job_name=$1`,
+			dstTableName1, dstTableName2),
+			flowConnConfig.FlowJobName).Scan(&batchID1, &batchID2)
+		if queryErr != nil {
+			s.t.Log("error querying metadata_last_sync_state:", queryErr)
 			return false
 		}
-
-		if len(rows.Records) == 0 {
+		if !batchID1.Valid || !batchID2.Valid {
 			s.t.Log("no records found in metadata_last_sync_state")
 			return false
 		}
-		s.t.Log("metadata_last_sync_state", rows.Records[0][0].Value(), rows.Records[0][1].Value())
-		return rows.Records[0][0].Value().(int64) == 2 && rows.Records[0][1].Value().(int64) == 2
+		s.t.Log("metadata_last_sync_state", batchID1.Int64, batchID2.Int64)
+		return batchID1.Int64 == 2 && batchID2.Int64 == 2
 	})
 
 	EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 1", srcTableName1, dstTableName1, "id,\"key\"")
@@ -2818,9 +3005,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2878,9 +3063,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2925,9 +3108,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -2982,9 +3163,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Null() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
-	require.NoError(s.t, err)
-	countRow := catalogPool.QueryRow(s.t.Context(),
+	countRow := s.catalog.QueryRow(s.t.Context(),
 		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName)
 
@@ -3040,8 +3219,9 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 		)).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, "num", partitionKey)
-	require.Equal(s.t, "val", sortingKey)
+	// ClickHouse 26.5+ preserves the parens around single-column PARTITION BY / ORDER BY in system.tables; older versions unwrap them.
+	require.Contains(s.t, []string{"num", "(num)"}, partitionKey)
+	require.Contains(s.t, []string{"val", "(val)"}, sortingKey)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -3099,9 +3279,7 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 }
 
 func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
-	var pgSource *PostgresSource
-	var ok bool
-	if pgSource, ok = s.source.(*PostgresSource); !ok {
+	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
 
@@ -3144,6 +3322,9 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 3
+	// disable range offloading so the TID block ranges remain queryable from peerdb_stats.qrep_partitions;
+	// offloading itself is covered by Test_Offload_Partition_Ranges
+	flowConnConfig.Env = map[string]string{"PEERDB_OFFLOAD_PARTITION_RANGES": "false"}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3156,7 +3337,7 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 		`, srcFullName, numRows+1, 25, numRows+1)))
 	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows+1)
 
-	rows, err := pgSource.Conn().Query(s.t.Context(),
+	rows, err := s.catalog.Query(s.t.Context(),
 		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1
 		ORDER BY
 			CAST(split_part(trim(both '()' from partition_start), ',', 1) AS bigint),
@@ -3256,9 +3437,6 @@ func (s ClickHouseSuite) Test_CTID_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 10
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3328,9 +3506,6 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 6
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3387,9 +3562,6 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 8
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3450,9 +3622,6 @@ func (s ClickHouseSuite) Test_CTID_Multi_Level_Inherited_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 10
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3517,9 +3686,6 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumPartitionsOverride = 6
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true",
-	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -3588,4 +3754,109 @@ func (s ClickHouseSuite) Test_Composite_PKey() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Offload_Partition_Ranges() {
+	srcTable := "test_offload_partition_ranges"
+	srcFullName := s.attachSchemaSuffix(srcTable)
+	dstTable := "test_offload_partition_ranges_dst"
+
+	const numRows = 100
+	const numPartitions = 8
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s (id BIGINT PRIMARY KEY, val INT NOT NULL)", srcFullName)))
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s (id, val) VALUES (%d, %d)", srcFullName, i, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("offload_partition_ranges"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: s.DestinationTable(dstTable),
+			PartitionKey:               "id",
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumPartitionsOverride = numPartitions
+	flowConnConfig.Env = map[string]string{"PEERDB_OFFLOAD_PARTITION_RANGES": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,val")
+
+	// the offloaded ranges must be persisted into metadata_qrep_offloaded_partition_ranges
+	rangeRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT enc_key_id, range_payload FROM metadata_qrep_offloaded_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer rangeRows.Close()
+	var offloadedNumPartitions int32
+	for rangeRows.Next() {
+		var encKeyID string
+		var rangePayload []byte
+		require.NoError(s.t, rangeRows.Scan(&encKeyID, &rangePayload))
+		// no encryption key is configured for CI so enc_key_id is empty
+		require.Empty(s.t, encKeyID)
+		require.NotEmpty(s.t, rangePayload)
+		offloadedNumPartitions++
+	}
+	require.NoError(s.t, rangeRows.Err())
+	require.EqualValues(s.t, numPartitions, offloadedNumPartitions)
+
+	// the offloaded ranges must not be persisted into metadata_qrep_partitions
+	res, err := s.catalog.Query(s.t.Context(),
+		`SELECT sync_partition FROM metadata_qrep_partitions WHERE job_name LIKE '%' || $1 || '%'`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer res.Close()
+	var metaCount int
+	for res.Next() {
+		var syncPartition []byte
+		require.NoError(s.t, res.Scan(&syncPartition))
+		var partition protos.QRepPartition
+		require.NoError(s.t, protojson.Unmarshal(syncPartition, &partition))
+		require.Nil(s.t, partition.Range)
+		require.True(s.t, partition.RangeOffloaded)
+		metaCount++
+	}
+	require.NoError(s.t, res.Err())
+	require.NotZero(s.t, metaCount)
+
+	// the offloaded ranges must not be persisted into peerdb_stats.qrep_partitions
+	statsRows, err := s.catalog.Query(s.t.Context(),
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	defer statsRows.Close()
+	var statsCount int
+	for statsRows.Next() {
+		var partitionStart, partitionEnd *string
+		require.NoError(s.t, statsRows.Scan(&partitionStart, &partitionEnd))
+		require.Nil(s.t, partitionStart)
+		require.Nil(s.t, partitionEnd)
+		statsCount++
+	}
+	require.NoError(s.t, statsRows.Err())
+	require.NotZero(s.t, statsCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	// dropping the mirror should delete metadata_qrep_offloaded_partition_ranges entries for this mirror
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+
+	var remainingRanges int64
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM metadata_qrep_offloaded_partition_ranges WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&remainingRanges))
+	require.Zero(s.t, remainingRanges)
 }

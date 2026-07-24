@@ -4,6 +4,7 @@ import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import React, { useMemo, useState } from 'react';
+import { useTheme as useStyledTheme } from 'styled-components';
 import ColumnDisplayModal from './columnDisplayModal';
 
 export default function TablePairs({
@@ -13,6 +14,7 @@ export default function TablePairs({
   tables?: TableMapping[];
   sourcePeerName: string;
 }) {
+  const styledTheme = useStyledTheme();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTable, setSelectedTable] = useState<TableMapping | null>(null);
@@ -50,7 +52,13 @@ export default function TablePairs({
             }}
           />
         </div>
-        <div style={{ ...tableStyle, maxHeight: '40vh', marginTop: '1rem' }}>
+        <div
+          style={{
+            ...tableStyle(styledTheme),
+            maxHeight: '40vh',
+            marginTop: '1rem',
+          }}
+        >
           <Table
             header={
               <TableRow>

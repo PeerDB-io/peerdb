@@ -20,8 +20,6 @@ import {
   SchemaTablesResponse,
   TableColumnsResponse,
 } from '@/grpc_generated/route';
-import { Dispatch, SetStateAction } from 'react';
-
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 
 import {
@@ -181,9 +179,7 @@ function validateQRepFields(
   }
 }
 
-export function reformattedTableMapping(
-  tableMapping: TableMapRow[]
-): TableMapping[] {
+function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
   return tableMapping
     .filter((row) => row?.selected === true && row?.canMirror === true)
     .map((row) => ({
@@ -254,7 +250,6 @@ export async function handleCreateCDC(
   rows: TableMapRow[],
   config: CDCConfig,
   destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) {
   const err = CDCCheck(flowJobName, rows, config, destinationType);
@@ -263,7 +258,6 @@ export async function handleCreateCDC(
     return;
   }
 
-  setLoading(true);
   const res = await fetch('/api/v1/flows/cdc/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -271,12 +265,9 @@ export async function handleCreateCDC(
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // don't know why but if order is reversed the error message is not shown
-    setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
-  setLoading(false);
   notifyErr('CDC Mirror created successfully', true);
   route();
 }
@@ -295,7 +286,6 @@ export async function handleCreateQRep(
   query: string,
   config: QRepConfig,
   destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   xmin?: boolean
 ) {
@@ -359,7 +349,6 @@ export async function handleCreateQRep(
     return;
   }
 
-  setLoading(true);
   const res = await fetch('/api/v1/flows/qrep/create', {
     method: 'POST',
     body: JSON.stringify({
@@ -367,11 +356,9 @@ export async function handleCreateQRep(
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
-    setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
   }
-  setLoading(false);
   notifyErr('Query Replication Mirror created successfully');
   route();
 }
@@ -386,7 +373,7 @@ export async function fetchSchemas(peer_name: string) {
   return schemasRes.schemas;
 }
 
-function getDefaultDestinationTable(
+export function getDefaultDestinationTable(
   peerType: DBType,
   schemaName: string,
   tableName: string
@@ -476,11 +463,9 @@ export async function fetchTables(
 export async function fetchColumns(
   peerName: string,
   schemaName: string,
-  tableName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  tableName: string
 ) {
   if (peerName?.length === 0) return [];
-  setLoading(true);
   const columnsRes: TableColumnsResponse = await fetch(
     `/api/v1/peers/columns?peer_name=${encodeURIComponent(
       peerName
@@ -489,7 +474,6 @@ export async function fetchColumns(
       cache: 'no-store',
     }
   ).then((res) => res.json());
-  setLoading(false);
   return columnsRes.columns;
 }
 
@@ -518,14 +502,11 @@ export async function handleValidateCDC(
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  destinationType: DBType,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  destinationType: DBType
 ) {
-  setLoading(true);
   const err = CDCCheck(flowJobName, rows, config, destinationType);
   if (err) {
     notifyErr(err);
-    setLoading(false);
     return;
   }
   const statusRes = await fetch('/api/v1/mirrors/cdc/validate', {
@@ -540,7 +521,6 @@ export async function handleValidateCDC(
     const errRes = await statusRes.json();
     notifyErr('CDC Mirror is invalid: ' + errRes.message);
   }
-  setLoading(false);
 }
 
 export async function fetchPublications(peerName: string) {

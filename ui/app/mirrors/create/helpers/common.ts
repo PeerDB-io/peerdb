@@ -50,6 +50,7 @@ export const blankCDCSetting: CDCConfig = {
   envString: '',
   version: 0,
   flags: [],
+  skipValidation: false,
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {

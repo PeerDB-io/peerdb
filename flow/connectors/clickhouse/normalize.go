@@ -26,12 +26,12 @@ import (
 )
 
 const (
-	isDeletedColName    = "_peerdb_is_deleted"
-	isDeletedColType    = "UInt8"
-	versionColName      = "_peerdb_version"
-	versionColType      = "UInt64"
-	sourceSchemaColName = "_peerdb_source_schema"
-	sourceSchemaColType = "LowCardinality(String)"
+	defaultIsDeletedColName = "_peerdb_is_deleted"
+	isDeletedColType        = "UInt8"
+	versionColName          = "_peerdb_version"
+	versionColType          = "UInt64"
+	sourceSchemaColName     = "_peerdb_source_schema"
+	sourceSchemaColType     = "LowCardinality(String)"
 )
 
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
@@ -101,7 +101,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
-	isDeletedColumn := isDeletedColName
+	isDeletedColumn := defaultIsDeletedColName
 	isDeletedColumnPart := ""
 	if config.SoftDeleteColName != "" {
 		isDeletedColumn = config.SoftDeleteColName
@@ -267,9 +267,18 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
+		chSettings := chinternal.NewCHSettings(chVersion)
 		if allowNullableKey {
-			stmtBuilder.WriteString(chinternal.NewCHSettingsString(chVersion, chinternal.SettingAllowNullableKey, "1"))
+			chSettings.Add(chinternal.SettingAllowNullableKey, "1")
 		}
+		if config.IsResync {
+			// CREATE OR REPLACE TABLE (used by resync) internally would create a NEW table with name
+			// <_tmp_replace_*>, atomic swap with the existing table, and then drop the existing table.
+			// Setting max_table_size_to_drop = 0 ensure the implicit drop can't fail, since it can be
+			// non-empty if a resync is triggered on top of another resync that is mid-snapshot.
+			chSettings.Add(chinternal.SettingMaxTableSizeToDrop, "0")
+		}
+		stmtBuilder.WriteString(chSettings.String())
 
 		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",

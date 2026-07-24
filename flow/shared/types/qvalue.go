@@ -305,6 +305,38 @@ func (v QValueEnum) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
+type QValueUint16Enum struct {
+	Val uint16
+}
+
+func (QValueUint16Enum) Kind() QValueKind {
+	return QValueKindUint16Enum
+}
+
+func (v QValueUint16Enum) Value() any {
+	return v.Val
+}
+
+func (v QValueUint16Enum) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueUint64Set struct {
+	Val uint64
+}
+
+func (QValueUint64Set) Kind() QValueKind {
+	return QValueKindUint64Set
+}
+
+func (v QValueUint64Set) Value() any {
+	return v.Val
+}
+
+func (v QValueUint64Set) LValue(ls *lua.LState) lua.LValue {
+	return glua64.U64.New(ls, v.Val)
+}
+
 type QValueTimestamp struct {
 	Val time.Time
 }

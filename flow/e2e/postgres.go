@@ -77,7 +77,7 @@ func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QReco
 func SetupPostgresSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	t.Helper()
 
-	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
+	suffix := "pg_" + strings.ToLower(common.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 

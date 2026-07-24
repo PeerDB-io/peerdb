@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +19,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -30,6 +30,7 @@ type ClickHouseSuite struct {
 	source    SuiteSource
 	s3Helper  *S3TestHelper
 	connector *connclickhouse.ClickHouseConnector
+	catalog   shared.CatalogPool
 	suffix    string
 	cluster   bool
 }
@@ -54,22 +55,6 @@ func (s ClickHouseSuite) Suffix() string {
 	return s.suffix
 }
 
-func clickhouseHost() string {
-	if host := os.Getenv("CI_CLICKHOUSE_HOST"); host != "" {
-		return host
-	}
-	return "localhost"
-}
-
-func clickhousePort() uint32 {
-	if port := os.Getenv("CI_CLICKHOUSE_NATIVE_PORT"); port != "" {
-		if p, err := strconv.ParseUint(port, 10, 32); err == nil {
-			return uint32(p)
-		}
-	}
-	return 9000
-}
-
 func (s ClickHouseSuite) Peer() *protos.Peer {
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
@@ -78,8 +63,8 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       clickhouseHost(),
-					Port:       9001,
+					Host:       internal.ClickHouseTestHost(),
+					Port:       internal.ClickHouseTestPort(),
 					Database:   dbname,
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
@@ -101,8 +86,8 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:       clickhouseHost(),
-				Port:       clickhousePort(),
+				Host:       internal.ClickHouseTestHost(),
+				Port:       internal.ClickHouseTestPort(),
 				Database:   dbname,
 				DisableTls: true,
 				S3:         s.s3Helper.S3Config,
@@ -190,7 +175,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	batch := &model.QRecordBatch{}
 	colTypes := rows.ColumnTypes()
-	row := make([]any, 0, len(colTypes))
+	scanTypes := make([]reflect.Type, len(colTypes))
 	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, colTypes)
 	if err != nil {
 		return nil, err
@@ -198,7 +183,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	for idx, ty := range colTypes {
 		fieldDesc := tableSchema.Columns[idx]
-		row = append(row, reflect.New(ty.ScanType()).Interface())
+		scanTypes[idx] = ty.ScanType()
 		batch.Schema.Fields = append(batch.Schema.Fields, types.QField{
 			Name:      ty.Name(),
 			Type:      types.QValueKind(fieldDesc.Type),
@@ -209,6 +194,13 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	for rows.Next() {
+		// Allocate fresh scan targets per row: clickhouse-go does not reset a
+		// nullable destination to nil when scanning a NULL, so a reused buffer
+		// would make a NULL row inherit the previous row's value.
+		row := make([]any, len(scanTypes))
+		for idx, st := range scanTypes {
+			row[idx] = reflect.New(st).Interface()
+		}
 		if err := rows.Scan(row...); err != nil {
 			return nil, err
 		}
@@ -387,6 +379,21 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	return batch, rows.Err()
 }
 
+// CountNonDeletedRows returns the number of rows in table where _peerdb_is_deleted = 0.
+// Unlike GetRows it does not use FINAL, so it works for engines that reject FINAL (e.g. MergeTree).
+func (s ClickHouseSuite) CountNonDeletedRows(table string) (int, error) {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return 0, err
+	}
+	defer ch.Close()
+	var count uint64
+	err = ch.QueryRow(s.t.Context(),
+		fmt.Sprintf(`SELECT count() FROM "%s" WHERE _peerdb_is_deleted = 0 SETTINGS use_query_cache = false`, table),
+	).Scan(&count)
+	return int(count), err
+}
+
 func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols string) (driver.Rows, error) {
 	return conn.Query(
 		s.t.Context(),
@@ -429,6 +436,10 @@ func SetupClickHouseSuite[TSource SuiteSource](
 		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())
 		require.NoError(t, err)
 		s.connector = connector
+
+		catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+		require.NoError(t, err, "failed to get catalog connection pool")
+		s.catalog = catalogPool
 
 		return s
 	}

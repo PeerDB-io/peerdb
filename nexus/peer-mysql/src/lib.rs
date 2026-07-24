@@ -9,7 +9,7 @@ use peer_cursor::{
 };
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::MySqlConfig;
-use sqlparser::ast::{CloseCursor, Declare, Expr, FetchDirection, Statement, Value};
+use sqlparser::ast::{CloseCursor, Declare, Expr, FetchDirection, LimitClause, Statement, Value};
 use stream::MyRecordStream;
 
 pub struct MySqlQueryExecutor {
@@ -146,10 +146,18 @@ impl QueryExecutor for MySqlQueryExecutor {
                     FetchDirection::ForwardAll | FetchDirection::All => usize::MAX,
                     FetchDirection::Next | FetchDirection::Forward { limit: None } => 1,
                     FetchDirection::Count {
-                        limit: sqlparser::ast::Value::Number(n, _),
+                        limit:
+                            sqlparser::ast::ValueWithSpan {
+                                value: sqlparser::ast::Value::Number(n, _),
+                                ..
+                            },
                     }
                     | FetchDirection::Forward {
-                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                        limit:
+                            Some(sqlparser::ast::ValueWithSpan {
+                                value: sqlparser::ast::Value::Number(n, _),
+                                ..
+                            }),
                     } => n
                         .parse::<usize>()
                         .map_err(|err| PgWireError::ApiError(err.into()))?,
@@ -202,7 +210,11 @@ impl QueryExecutor for MySqlQueryExecutor {
             Statement::Query(query) => {
                 let mut query = query.clone();
                 ast::rewrite_query(&self.peer_name, &mut query);
-                query.limit = Some(Expr::Value(Value::Number(String::from("0"), false)));
+                query.limit_clause = Some(LimitClause::LimitOffset {
+                    limit: Some(Expr::Value(Value::Number(String::from("0"), false).into())),
+                    offset: None,
+                    limit_by: vec![],
+                });
                 Ok(Some(self.query_schema(query.to_string()).await?))
             }
             Statement::Declare { stmts } => {

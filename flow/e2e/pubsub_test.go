@@ -22,7 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type PubSubSuite struct {
@@ -107,7 +107,7 @@ func (s PubSubSuite) Teardown(ctx context.Context) {
 func SetupPubSubSuite(t *testing.T) PubSubSuite {
 	t.Helper()
 
-	suffix := "ps_" + strings.ToLower(shared.RandomString(8))
+	suffix := "ps_" + strings.ToLower(common.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 

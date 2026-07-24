@@ -55,23 +55,25 @@ func (m *mockConn) Query(_ context.Context, _ string, _ ...any) (driver.Rows, er
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 	tests := []struct {
 		name                   string
+		wantErr                string
+		host                   string
+		allowedDomains         string
 		rows                   []tableRow
 		tables                 []string
 		initialSnapshotEnabled bool
 		checkForCloudSMT       bool
 		allowNonEmpty          bool
-		wantErr                string
 	}{
 		{
-			name:   "view rejected",
-			rows:   []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
-			tables: []string{"test_view"},
+			name:    "view rejected",
+			rows:    []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
+			tables:  []string{"test_view"},
 			wantErr: "destination table can not be a view",
 		},
 		{
-			name:   "materialized view rejected",
-			rows:   []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
-			tables: []string{"test_mv"},
+			name:    "materialized view rejected",
+			rows:    []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
+			tables:  []string{"test_mv"},
 			wantErr: "destination table can not be a view",
 		},
 		{
@@ -110,10 +112,43 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 			name:   "empty table list passes",
 			tables: nil,
 		},
+		{
+			name:           "host matches allowed domain",
+			host:           "myservice.clickhouse.cloud",
+			allowedDomains: "clickhouse.cloud",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
+		{
+			name:           "host matches one of multiple allowed domains",
+			host:           "myservice.example.com",
+			allowedDomains: "clickhouse.cloud,example.com",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
+		{
+			name:           "host does not match allowed domain",
+			host:           "myservice.evil.com",
+			allowedDomains: "clickhouse.cloud",
+			wantErr:        "invalid ClickHouse host domain",
+		},
+		{
+			name:           "empty allowed domains permits any host",
+			host:           "anything.example.com",
+			allowedDomains: "",
+			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
+			tables:         []string{"test_table"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.host != "" || tt.allowedDomains != "" {
+				if err := ValidateClickHouseHost(context.Background(), tt.host, tt.allowedDomains); err != nil {
+					require.ErrorContains(t, err, tt.wantErr)
+					return
+				}
+			}
 			conn := &mockConn{rows: &mockRows{rows: tt.rows}}
 			err := CheckIfTablesEmptyAndEngine(
 				context.Background(), nopLogger{}, conn,
@@ -126,4 +161,72 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateClusterShardingKey(t *testing.T) {
+	tests := []struct {
+		name           string
+		cluster        string
+		shardingKey    string
+		sourceTable    string
+		hasPrimaryKeys bool
+		sortingKeys    []string
+		wantErr        string
+	}{
+		{
+			name:        "non-cluster mode always passes",
+			cluster:     "",
+			sourceTable: "db.no_pk",
+		},
+		{
+			name:        "cluster with explicit sharding key passes",
+			cluster:     "cicluster",
+			shardingKey: "rand()",
+			sourceTable: "db.no_pk",
+		},
+		{
+			name:           "cluster with primary keys passes",
+			cluster:        "cicluster",
+			sourceTable:    "db.has_pk",
+			hasPrimaryKeys: true,
+		},
+		{
+			name:        "cluster with custom sorting columns passes",
+			cluster:     "cicluster",
+			sourceTable: "db.no_pk",
+			sortingKeys: []string{"created_at"},
+		},
+		{
+			name:        "cluster, no pk, no sharding key, no sorting → error",
+			cluster:     "cicluster",
+			sourceTable: "db.no_pk",
+			wantErr:     "sharding_key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateClusterShardingKey(tt.cluster, tt.shardingKey, tt.sourceTable, tt.hasPrimaryKeys, tt.sortingKeys)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBuildPartitionByValidationQuery(t *testing.T) {
+	t.Run("columns as dynamic placeholders", func(t *testing.T) {
+		query := buildPartitionByValidationQuery("toYYYYMM(t)", []string{"id", "t"}, nil)
+		require.Equal(t,
+			"SELECT (toYYYYMM(t)) FROM (SELECT "+
+				"CAST(NULL, 'Dynamic') AS `id`, "+
+				"CAST(NULL, 'Dynamic') AS `t`) LIMIT 0",
+			query)
+	})
+
+	t.Run("excluded columns are omitted", func(t *testing.T) {
+		query := buildPartitionByValidationQuery("id % 2", []string{"id", "secret"}, []string{"secret"})
+		require.Equal(t, "SELECT (id % 2) FROM (SELECT CAST(NULL, 'Dynamic') AS `id`) LIMIT 0", query)
+	})
 }

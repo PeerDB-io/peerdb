@@ -1,17 +1,17 @@
 #![allow(clippy::all)]
 
+use parser::ast_peerdb::PeerType;
 use peerdb_peers::DbType;
-use sqlparser::ast::PeerType;
 
 pub mod flow_model;
 #[rustfmt::skip]
-#[path ="./gen/peerdb_flow.rs"]
+#[path ="./gen/peerdb_flow/peerdb_flow.rs"]
 pub mod peerdb_flow;
 #[rustfmt::skip]
-#[path ="./gen/peerdb_peers.rs"]
+#[path ="./gen/peerdb_peers/peerdb_peers.rs"]
 pub mod peerdb_peers;
 #[rustfmt::skip]
-#[path ="./gen/peerdb_route.rs"]
+#[path ="./gen/peerdb_route/peerdb_route.rs"]
 pub mod peerdb_route;
 
 pub use prost;

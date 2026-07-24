@@ -13,7 +13,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 //nolint:govet // test fixture keeps related search settings grouped for readability.
@@ -58,7 +58,7 @@ func SetupOpenSearchSuite(t *testing.T) elasticsearchSuite {
 func setupSearchSuite(t *testing.T, backend string, prefix string, addressEnv string) elasticsearchSuite {
 	t.Helper()
 
-	suffix := prefix + "_" + strings.ToLower(shared.RandomString(8))
+	suffix := prefix + "_" + strings.ToLower(common.RandomString(8))
 	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 

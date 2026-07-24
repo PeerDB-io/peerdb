@@ -5,35 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
 	shared.CatalogPool
-	snsTelemetrySender        telemetry.Sender
-	incidentIoTelemetrySender telemetry.Sender
-	otelManager               *otel_metrics.OtelManager
+	otelManager *otel_metrics.OtelManager
 }
 
 type AlertSenderConfig struct {
@@ -49,43 +39,13 @@ type AlertKeys struct {
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+func NewAlerter(_ context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
 	if catalogPool.Pool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
-	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
-	var snsMessageSender telemetry.Sender
-	if snsTopic != "" {
-		var err error
-		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
-			Topic: snsTopic,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
-		}
-	}
-
-	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
-	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
-	var incidentIoTelemetrySender telemetry.Sender
-	if incidentIoURL != "" && incidentIoAuth != "" {
-		var err error
-		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
-			URL:   incidentIoURL,
-			Token: incidentIoAuth,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
-		}
-	}
-
 	return &Alerter{
-		CatalogPool:               catalogPool,
-		snsTelemetrySender:        snsMessageSender,
-		incidentIoTelemetrySender: incidentIoTelemetrySender,
-		otelManager:               otelManager,
+		CatalogPool: catalogPool,
+		otelManager: otelManager,
 	}
 }
 
@@ -367,79 +327,6 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 	return false
 }
 
-func (a *Alerter) sendTelemetryMessage(
-	ctx context.Context,
-	flowName string,
-	more string,
-	level telemetry.Level,
-	additionalTags ...string,
-) {
-	logger := internal.LoggerFromCtx(ctx)
-	allTags := []string{flowName, internal.PeerDBDeploymentUID()}
-	allTags = append(allTags, additionalTags...)
-
-	if flowTags, err := GetTags(ctx, a.CatalogPool, flowName); err != nil {
-		logger.Warn("failed to get flow tags", slog.Any("error", err))
-	} else {
-		for key, value := range flowTags {
-			allTags = append(allTags, fmt.Sprintf("%s:%s", key, value))
-		}
-	}
-
-	details := fmt.Sprintf("[%s] %s", flowName, more)
-	attributes := telemetry.Attributes{
-		Level:         level,
-		DeploymentUID: internal.PeerDBDeploymentUID(),
-		Tags:          allTags,
-		Type:          flowName,
-	}
-
-	if a.snsTelemetrySender != nil {
-		if response, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
-			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
-		} else {
-			logger.Debug("received response from snsTelemetrySender", slog.String("response", response))
-		}
-	}
-
-	if a.incidentIoTelemetrySender != nil {
-		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
-			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
-		} else {
-			logger.Debug("received response from incident.io", slog.String("response", status))
-		}
-	}
-}
-
-func (a *Alerter) emitNonFlowTelemetryEvent(
-	ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level,
-) {
-	a.sendTelemetryMessage(ctx, string(eventType)+":"+key, message, level)
-}
-
-// Wrapper for different telemetry levels for non-flow events
-func (a *Alerter) EmitNonFlowInfoTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.INFO)
-}
-
-func (a *Alerter) EmitNonFlowWarningTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.WARN)
-}
-
-func (a *Alerter) EmitNonFlowErrorTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.ERROR)
-}
-
-func (a *Alerter) EmitNonFlowCriticalTelemetryEvent(ctx context.Context, eventType telemetry.EventType, key string, message string) {
-	a.emitNonFlowTelemetryEvent(ctx, eventType, key, message, telemetry.CRITICAL)
-}
-
-func (a *Alerter) EmitFlowInfoTelemetryEvent(ctx context.Context, flowName string, info string) {
-	logger := internal.LoggerFromCtx(ctx)
-	logger.Info(info)
-	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
-}
-
 type FlowErrorType string
 
 func (f FlowErrorType) String() string {
@@ -452,7 +339,7 @@ const (
 	FlowErrorTypeError FlowErrorType = "error"
 )
 
-// recordFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message.
+// recordFlowErrorInternal pushes the error to the errors table and emits a metric.
 func (a *Alerter) recordFlowErrorInternal(
 	ctx context.Context,
 	flowName string,
@@ -485,48 +372,7 @@ func (a *Alerter) recordFlowErrorInternal(
 		logger.Error("failed to insert flow error", slog.Any("error", err))
 	}
 
-	// 3. Only send alerts to telemetry sender (incident.io) if the env is enabled
-	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
-		var tags []string
-		if errors.Is(err, context.Canceled) {
-			tags = append(tags, string(shared.ErrTypeCanceled))
-		}
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			tags = append(tags, string(shared.ErrTypeEOF))
-		}
-		if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
-			tags = append(tags, string(shared.ErrTypeClosed))
-		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			tags = append(tags, "pgcode:"+pgErr.Code)
-		}
-		var myErr *mysql.MyError
-		if errors.As(err, &myErr) {
-			tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
-		}
-		var mongoErr *driver.Error
-		if errors.As(err, &mongoErr) {
-			tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
-		}
-		var chErr *clickhouse.Exception
-		if errors.As(err, &chErr) {
-			tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
-		}
-		var netErr *net.OpError
-		if errors.As(err, &netErr) {
-			tags = append(tags, string(shared.ErrTypeNet))
-		}
-		// For SSH connection errors, we currently tag them as "err:Net"
-		var sshErr *ssh.OpenChannelError
-		if errors.As(err, &sshErr) {
-			tags = append(tags, string(shared.ErrTypeNet))
-		}
-		tags = append(tags, "errorClass:"+errClass.String(), "errorAction:"+errClass.ErrorAction().String())
-		a.sendTelemetryMessage(ctx, flowName, errMessage, telemetry.ERROR, tags...)
-	}
-
-	// 4. Record error metrics
+	// 3. Record error metrics
 	errorAttributes := []attribute.KeyValue{
 		attribute.Stringer(otel_metrics.ErrorClassKey, errClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errClass.ErrorAction()),

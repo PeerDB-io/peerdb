@@ -1,27 +1,15 @@
 import { CSSProperties } from 'react';
+import type { DefaultTheme } from 'styled-components';
 
-export const tableStyle: CSSProperties = {
+export const tableStyle = (theme: DefaultTheme): CSSProperties => ({
   padding: '0.5rem',
   borderRadius: '0.5rem',
-  border: '1px solid rgba(0,0,0,0.1)',
+  border: `1px solid ${theme.colors.base.border.subtle}`,
   marginTop: '0.5rem',
-};
+});
 
-export const tableStyleMaxHeight: CSSProperties = {
-  ...tableStyle,
+export const tableStyleMaxHeight = (theme: DefaultTheme): CSSProperties => ({
+  ...tableStyle(theme),
   maxHeight: '35vh',
   overflowY: 'auto',
-};
-
-export const connStringStyle: CSSProperties = {
-  backgroundColor: 'white',
-  display: 'flex',
-  width: 'fit-content',
-  alignItems: 'center',
-  padding: '0.5rem',
-  border: '1px solid rgba(0,0,0,0.1)',
-  borderRadius: '0.5rem',
-  marginTop: '0.5rem',
-  fontFamily: 'monospace',
-  whiteSpace: 'pre-wrap',
-};
+});

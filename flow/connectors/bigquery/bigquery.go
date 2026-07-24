@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -149,7 +150,7 @@ func (c *BigQueryConnector) ValidateMirrorDestination(
 	_ *protos.FlowConnectionConfigsCore,
 	_ map[string]*protos.TableSchema,
 ) error {
-	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
+	dummyTable := "peerdb_validate_dummy_" + common.RandomString(4)
 
 	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
 

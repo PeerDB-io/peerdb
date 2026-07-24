@@ -10,6 +10,7 @@ import {
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
+import { BarLoader } from '@/lib/BarLoader';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -21,13 +22,17 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
-  useEffect,
   useMemo,
   useState,
+  useTransition,
 } from 'react';
 import ReactSelect from 'react-select';
-import { BarLoader } from 'react-spinners/';
-import { fetchColumns, fetchTables } from '../handlers';
+import { useTheme as useStyledTheme } from 'styled-components';
+import {
+  fetchColumns,
+  fetchTables,
+  getDefaultDestinationTable,
+} from '../handlers';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
@@ -66,13 +71,33 @@ export default function SchemaBox({
   initialLoadOnly,
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
-  const [tablesLoading, setTablesLoading] = useState(false);
-  const [columnsLoading, setColumnsLoading] = useState(false);
+  const styledTheme = useStyledTheme();
+  const [tablesLoading, startTablesTransition] = useTransition();
+  const [columnsLoading, startColumnsTransition] = useTransition();
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [fetchedSchemas, setFetchedSchemas] = useState<Set<string>>(new Set());
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
+
+  const applyTargetSchemaOverride = (newSchema: string) => {
+    setDefaultTargetSchema(newSchema);
+    if (peerType === undefined) return;
+    setRows((oldRows) =>
+      oldRows.map((row) =>
+        row.schema !== schema || row.editingDisabled
+          ? row
+          : {
+              ...row,
+              destination: getDefaultDestinationTable(
+                peerType,
+                newSchema,
+                row.source.slice(schema.length + 1)
+              ),
+            }
+      )
+    );
+  };
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
@@ -149,14 +174,13 @@ export default function SchemaBox({
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
 
-      fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
-        (res) => {
-          setTableColumns((prev) => [
-            ...prev,
-            { tableName: table, columns: res },
-          ]);
-        }
-      );
+      startColumnsTransition(async () => {
+        const res = await fetchColumns(sourcePeer, schemaName, tableName);
+        setTableColumns((prev) => [
+          ...prev,
+          { tableName: table, columns: res },
+        ]);
+      });
     },
     [sourcePeer, setTableColumns]
   );
@@ -196,63 +220,51 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const handleSchemaClick = (schemaName: string) => {
-    if (!schemaIsExpanded(schemaName)) {
-      setExpandedSchemas((curr) => [...curr, schemaName]);
-    } else {
-      setExpandedSchemas((curr) =>
-        curr.filter((expandedSchema) => expandedSchema != schemaName)
-      );
-    }
-  };
-
   const fetchTablesForSchema = useCallback(
-    async (schemaName: string) => {
-      setTablesLoading(true);
+    (schemaName: string) => {
+      startTablesTransition(async () => {
+        try {
+          const newRows = await fetchTables(
+            sourcePeer,
+            schemaName,
+            defaultTargetSchema,
+            peerType,
+            initialLoadOnly
+          );
 
-      try {
-        const newRows = await fetchTables(
-          sourcePeer,
-          schemaName,
-          defaultTargetSchema,
-          peerType,
-          initialLoadOnly
-        );
-
-        if (alreadySelectedTables) {
-          for (const row of newRows) {
-            const existingRow = alreadySelectedTables.find(
-              (tableMap) => tableMap.sourceTableIdentifier === row.source
-            );
-            if (existingRow) {
-              row.selected = true;
-              row.editingDisabled = true;
-              row.engine = existingRow.engine;
-              row.partitionKey = existingRow.partitionKey;
-              row.shardingKey = existingRow.shardingKey;
-              row.policyName = existingRow.policyName;
-              row.partitionByExpr = existingRow.partitionByExpr;
-              row.exclude = new Set(existingRow.exclude ?? []);
-              row.destination = existingRow.destinationTableIdentifier;
-              addTableColumns(row.source);
+          if (alreadySelectedTables) {
+            for (const row of newRows) {
+              const existingRow = alreadySelectedTables.find(
+                (tableMap) => tableMap.sourceTableIdentifier === row.source
+              );
+              if (existingRow) {
+                row.selected = true;
+                row.editingDisabled = true;
+                row.engine = existingRow.engine;
+                row.partitionKey = existingRow.partitionKey;
+                row.shardingKey = existingRow.shardingKey;
+                row.policyName = existingRow.policyName;
+                row.partitionByExpr = existingRow.partitionByExpr;
+                row.exclude = new Set(existingRow.exclude ?? []);
+                row.destination = existingRow.destinationTableIdentifier;
+                addTableColumns(row.source);
+              }
             }
           }
+
+          setRows((oldRows) => {
+            const filteredRows = oldRows.filter(
+              (oldRow) => oldRow.schema !== schemaName
+            );
+            return [...filteredRows, ...newRows];
+          });
+
+          setFetchedSchemas((prev) => new Set(prev).add(schemaName));
+        } catch (error) {
+          // Handle error if needed
+          console.error('Error fetching tables:', error);
         }
-
-        setRows((oldRows) => {
-          const filteredRows = oldRows.filter(
-            (oldRow) => oldRow.schema !== schemaName
-          );
-          return [...filteredRows, ...newRows];
-        });
-
-        setFetchedSchemas((prev) => new Set(prev).add(schemaName));
-      } catch (error) {
-        // Handle error if needed
-        console.error('Error fetching tables:', error);
-      } finally {
-        setTablesLoading(false);
-      }
+      });
     },
     [
       sourcePeer,
@@ -265,6 +277,19 @@ export default function SchemaBox({
     ]
   );
 
+  const handleSchemaClick = (schemaName: string) => {
+    if (!schemaIsExpanded(schemaName)) {
+      setExpandedSchemas((curr) => [...curr, schemaName]);
+      if (!fetchedSchemas.has(schemaName)) {
+        fetchTablesForSchema(schemaName);
+      }
+    } else {
+      setExpandedSchemas((curr) =>
+        curr.filter((expandedSchema) => expandedSchema != schemaName)
+      );
+    }
+  };
+
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
@@ -272,20 +297,8 @@ export default function SchemaBox({
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
-  useEffect(() => {
-    if (schemaIsExpanded(schema) && !fetchedSchemas.has(schema)) {
-      fetchTablesForSchema(schema);
-    }
-  }, [
-    schema,
-    fetchTablesForSchema,
-    schemaIsExpanded,
-    fetchedSchemas,
-    initialLoadOnly,
-  ]);
-
   return (
-    <div style={schemaBoxStyle}>
+    <div style={schemaBoxStyle(styledTheme)}>
       <div>
         <div style={{ ...expandableStyle, cursor: 'auto' }}>
           <div
@@ -320,7 +333,7 @@ export default function SchemaBox({
             <div style={{ alignSelf: 'center', cursor: 'pointer' }}>
               <SchemaSettings
                 schema={defaultTargetSchema}
-                setTargetSchemaOverride={setDefaultTargetSchema}
+                setTargetSchemaOverride={applyTargetSchemaOverride}
               />
             </div>
           </div>
@@ -332,7 +345,7 @@ export default function SchemaBox({
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
                 return (
-                  <div key={row.source} style={tableBoxStyle}>
+                  <div key={row.source} style={tableBoxStyle(styledTheme)}>
                     <div
                       className='ml-5'
                       style={{
@@ -345,7 +358,7 @@ export default function SchemaBox({
                         label={
                           <Tooltip
                             style={{
-                              ...tooltipStyle,
+                              ...tooltipStyle(styledTheme),
                               display: row.canMirror ? 'none' : 'block',
                             }}
                             content={
@@ -594,7 +607,9 @@ export default function SchemaBox({
                 );
               })
             ) : tablesLoading ? (
-              <BarLoader />
+              <div style={{ padding: '0.5rem 0', width: '40%' }}>
+                <BarLoader width='100%' />
+              </div>
             ) : (
               <Label
                 as='label'

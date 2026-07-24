@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -184,7 +184,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Namespace), strings.ToUpper(schemaTable.Table))
+	fq := snowflakeSchemaTableNormalize(schemaTable)
 
 	channel := make(chan string, 1)
 	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)

@@ -4,16 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 const (
-	MySQLMinVersionForBinlogRowMetadata   = "8.0.1"
-	MariaDBMinVersionForBinlogRowMetadata = "10.5.0"
+	MySQLMinVersionForBinlogRowMetadata            = "8.0.1"
+	MariaDBMinVersionForBinlogRowMetadata          = "10.5.0"
+	MySQLMinVersionForBinlogTransactionCompression = "8.0.20"
+	MySQLMinVersionForInvisibleColumns             = "8.0.23"
+	MariaDBMinVersionForInvisibleColumns           = "10.3.0"
+	MySQLMinVersionForGeneratedInvisiblePrimaryKey = "8.0.30"
 )
 
 func CompareServerVersion(conn *client.Conn, version string) (int, error) {
@@ -208,8 +216,7 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
 	// check RDS/Aurora binlog retention setting
 	if rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
 			// Table doesn't exist, which means this is not RDS/Aurora
 			logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
 				slog.Any("error", err))
@@ -233,14 +240,173 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	return nil
 }
 
+// CheckLogReplicaUpdates verifies that a source acting as a replica records replicated
+// events in its own binary log. Without this, rows applied to the replica through its own
+// upstream replication are not written to the replica's binlog, leaving gaps that surface
+// as errors when PeerDB reconnects and resumes from a binlog position/GTID.
+func CheckLogReplicaUpdates(conn *client.Conn) error {
+	isReplica, err := ServerIsReplica(conn)
+	if err != nil {
+		return fmt.Errorf("failed to determine whether source is a replica: %w", err)
+	}
+	if !isReplica {
+		return nil
+	}
+
+	rs, err := conn.Execute("SHOW VARIABLES WHERE Variable_name IN ('log_slave_updates', 'log_replica_updates')")
+	if err != nil {
+		return fmt.Errorf("failed to retrieve log_replica_updates setting: %w", err)
+	}
+	if len(rs.Values) == 0 {
+		// every MySQL/MariaDB exposes one of these variables, so a replica that reports
+		// neither is unexpected and we cannot confirm it records replicated events
+		return fmt.Errorf("could not read log_replica_updates/log_slave_updates on replica source")
+	}
+	for _, row := range rs.Values {
+		name := string(row[0].AsString())
+		value := string(row[1].AsString())
+		if !strings.EqualFold(value, "ON") && value != "1" {
+			return fmt.Errorf(
+				"%s must be enabled when replicating from a replica so replicated events are written to its binlog, currently %s",
+				name, value)
+		}
+	}
+
+	return nil
+}
+
+// ServerIsReplica reports whether the server is configured as a replica of an upstream primary.
+func ServerIsReplica(conn *client.Conn) (bool, error) {
+	rs, err := conn.Execute("SHOW REPLICA STATUS")
+	if err != nil {
+		// older MySQL (<8.0.22) and MariaDB (<10.5.1) don't recognize SHOW REPLICA STATUS
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_PARSE_ERROR {
+			if rs, err = conn.Execute("SHOW SLAVE STATUS"); err != nil {
+				return false, fmt.Errorf("failed to check replica status: %w", err)
+			}
+		} else {
+			return false, fmt.Errorf("failed to check replica status: %w", err)
+		}
+	}
+	return len(rs.Values) > 0, nil
+}
+
 // check if the server is a Vitess server, currently only works for initial load only
 func IsVitess(conn *client.Conn) (bool, error) {
 	if _, err := conn.Execute("SHOW VITESS_TABLETS"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_PARSE_ERROR {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_PARSE_ERROR {
 			return false, nil // not a Vitess server
 		}
 		return false, fmt.Errorf("failed to check if Vitess: %w", err)
 	}
 	return true, nil // is a Vitess server
+}
+
+// MariaDB marks a compressed column in information_schema COLUMN_TYPE with an
+// executable comment, e.g. `blob /*M!100301 COMPRESSED*/`. Match that exact form
+// rather than a bare "COMPRESSED" substring, which would false-positive on values
+// like enum('compressed').
+var compressedColumnTypeRe = regexp.MustCompile(`(?i)/\*M!\d+\s+COMPRESSED\s*\*/`)
+
+func IsCompressedColumnType(columnType string) bool {
+	return compressedColumnTypeRe.MatchString(columnType)
+}
+
+// CheckCompressedColumns fetches column types for all tables in a single query to
+// avoid a per-table round trip during validation, which is costly for mirrors with
+// many tables against a distant database.
+func CheckCompressedColumns(conn *client.Conn, tables []*common.QualifiedTable) error {
+	if len(tables) == 0 {
+		return nil
+	}
+
+	predicates := make([]string, 0, len(tables))
+	for _, table := range tables {
+		predicates = append(predicates, fmt.Sprintf("('%s', '%s')",
+			mysql.Escape(table.Namespace), mysql.Escape(table.Table)))
+	}
+
+	rs, err := conn.Execute(fmt.Sprintf(
+		"SELECT table_schema, table_name, column_name, column_type FROM information_schema.columns "+
+			"WHERE (table_schema, table_name) IN (%s)",
+		strings.Join(predicates, ", ")))
+	if err != nil {
+		return fmt.Errorf("failed to fetch column types: %w", err)
+	}
+
+	compressed := make(map[string][]string)
+	for idx := range rs.RowNumber() {
+		columnType, err := rs.GetString(idx, 3)
+		if err != nil {
+			return err
+		}
+		if !IsCompressedColumnType(columnType) {
+			continue
+		}
+		schema, err := rs.GetString(idx, 0)
+		if err != nil {
+			return err
+		}
+		table, err := rs.GetString(idx, 1)
+		if err != nil {
+			return err
+		}
+		columnName, err := rs.GetString(idx, 2)
+		if err != nil {
+			return err
+		}
+		key := schema + "." + table
+		compressed[key] = append(compressed[key], columnName)
+	}
+
+	if len(compressed) > 0 {
+		offending := make([]string, 0, len(compressed))
+		for _, table := range tables {
+			key := table.Namespace + "." + table.Table
+			if columns, ok := compressed[key]; ok {
+				offending = append(offending, fmt.Sprintf("%s [%s]", key, strings.Join(columns, ", ")))
+				delete(compressed, key) // avoid duplicates if a table is listed more than once
+			}
+		}
+		return fmt.Errorf(
+			"the following table(s) have MariaDB COMPRESSED column(s), which cannot be replicated via CDC; "+
+				"convert them to a non-compressed type or remove the table from the mirror: %s",
+			strings.Join(offending, "; "))
+	}
+	return nil
+}
+
+func HasReplicaWithServerId(conn *client.Conn, serverID uint32) (bool, error) {
+	// This check assumes that the number of replicas is not beyond the order of magnitude of thousands.
+	// This is a reasonable assumption given that services like RDS limit them to 15 and that
+	// this number is constrained by concurrent connections and main server resources.
+	rs, err := conn.Execute("SHOW REPLICAS")
+	if err != nil {
+		if rs, err = conn.Execute("SHOW SLAVE HOSTS"); err != nil {
+			return false, fmt.Errorf("failed to query source for registered replicas")
+		}
+	}
+
+	serverIDCol := -1
+	for i, field := range rs.Fields {
+		// Case insensitive match because the column name differs between MySQL and MariaDB.
+		if strings.EqualFold(string(field.Name), "Server_id") {
+			serverIDCol = i
+			break
+		}
+	}
+	if serverIDCol < 0 {
+		return false, fmt.Errorf("no Server_id column in replica list, got fields %v", rs.Fields)
+	}
+
+	for row := range rs.RowNumber() {
+		got, err := rs.GetInt(row, serverIDCol)
+		if err != nil {
+			return false, err
+		}
+		if uint32(got) == serverID {
+			return true, nil
+		}
+	}
+	return false, nil
 }

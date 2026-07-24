@@ -5,14 +5,18 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"syscall"
 	"testing"
 
+	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,7 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -52,6 +58,78 @@ func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorSourceNet, errInfo.Source, "Unexpected error source")
 	assert.Regexp(t, "^lookup "+hostName+"( on [\\w\\d\\.:]*)?: no such host$", errInfo.Code, "Unexpected error code")
+}
+
+func TestSSHTunnelConnectionErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how the Postgres CDC loop wraps a read failure once the SSH tunnel has gone bad.
+	err := fmt.Errorf("error in PullRecords: %w",
+		exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", net.ErrClosed)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_LOST",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestSSHTunnelRecoverableDialError(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("failed to sync records: %w",
+		fmt.Errorf("failed to get schema for watermark table xxx.xxx: %w",
+			exceptions.NewMySQLExecuteError(exceptions.NewSSHTunnelDialError(
+				errors.New("ssh: unexpected packet in response to channel open: <nil>"),
+			))))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelDialConnectFailedShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// The SSH bastion rejected the forwarded connection to the source (DNS / refused / timeout).
+	err := fmt.Errorf("failed to create connection: %w",
+		exceptions.NewSSHTunnelDialError(errors.New("ssh: rejected: connect failed (Name or service not known)")))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelDialClosedConnShouldBeRetryable(t *testing.T) {
+	t.Parallel()
+
+	// We force-closed our own tunnel (syncer.Close hung / keepalive failure), then dialed on the dead client.
+	err := fmt.Errorf("connection to source down: %w",
+		exceptions.NewSSHTunnelDialError(&net.OpError{Op: "dial", Err: net.ErrClosed}))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_DIAL_ERROR",
+	}, errInfo)
+}
+
+func TestSSHTunnelClosedPipeErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors how deadlineCapableConn wraps net.Pipe teardown errors when an
+	// SSH-tunneled connection is torn down while a query is in flight.
+	err := fmt.Errorf("receive message failed: %w", exceptions.NewSSHTunnelClosedError(io.ErrClosedPipe))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_CLOSED",
+	}, errInfo)
 }
 
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
@@ -161,6 +239,27 @@ func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonDonorWalLaggingErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Neon's walsender failing to read WAL because the donor safekeeper is lagging behind
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message: "[walsender] Failed to read WAL (req_lsn=0/DD7D4000, len=8192): closing remote connection: " +
+				"requested WAL up to 0/DD7D6000, but current donor xxx.aws.neon.tech:6401 has only up to 0/DD7D5FF8",
+			File:    "walsender_hooks.c",
+			Line:    144,
+			Routine: "NeonWALPageRead",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo)
+}
+
 func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 	// Simulate a Postgres memory allocation error
 	err := &exceptions.PostgresWalError{
@@ -185,6 +284,23 @@ func TestPostgresPfreeInvalidPointerErrorShouldBeRecoverable(t *testing.T) {
 			Severity: "ERROR",
 			Code:     pgerrcode.InternalError,
 			Message:  "pfree called with invalid pointer 0x400720764ed0 (header 0x0000400720825ae0) ",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresCouldNotRenameSnapshotErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a transient logical decoding snapshot temp file rename failure
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  `could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap": `,
 		},
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
@@ -233,6 +349,36 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseUnexpectedZookeeperZnodeExistsErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrUnexpectedZookeeperError),
+		Message: "Got unexpected ZooKeeper error ZNODEEXISTS (at index 10) for part all_0_0_1",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: QRepSync Error: %w", err), "", ""))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnexpectedZookeeperError)),
+	}, errInfo)
+}
+
+func TestClickHouseAccessDeniedErrorShouldBeNotifyPermissions(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrAccessDenied),
+		Message: "user@example.com: Not enough privileges. To execute this query, it's necessary to have the grant READ ON S3",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf(
+			"failed to normalize records: failed to copy avro stages to destination: %w", err,
+		)))
+	assert.Equal(t, ErrorNotifyClickHousePermissionsError, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrAccessDenied)),
+	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
@@ -335,6 +481,21 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresInvalidEnumValueOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidTextRepresentation,
+		Message:  `invalid input value for enum worker_status: "merged"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.workers: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidEnumValue, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidTextRepresentation,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
@@ -396,6 +557,30 @@ func TestPostgresReorderbufferSpillFileBadAddressErrorShouldBeRecoverable(t *tes
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresConnClosedErrorShouldBeNotifyConnectivity(t *testing.T) {
+	t.Parallel()
+
+	// Drive real pgx to produce the "conn closed" error rather than hand-building one, so this
+	// guards against a pgx upgrade changing how the sentinel is wrapped (errors.Is must still match).
+	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
+	config, err := pgx.ParseConfig(connectionString)
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(t.Context(), config)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(t.Context()))
+
+	// Using the connection after it has been closed yields pgconn.ErrConnClosed (wrapped in connLockError).
+	_, err = conn.Exec(t.Context(), "SELECT 1")
+	require.ErrorIs(t, err, pgconn.ErrConnClosed)
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   "CONN_CLOSED",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -490,7 +675,8 @@ func TestConnectionResetDuringPeerCreateShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
 	err := exceptions.NewPeerCreateError(
-		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET))
+		fmt.Errorf("failed to open connection to ClickHouse peer: failed to ping to ClickHouse peer: read: %w", syscall.ECONNRESET),
+	)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to recreate destination connector: %w", err))
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
@@ -781,6 +967,29 @@ func TestMongoCursorErrors(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoTLSInvalidServerCertSignatureShouldBeRecoverable(t *testing.T) {
+	de := driver.Error{
+		Labels: []string{driver.NetworkError},
+		Wrapped: topology.ConnectionError{
+			Wrapped: errors.New(
+				"failed to configure TLS for pl-1-us-east-1.xxxx.mongodb.net:1234: " +
+					"tls: invalid signature by the server certificate: crypto/rsa: verification error"),
+		},
+	}
+	err := mongo.CommandError{
+		Code:    de.Code,
+		Message: de.Message,
+		Labels:  de.Labels,
+		Wrapped: de,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo)
+}
+
 func TestAuroraMySQLZeroDowntimePatchErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate Aurora MySQL Zero Downtime Patch error
 	mysqlErr := &mysql.MyError{
@@ -811,41 +1020,97 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMySQLStreamingTLSHandshakeErrorShouldBeRecoverable(t *testing.T) {
-	err := exceptions.NewMySQLStreamingError(
-		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"})
+func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
+	// Error 1236 caused by a binlog event larger than max_allowed_packet should be
+	// classified separately from generic binlog invalidation.
+	mysqlErr := &mysql.MyError{
+		Code:  1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
+		State: "HY000",
+		Message: "log event entry exceeded max_allowed_packet; Increase max_allowed_packet on source; " +
+			"the first event 'mysql-bin.168301' at 1789438008, the last event read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874086, the last byte read from " +
+			"'/app/work2/binlogs/mysql-bin.168301' at 2333874105.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", mysqlErr))
+	assert.Equal(t, ErrorNotifyBinlogEventExceededMaxAllowedPacket, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+
+	// A 1236 without the max_allowed_packet signature should still be generic binlog invalidation.
+	genericErr := &mysql.MyError{
+		Code:    1236,
+		State:   "HY000",
+		Message: "Could not find first log file name in binary log index file",
+	}
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", genericErr))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1236",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLBinlogChecksumMismatch(t *testing.T) {
+	err := exceptions.NewMySQLExecuteError(
+		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch),
+	)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "BINLOG_CHECKSUM_MISMATCH",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLExecuteError(t *testing.T) {
+	err := exceptions.NewMySQLExecuteError(
+		tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"},
+	)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(
-		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"})
+	err = exceptions.NewMySQLExecuteError(
+		tls.RecordHeaderError{Msg: "unsupported SSLv2 handshake received"},
+	)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "UNKNOWN",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
-	err = exceptions.NewMySQLStreamingError(context.DeadlineExceeded)
+	err = exceptions.NewMySQLExecuteError(context.DeadlineExceeded)
 	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
 	}, errInfo, "Unexpected error info")
 
 	tlsErr := tls.RecordHeaderError{Msg: "remote error: tls: error decoding message"}
 	innerErr := pErrors.Wrapf(mysql.ErrBadConn, "io.ReadFull(header) failed. err %v", tlsErr)
-	err = exceptions.NewMySQLStreamingError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
+	err = exceptions.NewMySQLExecuteError(pErrors.Errorf("failed to set @slave_gtid_strict_mode=1: %v", innerErr))
 	errorClass, errInfo = GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
-		Code:   "STREAMING_TRANSIENT_ERROR",
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+
+	err = exceptions.NewMySQLExecuteError(fmt.Errorf("invalid compressed sequence 0 != 1"))
+	wrappedErrInner := fmt.Errorf("failed to get schema for watermark table eesb.customers: %w", err)
+	wrappedErrOuter := fmt.Errorf("failed to sync records: %w", wrappedErrInner)
+	errorClass, errInfo = GetErrorClass(t.Context(), wrappedErrOuter)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
 	}, errInfo)
 }
 
@@ -904,6 +1169,22 @@ func TestClickHouseOtherUnfinishedShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrUnfinished)),
 	}, errInfo)
+}
+
+func TestClickHouseLockingAttemptForAlterTimedOutShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrDeadlockAvoided),
+		//nolint:lll
+		Message: `Locking attempt for ALTER on "my_database.my_table" has timed out! (120000 ms) Possible deadlock avoided. Client should retry.`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to sync schema changes: failed to add column case_number for table my_table: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrDeadlockAvoided)),
+	}, errInfo, "Unexpected error info")
 }
 
 func TestMySQLUnsupportedDDLShouldNotifyUser(t *testing.T) {
@@ -976,5 +1257,219 @@ func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.ObjectNotInPrerequisiteState,
+	}, errInfo)
+}
+
+func TestClickHouseStdExceptionObjectStorageIOErrorShouldBeRecoverable(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrStdException),
+		//nolint:lll
+		Message: `std::__1::ios_base::failure: ios_base::clear: unspecified iostream_category error: while reading path/to/file.000000.avro: While executing ReadFromObjectStorage`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewClickHouseQRepSyncError(fmt.Errorf("failed to sync records: %w", err), "tbl", "db"))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrStdException)),
+	}, errInfo)
+}
+
+func TestMySQLGeometryLinearRingNotClosedShouldBeUnsupportedDatatype(t *testing.T) {
+	geosErr := fmt.Errorf("IllegalArgumentException: Points of LinearRing do not form a closed linestring")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
+
+	executeErrWrapper := exceptions.NewMySQLExecuteError(wrapped)
+	errorClass, errInfo = GetErrorClass(t.Context(), executeErrWrapper)
+	assert.Equal(t, ErrorUnsupportedDatatype, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_GEOMETRY_LINEAR_RING_NOT_CLOSED",
+	}, errInfo)
+}
+
+func TestMySQLGeometryParseErrorUnknownShouldFallThrough(t *testing.T) {
+	geosErr := fmt.Errorf("ParseException: Unknown WKB type 99")
+	wrapped := fmt.Errorf("mysql error: %w", exceptions.NewMySQLGeometryParseError(geosErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrapped)
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+func TestBigQueryAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{401, 403, 404} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			apiErr := &googleapi.Error{Code: code, Message: "boom"}
+			err := exceptions.NewBigQueryError(apiErr)
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
+			assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+// Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
+//
+//	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
+//
+// `it.Next()` on a missing staging bucket surfaces this exact shape at
+// connectors/bigquery/source.go:59 (then wrapped in BigQueryError there).
+func TestBigQueryGCSBucketNotExistShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 404, Message: "Not Found"}
+	storageWrapped := fmt.Errorf("%w: %w", storage.ErrBucketNotExist, apiErr)
+	err := exceptions.NewBigQueryError(storageWrapped)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to access staging bucket: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "404",
+	}, errInfo)
+}
+
+func TestGCSTransientErrorsShouldBeRecoverable(t *testing.T) {
+	apiErr := &googleapi.Error{
+		Code:    503,
+		Message: "We encountered an internal error. Please try again.",
+		Errors:  []googleapi.ErrorItem{{Reason: "backendError"}},
+	}
+	err := exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for a.avro: %w", apiErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceGCS,
+		Code:   strconv.Itoa(503),
+	}, errInfo)
+}
+
+func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "500",
+	}, errInfo)
+}
+
+func TestBigQueryErrorWithoutGoogleAPIShouldBeOther(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewBigQueryError(fmt.Errorf("opaque failure"))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("bq op failed: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+// bigquery.Error (with a Reason like "invalidQuery", "accessDenied") is what
+// surfaces from job-level failures e.g. status.Err() on Job.Wait. We surface
+// the Reason as the code for diagnostic clarity even though we don't classify
+// individual Reasons yet.
+func TestBigQueryJobErrorWithReasonShouldUseReasonAsCode(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "invalidQuery", Message: "bad SQL", Location: "query"}
+	err := exceptions.NewBigQueryError(jobErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job completed with error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "invalidQuery",
+	}, errInfo)
+}
+
+// Unwrapped *googleapi.Error from outside the BigQuery connector must NOT be
+// attributed to BigQuery — only errors explicitly wrapped in BigQueryError are.
+func TestUnwrappedGoogleAPIErrorShouldNotBeBigQuery(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 403, Message: "forbidden"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("some other gcp call: %w", apiErr))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+	}, errInfo)
+}
+
+func TestMySQLBinlogIncidentErrorShouldBeNotifyBinlogInvalid(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLBinlogIncidentError(1, "LOST_EVENTS")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogInvalid, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "BINLOG_INCIDENT",
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedPartialRowEventShouldBeNotifyPartialRowEventUnsupported(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedPartialRowEventError(172, "e2e_test", "partial_rows")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogPartialRowEventUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_PARTIAL_ROW_EVENT",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "e2e_test.partial_rows",
+		},
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedBinlogRowValueOptionsErrorShouldBeNotifyBinlogPartialJsonUnsupported(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedBinlogRowValueOptionsError("mydb", "mytable")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyBinlogPartialJsonUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_PARTIAL_JSON",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
+	}, errInfo)
+}
+
+func TestMySQLUnsupportedCompressedColumnErrorShouldBeNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLUnsupportedCompressedColumnError("mydb", "mytable", []string{"v"})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("pulling records failed: %w", err))
+	assert.Equal(t, ErrorNotifyMySQLCompressedColumnUnsupported, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "UNSUPPORTED_COMPRESSED_COLUMN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "mydb.mytable",
+		},
 	}, errInfo)
 }

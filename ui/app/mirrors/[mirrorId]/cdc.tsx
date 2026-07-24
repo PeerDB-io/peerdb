@@ -1,11 +1,11 @@
 'use client';
+import useHydrated from '@/app/utils/useHydrated';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@radix-ui/react-tabs';
-import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
@@ -22,10 +22,10 @@ type CDCMirrorStatusProps = {
   syncStatusChild?: React.ReactNode;
 };
 export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
-  const LocalStorageTabKey = 'cdctab';
+  const LocalStorageTabKey = `cdctab:${status.flowJobName}`;
   const theme = useTheme();
+  const hydrated = useHydrated();
   const [selectedTab, setSelectedTab] = useLocalStorage(LocalStorageTabKey, 0);
-  const [mounted, setMounted] = useState(false);
   const handleTab = (index: number) => {
     setSelectedTab(index);
   };
@@ -36,10 +36,8 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       <SnapshotStatusTable status={status.cdcStatus?.snapshotStatus} />
     );
   }
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  if (!mounted) {
+
+  if (!hydrated) {
     return (
       <div style={{ marginTop: '1rem' }}>
         <Label>
@@ -48,11 +46,12 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       </div>
     );
   }
+
   return (
     <Tabs
       style={TabsRootStyle}
       className='TabsRoot'
-      defaultValue={selectedTab.toString()}
+      value={selectedTab.toString()}
       onValueChange={(value) => handleTab(Number(value))}
     >
       <TabsList style={TabListStyle(theme.theme)} className='TabsList'>

@@ -95,6 +95,8 @@ message FlowConnectionConfigs {
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
   repeated string flags = 27;
+
+  optional bool skip_validation = 28;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -145,6 +147,8 @@ message FlowConnectionConfigsCore {
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.
   repeated string flags = 27;
+
+  optional bool skip_validation = 28;
 }
 
 message RenameTableOption {
@@ -320,6 +324,24 @@ message ObjectIdPartitionRange {
   string end = 2;
 }
 
+message StringPartitionRange {
+  string start = 1;
+  string end = 2;
+  // unlike numeric/temporal ranges, string boundaries cannot be safely
+  // incremented; so the partition boundaries are [start, end) except
+  // for the last partition being [start, end]; hence this bool is needed.
+  bool end_inclusive = 3;
+}
+
+message NumericPartitionRange {
+  int64 start = 1;
+  int64 end = 2;
+  // a numeric key space may contain fractional values between integer boundaries,
+  // so boundaries cannot be safely incremented without leaving gaps. Handle it
+  // similarly to StringPartitionRange above.
+  bool end_inclusive = 3;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
@@ -329,6 +351,8 @@ message PartitionRange {
     UIntPartitionRange uint_range = 4;
     ObjectIdPartitionRange object_id_range = 5;
     NullPartitionRange null_range = 6;
+    StringPartitionRange string_range = 7;
+    NumericPartitionRange numeric_range = 8;
   }
 }
 
@@ -439,6 +463,8 @@ message QRepPartition {
   // child table and block range to query instead of the parent watermark table.
   // When populated, the top-level `range` field is unused.
   repeated ChildTableRange child_table_ranges = 5;
+  // When true, PartitionRange get offloaded and encrypted to the catalog to avoid passing through Temporal
+  bool range_offloaded = 6;
 }
 
 message QRepPartitionBatch {
@@ -555,6 +581,7 @@ message IsQRepPartitionSyncedInput {
 message ExportTxSnapshotOutput {
   reserved 2;
   string snapshot_name = 1;
+  string snapshot_staging_path = 3;
 }
 
 enum DynconfValueType {
@@ -583,6 +610,7 @@ enum DynconfTarget {
   SNOWFLAKE = 2;
   CLICKHOUSE = 3;
   QUEUES = 4;
+  POSTGRES = 5;
 }
 
 message DropFlowActivityInput {
@@ -660,6 +688,7 @@ message AdditionalContextMetadata{
 
 message GetDefaultPartitionKeyForTablesInput {
   repeated TableMapping table_mappings = 1;
+  map<string, TableSchema> table_schema_mapping = 2;
 }
 
 message GetDefaultPartitionKeyForTablesOutput {
@@ -670,4 +699,11 @@ message GetFlowInfoToCancelFromCatalogOutput {
   FlowConnectionConfigsCore flow_connection_configs = 1;
   string workflow_id = 2;
   peerdb_peers.DBType source_peer_type = 3;
+}
+
+message RunPgDumpSchemaInput {
+  string source_name = 1;
+  string destination_name = 2;
+  string flow_name = 3;
+  map<string, string> env = 4;
 }

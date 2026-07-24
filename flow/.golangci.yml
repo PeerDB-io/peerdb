@@ -100,6 +100,11 @@ linters:
     paths:
       - generated
       - connectors/postgres/sanitize
+    rules:
+      - linters:
+          - govet
+        text: fieldalignment
+        path: _test\.go
 formatters:
   enable:
     - gci

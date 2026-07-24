@@ -123,6 +123,16 @@ export const pgSchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  clientTls: z
+    .object({
+      certificate: z
+        .string({ error: () => 'Client certificate must be a string' })
+        .min(1, 'Client certificate must be non-empty'),
+      privateKey: z
+        .string({ error: () => 'Client private key must be a string' })
+        .min(1, 'Client private key must be non-empty'),
+    })
+    .optional(),
   sshConfig: sshSchema,
 });
 export const mySchema = z.object({
@@ -434,6 +444,12 @@ export function chSchema(hostDomains: string[]) {
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
+    tlsCertificateDirectory: z
+      .string({
+        error: () => 'TLS Certificate Directory must be a string',
+      })
+      .optional()
+      .transform((e) => (e === '' ? undefined : e)),
     tlsHost: z.string(),
   });
 }
@@ -697,6 +713,7 @@ export const mongoSchema = z.object({
   username: z.string({ error: () => 'Username must be a string' }),
   password: z.string({ error: () => 'Password must be a string' }),
   disableTls: z.boolean().optional(),
+  skipCertVerification: z.boolean().optional(),
   rootCa: z
     .string({ error: () => 'Root CA must be a string' })
     .optional()

@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -36,7 +37,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 			require.NoError(t, err)
 		}
 	}()
-	schema := "pgdelta_" + strings.ToLower(shared.RandomString(8))
+	schema := "pgdelta_" + strings.ToLower(common.RandomString(8))
 	_, err = setupTx.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schema))
 	require.NoError(t, err)
 	_, err = setupTx.Exec(t.Context(), "CREATE SCHEMA "+schema)

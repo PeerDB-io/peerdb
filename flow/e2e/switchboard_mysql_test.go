@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type SwitchboardMySQLSuite struct {
@@ -35,9 +34,21 @@ func (s SwitchboardMySQLSuite) Teardown(ctx context.Context) {
 
 func SetupSwitchboardMySQLSuite(t *testing.T) SwitchboardMySQLSuite {
 	t.Helper()
+	return setupSwitchboardMySQLFamilySuite(t, "mysql", SetupMySQL)
+}
 
-	suffix := "pgwmy_" + strings.ToLower(shared.RandomString(8))
-	source, err := SetupMySQL(t, suffix)
+func SetupSwitchboardMariaDBSuite(t *testing.T) SwitchboardMySQLSuite {
+	t.Helper()
+	return setupSwitchboardMySQLFamilySuite(t, "mariadb", SetupMariaDB)
+}
+
+func setupSwitchboardMySQLFamilySuite(
+	t *testing.T, namePrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
+) SwitchboardMySQLSuite {
+	t.Helper()
+
+	suffix := "pgwmy_" + strings.ToLower(common.RandomString(8))
+	source, err := setup(t, suffix)
 	if err != nil {
 		t.Skipf("MySQL setup failed: %v", err)
 	}
@@ -47,7 +58,7 @@ func SetupSwitchboardMySQLSuite(t *testing.T) SwitchboardMySQLSuite {
 
 	// Create peer with unique name to avoid caching issues
 	peer := &protos.Peer{
-		Name: "mysql_" + suffix,
+		Name: namePrefix + "_" + suffix,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: source.Config,
@@ -128,6 +139,10 @@ func (s SwitchboardMySQLSuite) testTable() string {
 
 func TestSwitchboardMySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSwitchboardMySQLSuite)
+}
+
+func TestSwitchboardMariaDB(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSwitchboardMariaDBSuite)
 }
 
 // ========================================
@@ -239,7 +254,8 @@ func (s SwitchboardMySQLSuite) Test_QueryComplexity_GroupBy() {
 }
 
 func (s SwitchboardMySQLSuite) Test_QueryComplexity_CTE() {
-	if os.Getenv("CI_MYSQL_VERSION") == "mysql-pos" {
+	if s.source.Config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL &&
+		s.source.Config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 		s.t.Skip("MySQL 5.7 does not support CTEs")
 	}
 	output, err := s.psql("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte")

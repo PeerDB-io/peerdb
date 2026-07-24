@@ -12,6 +12,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { MirrorType } from '../dto/MirrorsDTO';
 import { tableStyle } from '../peers/[peerName]/style';
 import { FormatStatus } from '../utils/flowstatus';
@@ -34,6 +35,7 @@ function getStatusVariant(status: FlowStatus): BadgeVariant {
 }
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
+  const styledTheme = useStyledTheme();
   if (cdcFlows?.length === 0) {
     return (
       <div
@@ -56,7 +58,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
-      <div style={tableStyle}>
+      <div style={tableStyle(styledTheme)}>
         <Table
           header={
             <TableRow>
@@ -132,6 +134,7 @@ export function QRepFlows({
   qrepFlows: ListMirrorsItem[];
   title: string;
 }) {
+  const styledTheme = useStyledTheme();
   if (qrepFlows?.length === 0) {
     return (
       <div
@@ -154,7 +157,7 @@ export function QRepFlows({
   return (
     <>
       <Label variant='headline'>{title}</Label>
-      <div style={tableStyle}>
+      <div style={tableStyle(styledTheme)}>
         <Table
           header={
             <TableRow>

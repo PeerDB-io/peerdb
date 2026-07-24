@@ -9,14 +9,20 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
+
+const TracerName = "io.peerdb.flow"
 
 func SetupTracerProvider(ctx context.Context, serviceName string, enabled bool) (*sdktrace.TracerProvider, error) {
 	if !enabled {
 		return nil, nil
 	}
 
-	exporter, err := otlptracegrpc.New(ctx)
+	// otel v1.44.0 introduced a default max request size of 64 MiB, making oversized
+	// exports fail as non-retryable errors; 0 disables it, preserving the previous
+	// unlimited behavior
+	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithMaxRequestSize(0))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}
@@ -37,4 +43,10 @@ func SetupTracerProvider(ctx context.Context, serviceName string, enabled bool) 
 
 	slog.InfoContext(ctx, "Tracer provider initialized", slog.String("service", serviceName))
 	return tp, nil
+}
+
+// Tracer returns the shared tracer. Safe whether or not SetupTracerProvider ran:
+// global default is a noop tracer
+func Tracer() trace.Tracer {
+	return otel.Tracer(TracerName)
 }

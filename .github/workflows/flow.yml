@@ -6,15 +6,16 @@ on:
     # Ignore changes to files that don't require builds or validations.
     # If more complex build avoidance is required, or for other events than pull_request, push, and pull_request_target,
     # replace this with a gate step in the job.
-    paths-ignore: &ignore_paths
-        - '.claude/**'
-        - 'README.md'
+    # TODO: Re-enable build avoidance once we figure out how not to block the merge on the flow checks.
+    #paths-ignore: &ignore_paths
+    #    - '.claude/**'
+    #    - 'README.md'
   push:
     branches: [main]
-    paths-ignore: *ignore_paths
+    #paths-ignore: *ignore_paths
   pull_request_target:
     branches: [main]
-    paths-ignore: *ignore_paths
+    #paths-ignore: *ignore_paths
 
 permissions:
   id-token: write
@@ -22,6 +23,7 @@ permissions:
 
 jobs:
   flow_test:
+    name: flow_test (${{ matrix.runner }}, ${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mongo }}, ${{ matrix.db-version.ch }})
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
@@ -32,10 +34,36 @@ jobs:
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'maria', mongo: '8.0', ch: 'latest'},
+          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable'},
+          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest'},
         ]
+        # Per-version container settings consumed by the MySQL and MariaDB steps.
+        # Wrapped in a single-item list because matrix values must be arrays; it stays
+        # a single shared value (no extra jobs).
+        version-configs:
+          - mysql:
+              mysql-gtid:
+                img: 'mysql:9.5'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: []
+              mysql-pos:
+                img: 'mysql:5.7'
+                env: ['MYSQL_ROOT_PASSWORD=cipass']
+                parameters: ['--log_bin=mysql-bin', '--server-id=1', '--bind-address=::']
+            mariadb:
+              maria-11:
+                img: 'mariadb:lts-ubi9'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
+              maria-12:
+                img: 'mariadb:12-ubi'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
+              maria-13:
+                img: 'mariadb:13.0-ubi-rc'
+                env: ['MARIADB_ROOT_PASSWORD=cipass']
+                parameters: ['--log-bin=maria', '--gtid-strict-mode=ON']
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -53,13 +81,27 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      catalog2:
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
+        ports:
+          - 5437:5432
+        env:
+          PGUSER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:65a7a93449f113a2941e0e8a9cd7eb1ed3ba153547b6b2b47f11796e9f754345
+        image: redpandadata/redpanda@sha256:3e72ea35731a893bdd3b6d283eb554416377e23766434fc85dd7941540673639
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.3.2@sha256:56282e41f1d9c8dc437e4c99d132cf9f154def73b6ea8a25ac969a28c2f529c6
+        image: elasticsearch:9.4.3@sha256:7e951dbda7692c1402de66b02523d349b7807d99269d9d2cd54092acd4ce5e0e
         ports:
           - 9200:9200
         env:
@@ -85,7 +127,7 @@ jobs:
           --health-timeout 10s
           --health-retries 20
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
+        image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
         ports:
           - 4317:4317
       toxiproxy:
@@ -95,14 +137,17 @@ jobs:
           - 9902:9902
           - 9904:9904
           - 9903:9903
-          - 42001:42001
-          - 42002:42002
-          - 42003:42003
-          - 49001:49001
-          - 49002:49002
-          - 49003:49003
+          - 10001:10001
+          - 12001:12001
+          - 12002:12002
+          - 12003:12003
+          - 12004:12004
+          - 12005:12005
+          - 14001:14001
+          - 14002:14002
+          - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+        image: linuxserver/openssh-server:latest@sha256:204b64775f7dfb17761ed0644df348ba3cd811628334cc723aa69d61f4db893d
         ports:
           - 2222:2222
         env:
@@ -115,22 +160,41 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: Kesin11/actions-timeline@v3.1.1
+        with:
+          expand-composite-actions: true
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.1'
+          go-version: '1.26.5'
           cache-dependency-path: flow/go.sum
 
-      - name: install lib-geos
+      - name: install lib-geos and pg_dump
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-          sudo apt-get install libgeos-dev
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
+
+      - name: install retry tool
+        run: |
+          sudo apt-get install -y retry
 
       - run: go mod download
         working-directory: ./flow
@@ -164,7 +228,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -174,14 +238,22 @@ jobs:
           output-credentials: true
 
       - name: MySQL
+        env:
+          DB_IMG: ${{ matrix.version-configs.mysql[matrix.db-version.mysql].img }}
+          DB_ENV: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mysql[matrix.db-version.mysql].parameters, ' ') }}
         run: |
-          if [ "${{ matrix.db-version.mysql }}" = "mysql-gtid" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:9.5
-          elif [ "${{ matrix.db-version.mysql }}" = "mysql-pos" ]; then
-            docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 -e MYSQL_ROOT_PASSWORD=cipass mysql:5.7 --log_bin=mysql-bin --server-id=1 --bind-address=::
-          elif [ "${{ matrix.db-version.mysql }}" = "maria" ]; then
-            docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e --log-bin=maria
-          fi
+          docker run -d --rm --name mysql --network ${{ job.container.network }} -p 3306:3306 \
+            -e $DB_ENV $DB_IMG $DB_PARAMS
+
+      - name: MariaDB
+        env:
+          DB_IMG: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb].img }}
+          DB_ENV: ${{ join(matrix.version-configs.mariadb[matrix.db-version.mariadb].env, ' -e ') }}
+          DB_PARAMS: ${{ join(matrix.version-configs.mariadb[matrix.db-version.mariadb].parameters, ' ') }}
+        run: |
+          docker run -d --rm --name mariadb --network ${{ job.container.network }} -p 3316:3306 \
+            -e $DB_ENV $DB_IMG $DB_PARAMS
 
       - name: Mongo
         run: |
@@ -218,7 +290,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-minio
         with:
           path: ./minio
@@ -229,7 +301,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-minio-client
         with:
           path: ./mc
@@ -256,7 +328,23 @@ jobs:
           MINIO_ROOT_PASSWORD: miniosecret
           AWS_EC2_METADATA_DISABLED: true
 
+      - name: Generate ClickHouse TLS certificates
+        run: |
+          mkdir -p ch-certs
+          # CA
+          openssl genrsa -out ch-certs/ca.key 2048
+          openssl req -new -x509 -key ch-certs/ca.key -out ch-certs/ca.crt -days 3650 -subj "/CN=ClickHouse-CA"
+          # Server cert (CN=localhost, SAN for TLS 1.3)
+          openssl genrsa -out ch-certs/server.key 2048
+          openssl req -new -key ch-certs/server.key -out ch-certs/server.csr -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+          openssl x509 -req -days 3650 -in ch-certs/server.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/server.crt -copy_extensions copyall
+          # Client cert for mTLS (CN=peerdb-client), using cert-manager naming convention
+          openssl genrsa -out ch-certs/tls.key 2048
+          openssl req -new -key ch-certs/tls.key -out ch-certs/client.csr -subj "/CN=peerdb-client"
+          openssl x509 -req -days 3650 -in ch-certs/client.csr -CA ch-certs/ca.crt -CAkey ch-certs/ca.key -CAcreateserial -out ch-certs/tls.crt
+
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
+        # Also enables certificate-based client authentication (mTLS) on the catalog postgres instance.
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
           docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
@@ -267,7 +355,21 @@ jobs:
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
           (cat ./nexus/catalog/migrations/V{?,??}__* | docker exec -i "${{ job.services.catalog.id }}" psql -U postgres) &&
+          docker cp volumes/pg-tls "${{ job.services.catalog.id }}:/tmp/pg-tls" &&
+          docker exec "${{ job.services.catalog.id }}" sh -c 'install -d -o postgres -g postgres /var/lib/postgresql/tls && install -m 644 -o postgres -g postgres /tmp/pg-tls/server.crt /var/lib/postgresql/tls/server.crt && install -m 600 -o postgres -g postgres /tmp/pg-tls/server.key /var/lib/postgresql/tls/server.key && install -m 644 -o postgres -g postgres /tmp/pg-tls/client.crt /var/lib/postgresql/tls/ca.crt' &&
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "ALTER SYSTEM SET ssl=on;" -c "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/tls/server.crt';" -c "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/tls/server.key';" -c "ALTER SYSTEM SET ssl_ca_file='/var/lib/postgresql/tls/ca.crt';" &&
           docker restart "${{ job.services.catalog.id }}"
+        env:
+          PGPASSWORD: postgres
+
+      - name: prepare secondary postgres for cross-cluster schema-dump tests
+        run: >
+          docker exec "${{ job.services.catalog2.id }}" psql -U postgres
+          -c "ALTER SYSTEM SET wal_level=logical;"
+          -c "ALTER SYSTEM SET max_replication_slots=192;"
+          -c "ALTER SYSTEM SET max_wal_senders=256;"
+          -c "ALTER SYSTEM SET max_connections=2048;" &&
+          docker restart "${{ job.services.catalog2.id }}"
         env:
           PGPASSWORD: postgres
 
@@ -275,16 +377,16 @@ jobs:
         id: ch-version
         run: |
           if [ "${{ matrix.db-version.ch }}" = "lts" ]; then
-            echo "ch_version=v25.8.11.66-lts" >> $GITHUB_OUTPUT
+            echo "ch_version=v25.8.28.1-lts" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "stable" ]; then
-            echo "ch_version=v25.12.4.35-stable" >> $GITHUB_OUTPUT
+            echo "ch_version=v26.3.16.16-lts" >> $GITHUB_OUTPUT
           elif [ "${{ matrix.db-version.ch }}" = "latest" ]; then
             # note: latest tag does not always reflect the latest version (could be an update on an lts),
             # but that is okay as we are only using it to invalidate the cache.
             echo "ch_version=$(curl -s https://api.github.com/repos/ClickHouse/ClickHouse/releases/latest | jq -r .tag_name)" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -321,6 +423,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -328,9 +441,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9000</tcp_port>
+            <tcp_port_secure>9440</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>1</shard>
               <replica>1</replica>
@@ -376,6 +501,17 @@ jobs:
                 <access_management>1</access_management>
                 <named_collection_control>1</named_collection_control>
               </default>
+              <peerdb_tls>
+                <ssl_certificates>
+                  <common_name>peerdb-client</common_name>
+                </ssl_certificates>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+              </peerdb_tls>
             </users>
             <logger><level>none</level></logger>
             <path>var/lib/clickhouse</path>
@@ -383,9 +519,21 @@ jobs:
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9001</tcp_port>
+            <tcp_port_secure>9441</tcp_port_secure>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
+            <openSSL>
+              <server>
+                <certificateFile>../ch-certs/server.crt</certificateFile>
+                <privateKeyFile>../ch-certs/server.key</privateKeyFile>
+                <caConfig>../ch-certs/ca.crt</caConfig>
+                <verificationMode>relaxed</verificationMode>
+                <cacheSessions>true</cacheSessions>
+                <disableProtocols>sslv2,sslv3</disableProtocols>
+                <preferServerCiphers>true</preferServerCiphers>
+              </server>
+            </openSSL>
             <macros>
               <shard>2</shard>
               <replica>1</replica>
@@ -470,7 +618,7 @@ jobs:
           ./peer-flow worker > ../logs/peer-flow-worker.log 2>&1 &
           ./peer-flow snapshot-worker > ../logs/peer-flow-snapshot-worker.log 2>&1 &
           ./peer-flow api --port 8112 --gateway-port 8113 > ../logs/peer-flow-api.log 2>&1 &
-          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 1200s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -511,19 +659,36 @@ jobs:
           PG_USER: postgres
           PG_PASSWORD: postgres
           PG_DATABASE: postgres
+          PG2_HOST: localhost
+          PG2_PORT: 5437
+          PG2_USER: postgres
+          PG2_PASSWORD: postgres
+          PG2_DATABASE: postgres
+          # Mutual-TLS client-certificate auth test (catalog has TLS enabled above)
+          PG_MTLS_ROOT_CA_PATH: ${{ github.workspace }}/volumes/pg-tls/server.crt
+          PG_MTLS_CLIENT_CERT_PATH: ${{ github.workspace }}/volumes/pg-tls/client.crt
+          PG_MTLS_CLIENT_KEY_PATH: ${{ github.workspace }}/volumes/pg-tls/client.key
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           OPENSEARCH_TEST_ADDRESS: http://localhost:19200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
+          CI_MYSQL_HOST: localhost
+          CI_MYSQL_PORT: 3306
+          CI_MYSQL_ROOT_PASSWORD: cipass
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_SSH_MYSQL_HOST: mysql
+          CI_MARIADB_HOST: localhost
+          CI_MARIADB_PORT: 3316
+          CI_MARIADB_ROOT_PASSWORD: cipass
+          CI_MARIADB_VERSION: ${{ matrix.db-version.mariadb }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
-          TOXIPROXY_POSTGRES_HOST: catalog
+          SSH_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
@@ -547,23 +712,82 @@ jobs:
           FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          # ClickHouse TLS/mTLS test certificates
+          PEERDB_CLICKHOUSE_TLS_PORT: "9440"
+          PEERDB_CLICKHOUSE_TLS_CERT_DIR: ${{ github.workspace }}/ch-certs
 
       - name: Upload peer-flow logs and test results
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-mo${{ matrix.db-version.mongo }}
+          name: peer-flow-logs-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}
           path: logs/
           retention-days: 30
 
       - name: Upload test results to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           report_type: test_results
           files: logs/test-results.xml
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Ingest tests results for analysis
+        if: success() || failure()
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: "pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}"
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+      - name: Check all present test functions in the source branch were exercised in CI
+        # Compares the top-level tests that actually ran in CI (from the
+        # normalized results produced by the ingest step above) against every top-level
+        # test defined under ./flow, and fails if the branch defines tests CI never ran.
+        # Only runs for pull request builds; skipped for non-PR builds (e.g. push to main).
+        # Parens matter: && binds tighter than || in GitHub Actions expressions.
+        if: |
+          (success() || failure()) &&
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        working-directory: ./flow
+        run: |
+          set -uo pipefail
+          tmp="${RUNNER_TEMP:-/tmp}"
+
+          ndjson="../logs/normalized-test-results.ndjson"
+          if [ ! -s "$ndjson" ]; then
+            echo "::error::No normalized test results at ${ndjson} (results ingestion disabled or no tests ran); failing check."
+            exit 1
+          fi
+
+          # (run-tests): top-level test functions observed in CI results, with subtests
+          # collapsed onto their parent (TestFoo/sub -> TestFoo).
+          # This collapse is necessary because the branch test enumeration below only lists top-level tests functions.
+          jq -r '.test' "$ndjson" | { grep '^Test' || true; } | awk -F '/' '{ print $1 }' | sort -u > "${tmp}/run-tests.txt"
+          if [ ! -s "${tmp}/run-tests.txt" ]; then
+            echo "::error::No 'Test*' entries found in CI results; failing check."
+            exit 1
+          fi
+
+          # (tests-in-branch): every top-level test function defined in the source branch.
+          if ! go test -list '.*' ./... > "${tmp}/go-list.txt" 2> "${tmp}/go-list.err"; then
+            echo "::error::'go test -list' failed (likely a compilation error already surfaced by the test step); failing check."
+            cat "${tmp}/go-list.err"
+            exit 1
+          fi
+          { grep '^Test' "${tmp}/go-list.txt" || true; } | sort -u > "${tmp}/tests-in-branch.txt"
+
+          # Tests defined in the branch but never observed in CI results.
+          missing="$(comm -13 "${tmp}/run-tests.txt" "${tmp}/tests-in-branch.txt")"
+          if [ -z "$missing" ]; then
+            echo "All source-branch tests were exercised in CI."
+            exit 0
+          fi
+
+          echo "The following tests in the source branch have not been run in CI:"
+          printf '%s\n' "$missing"
+          exit 1

@@ -3,7 +3,7 @@ import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useTransition } from 'react';
 
 export default function EditButton({
   toLink,
@@ -12,12 +12,13 @@ export default function EditButton({
   toLink: string;
   disabled: boolean;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
   const router = useRouter();
 
   const handleEdit = () => {
-    setLoading(true);
-    router.push(toLink);
+    startTransition(() => {
+      router.push(toLink);
+    });
   };
   return (
     <Button

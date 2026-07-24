@@ -13,6 +13,10 @@ type CDCStream[T Items] struct {
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan struct{}
 	records     chan Record[T]
+
+	firstRowReceivedAt time.Time
+	firstRowCommitTime time.Time
+
 	// lastCheckpointText is used for mysql GTID and MongoDB ResumeToken
 	lastCheckpointText string
 	// Schema changes from slot
@@ -23,6 +27,7 @@ type CDCStream[T Items] struct {
 	needsNormalize    bool
 	empty             bool
 	emptySet          bool
+	firstRowSet       bool
 }
 
 type CdcCheckpoint struct {
@@ -64,7 +69,19 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
 			r.needsNormalize = true
+			if !r.firstRowSet {
+				r.firstRowSet = true
+				r.firstRowReceivedAt = time.Now().UTC()
+				r.firstRowCommitTime = record.GetCommitTime().UTC()
+			}
 		}
+	}
+
+	// hot-path optimization: avoid setting up logger/ticker unless channel is actually full
+	select {
+	case r.records <- record:
+		return nil
+	default:
 	}
 
 	logger := internal.LoggerFromCtx(ctx)
@@ -128,4 +145,10 @@ func (r *CDCStream[T]) AddSchemaDelta(
 
 func (r *CDCStream[T]) NeedsNormalize() bool {
 	return r.needsNormalize
+}
+
+// FirstRowTimes returns the received/commit timestamps of the batch's first row event.
+// ok is false if the batch had no row events (e.g. schema-delta-only batch).
+func (r *CDCStream[T]) FirstRowTimes() (time.Time, time.Time, bool) {
+	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
 }

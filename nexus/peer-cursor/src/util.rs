@@ -48,7 +48,7 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Enum(_) | Value::Hstore(_) => Err(PgWireError::ApiError(
             format!(
                 "cannot write value {:?} in postgres protocol: unimplemented",
-                &value
+                value
             )
             .into(),
         )),

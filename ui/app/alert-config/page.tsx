@@ -9,10 +9,12 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import Image from 'next/image';
 import { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
+import { useTheme as useStyledTheme } from 'styled-components';
 import useSWR from 'swr';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
+import { secretFieldsByServiceType } from './validation';
 
 function ServiceIcon({
   serviceType,
@@ -32,6 +34,7 @@ function ServiceIcon({
 }
 
 export default function AlertConfigPage() {
+  const styledTheme = useStyledTheme();
   const {
     data: alerts,
     isLoading,
@@ -72,6 +75,16 @@ export default function AlertConfigPage() {
 
   const genConfigJSON = (alertConfig: AlertConfig) => {
     const parsedConfig = JSON.parse(alertConfig.serviceConfig);
+    // Display-only mask for redacted secret fields. The backend returns secrets
+    // as "" (see redactServiceConfig); the edit flow (onEdit) keeps using that
+    // raw "" so the backend keep-existing-secret logic stays intact. We only
+    // dress up the read-only view so an empty value doesn't look unconfigured.
+    for (const field of secretFieldsByServiceType[alertConfig.serviceType] ??
+      []) {
+      if (parsedConfig[field] === '') {
+        parsedConfig[field] = '••••••• (hidden)';
+      }
+    }
     return JSON.stringify(
       { ...parsedConfig, alertForMirrors: alertConfig.alertForMirrors },
       null,
@@ -97,7 +110,13 @@ export default function AlertConfigPage() {
               send alerts.
             </Label>
           </div>
-          <div style={{ ...tableStyle, marginTop: '2rem', maxHeight: '25em' }}>
+          <div
+            style={{
+              ...tableStyle(styledTheme),
+              marginTop: '2rem',
+              maxHeight: '25em',
+            }}
+          >
             <Table>
               {alerts?.configs?.length ? (
                 alerts.configs.map((alertConfig: AlertConfig, index) => (

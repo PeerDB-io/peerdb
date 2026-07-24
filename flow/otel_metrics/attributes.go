@@ -13,7 +13,6 @@ const (
 	PeerDBVersionKey           = "peerDBVersion"
 	DeploymentVersionKey       = "deploymentVersion"
 	WorkflowTypeKey            = "workflowType"
-	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"
 	sourcePeerHostname         = "sourcePeerHostname"
 	SourcePeerVariant          = "sourcePeerVariant"
@@ -37,6 +36,21 @@ const (
 	BackendStateKey            = "backendState"
 	WalStatusKey               = "walStatus"
 	PendingRestartKey          = "pendingRestart"
+	RowsInBatchKey             = "rowsInBatch"
+	BytesPulledKey             = "bytesPulled"
+	TableCountKey              = "tableCount"
+	LastCheckpointIDKey        = "lastCheckpoint.ID"
+	LastCheckpointTextKey      = "lastCheckpoint.Text"
+	BatchIdKey                 = "batchId"
+	StartBatchIDKey            = "startBatchID"
+	EndBatchIDKey              = "endBatchID"
+	ResumeTokenKey             = "resumeToken"
+	GtidKey                    = "gtid"
+	TypeChangeFromKey          = "from"
+	TypeChangeToKey            = "to"
+	SourceEventTypeKey         = "sourceEventType"
+	OnlineSchemaMigrationTool  = "tool"
+	BinlogEventTypeKey         = "eventType"
 )
 
 const (
@@ -53,4 +67,9 @@ const (
 	InstanceStatusMaintenance = "maintenance"
 	InstanceStatusUnknown     = "unknown"
 	InstanceStatusReady       = "ready"
+)
+
+const (
+	SourceEventTypeDDL           = "ddl"
+	SourceEventTypeEventMetadata = "eventMetadata"
 )

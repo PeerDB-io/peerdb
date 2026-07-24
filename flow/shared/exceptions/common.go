@@ -15,3 +15,19 @@ func (e *NotFoundError) Error() string {
 func (e *NotFoundError) Unwrap() error {
 	return e.error
 }
+
+type AuthError struct {
+	error
+}
+
+func NewAuthError(err error) *AuthError {
+	return &AuthError{err}
+}
+
+func (e *AuthError) Error() string {
+	return "auth error: " + e.error.Error()
+}
+
+func (e *AuthError) Unwrap() error {
+	return e.error
+}

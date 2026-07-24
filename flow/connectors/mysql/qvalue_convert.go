@@ -1,11 +1,15 @@
 package connmysql
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"math/bits"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,18 +17,28 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 	"go.temporal.io/sdk/log"
+	"golang.org/x/text/encoding"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValueKind, error) {
+func compactMySQLJSON(v []byte) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, v); err != nil {
+		return string(v)
+	}
+	return buf.String()
+}
+
+func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16, version uint32) (types.QValueKind, error) {
 	switch mytype {
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
@@ -66,6 +80,9 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValu
 	case mysql.MYSQL_TYPE_YEAR:
 		return types.QValueKindInt16, nil
 	case mysql.MYSQL_TYPE_BIT:
+		if version >= shared.InternalVersion_MySQLConvertBitToUInt64 {
+			return types.QValueKindUInt64, nil
+		}
 		return types.QValueKindInt64, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return types.QValueKindJSON, nil
@@ -82,6 +99,9 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValu
 			return types.QValueKindString, nil
 		}
 	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING, mysql.MYSQL_TYPE_VARCHAR:
+		if charset == 0x3f {
+			return types.QValueKindBytes, nil
+		}
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return types.QValueKindGeometry, nil
@@ -92,7 +112,7 @@ func qkindFromMysqlType(mytype byte, unsigned bool, charset uint16) (types.QValu
 	}
 }
 
-func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (types.QRecordSchema, error) {
+func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field, version uint32) (types.QRecordSchema, error) {
 	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
 	for _, col := range tableSchema.Columns {
 		tableColumns[col.Name] = col
@@ -107,12 +127,12 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		if col, ok := tableColumns[name]; ok {
 			qkind = types.QValueKind(col.Type)
 			if qkind == types.QValueKindNumeric {
-				precision, scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+				precision, scale = common.ParseNumericTypmod(col.TypeModifier)
 			}
 		} else {
 			var err error
 			unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
-			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset)
+			qkind, err = qkindFromMysqlType(field.Type, unsigned, field.Charset, version)
 			if err != nil {
 				return types.QRecordSchema{}, err
 			}
@@ -137,7 +157,7 @@ func processGeometryData(data []byte) (types.QValueGeometry, error) {
 	}
 	g, err := geom.NewGeomFromWKB(data[4:])
 	if err != nil {
-		return types.QValueGeometry{}, fmt.Errorf("failed to parse geometry WKB: %w", err)
+		return types.QValueGeometry{}, exceptions.NewMySQLGeometryParseError(err)
 	}
 	return types.QValueGeometry{Val: g.ToWKT()}, nil
 }
@@ -207,6 +227,40 @@ func processTime(str string) (time.Duration, error) {
 	return val, nil
 }
 
+// padTrimmedBinary restores a fixed-width binary value
+func padTrimmedBinary(data []byte, width int) []byte {
+	if width <= len(data) {
+		return data
+	}
+	padded := make([]byte, width)
+	copy(padded, data)
+	return padded
+}
+
+func formatMariaDBInet(data []byte) (string, error) {
+	switch len(data) {
+	case 4, 16:
+		return net.IP(data).String(), nil
+	default:
+		return "", fmt.Errorf("invalid inet byte length %d", len(data))
+	}
+}
+
+func decodeMariaDBUUID(data []byte) (uuid.UUID, error) {
+	if len(data) != 16 {
+		return uuid.UUID{}, fmt.Errorf("invalid uuid byte length %d", len(data))
+	}
+	return uuid.FromBytes(data)
+}
+
+func processVector(data []byte) []float32 {
+	floats := make([]float32, 0, len(data)/4)
+	for i := 0; i < len(data); i += 4 {
+		floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(data[i:i+4])))
+	}
+	return floats
+}
+
 func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
 	switch fv.Type {
 	case mysql.FieldValueTypeNull:
@@ -214,6 +268,10 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 	case mysql.FieldValueTypeUnsigned:
 		v := fv.AsUint64()
 		switch qkind {
+		case types.QValueKindUint16Enum:
+			return types.QValueUint16Enum{Val: uint16(v)}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: v}, nil
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: v != 0}, nil
 		case types.QValueKindInt8:
@@ -286,7 +344,18 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: slices.Clone(v)}, nil
 		case types.QValueKindJSON:
-			return types.QValueJSON{Val: string(v)}, nil
+			// keep snapshot and cdc json representation consistent
+			return types.QValueJSON{Val: compactMySQLJSON(v)}, nil
+		case types.QValueKindUUID:
+			// snapshot reads via the text protocol, so MariaDB sends the canonical string
+			u, err := uuid.Parse(unsafeString)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueUUID{Val: u}, nil
+		case types.QValueKindINET:
+			// MariaDB INET4/INET6 render as text over the wire
+			return types.QValueINET{Val: string(v)}, nil
 		case types.QValueKindGeometry:
 			return processGeometryData(v)
 		case types.QValueKindNumeric:
@@ -320,10 +389,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			}
 			return types.QValueDate{Val: val}, nil
 		case types.QValueKindArrayFloat32:
-			floats := make([]float32, 0, len(v)/4)
-			for i := 0; i < len(v); i += 4 {
-				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(v[i:])))
-			}
+			floats := processVector(v)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
@@ -333,10 +399,38 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 	}
 }
 
+// binaryColumnLength returns the declared length N of a fixed-length BINARY(N)
+// `mytype` is the MySQL type for the column
+// `meta` is the metadata for the column type: length for fixed length types.
+// Reimplementation of MySQL metadata decoding:
+//   - MySQL 8.4: https://github.com/mysql/mysql-server/blob/845d525d49c8027a4d0cdcc43372c96ba295c857/sql/log_event.cc#L1792-L1805
+//   - MySQL 5.7: https://github.com/mysql/mysql-server/blob/f7680e98b6bbe3500399fbad465d08a6b75d7a5c/sql/log_event.cc#L2047-L2064
+//   - MariaDB 10.6:
+//     https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/rpl_utility_server.cc#L139-L140
+//     https://github.com/MariaDB/server/blob/fcd3f81e08daea471d371d3be051e6feabb06399/sql/sql_type_string.cc#L70-L73
+func binaryColumnLength(mytype byte, meta uint16) int {
+	if mytype != mysql.MYSQL_TYPE_STRING {
+		return 0
+	}
+	if meta < 256 { // no bit-packing, just the length
+		return int(meta)
+	}
+	// bit-packed, for more than 255 bytes:
+	// value = lower_byte(meta) + 2^4 * ((higher_byte(meta)&0x30) XOR 0x30)
+	lowerMetaByte := uint8(meta & 0xFF)
+	higherMetaByte := uint8(meta >> 8)
+	borrowedBitsMask := uint8(0x30)
+	extraBits := higherMetaByte & borrowedBitsMask
+	if extraBits != borrowedBitsMask { // More than 255 bytes
+		return int(lowerMetaByte) | (int((extraBits)^borrowedBitsMask) << 4)
+	}
+	return int(meta & 0xFF)
+}
+
 func QValueFromMysqlRowEvent(
 	ev *replication.TableMapEvent, idx int,
 	enums []string, sets []string,
-	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
+	qkind types.QValueKind, val any, enc encoding.Encoding, logger log.Logger, coercionReported *bool,
 ) (types.QValue, error) {
 	mytype := ev.ColumnType[idx]
 
@@ -344,7 +438,7 @@ func QValueFromMysqlRowEvent(
 	switch val := val.(type) {
 	case nil:
 		return types.QValueNull(qkind), nil
-	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
+	case int8: // minimal-metadata streams return all integers as signed
 		switch qkind {
 		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: val != 0}, nil
@@ -355,6 +449,17 @@ func QValueFromMysqlRowEvent(
 		default:
 			return types.QValueInt8{Val: val}, nil
 		}
+	case uint8:
+		switch qkind {
+		case types.QValueKindBoolean:
+			return types.QValueBoolean{Val: val != 0}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		case types.QValueKindInt8:
+			return types.QValueInt8{Val: int8(val)}, nil
+		default:
+			return types.QValueUInt8{Val: val}, nil
+		}
 	case int16:
 		switch qkind {
 		case types.QValueKindUInt16:
@@ -363,6 +468,15 @@ func QValueFromMysqlRowEvent(
 			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
 		default:
 			return types.QValueInt16{Val: val}, nil
+		}
+	case uint16:
+		switch qkind {
+		case types.QValueKindInt16:
+			return types.QValueInt16{Val: int16(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		default:
+			return types.QValueUInt16{Val: val}, nil
 		}
 	case int32:
 		switch qkind {
@@ -376,6 +490,15 @@ func QValueFromMysqlRowEvent(
 			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
 		default:
 			return types.QValueInt32{Val: val}, nil
+		}
+	case uint32:
+		switch qkind {
+		case types.QValueKindInt32:
+			return types.QValueInt32{Val: int32(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(uint64(val), 10)}, nil
+		default:
+			return types.QValueUInt32{Val: val}, nil
 		}
 	case int64:
 		switch qkind {
@@ -398,6 +521,10 @@ func QValueFromMysqlRowEvent(
 				}
 			}
 			return types.QValueString{Val: strings.Join(set, ",")}, nil
+		case types.QValueKindUint64Set:
+			return types.QValueUint64Set{Val: uint64(val)}, nil
+		case types.QValueKindUint16Enum:
+			return types.QValueUint16Enum{Val: uint16(val)}, nil
 		case types.QValueKindEnum: // enum
 			if val == 0 {
 				return types.QValueEnum{Val: ""}, nil
@@ -408,6 +535,15 @@ func QValueFromMysqlRowEvent(
 			} else {
 				return nil, fmt.Errorf("enum value out of range %d %v", val, enums)
 			}
+		}
+	case uint64:
+		switch qkind {
+		case types.QValueKindInt64:
+			return types.QValueInt64{Val: int64(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatUint(val, 10)}, nil
+		default:
+			return types.QValueUInt64{Val: val}, nil
 		}
 	case float32:
 		if qkind == types.QValueKindFloat64 {
@@ -427,38 +563,72 @@ func QValueFromMysqlRowEvent(
 	case time.Time:
 		return types.QValueTimestamp{Val: val}, nil
 	case *replication.JsonDiff:
-		// TODO support somehow??
-		return types.QValueNull(types.QValueKindJSON), nil
+		// Partial JSON updates (binlog_row_value_options=PARTIAL_JSON) cannot be applied; the caller
+		// fails fast on PARTIAL_UPDATE_ROWS_EVENT, so this is a defensive backstop against silent data loss.
+		return nil, errors.New("partial JSON update value is not supported; binlog_row_value_options must be disabled")
 	case []byte:
 		switch qkind {
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: val}, nil
 		case types.QValueKindString:
-			return types.QValueString{Val: string(val)}, nil
+			s, err := decodeMySQLBytes(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueString{Val: s}, nil
 		case types.QValueKindEnum:
-			return types.QValueEnum{Val: string(val)}, nil
+			s, err := decodeMySQLBytes(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
+			// MySQL always stores JSON internally as utf8mb4, so it never needs transcoding.
 			return types.QValueJSON{Val: string(val)}, nil
 		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
 			return processGeometryData(val)
 		case types.QValueKindArrayFloat32:
-			floats := make([]float32, 0, len(val)/4)
-			for i := 0; i < len(val); i += 4 {
-				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(val[i:])))
-			}
+			floats := processVector(val)
 			return types.QValueArrayFloat32{Val: floats}, nil
 		}
 	case string:
 		switch qkind {
 		case types.QValueKindBytes:
-			return types.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			return types.QValueBytes{Val: b}, nil
 		case types.QValueKindString:
-			return types.QValueString{Val: val}, nil
+			s, err := decodeMySQLString(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueString{Val: s}, nil
 		case types.QValueKindEnum:
-			return types.QValueEnum{Val: val}, nil
+			s, err := decodeMySQLString(enc, val)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
 			return types.QValueJSON{Val: val}, nil
+		case types.QValueKindArrayFloat32:
+			b := shared.UnsafeFastStringToReadOnlyBytes(val)
+			floats := processVector(b)
+			return types.QValueArrayFloat32{Val: floats}, nil
+		case types.QValueKindUUID:
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			u, err := decodeMariaDBUUID(b)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueUUID{Val: u}, nil
+		case types.QValueKindINET:
+			b := padTrimmedBinary(shared.UnsafeFastStringToReadOnlyBytes(val), binaryColumnLength(mytype, ev.ColumnMeta[idx]))
+			s, err := formatMariaDBInet(b)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueINET{Val: s}, nil
 		case types.QValueKindTime:
 			tm, err := processTime(val)
 			if err != nil {

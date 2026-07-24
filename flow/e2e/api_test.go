@@ -3,6 +3,8 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +29,7 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -35,11 +39,12 @@ import (
 
 type APITestSuite struct {
 	protos.FlowServiceClient
-	t      *testing.T
-	pg     *PostgresSource
-	source SuiteSource
-	suffix string
-	ch     ClickHouseSuite
+	t       *testing.T
+	pg      *PostgresSource
+	catalog shared.CatalogPool
+	source  SuiteSource
+	suffix  string
+	ch      ClickHouseSuite
 }
 
 func (s APITestSuite) Teardown(ctx context.Context) {
@@ -69,19 +74,18 @@ func (s APITestSuite) DestinationTable(table string) string {
 // checkMigrationCompleted checks if a migration has been completed for a given flow
 func (s APITestSuite) checkMigrationCompleted(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	migrationName string,
 ) (bool, error) {
 	var completed bool
-	err := conn.QueryRow(
+	err := s.catalog.QueryRow(
 		ctx,
 		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
 		flowName,
 		migrationName,
 	).Scan(&completed)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// Migration record doesn't exist, so it hasn't been completed
 			return false, nil
 		}
@@ -102,7 +106,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 ) {
 	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
 		var syncBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+		queryErr := s.catalog.QueryRow(
 			s.t.Context(),
 			"select sync_batch_id from metadata_last_sync_state where job_name = $1",
 			flowConnConfig.FlowJobName,
@@ -115,7 +119,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "normalize flow check: "+reason, func() bool {
 		var normalizeBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+		queryErr := s.catalog.QueryRow(
 			s.t.Context(),
 			"select normalize_batch_id from metadata_last_sync_state where job_name = $1",
 			flowConnConfig.FlowJobName,
@@ -127,11 +131,11 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	})
 }
 
-func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *pgx.Conn, mirrorName string) {
-	slotName := "peerflow_slot_" + mirrorName
+func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, mirrorName string) {
+	slotName := connpostgres.GetDefaultSlotName(mirrorName)
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
 		var active pgtype.Bool
-		err := conn.QueryRow(s.t.Context(),
+		err := s.pg.PostgresConnector.Conn().QueryRow(s.t.Context(),
 			`SELECT active FROM pg_replication_slots WHERE slot_name = $1`, slotName).Scan(&active)
 		if err != nil {
 			return false
@@ -142,11 +146,10 @@ func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *
 
 func (s APITestSuite) loadConfigFromCatalog(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	if err := conn.QueryRow(ctx,
+	if err := s.catalog.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowName,
 	).Scan(&configBytes); err != nil {
 		return nil, err
@@ -159,11 +162,10 @@ func (s APITestSuite) loadConfigFromCatalog(
 // checkCatalogTableMapping checks the table mappings in the catalog for a given flow
 func (s APITestSuite) checkCatalogTableMapping(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	expectedSourceTableNames []string,
 ) (bool, error) {
-	config, err := s.loadConfigFromCatalog(ctx, conn, flowName)
+	config, err := s.loadConfigFromCatalog(ctx, flowName)
 	if err != nil {
 		return false, fmt.Errorf("failed to load config from catalog: %w", err)
 	}
@@ -190,12 +192,11 @@ func (s APITestSuite) checkCatalogTableMapping(
 
 func (s APITestSuite) getCatalogTableSchemaForSourceTable(
 	ctx context.Context,
-	conn *pgx.Conn,
 	flowName string,
 	sourceTableIdentifier string,
 ) (*protos.TableSchema, error) {
 	var configBytes sql.RawBytes
-	if err := conn.QueryRow(ctx,
+	if err := s.catalog.QueryRow(ctx,
 		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
 		flowName, sourceTableIdentifier,
 	).Scan(&configBytes); err != nil {
@@ -206,6 +207,33 @@ func (s APITestSuite) getCatalogTableSchemaForSourceTable(
 	return &config, proto.Unmarshal(configBytes, &config)
 }
 
+func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		err := s.catalog.QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowJobName,
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
+	})
+}
+
+func (s APITestSuite) waitForDestinationRowCount(env WorkflowRun, dstTable string, expected int64) {
+	s.t.Helper()
+
+	EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf("wait for %d rows in %s", expected, dstTable), func() bool {
+		var count int64
+		if err := s.pg.Conn().QueryRow(
+			s.t.Context(), "SELECT COUNT(*) FROM "+dstTable,
+		).Scan(&count); err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return count == expected
+	})
+}
+
 func testApi[TSource SuiteSource](
 	t *testing.T,
 	setup func(*testing.T, string) (TSource, error),
@@ -214,17 +242,20 @@ func testApi[TSource SuiteSource](
 	e2eshared.RunSuite(t, func(t *testing.T) APITestSuite {
 		t.Helper()
 
-		suffix := "api_" + strings.ToLower(shared.RandomString(8))
+		suffix := "api_" + strings.ToLower(common.RandomString(8))
 		pg, err := SetupPostgres(t, suffix)
 		require.NoError(t, err)
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
 		client, err := NewApiClient()
 		require.NoError(t, err)
+		catalog, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+		require.NoError(t, err)
 		return APITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
+			catalog:           catalog,
 			source:            source,
 			ch: SetupClickHouseSuite(t, false, func(*testing.T) (TSource, string, error) {
 				return source, suffix, nil
@@ -240,6 +271,10 @@ func TestApiPg(t *testing.T) {
 
 func TestApiMy(t *testing.T) {
 	testApi(t, SetupMySQL)
+}
+
+func TestApiMariaDB(t *testing.T) {
+	testApi(t, SetupMariaDB)
 }
 
 func TestApiMongo(t *testing.T) {
@@ -303,6 +338,81 @@ func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	response, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
+}
+
+// TestValidateCDCMirror_ServerIDPeerReuse verifies that validating a CDC mirror whose MySQL source
+// peer pins a fixed server_id is rejected when that peer already backs another streaming CDC mirror.
+func (s APITestSuite) TestValidateCDCMirror_ServerIDPeerReuse() {
+	mySource, ok := s.source.(*MySqlSource)
+	if !ok {
+		s.t.Skip("server_id peer-reuse validation is MySQL-specific")
+	}
+	ctx := s.t.Context()
+
+	// Source table backing the existing mirror.
+	require.NoError(s.t, s.source.Exec(ctx,
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "serverid_reuse"))))
+
+	// A MySQL source peer that pins a fixed server_id. It clones the suite's MySQL config, so it
+	// points at the same (reachable) instance.
+	serverID := uint32(4224)
+	pinnedConfig := proto.CloneOf(mySource.Config)
+	pinnedConfig.ServerId = &serverID
+	peerName := "serverid_reuse_" + s.suffix
+	_, err := s.CreatePeer(ctx, &protos.CreatePeerRequest{
+		Peer: &protos.Peer{
+			Name:   peerName,
+			Type:   protos.DBType_MYSQL,
+			Config: &protos.Peer_MysqlConfig{MysqlConfig: pinnedConfig},
+		},
+	})
+	require.NoError(s.t, err)
+
+	// An existing streaming CDC mirror that already uses the pinned-server_id peer as its source.
+	existingGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "serverid_reuse_existing_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "serverid_reuse"): "serverid_reuse"},
+		Destination:      s.ch.Peer().Name,
+	}
+	existingCfg := existingGen.GenerateFlowConnectionConfigs(s)
+	existingCfg.SourceName = peerName
+	existingCfg.DoInitialSnapshot = true
+	createResp, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: existingCfg})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, createResp)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, existingCfg.FlowJobName)
+	require.NoError(s.t, err)
+
+	// Validating a second CDC mirror on the same pinned-server_id peer must be rejected.
+	newGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "serverid_reuse_new_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "serverid_reuse"): "serverid_reuse"},
+		Destination:      s.ch.Peer().Name,
+	}
+	newCfg := newGen.GenerateFlowConnectionConfigs(s)
+	newCfg.SourceName = peerName
+	newCfg.DoInitialSnapshot = true
+
+	res, err := s.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: newCfg})
+	require.Nil(s.t, res)
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
+	require.Contains(s.t, st.Message(), "cannot be shared across mirrors")
+
+	// Tear down via gRPC: drop the mirror, then the now-unreferenced peer.
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        existingCfg.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, existingCfg.FlowJobName)
+
+	_, err = s.DropPeer(ctx, &protos.DropPeerRequest{PeerName: peerName})
+	require.NoError(s.t, err)
 }
 
 func (s APITestSuite) TestClickHouseMirrorValidation_NoPrimaryKey() {
@@ -909,6 +1019,8 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	switch config := peerInfo.Peer.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		require.Equal(s.t, "********", config.PostgresConfig.Password)
+		require.Equal(s.t, "********", config.PostgresConfig.ClientTls.Certificate)
+		require.Equal(s.t, "********", config.PostgresConfig.ClientTls.PrivateKey)
 	case *protos.Peer_MysqlConfig:
 		require.Equal(s.t, "********", config.MysqlConfig.Password)
 	case *protos.Peer_MongoConfig:
@@ -1296,13 +1408,13 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, tableName, cols)
 
-	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configBeforeResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	// tags are explicitly updated via a separate call, so here we update tags before resync to validate they are persisted after resync
@@ -1335,7 +1447,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "resync", tableName, cols)
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForFinished(s.t, env, time.Minute)
 
@@ -1346,12 +1458,12 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "resync 2", tableName, cols)
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForFinished(s.t, env, time.Minute)
 
 	// check that custom config options persist across resync
-	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	configBeforeResync.Resync = true
 	require.EqualExportedValues(s.t, configBeforeResync, configAfterResync)
@@ -1367,6 +1479,680 @@ func (s APITestSuite) TestResyncCompleted() {
 		tagMap[tag.Key] = tag.Value
 	}
 	require.Equal(s.t, "test", tagMap[common.PipeNameTag])
+}
+
+// TestResyncWithSnapshotConfigOnRunningPipe verifies that snapshot tuning parameters
+// (max_parallel_workers, num_tables_in_parallel, num_rows_per_partition,
+// num_partitions_override) supplied via FlowConfigUpdate on a RESYNC state
+// change are applied to the resynced flow and persisted in the catalog config.
+func (s APITestSuite) TestResyncWithSnapshotConfigOnRunningPipe() {
+	tableName := "resync_snap_run_cfg"
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		cols = "id,val"
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_snap_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = false
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 100
+	flowConnConfig.SnapshotNumPartitionsOverride = 1
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	RequireEqualTables(s.ch, tableName, cols)
+
+	// add a row so the resync has something to snapshot
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	}
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	runIDBeforeResync := EnvGetRunID(s.t, env)
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resync ContinueAsNew", func() bool {
+		return EnvGetRunID(s.t, env) != runIDBeforeResync
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTables(env, s.ch, "resync with snapshot config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
+}
+
+// TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe verifies that snapshot tuning parameters
+// supplied via FlowConfigUpdate on a RESYNC state change are applied to an InitialSnapshotOnly
+// flow that has already completed, and that the override is persisted in the catalog config.
+func (s APITestSuite) TestResyncWithSnapshotConfigOnCompletedSnapshotOnlyPipe() {
+	tableName := "resync_snap_done_cfg"
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		cols = "id,val"
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_snap_done_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 100
+	flowConnConfig.SnapshotNumPartitionsOverride = 1
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, tableName, cols)
+
+	// add a row so the resync has something to snapshot
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	}
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTables(env, s.ch, "resync completed snapshot-only with config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	EnvWaitForFinished(s.t, env, time.Minute)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
+}
+
+// TestResyncWithSnapshotConfigDuringSnapshot verifies that snapshot tuning parameters supplied via
+// FlowConfigUpdate on a RESYNC state change issued while the flow is still in STATUS_SNAPSHOT
+// (initial snapshot in-flight) are applied to the resynced flow and persisted in the catalog.
+func (s APITestSuite) TestResyncWithSnapshotConfigDuringSnapshot() {
+	tableName := "resync_during_snap_cfg"
+	var cols string
+	const initialRowCount = 2000
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		values := make([]string, 0, initialRowCount)
+		for i := 1; i <= initialRowCount; i++ {
+			values = append(values, fmt.Sprintf("(%d,'v%d')", i, i))
+		}
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) VALUES %s",
+				AttachSchema(s, tableName), strings.Join(values, ","))))
+		cols = "id,val"
+	case *MongoSource:
+		docs := make([]any, 0, initialRowCount)
+		for i := 1; i <= initialRowCount; i++ {
+			docs = append(docs, bson.D{bson.E{Key: "id", Value: i}, bson.E{Key: "val", Value: fmt.Sprintf("v%d", i)}})
+		}
+		_, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertMany(s.t.Context(), docs, options.InsertMany())
+		require.NoError(s.t, err)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_during_snap_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = false
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.SnapshotNumPartitionsOverride = 0
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to enter snapshot", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_SNAPSHOT
+	})
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	// Trigger resync while initial snapshot is still running.
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTables(env, s.ch, "resync during snapshot with config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
+}
+
+// TestResyncWithSnapshotConfigOnPausedPipe verifies that snapshot tuning parameters supplied via
+// FlowConfigUpdate on a RESYNC state change issued while the flow is PAUSED are applied to the
+// resynced flow and persisted in the catalog.
+func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
+	tableName := "resync_paused_snap_cfg"
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+		cols = "id,val"
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_paused_snap_cfg_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = false
+	flowConnConfig.SnapshotMaxParallelWorkers = 1
+	flowConnConfig.SnapshotNumTablesInParallel = 1
+	flowConnConfig.SnapshotNumRowsPerPartition = 100
+	flowConnConfig.SnapshotNumPartitionsOverride = 1
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to be in cdc", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	RequireEqualTables(s.ch, tableName, cols)
+
+	// add a row so the resync has something to snapshot
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	}
+
+	// Pause the flow.
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for mirror to pause", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	const (
+		newMaxParallelWorkers    uint32 = 4
+		newNumTablesInParallel   uint32 = 2
+		newNumRowsPerPartition   uint32 = 500
+		newNumPartitionsOverride uint32 = 7
+	)
+
+	// Issue resync while paused, with snapshot config overrides.
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					SnapshotMaxParallelWorkers:    newMaxParallelWorkers,
+					SnapshotNumTablesInParallel:   newNumTablesInParallel,
+					SnapshotNumRowsPerPartition:   newNumRowsPerPartition,
+					SnapshotNumPartitionsOverride: newNumPartitionsOverride,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitForEqualTables(env, s.ch, "resync from paused with snapshot config override", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	configAfterResync, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Equal(s.t, newMaxParallelWorkers, configAfterResync.SnapshotMaxParallelWorkers,
+		"SnapshotMaxParallelWorkers should be overridden after resync")
+	require.Equal(s.t, newNumTablesInParallel, configAfterResync.SnapshotNumTablesInParallel,
+		"SnapshotNumTablesInParallel should be overridden after resync")
+	require.Equal(s.t, newNumRowsPerPartition, configAfterResync.SnapshotNumRowsPerPartition,
+		"SnapshotNumRowsPerPartition should be overridden after resync")
+	require.Equal(s.t, newNumPartitionsOverride, configAfterResync.SnapshotNumPartitionsOverride,
+		"SnapshotNumPartitionsOverride should be overridden after resync")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
+}
+
+func (s APITestSuite) TestResyncSourceTableMissing() {
+	tableNames := []string{"missing_src_a", "missing_src_b"}
+	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}
+	var cols string
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, qt := range qualifiedSourceTables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qt)))
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qt)))
+		}
+		cols = "id,val"
+	case *MongoSource:
+		for _, tn := range tableNames {
+			res, err := s.Source().(*MongoSource).AdminClient().
+				Database(Schema(s)).Collection(tn).
+				InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+			require.NoError(s.t, err)
+			require.True(s.t, res.Acknowledged)
+		}
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "resync_missing_" + s.suffix,
+		TableNameMapping: map[string]string{
+			qualifiedSourceTables[0]: tableNames[0],
+			qualifiedSourceTables[1]: tableNames[1],
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	for _, tn := range tableNames {
+		RequireEqualTables(s.ch, tn, cols)
+	}
+
+	switch src := s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		for _, qt := range qualifiedSourceTables {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE "+qt))
+		}
+	case *MongoSource:
+		for _, tn := range tableNames {
+			require.NoError(s.t, src.AdminClient().Database(Schema(s)).Collection(tn).Drop(s.t.Context()))
+		}
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.Error(s.t, err)
+
+	// Shape of the error on the wire (see AIP-193, https://google.aip.dev/193):
+	//   status.Code = FailedPrecondition
+	//   status.Details = [
+	//     google.rpc.ErrorInfo{
+	//       Domain: "peerdb.io", Reason: "SOURCE_TABLE_MISSING",
+	//     },
+	//     google.rpc.PreconditionFailure{
+	//       Violations: [
+	//         {Type: "SOURCE_TABLE_MISSING", Subject: "<schema>.<tableA>", Description: "..."},
+	//         {Type: "SOURCE_TABLE_MISSING", Subject: "<schema>.<tableB>", Description: "..."},
+	//       ],
+	//     },
+	//   ]
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+
+	var hasSourceTableMissing bool
+	var violations []*errdetails.PreconditionFailure_Violation
+	for _, d := range st.Details() {
+		switch detail := d.(type) {
+		case *errdetails.ErrorInfo:
+			if detail.Domain == common.ErrorInfoDomain && detail.Reason == common.ErrorInfoReasonSourceTableMissing {
+				hasSourceTableMissing = true
+			}
+		case *errdetails.PreconditionFailure:
+			violations = append(violations, detail.Violations...)
+		}
+	}
+	require.True(s.t, hasSourceTableMissing, "expected SourceTableMissing ErrorInfo detail in status")
+	require.Len(s.t, violations, len(tableNames), "expected one PreconditionFailure violation per dropped table")
+	gotSubjects := make([]string, len(violations))
+	for i, v := range violations {
+		require.Equal(s.t, common.ErrorInfoReasonSourceTableMissing, v.Type)
+		gotSubjects[i] = v.Subject
+	}
+	wantSubjects := make([]string, len(tableNames))
+	for i, tn := range tableNames {
+		wantSubjects[i] = fmt.Sprintf("%s.%s", Schema(s), tn)
+	}
+	require.ElementsMatch(s.t, wantSubjects, gotSubjects)
+}
+
+func (s APITestSuite) TestResyncTablesNotInPublication() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only for PostgreSQL (publications are PG-specific)")
+	}
+
+	tableNames := []string{"resync_pub_a", "resync_pub_b"}
+	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}
+	for _, qt := range qualifiedSourceTables {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qt)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qt)))
+	}
+
+	pubName := "pub_resync_" + s.suffix
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s, %s", pubName, qualifiedSourceTables[0], qualifiedSourceTables[1])))
+	s.t.Cleanup(func() {
+		_ = s.source.Exec(context.Background(), "DROP PUBLICATION IF EXISTS "+pubName)
+	})
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "resync_not_in_pub_" + s.suffix,
+		TableNameMapping: map[string]string{
+			qualifiedSourceTables[0]: tableNames[0],
+			qualifiedSourceTables[1]: tableNames[1],
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.PublicationName = pubName
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	for _, tn := range tableNames {
+		EnvWaitForCount(env, s.ch, "initial snapshot", tn, "id,val", 1)
+	}
+	EnvWaitFor(s.t, env, 3*time.Minute, "flow running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	for _, qt := range qualifiedSourceTables {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER PUBLICATION %s DROP TABLE %s", pubName, qt)))
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.Error(s.t, err)
+
+	// Shape of the error on the wire:
+	//   status.Code = FailedPrecondition
+	//   status.Details = [
+	//     google.rpc.ErrorInfo{
+	//       Domain: "peerdb.io", Reason: "TABLES_NOT_IN_PUBLICATION",
+	//       Metadata: {"publication": "<pubName>"},
+	//     },
+	//     google.rpc.PreconditionFailure{
+	//       Violations: [
+	//         {Type: "TABLES_NOT_IN_PUBLICATION", Subject: "<schema>.<tableA>", Description: "..."},
+	//         {Type: "TABLES_NOT_IN_PUBLICATION", Subject: "<schema>.<tableB>", Description: "..."},
+	//       ],
+	//     },
+	//   ]
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+
+	var gotReason, gotPublication string
+	var violations []*errdetails.PreconditionFailure_Violation
+	for _, d := range st.Details() {
+		switch detail := d.(type) {
+		case *errdetails.ErrorInfo:
+			if detail.Domain == common.ErrorInfoDomain {
+				gotReason = detail.Reason
+				gotPublication = detail.Metadata[common.ErrorMetadataPublication]
+			}
+		case *errdetails.PreconditionFailure:
+			violations = append(violations, detail.Violations...)
+		}
+	}
+	require.Equal(s.t, common.ErrorInfoReasonTablesNotInPublication, gotReason)
+	require.Equal(s.t, pubName, gotPublication)
+	require.Len(s.t, violations, len(tableNames))
+	gotSubjects := make([]string, len(violations))
+	for i, v := range violations {
+		require.Equal(s.t, common.ErrorInfoReasonTablesNotInPublication, v.Type)
+		gotSubjects[i] = v.Subject
+	}
+	wantSubjects := make([]string, len(tableNames))
+	for i, tn := range tableNames {
+		wantSubjects[i] = fmt.Sprintf("%s.%s", Schema(s), tn)
+	}
+	require.ElementsMatch(s.t, wantSubjects, gotSubjects)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestResyncFailed() {
@@ -1409,24 +2195,48 @@ func (s APITestSuite) TestResyncFailed() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitFor(s.t, env, 5*time.Minute, "wait for MV error messages", func() bool {
-		count, err := s.pg.GetLogCount(
-			s.t.Context(), flowConnConfig.FlowJobName, "error",
+		count, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
 			fmt.Sprintf("while pushing to view %s.%s", s.ch.connector.Config.Database, mvManager.mvName),
 		)
 		return err == nil && count > 0
 	})
 
 	_, err = pgSource.PostgresConnector.Conn().Exec(s.t.Context(),
-		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE $1`,
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'peerdb' AND query LIKE $1`,
 		"%"+s.suffix+"%")
 	require.NoError(s.t, err)
 
+	// Use a dedicated connection with a different application_name to avoid being killed
+	// by the pg_terminate_backend above, which targets application_name = 'peerdb'
+	catalogConnStr := internal.GetCatalogConnectionStringFromEnv(s.t.Context())
+	statusConnConfig, err := pgx.ParseConfig(catalogConnStr)
+	require.NoError(s.t, err)
+	statusConnConfig.RuntimeParams["application_name"] = "catalog_test_access"
+	statusConn, err := pgx.ConnectConfig(s.t.Context(), statusConnConfig)
+	require.NoError(s.t, err)
+	defer statusConn.Close(s.t.Context())
+
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for failed", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_FAILED
+		var flowStatus protos.FlowStatus
+		// This is the only test not using `GetFlowStatus` because that method
+		// will use a PG connection pool that has the `application_name` set to 'peerdb' because
+		// this is an internal method and initializes the connection assuming it is being called from PeerDB service
+		// rather than test code.
+		//
+		// In CI, the catalog DB is the same as the source DB (Postgres), so the pg_terminate_backend call above will
+		// kill all connections with application_name 'peerdb', including those from the connection pool used by GetFlowStatus.
+		// This generated a race condition between the backend termination and the test finalization that
+		// is removed by initializing a dedicated connection with a different application_name that is not killed by
+		// the query above thanks to the filter condition `application_name == 'peerdb'`.
+		err := statusConn.QueryRow(
+			s.t.Context(), "SELECT status FROM flows WHERE workflow_id = $1", env.GetID(),
+		).Scan(&flowStatus)
+		return err == nil && flowStatus == protos.FlowStatus_STATUS_FAILED
 	})
 
 	err = mvManager.DropBadMV(s.t.Context())
@@ -1441,9 +2251,12 @@ func (s APITestSuite) TestResyncFailed() {
 	})
 	require.NoError(s.t, err)
 
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForCount(env, s.ch, "resync should have 2 rows", dstTableName, cols, 2)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestDropCompleted() {
@@ -1480,7 +2293,7 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -1493,16 +2306,12 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 // drop on completed mirror doesn't access peers, so should still drop immediately
@@ -1516,16 +2325,10 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
-		require.NoError(s.t, proxy.Enable())
-		connectionString := internal.GetPGConnectionString(proxyConfig, "")
-		connConfig, err := connpostgres.ParseConfig(connectionString, proxyConfig)
-		require.NoError(s.t, err)
-		conn, err := connpostgres.NewPostgresConnFromConfig(s.t.Context(), connConfig, "", nil, nil)
-		if err != nil {
-			s.t.Logf("failed to connect for teardown: %v", err)
-		} else if err := cleanPostgres(s.t.Context(), conn, suffix); err != nil {
-			s.t.Logf("failed to teardown: %v", err)
+		if err := cleanPostgres(s.t.Context(), s.pg.Conn(), suffix); err != nil {
+			s.t.Logf("failed to clean proxy schema: %v", err)
 		}
+		require.NoError(s.t, proxy.Delete())
 	}()
 
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
@@ -1548,7 +2351,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}()
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "create_concurrent_toxi_" + suffix,
+		FlowJobName: "concurrent_toxi_" + suffix,
 		TableNameMapping: map[string]string{
 			AttachSchema(s, "valid"): "valid",
 		},
@@ -1564,7 +2367,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
@@ -1578,16 +2381,12 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
-	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
-		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
-	})
+	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestEditTablesBeforeResync() {
@@ -1630,7 +2429,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1665,7 +2464,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 			AttachSchema(s, "original"),
 		})
@@ -1728,7 +2527,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, err)
 
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 		})
 		if err != nil {
@@ -1737,8 +2536,8 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
-		s.waitForActiveSlotForPostgresMirror(env, pgconn.Conn(), flowConnConfig.FlowJobName)
+	if _, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		s.waitForActiveSlotForPostgresMirror(env, flowConnConfig.FlowJobName)
 	}
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -1768,7 +2567,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		DropMirrorStats:    true,
 	})
 	require.NoError(s.t, err)
-	newEnv, newErr := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	newEnv, newErr := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, newErr)
 	// test resync initial load
 	EnvWaitForEqualTables(newEnv, s.ch, "resync", "added", cols)
@@ -1804,11 +2603,29 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 }
 
 func (s APITestSuite) TestAlertConfig() {
+	// findSlackConfig locates the config by id and returns its parsed auth_token
+	// and channel_ids, so tests can assert the secret is redacted on read.
+	//nolint:nonamedreturns
+	findSlackConfig := func(configs []*protos.AlertConfig, id int32) (authToken string, channelIDs []string, found bool) {
+		for _, config := range configs {
+			if config.Id != id || config.ServiceType != "slack" {
+				continue
+			}
+			var parsed struct {
+				AuthToken  string   `json:"auth_token"`
+				ChannelIDs []string `json:"channel_ids"`
+			}
+			require.NoError(s.t, json.Unmarshal([]byte(config.ServiceConfig), &parsed))
+			return parsed.AuthToken, parsed.ChannelIDs, true
+		}
+		return "", nil, false
+	}
+
 	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
 			Id:              -1,
 			ServiceType:     "slack",
-			ServiceConfig:   "config",
+			ServiceConfig:   `{"auth_token":"xoxb-secret-token","channel_ids":["C123"]}`,
 			AlertForMirrors: []string{"mirror"},
 		},
 	})
@@ -1817,15 +2634,16 @@ func (s APITestSuite) TestAlertConfig() {
 	getCreate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, getCreate)
-	require.True(s.t, slices.ContainsFunc(getCreate.Configs, func(config *protos.AlertConfig) bool {
-		return config.Id == create.Id && config.ServiceType == "slack" && config.ServiceConfig == "config"
-	}))
+	authToken, channelIDs, found := findSlackConfig(getCreate.Configs, create.Id)
+	require.True(s.t, found)
+	require.Empty(s.t, authToken, "auth_token must be redacted in API responses")
+	require.Equal(s.t, []string{"C123"}, channelIDs)
 
 	update, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
 			Id:              create.Id,
-			ServiceType:     "email",
-			ServiceConfig:   "newconfig",
+			ServiceType:     "slack",
+			ServiceConfig:   `{"auth_token":"xoxb-rotated-token","channel_ids":["C456"]}`,
 			AlertForMirrors: []string{"mirror"},
 		},
 	})
@@ -1834,9 +2652,10 @@ func (s APITestSuite) TestAlertConfig() {
 	getUpdate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, getUpdate)
-	require.True(s.t, slices.ContainsFunc(getUpdate.Configs, func(config *protos.AlertConfig) bool {
-		return config.Id == create.Id && config.ServiceType == "email" && config.ServiceConfig == "newconfig"
-	}))
+	authToken, channelIDs, found = findSlackConfig(getUpdate.Configs, create.Id)
+	require.True(s.t, found)
+	require.Empty(s.t, authToken, "auth_token must be redacted in API responses")
+	require.Equal(s.t, []string{"C456"}, channelIDs)
 
 	del, err := s.DeleteAlertConfig(s.t.Context(), &protos.DeleteAlertConfigRequest{Id: create.Id})
 	require.NoError(s.t, err)
@@ -1889,7 +2708,7 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -1991,7 +2810,7 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -2019,7 +2838,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	schema1, err := s.getCatalogTableSchemaForSourceTable(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		"table1",
 	)
@@ -2029,7 +2847,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	schema2, err := s.getCatalogTableSchemaForSourceTable(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		"table2",
 	)
@@ -2039,7 +2856,6 @@ func (s APITestSuite) TestPostgresTableOIDsMigration() {
 
 	ok, err = s.checkMigrationCompleted(
 		s.t.Context(),
-		pgconn.Conn(),
 		flowConnConfig.FlowJobName,
 		shared.POSTGRES_TABLE_OID_MIGRATION,
 	)
@@ -2120,7 +2936,7 @@ func (s APITestSuite) TestQRep() {
 	require.NoError(s.t, err)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
@@ -2146,8 +2962,12 @@ func (s APITestSuite) TestQRep() {
 	}
 	require.Equal(s.t, int64(2), totalRowsSynced)
 
-	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        qrepConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	s.waitForFlowDropped(env, qrepConfig.FlowJobName)
 }
 
 func (s APITestSuite) TestDropQRep() {
@@ -2190,7 +3010,7 @@ func (s APITestSuite) TestDropQRep() {
 	require.NoError(s.t, err)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tableName, "id,val")
@@ -2202,9 +3022,10 @@ func (s APITestSuite) TestDropQRep() {
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for qrep flow dropped", func() bool {
 		var workflowID string
-		return s.pg.PostgresConnector.Conn().QueryRow(
+		err := s.catalog.QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", qrepConfig.FlowJobName,
-		).Scan(&workflowID) == pgx.ErrNoRows
+		).Scan(&workflowID)
+		return errors.Is(err, pgx.ErrNoRows)
 	})
 }
 
@@ -2248,7 +3069,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
@@ -2283,7 +3104,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
-		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),
 			AttachSchema(s, "original"),
 		})
@@ -2317,20 +3138,34 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Simulate a mirror whose Temporal workflow no longer exists (e.g. completed or failed
+// over 30 days ago and was already cleaned up).
 func (s APITestSuite) TestDropMissing() {
-	conn := s.pg.PostgresConnector.Conn()
-	peer := s.source.GeneratePeer(s.t)
-	var peerId int32
-	require.NoError(s.t, conn.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
+	flowName := "test-drop-missing_" + s.suffix
 
-	_, err := conn.Exec(s.t.Context(),
-		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ('test-drop-missing',$1,$1,'drop-missing-wf-id',$2)",
-		peerId, protos.FlowStatus_STATUS_COMPLETED,
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{AttachSchema(s, "drop_missing"): "drop_missing"},
+		Destination:      s.ch.Peer().Name,
+	}
+	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	require.NoError(s.t, err)
+
+	var sourcePeerID, destPeerID int32
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.SourceName).Scan(&sourcePeerID))
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		"select id from peers where name = $1", cfg.DestinationName).Scan(&destPeerID))
+
+	_, err = s.catalog.Exec(s.t.Context(),
+		"insert into flows (name,source_peer,destination_peer,workflow_id,config_proto,status) values ($1,$2,$3,$4,$5,$6)",
+		flowName, sourcePeerID, destPeerID, flowName+"-missing-wf-id", cfgBytes, protos.FlowStatus_STATUS_COMPLETED,
 	)
 	require.NoError(s.t, err)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        "test-drop-missing",
+		FlowJobName:        flowName,
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
@@ -2386,7 +3221,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequests() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2416,7 +3251,10 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 	suffix := "race_" + s.suffix
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9902)
 	require.NoError(s.t, err)
-	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+	defer func() {
+		pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+		require.NoError(s.t, proxy.Delete())
+	}()
 
 	// Create table
 	tableName := "toxiproxy_race_test"
@@ -2439,7 +3277,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 	}()
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "create_concurrent_toxi_" + suffix,
+		FlowJobName: "concurrent_toxi_" + suffix,
 		TableNameMapping: map[string]string{
 			fmt.Sprintf("e2e_test_%s.%s", suffix, tableName): tableName,
 		},
@@ -2504,7 +3342,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2546,7 +3384,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachSequentialRequests() {
 
 	// Verify workflow is actually running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2586,22 +3424,21 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	// Simulate a crash: create flows entry without creating workflow
-	conn := s.pg.PostgresConnector.Conn()
 	sourcePeer := s.source.GeneratePeer(s.t)
 	destPeer, err := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{PeerName: s.ch.Peer().Name})
 	require.NoError(s.t, err)
 
 	var sourcePeerID, destPeerID int32
-	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
 		"SELECT id FROM peers WHERE name = $1", sourcePeer.Name).Scan(&sourcePeerID))
-	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
 		"SELECT id FROM peers WHERE name = $1", destPeer.Peer.Name).Scan(&destPeerID))
 
 	cfgBytes, err := proto.Marshal(flowConnConfig)
 	require.NoError(s.t, err)
 
 	workflowID := flowConnConfig.FlowJobName + "-peerflow"
-	_, err = conn.Exec(s.t.Context(),
+	_, err = s.catalog.Exec(s.t.Context(),
 		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
 		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
 		workflowID, flowConnConfig.FlowJobName, sourcePeerID, destPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
@@ -2619,7 +3456,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 
 	// Verify workflow is created and running
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), conn, tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
@@ -2658,7 +3495,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 
 	// Cancel the workflow to simulate failure
@@ -2697,7 +3534,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 		"should have created a new workflow run")
 
 	// Clean up
-	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -2730,7 +3567,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	require.NotNil(s.t, response1)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -2767,6 +3604,183 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestResetMirrorSequences() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTable := AttachSchema(s, "seq_src")
+	dstTable := AttachSchema(s, "seq_dst")
+
+	// Create source table with a serial column and insert rows
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(val) VALUES ('a'),('b'),('c'),('d'),('e')", srcTable)))
+
+	// Create destination table with same structure (serial column)
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+	require.NoError(s.t, err)
+
+	// Create PG-to-PG mirror with initial snapshot only
+	flowJobName := "reset_seq_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: dstTable,
+		}},
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: true,
+		System:              protos.TypeSystem_PG,
+		IdleTimeoutSeconds:  15,
+		Version:             shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// Verify data arrived
+	var rowCount int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		"SELECT COUNT(*) FROM "+dstTable).Scan(&rowCount)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(5), rowCount)
+
+	// Before reset: destination sequence has not been advanced by the snapshot (ids were copied
+	// explicitly), so it is not yet at the max id. pg_sequence_last_value is NULL until the
+	// sequence is first used, so coalesce to 0.
+	var seqValBefore int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT COALESCE(pg_sequence_last_value(pg_get_serial_sequence('%s', 'id')), 0)", dstTable)).Scan(&seqValBefore)
+	require.NoError(s.t, err)
+	require.NotEqual(s.t, int64(5), seqValBefore)
+
+	// Call ResetMirrorSequences
+	resetResp, err := s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowJobName,
+	})
+	require.NoError(s.t, err)
+	require.True(s.t, resetResp.Ok)
+
+	// After reset: sequence should be at 5 (max id)
+	var seqValAfter int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&seqValAfter)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(5), seqValAfter)
+
+	// nextval should return 6
+	var nextVal int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&nextVal)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(6), nextVal)
+}
+
+func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	srcTable := AttachSchema(s, "seq_empty_src")
+	dstTable := AttachSchema(s, "seq_empty_dst")
+
+	// Create source table with a serial column but NO rows
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
+
+	// Create destination table with same structure
+	_, err := s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+	require.NoError(s.t, err)
+
+	flowJobName := "reset_seq_empty_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTable,
+			DestinationTableIdentifier: dstTable,
+		}},
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: true,
+		System:              protos.TypeSystem_PG,
+		IdleTimeoutSeconds:  15,
+		Version:             shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// ResetMirrorSequences should succeed even with empty tables (no setval error)
+	resetResp, err := s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowJobName,
+	})
+	require.NoError(s.t, err)
+	require.True(s.t, resetResp.Ok)
+}
+
+func (s APITestSuite) TestResetMirrorSequences_NonPgDestination() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("only for PostgreSQL source")
+	}
+
+	tableName := "seq_ch"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "reset_seq_ch_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// ResetMirrorSequences should fail for non-PG destination
+	_, err = s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "only supported for PostgreSQL destinations")
+}
+
 func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
@@ -2800,9 +3814,152 @@ func (s APITestSuite) TestSnapshotNullPartitionKey() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	EnvWaitForCount(env, s.ch, "all 4 rows including nulls should be snapshotted", tableName, "*", 4)
+}
+
+func (s APITestSuite) TestGetMirrorRowCounts() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("row count validation is only supported for PostgreSQL source and destination")
+	}
+
+	srcTable1 := AttachSchema(s, "rowcount_src1")
+	dstTable1 := AttachSchema(s, "rowcount_dst1")
+	srcTable2 := AttachSchema(s, "rowcount_src2")
+	dstTable2 := AttachSchema(s, "rowcount_dst2")
+	srcTable3 := AttachSchema(s, "rowcount_src3")
+	dstTable3 := AttachSchema(s, "rowcount_dst3")
+
+	for _, tbl := range []string{srcTable1, srcTable2, srcTable3} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", tbl)))
+	}
+	for _, tbl := range []string{dstTable1, dstTable2, dstTable3} {
+		_, err := s.pg.Conn().Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", tbl))
+		require.NoError(s.t, err)
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,3) g", srcTable1)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) SELECT g, 'v'||g FROM generate_series(1,5) g", srcTable2)))
+
+	flowJobName := "get_row_counts_" + s.suffix
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     flowJobName,
+		SourceName:      s.source.GeneratePeer(s.t).Name,
+		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: srcTable1, DestinationTableIdentifier: dstTable1},
+			{SourceTableIdentifier: srcTable2, DestinationTableIdentifier: dstTable2},
+			{SourceTableIdentifier: srcTable3, DestinationTableIdentifier: dstTable3},
+		},
+		DoInitialSnapshot:  true,
+		System:             protos.TypeSystem_PG,
+		IdleTimeoutSeconds: 15,
+		Version:            shared.InternalVersion_Latest,
+	}
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	s.waitForDestinationRowCount(env, dstTable1, 3)
+	s.waitForDestinationRowCount(env, dstTable2, 5)
+	s.waitForDestinationRowCount(env, dstTable3, 0)
+
+	rowCounts, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{FlowJobName: flowJobName})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, rowCounts)
+	require.Len(s.t, rowCounts.TableCounts, 3)
+
+	bySrc := make(map[string]*protos.TableRowCount, len(rowCounts.TableCounts))
+	for _, tc := range rowCounts.TableCounts {
+		bySrc[tc.SourceTable] = tc
+	}
+	require.Contains(s.t, bySrc, srcTable1)
+	require.Contains(s.t, bySrc, srcTable2)
+	require.Contains(s.t, bySrc, srcTable3)
+
+	require.Equal(s.t, dstTable1, bySrc[srcTable1].DestinationTable)
+	require.Equal(s.t, int64(3), bySrc[srcTable1].SourceCount)
+	require.Equal(s.t, int64(3), bySrc[srcTable1].DestinationCount)
+	require.False(s.t, bySrc[srcTable1].SourceIsApproximate)
+	require.False(s.t, bySrc[srcTable1].DestinationIsApproximate)
+
+	require.Equal(s.t, dstTable2, bySrc[srcTable2].DestinationTable)
+	require.Equal(s.t, int64(5), bySrc[srcTable2].SourceCount)
+	require.Equal(s.t, int64(5), bySrc[srcTable2].DestinationCount)
+
+	require.Equal(s.t, dstTable3, bySrc[srcTable3].DestinationTable)
+	require.Equal(s.t, int64(0), bySrc[srcTable3].SourceCount)
+	require.Equal(s.t, int64(0), bySrc[srcTable3].DestinationCount)
+	require.False(s.t, bySrc[srcTable3].SourceIsApproximate)
+	require.False(s.t, bySrc[srcTable3].DestinationIsApproximate)
+
+	filtered, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable2},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, filtered.TableCounts, 1)
+	require.Equal(s.t, srcTable2, filtered.TableCounts[0].SourceTable)
+	require.Equal(s.t, int64(5), filtered.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(5), filtered.TableCounts[0].DestinationCount)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) VALUES (4,'v4'),(5,'v5')", srcTable1)))
+	s.waitForDestinationRowCount(env, dstTable1, 5)
+
+	afterCdc, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable1},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, afterCdc.TableCounts, 1)
+	require.Equal(s.t, int64(5), afterCdc.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(5), afterCdc.TableCounts[0].DestinationCount)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE "+srcTable3))
+
+	missingCounts, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName:  flowJobName,
+		SourceTables: []string{srcTable3},
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, missingCounts.TableCounts, 1)
+	require.Equal(s.t, srcTable3, missingCounts.TableCounts[0].SourceTable)
+	require.Equal(s.t, int64(-1), missingCounts.TableCounts[0].SourceCount)
+	require.Equal(s.t, int64(0), missingCounts.TableCounts[0].DestinationCount)
+}
+
+func (s APITestSuite) TestGetMirrorRowCountsNonCDC() {
+	_, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("row count validation is only supported for PostgreSQL source and destination")
+	}
+
+	_, err := s.GetMirrorRowCounts(s.t.Context(), &protos.RowCountRequest{
+		FlowJobName: "nonexistent_flow_" + s.suffix,
+	})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.InvalidArgument, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "not supported for query replication mirrors")
 }

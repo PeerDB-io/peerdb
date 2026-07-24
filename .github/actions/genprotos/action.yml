@@ -3,10 +3,9 @@ description: 'Install buf with local plugins, generate protos and cache'
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
     - name: check cache
       id: cache
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ./flow/generated
@@ -21,6 +20,4 @@ runs:
         github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: sh
-      run: |
-        buf generate protos
-        cd flow && go generate
+      run: ./generate-protos.sh

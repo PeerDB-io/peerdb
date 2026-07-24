@@ -14,7 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type SwitchboardMongoSuite struct {
@@ -35,7 +35,7 @@ func (s SwitchboardMongoSuite) Teardown(ctx context.Context) {
 func SetupSwitchboardMongoSuite(t *testing.T) SwitchboardMongoSuite {
 	t.Helper()
 
-	suffix := "pgwmo_" + strings.ToLower(shared.RandomString(8))
+	suffix := "pgwmo_" + strings.ToLower(common.RandomString(8))
 	source, err := SetupMongo(t, suffix)
 	if err != nil {
 		t.Skipf("MongoDB setup failed: %v", err)

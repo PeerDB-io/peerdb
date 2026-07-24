@@ -1,0 +1,145 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>PeerDB-io/.github:renovate-config",
+    ":preserveSemverRanges"
+  ],
+  "packageRules": [
+    {
+      "groupName": "{{manager}} dependencies",
+      "groupSlug": "{{manager}}",
+      "separateMajorMinor": true,
+      // This is the default but is later disabled by a higher priority package rule
+      // for major updates.
+      "automerge": true,
+      "matchPackageNames": [
+        "*"
+      ]
+    },
+    // Enable `go mod tidy` post step in gomod updates. Note that this step is always skipped for
+    // majors per Renovate design.
+    {
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidy"]
+    },
+    // React updates.
+    {
+      "matchPackageNames": ["next", "react", "react-*", "@types/react", "@types/react-*", "eslint", "eslint-config-next"],
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    // Docker compose updates
+    {
+      "matchPackageNames": ["ghcr.io/peerdb-io/**"],
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["pinDigest"],
+      "matchFileNames": ["docker-compose.yml"],
+      "enabled": false
+    },
+    // The mysql-debug image is a one-off DBUG test fixture, not MySQL compatibility coverage.
+    // Keep it on the 8.0 series unless a dedicated migration updates the bake default,
+    // image build action default, test image tag, and matching yum repo path together.
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["mysql"],
+      "matchFileNames": ["flow/e2e/test_data/mysql-debug/Dockerfile"],
+      "allowedVersions": "/^8\\.0\\./",
+      "automerge": false
+    },
+    // Default docker versioning can't parse cargo-chef's compound `latest-rust-<version>-alpine`
+    // tag, so the rust version never rolls forward. Regex versioning captures the embedded version.
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["lukemathwalker/cargo-chef"],
+      "versioning": "regex:^latest-rust-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-alpine$"
+    },
+    // Disable updates on generated and dependencies without explicit versions in their life cycles.
+    // Disabled updates means that Renovate will not proactively propose changes for these dependencies
+    // but its reliance on go MVS might generate update PRs with updates on these if transitively required.
+    // For pinned versions, this requires `exclude` rules in `go.mod` files.
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/PeerDB-io/peerdb/flow/generated/**",
+        "github.com/pingcap/tidb",
+        "github.com/pingcap/tidb/pkg/parser",
+        "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+      ],
+      "enabled": false
+    },
+    // Explicit versions exclusions for pinned go dependencies, as in the previous rule, this doesn't
+    // prevent updates if transitively required but it prevents proactive updates.
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/auth"],
+      "allowedVersions": "v0.18.2"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/bigquery"],
+      "allowedVersions": "v1.72.0"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/pubsub/v2"],
+      "allowedVersions": "v2.3.0"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["cloud.google.com/go/storage"],
+      "allowedVersions": "v1.59.2"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/aws/aws-sdk-go-v2/feature/s3/manager"],
+      "allowedVersions": "v1.21.0"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["google.golang.org/api"],
+      "allowedVersions": "v0.257.0"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/tikv/pd/client"],
+      "allowedVersions": "v0.0.0-20251229071808-6173d50c004c"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-mysql-org/go-mysql"],
+      // Pinned commit includes our reliability fixes
+      // Pinned so that we don't auto-follow the rest of the bleeding edge
+      // Unpin when a release is tagged
+      "allowedVersions": "v1.15.1-0.20260701093637-35ca5c6ee8c8"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-mysql-org/go-mysql"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
+    },
+    // This package rule instruct renovate to require approval from
+    // the dependency dashboard before proposing major upgrades.
+    // This sets a default is approval mindset for automatic proposals.
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "timezone": "Etc/UTC",
+  "schedule": [
+    "after 5pm on monday"
+  ],
+  "additionalReviewers": [
+    "team:eng"
+  ],
+  "prConcurrentLimit": 8,
+  "minimumReleaseAge": "7 days"
+}

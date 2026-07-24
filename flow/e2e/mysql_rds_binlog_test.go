@@ -13,7 +13,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // this test is not safe for parallel execution because it relies on a single table in a fixed place
@@ -51,7 +51,7 @@ func TestMySQLRDSBinlog(t *testing.T) {
 	e2eshared.RunSuiteNoParallel(t, func(t *testing.T) MySQLRDSBinlogAPITestSuite {
 		t.Helper()
 
-		suffix := "api_" + strings.ToLower(shared.RandomString(8))
+		suffix := "api_" + strings.ToLower(common.RandomString(8))
 		pg, err := SetupPostgres(t, suffix)
 		require.NoError(t, err)
 		source, err := SetupMySQL(t, suffix)

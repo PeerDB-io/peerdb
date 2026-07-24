@@ -24,8 +24,6 @@ import {
   ValidatePeerStatus,
   validatePeerStatusFromJSON,
 } from '@/grpc_generated/route';
-import { Dispatch, SetStateAction } from 'react';
-
 import {
   bqSchema,
   chSchema,
@@ -211,12 +209,10 @@ export async function handleValidate(
   type: string,
   config: PeerConfig,
   notify: (msg: string, success?: boolean) => void,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   name?: string
 ) {
   const isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
-  setLoading(true);
 
   const validateReq: ValidatePeerRequest = {
     peer: constructPeer(name!, type, config),
@@ -228,11 +224,9 @@ export async function handleValidate(
   }).then((res) => res.json());
   if (validatePeerStatusFromJSON(valid.status) !== ValidatePeerStatus.VALID) {
     notify(valid.message);
-    setLoading(false);
     return;
   }
   notify('Peer is valid', true);
-  setLoading(false);
 }
 
 function S3Validation(config: S3Config): string {
@@ -247,13 +241,11 @@ export async function handleCreate(
   type: string,
   config: PeerConfig,
   notify: (msg: string) => void,
-  setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   name?: string
 ) {
   let isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
-  setLoading(true);
   const req: CreatePeerRequest = {
     peer: constructPeer(name!, type, config),
     allowUpdate: true,
@@ -268,10 +260,8 @@ export async function handleCreate(
     createPeerStatusFromJSON(createdPeer.status) !== CreatePeerStatus.CREATED
   ) {
     notify(createdPeer.message);
-    setLoading(false);
     return;
   }
 
   route();
-  setLoading(false);
 }

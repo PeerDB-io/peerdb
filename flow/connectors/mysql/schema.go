@@ -84,6 +84,11 @@ func (c *MySqlConnector) GetTablesInSchema(
 }
 
 func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
+	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
+	}
+
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
 		SELECT column_name, column_type, column_key
 		FROM information_schema.columns
@@ -109,7 +114,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := QkindFromMysqlColumnType(columnType)
+		qkind, err := QkindFromMysqlColumnType(columnType, binlogRowMetadataSupported, version)
 		if err != nil {
 			return nil, err
 		}

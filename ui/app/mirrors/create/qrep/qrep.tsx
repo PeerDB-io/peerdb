@@ -9,7 +9,13 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useEffect,
+  useState,
+  useTransition,
+} from 'react';
 import ReactSelect from 'react-select';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
@@ -72,7 +78,7 @@ export default function QRepConfigForm({
     { value: string; label: string }[]
   >([]);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, startTransition] = useTransition();
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | QRepWriteType | string[] = val;
@@ -117,26 +123,25 @@ export default function QRepConfigForm({
   const loadColumnOptions = (tableIdentifier: string) => {
     const schema = tableIdentifier.split('.')[0];
     const table = tableIdentifier.split('.')[1];
-    fetchColumns(mirrorConfig.sourceName, schema, table, setLoading).then(
-      (cols) => {
-        const filteredCols = cols?.filter((col) => {
-          const types = allowedTypesForWatermarkColumn.get(sourceType);
-          return !types || types.has(col.type);
-        });
-        setAllColumns(
-          cols.map((col) => ({
-            value: col.name,
-            label: `${col.name} (${col.type})`,
-          }))
-        );
-        setWatermarkColumns(
-          filteredCols.map((col) => ({
-            value: col.name,
-            label: `${col.name} (${col.type})`,
-          }))
-        );
-      }
-    );
+    startTransition(async () => {
+      const cols = await fetchColumns(mirrorConfig.sourceName, schema, table);
+      const filteredCols = cols?.filter((col) => {
+        const types = allowedTypesForWatermarkColumn.get(sourceType);
+        return !types || types.has(col.type);
+      });
+      setAllColumns(
+        cols.map((col) => ({
+          value: col.name,
+          label: `${col.name} (${col.type})`,
+        }))
+      );
+      setWatermarkColumns(
+        filteredCols.map((col) => ({
+          value: col.name,
+          label: `${col.name} (${col.type})`,
+        }))
+      );
+    });
   };
 
   const handleSourceChange = (

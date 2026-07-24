@@ -8,7 +8,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
@@ -27,16 +26,9 @@ func (c *MongoConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	fullTablePartition := []*protos.QRepPartition{
-		{
-			PartitionId:        utils.FullTablePartitionID,
-			Range:              nil,
-			FullTablePartition: true,
-		},
-	}
-
-	if config.WatermarkColumn == "" {
-		return fullTablePartition, nil
+	if config.WatermarkColumn != DefaultDocumentKeyColumnName {
+		c.logger.Warn("unexpected watermark column, falling back to full table partition")
+		return utils.FullTablePartition(), nil
 	}
 
 	if config.NumRowsPerPartition <= 0 {
@@ -59,9 +51,6 @@ func (c *MongoConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to count documents in collection %s: %w", parseWatermarkTable.Table, err)
 	}
-	if totalRows == 0 {
-		return []*protos.QRepPartition{}, nil
-	}
 
 	// Calculate the number of partitions
 	adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
@@ -71,77 +60,24 @@ func (c *MongoConnector) GetQRepPartitions(
 		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
 		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
 
-	// no need to bother with bucketAuto if we have only one partition
-	if adjustedPartitions.AdjustedNumPartitions == 1 {
-		return fullTablePartition, nil
+	if adjustedPartitions.AdjustedNumPartitions <= 1 {
+		c.logger.Info("[mongo] insufficient partitions for parallel snapshot, falling back to full table partition")
+		return utils.FullTablePartition(), nil
 	}
 
-	if config.WatermarkColumn != DefaultDocumentKeyColumnName {
-		return nil, fmt.Errorf("only %s is currently supported as watermark column for MongoDB connector", DefaultDocumentKeyColumnName)
-	}
-
-	// Use bucketAuto to create partitions based on _id field
-	bucketAutoPipeline := []bson.D{
-		{
-			{Key: "$bucketAuto", Value: bson.D{
-				{Key: "groupBy", Value: "$" + config.WatermarkColumn},
-				{Key: "buckets", Value: adjustedPartitions.AdjustedNumPartitions},
-			}},
-		},
-	}
-
-	cursor, err := collection.Aggregate(ctx, bucketAutoPipeline)
-	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate for bucket partitions: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	partitions := make([]*protos.QRepPartition, 0, adjustedPartitions.AdjustedNumPartitions)
-	for cursor.Next(ctx) {
-		var bucket struct {
-			ID struct {
-				Min bson.ObjectID `bson:"min"`
-				Max bson.ObjectID `bson:"max"`
-			} `bson:"_id"`
-		}
-		if err := bson.Unmarshal(cursor.Current, &bucket); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal bucket: %w", err)
-		}
-
-		partitions = append(partitions, &protos.QRepPartition{
-			PartitionId: uuid.NewString(),
-			Range: &protos.PartitionRange{
-				Range: &protos.PartitionRange_ObjectIdRange{
-					ObjectIdRange: &protos.ObjectIdPartitionRange{
-						Start: bucket.ID.Min.Hex(),
-						End:   bucket.ID.Max.Hex(),
-					},
-				},
-			},
-			FullTablePartition: false,
-		})
-	}
-	if err := cursor.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
-			c.logger.Warn("context canceled while performing bucketAuto aggregation",
-				slog.String("watermark_table", config.WatermarkTable))
-		} else {
-			c.logger.Error("error while performing bucketAuto aggregation",
-				slog.String("watermark_table", config.WatermarkTable),
-				slog.String("error", err.Error()))
-		}
-		return nil, fmt.Errorf("cursor error during bucketAuto aggregation: %w", err)
-	}
-
-	return partitions, nil
+	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
 }
 
 func (c *MongoConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	mapping := make(map[string]string, len(input.TableMappings))
+	for _, tm := range input.TableMappings {
+		mapping[tm.SourceTableIdentifier] = DefaultDocumentKeyColumnName
+	}
 	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: nil,
+		TableDefaultPartitionKeyMapping: mapping,
 	}, nil
 }
 
@@ -209,10 +145,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	converter, err := NewBsonConverter(ctx, config.Env)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create bson converter: %w", err)
-	}
+	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
 		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
 		if err != nil {
@@ -275,8 +208,6 @@ func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 	return types.QRecordSchema{Fields: schema}
 }
 
-// with $bucketAuto, buckets except the last bucket treat their max value as exclusive
-// we can't tell what bucket is the "last" bucket without additional tracking, so we accept bounday records being inserted twice
 func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange) (bson.D, error) {
 	switch r := partitionRange.Range.(type) {
 	case *protos.PartitionRange_ObjectIdRange:
@@ -293,6 +224,28 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 			bson.E{Key: watermarkColumn, Value: bson.D{
 				bson.E{Key: "$gte", Value: startObjectID},
 				bson.E{Key: "$lte", Value: endObjectID},
+			}},
+		}, nil
+	case *protos.PartitionRange_NumericRange:
+		endOp := "$lt"
+		if r.NumericRange.EndInclusive {
+			endOp = "$lte"
+		}
+		return bson.D{
+			bson.E{Key: watermarkColumn, Value: bson.D{
+				bson.E{Key: "$gte", Value: r.NumericRange.Start},
+				bson.E{Key: endOp, Value: r.NumericRange.End},
+			}},
+		}, nil
+	case *protos.PartitionRange_StringRange:
+		endOp := "$lt"
+		if r.StringRange.EndInclusive {
+			endOp = "$lte"
+		}
+		return bson.D{
+			bson.E{Key: watermarkColumn, Value: bson.D{
+				bson.E{Key: "$gte", Value: r.StringRange.Start},
+				bson.E{Key: endOp, Value: r.StringRange.End},
 			}},
 		}, nil
 	default:

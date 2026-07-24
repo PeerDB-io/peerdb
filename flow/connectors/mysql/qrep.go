@@ -38,13 +38,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" || config.NumPartitionsOverride == 1 {
 		// if no watermark column is specified, return a single partition
-		return []*protos.QRepPartition{
-			{
-				PartitionId:        utils.FullTablePartitionID,
-				Range:              nil,
-				FullTablePartition: true,
-			},
-		}, nil
+		return utils.FullTablePartition(), nil
 	}
 
 	if config.NumPartitionsOverride == 0 && config.NumRowsPerPartition == 0 {
@@ -101,6 +95,10 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			time := lastRange.TimestampRange.End.AsTime()
 			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_StringRange:
+			// resuming from last partition range is only possible for standalone QRepFlowWorkflow;
+			// this is a legacy feature and string partitioning is not supported
+			return nil, errors.New("resuming QRep by a string partition range is not supported")
 		case *protos.PartitionRange_NullRange:
 			// this case should never happen because we only add null partition for InitialCopyOnly replication
 			// (so there shouldn't be a resume scenario with null range)
@@ -141,7 +139,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	watermarkField := rs.Fields[1]
 	watermarkMyType := watermarkField.Type
 	watermarkUnsigned := (watermarkField.Flag & mysql.UNSIGNED_FLAG) != 0
-	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset)
+	watermarkQKind, err := qkindFromMysqlType(watermarkField.Type, watermarkUnsigned, watermarkField.Charset, config.Version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
@@ -155,7 +153,25 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert partition maximum to qvalue: %w", err)
 	}
-	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
+
+	start, startIsString := val1.Value().(string)
+	end, endIsString := val2.Value().(string)
+	if startIsString && endIsString {
+		if isUUID, casing := detectUuidWithHexCasing(start, end); isUUID {
+			uuidPartitions, err := buildUuidStringPartitions(start, end, casing, numPartitions)
+			if err != nil {
+				return nil, fmt.Errorf("failed to add uuid string partitions: %w", err)
+			}
+			partitionHelper.AddPartitions(uuidPartitions)
+		} else {
+			stringPartitions, err := buildAdaptiveStringPartitions(
+				ctx, c, c.logger, parsedWatermarkTable, config.WatermarkColumn, start, end, numPartitions)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build adaptive string partitions: %w", err)
+			}
+			partitionHelper.AddPartitions(stringPartitions)
+		}
+	} else if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
 
@@ -168,13 +184,84 @@ func (c *MySqlConnector) GetQRepPartitions(
 	return partitionHelper.GetPartitions(), nil
 }
 
+func supportsRangePartition(qkind types.QValueKind) bool {
+	switch qkind {
+	// integer types
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		return true
+	// temporal types
+	case types.QValueKindDate, types.QValueKindTimestamp:
+		return true
+	// string types
+	case types.QValueKindString:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: nil,
-	}, nil
+	c.logger.Info("Evaluating if tables can perform parallel load")
+
+	output := &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
+	}
+	for _, tm := range input.TableMappings {
+		source := tm.SourceTableIdentifier
+		schema, ok := input.TableSchemaMapping[source]
+		if !ok {
+			c.logger.Warn("[mysql] table schema not found, defaulting to full table snapshot",
+				slog.String("table", source))
+			continue
+		}
+		if len(schema.PrimaryKeyColumns) == 0 {
+			c.logger.Info("[mysql] table has no primary key, defaulting to full table snapshot",
+				slog.String("table", source))
+			continue
+		}
+		pkColumn := schema.PrimaryKeyColumns[0]
+		var pkQKind types.QValueKind
+		for _, col := range schema.Columns {
+			if col.Name == pkColumn {
+				pkQKind = types.QValueKind(col.Type)
+				break
+			}
+		}
+		if !supportsRangePartition(pkQKind) {
+			c.logger.Info("[mysql] primary key type does not support range partitioning, defaulting to full table snapshot",
+				slog.String("table", source),
+				slog.String("column", pkColumn),
+				slog.String("qkind", string(pkQKind)))
+			continue
+		}
+		c.logger.Info("[mysql] using primary key as default partition key",
+			slog.String("table", source),
+			slog.String("column", pkColumn),
+			slog.String("qkind", string(pkQKind)))
+		output.TableDefaultPartitionKeyMapping[source] = pkColumn
+	}
+	return output, nil
+}
+
+func buildSelectedColumns(cols []*protos.FieldDescription, exclude []string) string {
+	columns := make([]string, 0, len(cols))
+	for _, col := range cols {
+		if slices.Contains(exclude, col.Name) {
+			continue
+		}
+
+		converted := common.QuoteMySQLIdentifier(col.Name)
+		if col.Type == string(types.QValueKindUint16Enum) || col.Type == string(types.QValueKindUint64Set) {
+			converted = fmt.Sprintf("CAST(%s AS UNSIGNED) AS %s", converted, converted)
+		}
+		columns = append(columns, converted)
+	}
+
+	return strings.Join(columns, ", ")
 }
 
 func (c *MySqlConnector) PullQRepRecords(
@@ -187,20 +274,15 @@ func (c *MySqlConnector) PullQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
-		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
+		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q,
+		config.Version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	selectedColumns := "*"
-	if len(config.Exclude) != 0 {
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(config.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, common.QuoteMySQLIdentifier(col.Name))
-			}
-		}
-		selectedColumns = strings.Join(quotedColumns, ",")
+	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
+	if selectedColumns == "" {
+		return 0, 0, fmt.Errorf("no columns selected for watermark table %s (check Exclude configuration)", config.WatermarkTable)
 	}
 
 	parsedSrcTable, err := common.ParseTableIdentifier(config.WatermarkTable)
@@ -215,7 +297,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	c.deltaBytesRead.Store(0)
 	totalRecords := int64(0)
 	onResult := func(rs *mysql.Result) error {
-		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
+		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields, config.Version)
 		if err != nil {
 			return err
 		}
@@ -287,6 +369,19 @@ func (c *MySqlConnector) PullQRepRecords(
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+		case *protos.PartitionRange_StringRange:
+			rangeStart = "'" + escapeWithNoBackslashEscapes(x.StringRange.Start) + "'"
+			rangeEnd = "'" + escapeWithNoBackslashEscapes(x.StringRange.End) + "'"
+			if config.Query != "" {
+				// custom query is only possible for standalone QRepFlowWorkflow;
+				// this is a legacy feature and string partitioning is not supported
+				return 0, 0, errors.New("can't construct a string range partition for custom queries")
+			}
+			if !x.StringRange.EndInclusive {
+				queryTemplate = fmt.Sprintf(
+					"SELECT %[1]s FROM %[2]s WHERE %[3]s >= {{.start}} AND %[3]s < {{.end}}",
+					selectedColumns, parsedSrcTable.MySQL(), common.QuoteMySQLIdentifier(config.WatermarkColumn))
+			}
 		case *protos.PartitionRange_NullRange:
 			if config.Query != "" {
 				return 0, 0, errors.New("can't construct a null range partition for custom queries")

@@ -5,10 +5,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
+
+// InvalidSequenceRe go-mysql-org returns "invalid sequence X != Y" (or "invalid compressed sequence X != Y"
+// for the compressed protocol) when the packet sequence byte is out of sync — always transient, safe to retry.
+var InvalidSequenceRe = regexp.MustCompile(`invalid (compressed )?sequence \d+ != \d+`)
 
 type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
@@ -49,6 +55,38 @@ func (e *MySQLUnsupportedBinlogRowMetadataError) Error() string {
 		e.SchemaName, e.TableName)
 }
 
+type MySQLUnsupportedCompressedColumnError struct {
+	SchemaName string
+	TableName  string
+	Columns    []string
+}
+
+func NewMySQLUnsupportedCompressedColumnError(schema string, table string, columns []string) *MySQLUnsupportedCompressedColumnError {
+	return &MySQLUnsupportedCompressedColumnError{SchemaName: schema, TableName: table, Columns: columns}
+}
+
+func (e *MySQLUnsupportedCompressedColumnError) Error() string {
+	return fmt.Sprintf(
+		"table %s.%s has MariaDB COMPRESSED column(s) [%s], which cannot be replicated via CDC; "+
+			"convert them to a non-compressed type or remove the table from the mirror",
+		e.SchemaName, e.TableName, strings.Join(e.Columns, ", "))
+}
+
+type MySQLUnsupportedBinlogRowValueOptionsError struct {
+	Schema string
+	Table  string
+}
+
+func NewMySQLUnsupportedBinlogRowValueOptionsError(schema string, table string) *MySQLUnsupportedBinlogRowValueOptionsError {
+	return &MySQLUnsupportedBinlogRowValueOptionsError{Schema: schema, Table: table}
+}
+
+func (e *MySQLUnsupportedBinlogRowValueOptionsError) Error() string {
+	return fmt.Sprintf(
+		"Received a partial JSON update event while processing %s.%s; binlog_row_value_options must be disabled (set to '')",
+		e.Schema, e.Table)
+}
+
 type MySQLUnsupportedDDLError struct {
 	TableName string
 }
@@ -62,34 +100,110 @@ func (e *MySQLUnsupportedDDLError) Error() string {
 		"Detected position-shifting DDL on table %s but binlog_row_metadata is not supported by this MySQL version.", e.TableName)
 }
 
-type MySQLStreamingError struct {
+// MySQLGeometryParseError wraps go-geos WKB parse failures so they can be
+// classified as MySQL-source errors without string-matching at the alerting layer.
+// The underlying message comes from go-geos C code and is not unique to MySQL on its own.
+type MySQLGeometryParseError struct {
+	error
+}
+
+func NewMySQLGeometryParseError(err error) *MySQLGeometryParseError {
+	return &MySQLGeometryParseError{err}
+}
+
+func (e *MySQLGeometryParseError) Error() string {
+	return "failed to parse MySQL geometry WKB: " + e.error.Error()
+}
+
+func (e *MySQLGeometryParseError) Unwrap() error {
+	return e.error
+}
+
+type MySQLExecuteError struct {
 	error
 	Retryable bool
 }
 
-func NewMySQLStreamingError(err error) *MySQLStreamingError {
+func NewMySQLExecuteError(err error) *MySQLExecuteError {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &MySQLStreamingError{err, true}
+		return &MySQLExecuteError{err, true}
 	}
 
-	var recordHeaderError tls.RecordHeaderError
-	if errors.As(err, &recordHeaderError) {
+	if recordHeaderError, ok := errors.AsType[tls.RecordHeaderError](err); ok {
 		if recordHeaderError.Msg == "first record does not look like a TLS handshake" {
-			return &MySQLStreamingError{err, true}
+			return &MySQLExecuteError{err, true}
 		}
 	}
 
 	if strings.Contains(err.Error(), mysql.ErrBadConn.Error()) {
-		return &MySQLStreamingError{err, true}
+		return &MySQLExecuteError{err, true}
 	}
 
-	return &MySQLStreamingError{err, false}
+	if InvalidSequenceRe.MatchString(err.Error()) {
+		return &MySQLExecuteError{err, true}
+	}
+
+	return &MySQLExecuteError{err, false}
 }
 
-func (e *MySQLStreamingError) Error() string {
-	return "MySQL streaming error: " + e.error.Error()
+func (e *MySQLExecuteError) Error() string {
+	return "MySQL execute error: " + e.error.Error()
 }
 
-func (e *MySQLStreamingError) Unwrap() error {
+func (e *MySQLExecuteError) Unwrap() error {
 	return e.error
+}
+
+// MySQLStaleConnectionError indicates that no events (rows or heartbeats) have arrived
+// from the MySQL master in longer than the configured staleness window.
+type MySQLStaleConnectionError struct {
+	Since           time.Duration
+	HeartbeatPeriod time.Duration
+}
+
+func NewMySQLStaleConnectionError(since, heartbeatPeriod time.Duration) *MySQLStaleConnectionError {
+	return &MySQLStaleConnectionError{Since: since, HeartbeatPeriod: heartbeatPeriod}
+}
+
+func (e *MySQLStaleConnectionError) Error() string {
+	return fmt.Sprintf("MySQL connection is stale: no events received in %v (heartbeat=%v)",
+		e.Since, e.HeartbeatPeriod)
+}
+
+type MySQLBinlogIncidentError struct {
+	Message  string
+	Incident uint16
+}
+
+func NewMySQLBinlogIncidentError(incident uint16, message string) *MySQLBinlogIncidentError {
+	return &MySQLBinlogIncidentError{Incident: incident, Message: message}
+}
+
+func (e *MySQLBinlogIncidentError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("MySQL binlog incident event received (incident=%d): %s; a resync is required", e.Incident, e.Message)
+	}
+	return fmt.Sprintf("MySQL binlog incident event received (incident=%d); a resync is required", e.Incident)
+}
+
+type MySQLUnsupportedPartialRowEventError struct {
+	Schema    string
+	Table     string
+	EventType byte
+}
+
+func NewMySQLUnsupportedPartialRowEventError(eventType byte, schema string, table string) *MySQLUnsupportedPartialRowEventError {
+	return &MySQLUnsupportedPartialRowEventError{EventType: eventType, Schema: schema, Table: table}
+}
+
+func (e *MySQLUnsupportedPartialRowEventError) Error() string {
+	if e.Schema != "" || e.Table != "" {
+		return fmt.Sprintf(
+			"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d) on table %s.%s: "+
+				"fragmented oversized row events cannot be processed; a resync is required",
+			e.EventType, e.Schema, e.Table)
+	}
+	return fmt.Sprintf(
+		"unsupported MariaDB PARTIAL_ROW_DATA_EVENT (type %d): fragmented oversized row events cannot be processed; a resync is required",
+		e.EventType)
 }

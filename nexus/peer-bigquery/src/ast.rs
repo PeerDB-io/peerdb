@@ -1,13 +1,30 @@
 use std::ops::ControlFlow;
 
-use peer_ast::flatten_expr_to_in_list;
+use parser::ast_helpers::flatten_expr_to_in_list;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
     Array, BinaryOperator, DataType, DateTimeField, Expr, Function, FunctionArg, FunctionArgExpr,
-    Ident, ObjectName, Query, SetExpr, SetOperator, SetQuantifier, TimezoneInfo,
-    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, visit_setexpr_mut,
+    FunctionArgumentList, FunctionArguments, Ident, ObjectName, ObjectNamePart, Query, SetExpr,
+    SetOperator, SetQuantifier, TimezoneInfo, ValueWithSpan, visit_expressions_mut,
+    visit_relations_mut,
 };
+
+fn rewrite_union_distinct(node: &mut SetExpr) {
+    if let SetExpr::SetOperation {
+        op,
+        set_quantifier,
+        left,
+        right,
+    } = node
+    {
+        rewrite_union_distinct(left);
+        rewrite_union_distinct(right);
+        if *op == SetOperator::Union && *set_quantifier == SetQuantifier::None {
+            *set_quantifier = SetQuantifier::Distinct;
+        }
+    }
+}
 
 pub struct BigqueryAst;
 
@@ -32,12 +49,13 @@ impl BigqueryAst {
             name: ObjectName(v),
             ..
         }) = e
-            && self.is_timestamp_returning_function(&v[0].value)
+            && let Some(ident) = v[0].as_ident()
+            && self.is_timestamp_returning_function(&ident.value)
         {
             return true;
         }
 
-        if let Expr::Interval { .. } = e {
+        if let Expr::Interval(_) = e {
             return true;
         }
 
@@ -64,30 +82,44 @@ impl BigqueryAst {
     }
 
     pub fn rewrite(&self, peername: &str, dataset: &str, query: &mut Query) -> anyhow::Result<()> {
-        // replace peername with the connected dataset.
+        // replace peername with connected dataset
         let _ = visit_relations_mut(query, |table| {
-            if table.0.len() > 1 && peername.eq_ignore_ascii_case(&table.0[0].value) {
-                table.0[0] = dataset.into();
+            if table.0.len() > 1
+                && let Some(ident) = table.0[0].as_ident()
+                && peername.eq_ignore_ascii_case(&ident.value)
+            {
+                table.0[0] = ObjectNamePart::Identifier(Ident::new(dataset));
             }
             ControlFlow::<()>::Continue(())
         });
 
-        let _ = visit_function_arg_mut(query, |node| {
-            if let FunctionArgExpr::Expr(arg_expr) = node
-                && let Expr::Cast {
-                    data_type: DataType::Array(_),
-                    ..
-                } = arg_expr
+        // rewrite CAST(... AS ARRAY) inside function args to ARRAY[...]
+        let _ = visit_expressions_mut(query, |node| {
+            if let Expr::Function(func) = node
+                && let FunctionArguments::List(list) = &mut func.args
             {
-                let list =
-                    flatten_expr_to_in_list(arg_expr).expect("failed to flatten in function");
-                let rewritten_array = Array {
-                    elem: list,
-                    named: true,
-                };
-                *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
+                for arg in &mut list.args {
+                    let arg_expr = match arg {
+                        FunctionArg::Unnamed(expr)
+                        | FunctionArg::Named { arg: expr, .. }
+                        | FunctionArg::ExprNamed { arg: expr, .. } => expr,
+                    };
+                    if let FunctionArgExpr::Expr(inner) = arg_expr
+                        && let Expr::Cast {
+                            data_type: DataType::Array(_),
+                            ..
+                        } = inner
+                    {
+                        let items =
+                            flatten_expr_to_in_list(inner).expect("failed to flatten in function");
+                        let rewritten_array = Array {
+                            elem: items,
+                            named: true,
+                        };
+                        *arg_expr = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
+                    }
+                }
             }
-
             ControlFlow::<()>::Continue(())
         });
 
@@ -107,10 +139,11 @@ impl BigqueryAst {
                 name: ObjectName(v),
                 ..
             }) = node
+                && let Some(ObjectNamePart::Identifier(ident)) = v.first_mut()
             {
                 // now() to CURRENT_TIMESTAMP
-                if v[0].value.eq_ignore_ascii_case("now") {
-                    v[0].value = "CURRENT_TIMESTAMP".into();
+                if ident.value.eq_ignore_ascii_case("now") {
+                    ident.value = "CURRENT_TIMESTAMP".into();
                 }
             }
 
@@ -121,7 +154,11 @@ impl BigqueryAst {
                 ..
             }) = node
             {
-                if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = value.as_ref() {
+                if let Expr::Value(ValueWithSpan {
+                    value: sqlparser::ast::Value::SingleQuotedString(s),
+                    ..
+                }) = value.as_ref()
+                {
                     /*
                     postgres will have interval '1 Day'
                     rewriting that to interval 1 Day in BQ
@@ -130,7 +167,7 @@ impl BigqueryAst {
                     let vec = split.collect::<Vec<&str>>();
                     let val_string: String = vec[0].into();
                     let date_time_field = self.convert_to_datetimefield(vec[1]);
-                    *(value.as_mut()) = Expr::Value(Number(val_string, false));
+                    *(value.as_mut()) = Expr::Value(Number(val_string, false).into());
                     if date_time_field.is_none() {
                         // Error handling - Nexus for BQ only supports Day, Hour, Minute, Second, Millisecond
                     }
@@ -157,75 +194,61 @@ impl BigqueryAst {
             {
                 if let BinaryOperator::Minus = op {
                     *node = Expr::Function(Function {
-                        name: ObjectName(vec![Ident::new("DATE_SUB".to_string())]),
-                        args: vec![
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
-                        ],
+                        name: ObjectName::from(vec![Ident::new("DATE_SUB")]),
+                        uses_odbc_syntax: false,
+                        parameters: FunctionArguments::None,
+                        args: FunctionArguments::List(FunctionArgumentList {
+                            args: vec![
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
+                            ],
+                            duplicate_treatment: None,
+                            clauses: vec![],
+                        }),
                         null_treatment: None,
                         filter: None,
                         over: None,
-                        distinct: false,
-                        special: false,
-                        order_by: vec![],
+                        within_group: vec![],
                     })
                 } else if let BinaryOperator::Plus = op {
                     *node = Expr::Function(Function {
-                        name: ObjectName(vec![Ident::new("DATE_ADD".to_string())]),
-                        args: vec![
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
-                        ],
+                        name: ObjectName::from(vec![Ident::new("DATE_ADD")]),
+                        uses_odbc_syntax: false,
+                        parameters: FunctionArguments::None,
+                        args: FunctionArguments::List(FunctionArgumentList {
+                            args: vec![
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
+                            ],
+                            duplicate_treatment: None,
+                            clauses: vec![],
+                        }),
                         null_treatment: None,
                         filter: None,
                         over: None,
-                        distinct: false,
-                        special: false,
-                        order_by: vec![],
+                        within_group: vec![],
                     })
                 }
             }
-            if let Expr::Function(Function {
-                name: ObjectName(v),
-                args: a,
-                ..
-            }) = node
-                && v[0].value.eq_ignore_ascii_case("date_trunc")
+            if let Expr::Function(func) = node
+                && let Some(ident) = func.name.0[0].as_ident()
+                && ident.value.eq_ignore_ascii_case("date_trunc")
+                && let FunctionArguments::List(list) = &mut func.args
             {
-                let mut date_part = a[0].to_string();
-                let date_expression = &a[1];
-                a[0] = date_expression.clone();
+                let mut date_part = list.args[0].to_string();
+                let date_expression = list.args[1].clone();
+                list.args[0] = date_expression;
                 date_part.remove(0);
                 date_part.pop();
-                let tmp = Expr::Identifier(Ident {
-                    value: date_part,
-                    quote_style: None,
-                });
-                a[1] = FunctionArg::Unnamed(FunctionArgExpr::Expr(tmp));
+                let tmp = Expr::Identifier(Ident::new(date_part));
+                list.args[1] = FunctionArg::Unnamed(FunctionArgExpr::Expr(tmp));
             }
 
             ControlFlow::<()>::Continue(())
         });
 
         // Replace UNION with UNION DISTINCT (only if there is no SetQuantifier after UNION)
-        let _ = visit_setexpr_mut(query, |node| {
-            if let SetExpr::SetOperation {
-                op: SetOperator::Union,
-                set_quantifier: SetQuantifier::None,
-                left,
-                right,
-            } = node
-            {
-                *node = SetExpr::SetOperation {
-                    op: SetOperator::Union,
-                    set_quantifier: SetQuantifier::Distinct,
-                    left: left.clone(),
-                    right: right.clone(),
-                };
-            }
-
-            ControlFlow::<()>::Continue(())
-        });
+        rewrite_union_distinct(&mut query.body);
 
         // flatten ANY to IN operation overall.
         let _ = visit_expressions_mut(query, |node| {
@@ -233,6 +256,7 @@ impl BigqueryAst {
                 left,
                 compare_op,
                 right,
+                ..
             } = node
                 && matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq)
             {

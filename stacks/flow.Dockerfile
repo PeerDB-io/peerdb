@@ -1,6 +1,10 @@
-# syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
+# syntax=docker/dockerfile:1.25@sha256:0adf442eae370b6087e08edc7c50b552d80ddf261576f4ebd6421006b2461f12
 
-FROM golang:1.26-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS builder
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS builder
+# Allow build flags to be passed in at build time, for example debug flags
+ARG DEBUG_BUILD
+ENV DEBUG_BUILD=${DEBUG_BUILD}
+
 RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
@@ -21,9 +25,12 @@ ENV CGO_ENABLED=1
 # Generate the typed handler wrapper
 RUN go generate
 ENV GOCACHE=/root/.cache/go-build
-RUN --mount=type=cache,target="/root/.cache/go-build" go build -o /root/peer-flow
+RUN --mount=type=cache,target="/root/.cache/go-build" go build ${DEBUG_BUILD:+-gcflags} ${DEBUG_BUILD:+"all=-N -l"} -o /root/peer-flow
+RUN --mount=type=cache,target="/root/.cache/go-build" if [[ "$DEBUG_BUILD" = "1" ]]; then \
+    go install github.com/go-delve/delve/cmd/dlv@latest; \
+  fi
 
-FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS flow-base
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS flow-base
 ENV TZ=UTC
 ADD --checksum=sha256:e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
 RUN apk add --no-cache ca-certificates geos && \
@@ -32,6 +39,15 @@ RUN apk add --no-cache ca-certificates geos && \
 USER peerdb
 WORKDIR /home/peerdb
 COPY --from=builder --chown=peerdb /root/peer-flow .
+ENTRYPOINT [ "/home/peerdb/peer-flow" ]
+
+# Debug Image with Delve installed and the binary built with debug flags
+FROM flow-base AS flow-base-debug
+USER root
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+ENV TEMPORAL_DEBUG=1
+EXPOSE 40000
+ENTRYPOINT ["dlv", "--headless", "--continue", "--accept-multiclient", "--listen=:40000", "--api-version=2", "exec", "/home/peerdb/peer-flow", "--"]
 
 FROM flow-base AS flow-api
 
@@ -39,9 +55,21 @@ ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 EXPOSE 8112 8113
-ENTRYPOINT ["./peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
+
+FROM flow-base-debug AS flow-api-debug
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+
+EXPOSE 8112 8113
+CMD ["api", "--port", "8112", "--gateway-port", "8113"]
 
 FROM flow-base AS flow-worker
+
+USER root
+RUN apk add --no-cache postgresql-client
+USER peerdb
 
 # Sane defaults for OpenTelemetry
 ENV OTEL_METRIC_EXPORT_INTERVAL=10000
@@ -49,17 +77,31 @@ ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
-ENTRYPOINT ["./peer-flow", "worker"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "worker"]
+
+FROM flow-base-debug AS flow-worker-debug
+ENV OTEL_METRIC_EXPORT_INTERVAL=10000
+ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+CMD ["worker"]
+
 
 FROM flow-base AS flow-snapshot-worker
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT ["./peer-flow", "snapshot-worker"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "snapshot-worker"]
+
+FROM flow-base-debug AS flow-snapshot-worker-debug
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+CMD ["snapshot-worker"]
 
 
 FROM flow-base AS flow-maintenance
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT ["./peer-flow", "maintenance"]
+ENTRYPOINT [ "/home/peerdb/peer-flow", "maintenance"]

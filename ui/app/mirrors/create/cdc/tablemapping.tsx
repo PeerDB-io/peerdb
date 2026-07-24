@@ -2,11 +2,11 @@
 import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
+import { BarLoader } from '@/lib/BarLoader';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import Link from 'next/link';
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
-import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../../dto/MirrorsDTO';
 import { fetchSchemas } from '../handlers';
 import EventhubsCallout from './eventhubsCallout';
@@ -105,7 +105,7 @@ export default function TablePicker({
           ))
         ) : (
           <div style={loaderContainer}>
-            <BarLoader color='#36d7b7' width='40%' />
+            <BarLoader width='40%' />
           </div>
         )}
       </div>

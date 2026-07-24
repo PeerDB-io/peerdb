@@ -1,9 +1,15 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query,
-    Statement, TimezoneInfo, visit_expressions_mut, visit_relations_mut, visit_statements_mut,
+    CastKind, CreateTable, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
+    FunctionArgumentList, FunctionArguments, Ident, JsonPath, JsonPathElem, ObjectName, Query,
+    Statement, TimezoneInfo, Value, visit_expressions_mut, visit_relations_mut,
+    visit_statements_mut,
 };
+
+fn snowflake_timestamp() -> DataType {
+    DataType::Custom(ObjectName::from(vec![Ident::new("TIMESTAMP_NTZ")]), vec![])
+}
 
 pub struct SnowflakeAst;
 
@@ -31,57 +37,78 @@ impl SnowflakeAst {
         Ok(())
     }
 
+    // Convert Postgres `->` JSON access to Snowflake `:` path syntax
     fn rewrite_json_access(&self, expr: &mut Expr) {
-        if let sqlparser::ast::Expr::JsonAccess { operator, .. } = expr {
-            *operator = JsonOperator::Colon;
-        };
+        if let Expr::BinaryOp {
+            left,
+            op: sqlparser::ast::BinaryOperator::Arrow,
+            right,
+        } = expr
+        {
+            let key = match right.as_ref() {
+                Expr::Value(v) => match &v.value {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    Value::Number(s, _) => s.clone(),
+                    _ => return,
+                },
+                Expr::Identifier(ident) => ident.value.clone(),
+                _ => return,
+            };
+
+            *expr = Expr::JsonAccess {
+                value: left.clone(),
+                path: JsonPath {
+                    path: vec![JsonPathElem::Dot { key, quoted: false }],
+                },
+            };
+        }
     }
 
-    // TODO: Snowflake does not support the Postgres INTERVAL type. In future, encode this better [via a BackendMessage]
     fn rewrite_timestamp_for_cast(&self, expr: &mut Expr) {
-        if let sqlparser::ast::Expr::Cast { data_type, .. } = expr
+        if let Expr::Cast {
+            data_type, kind, ..
+        } = expr
+            && (*kind == CastKind::Cast || *kind == CastKind::TryCast)
             && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
         {
-            *data_type = DataType::SnowflakeTimestamp
-        }
-
-        if let sqlparser::ast::Expr::TryCast { data_type, .. } = expr
-            && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
-        {
-            *data_type = DataType::SnowflakeTimestamp
+            *data_type = snowflake_timestamp();
         }
     }
 
     fn rewrite_timestamp_for_create(&self, stmt: &mut Statement) {
-        if let sqlparser::ast::Statement::CreateTable { columns, .. } = stmt {
+        if let Statement::CreateTable(CreateTable { columns, .. }) = stmt {
             for column in columns.iter_mut() {
                 if column.data_type == DataType::Timestamp(None, TimezoneInfo::None) {
-                    column.data_type = DataType::SnowflakeTimestamp
+                    column.data_type = snowflake_timestamp();
                 }
             }
         }
     }
 
     fn rewrite_timestamp_for_at_time_zone(&self, expr: &mut Expr) {
-        if let sqlparser::ast::Expr::AtTimeZone {
+        if let Expr::AtTimeZone {
             timestamp,
             time_zone,
         } = expr
         {
             *expr = Expr::Function(Function {
-                name: ObjectName(vec![Ident::new("CONVERT_TIMEZONE".to_string())]),
-                args: vec![
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        sqlparser::ast::Value::SingleQuotedString(time_zone.to_string()),
-                    ))),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(*timestamp.clone())),
-                ],
+                name: ObjectName::from(vec![Ident::new("CONVERT_TIMEZONE")]),
+                args: FunctionArguments::List(FunctionArgumentList {
+                    args: vec![
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            Value::SingleQuotedString(time_zone.to_string()).into(),
+                        ))),
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(*timestamp.clone())),
+                    ],
+                    duplicate_treatment: None,
+                    clauses: vec![],
+                }),
                 null_treatment: None,
                 filter: None,
                 over: None,
-                distinct: false,
-                special: false,
-                order_by: vec![],
+                parameters: FunctionArguments::None,
+                uses_odbc_syntax: false,
+                within_group: vec![],
             })
         }
     }

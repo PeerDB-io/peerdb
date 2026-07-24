@@ -16,6 +16,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -52,7 +53,9 @@ const (
 	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
-	CommitLagGaugeName                   = "commit_lag"
+	SourceLagGaugeName                   = "source_lag"
+	DestinationLagGaugeName              = "destination_lag"
+	E2ELagGaugeName                      = "e2e_lag"
 	ServerSideCommitLagGaugeName         = "server_side_commit_lag"
 	NormalizeLagGaugeName                = "normalize_lag"
 	ErrorEmittedGaugeName                = "error_emitted"
@@ -64,7 +67,6 @@ const (
 	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
 	RecordsSyncedPerTableCounterName     = "records_synced_per_table_counter"
 	SyncedTablesGaugeName                = "synced_tables"
-	SyncedTablesPerBatchGaugeName        = "synced_tables_per_batch"
 	InstanceStatusGaugeName              = "instance_status"
 	MaintenanceStatusGaugeName           = "maintenance_status"
 	FlowStatusGaugeName                  = "flow_status"
@@ -80,6 +82,11 @@ const (
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
+	UsedMySQLCharsetsName                = "used_mysql_charsets"
+	ColumnTypeChangesName                = "column_type_changes"
+	ParseSQLErrorsCounterName            = "parse_sql_errors"
+	OnlineSchemaMigrationsName           = "online_schema_migrations"
+	UnsupportedBinlogEventName           = "unsupported_binlog_event"
 )
 
 type Metrics struct {
@@ -108,7 +115,9 @@ type Metrics struct {
 	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
 	AllFetchedBytesCounter           metric.Int64Counter
 	FetchedBytesCounter              metric.Int64Counter
-	CommitLagGauge                   metric.Int64Gauge
+	SourceLagGauge                   metric.Int64Gauge
+	DestinationLagGauge              metric.Int64Gauge
+	E2ELagGauge                      metric.Int64Gauge
 	ServerSideCommitLagGauge         metric.Int64Gauge
 	NormalizeLagGauge                metric.Int64Gauge
 	ErrorEmittedGauge                metric.Int64Gauge
@@ -120,7 +129,6 @@ type Metrics struct {
 	RecordsSyncedPerTableGauge       metric.Int64Gauge
 	RecordsSyncedPerTableCounter     metric.Int64Counter
 	SyncedTablesGauge                metric.Int64Gauge
-	SyncedTablesPerBatchGauge        metric.Int64Gauge
 	InstanceStatusGauge              metric.Int64Gauge
 	MaintenanceStatusGauge           metric.Int64Gauge
 	FlowStatusGauge                  metric.Int64Gauge
@@ -135,6 +143,11 @@ type Metrics struct {
 	LogRetentionGauge                metric.Float64Gauge
 	UnchangedToastValuesCounter      metric.Int64Counter
 	ServerWalEndLagGauge             metric.Int64Gauge
+	UsedMySQLCharsetsCounter         metric.Int64Counter
+	ColumnTypeChangesCounter         metric.Int64Counter
+	ParseSQLErrorsCounter            metric.Int64Counter
+	OnlineSchemaMigrationsCounter    metric.Int64Counter
+	UnsupportedBinlogEventCounter    metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -170,6 +183,7 @@ type OtelManager struct {
 	Metrics            Metrics
 	MetricsProvider    metric.MeterProvider
 	Meter              metric.Meter
+	Tracer             trace.Tracer
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
@@ -186,6 +200,7 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 		Enabled:            enabled,
 		MetricsProvider:    metricsProvider,
 		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
+		Tracer:             Tracer(),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
@@ -402,10 +417,23 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
-		metric.WithUnit("us"),
-		metric.WithDescription("Lag in microseconds from when a change event was committed on the source"+
-			" to when PeerDB processes it; subject to clock skew"),
+	if om.Metrics.SourceLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SourceLagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Lag in milliseconds from a source event's commit timestamp to when PeerDB receives it"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.DestinationLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(DestinationLagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Lag in milliseconds from when PeerDB receives a source event to when it is written to the destination"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("End-to-end lag in milliseconds from a source event's commit timestamp to destination write"),
 	); err != nil {
 		return err
 	}
@@ -496,12 +524,6 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.SyncedTablesPerBatchGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesPerBatchGaugeName),
-		metric.WithDescription("Number of tables synced for every Sync batch"),
-	); err != nil {
-		return err
-	}
-
 	if om.Metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
 		metric.WithDescription("Status of the instance, always emits a 1 metric with different attributes for different statuses"),
 	); err != nil {
@@ -574,6 +596,43 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
+		metric.WithDescription(
+			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ColumnTypeChangesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ColumnTypeChangesName),
+		metric.WithDescription(
+			"Counter of column type changes detected on the CDC path, with `source` label holding the source peer type, "+
+				"`from`/`to` labels holding the source/target type and `sourceEventType` holding the source of event(ddl, eventMetadata)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ParseSQLErrorsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ParseSQLErrorsCounterName),
+		metric.WithDescription("Counter of errors encountered while parsing MySQL QueryEvent SQL on the CDC path")); err != nil {
+		return err
+	}
+
+	if om.Metrics.OnlineSchemaMigrationsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(OnlineSchemaMigrationsName),
+		metric.WithDescription(
+			"Counter of online schema migrations detected on the CDC path, i.e. a tracked table being atomically "+
+				"renamed into by a shadow/ghost table, with `source` label holding the source peer type and `tool` "+
+				"label holding the detected migration tool (gh-ost, pt-online-schema-change, other)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnsupportedBinlogEventCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnsupportedBinlogEventName),
+		metric.WithDescription(
+			"Counter of unsupported binlog events seen on the CDC path, with `eventType` label "+
+				"holding the numeric binlog event type"),
 	); err != nil {
 		return err
 	}
@@ -681,11 +740,14 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
+	// otel v1.44.0 introduced a default max request size of 64 MiB, making oversized
+	// exports fail as non-retryable errors; 0 disables it, preserving the previous
+	// unlimited behavior
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = otlpmetrichttp.New(ctx)
+		metricExporter, err = otlpmetrichttp.New(ctx, otlpmetrichttp.WithMaxRequestSize(0))
 	case "grpc":
-		metricExporter, err = otlpmetricgrpc.New(ctx)
+		metricExporter, err = otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithMaxRequestSize(0))
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
@@ -716,6 +778,9 @@ func setupMetricsAndProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
 		sdkmetric.WithView(views...),
+		// otel v1.44.0 introduced a default cardinality limit of 2000 per instrument;
+		// 0 disables it, preserving the previous unlimited behavior
+		sdkmetric.WithCardinalityLimit(0),
 	)
 	return meterProvider, nil
 }

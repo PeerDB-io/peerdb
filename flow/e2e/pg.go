@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -180,11 +179,17 @@ func (s *PostgresSource) GeneratePeer(t *testing.T) *protos.Peer {
 
 func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 	t.Helper()
+
+	config := internal.GetMutualTLSPostgresConfigFromEnv()
+	if config == nil {
+		config = internal.GetAncillaryPostgresConfigFromEnv()
+	}
+
 	peer := &protos.Peer{
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: internal.GetAncillaryPostgresConfigFromEnv(),
+			PostgresConfig: config,
 		},
 	}
 	CreatePeer(t, peer)
@@ -255,16 +260,16 @@ func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecor
 	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, query)
 }
 
-func (s *PostgresSource) GetLogCount(ctx context.Context, flowJobName, errorType, pattern string) (int, error) {
-	rows, err := s.Query(ctx, fmt.Sprintf(`
+func GetLogCount(ctx context.Context, catalog shared.CatalogPool, flowJobName, errorType, pattern string) (int, error) {
+	var count int
+	err := catalog.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*) FROM peerdb_stats.flow_errors
 		WHERE error_type='%s' AND position('%s' in flow_name) > 0
-		AND error_message ILIKE '%%%s%%'`, errorType, flowJobName, pattern))
+		AND error_message ILIKE '%%%s%%'`, errorType, flowJobName, pattern)).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
-
-	return int(rows.Records[0][0].Value().(int64)), nil
+	return count, nil
 }
 
 // Toxiproxy support for testing concurrent scenarios
@@ -334,14 +339,7 @@ func GetPostgresToxicProxy(t *testing.T, suffix string, port uint32) (*tp.Proxy,
 
 	// Get upstream from environment configuration
 	config := internal.GetAncillaryPostgresConfigFromEnv()
-
-	// Allow override of upstream host for Toxiproxy
-	// In CI, Toxiproxy runs as a service container and needs to use service names
-	// while test code connects via localhost
-	upstreamHost := os.Getenv("TOXIPROXY_POSTGRES_HOST")
-	if upstreamHost == "" {
-		upstreamHost = config.Host
-	}
+	upstreamHost := internal.PostgresSSHUpstreamHostWithFallback(config.Host)
 
 	return toxiClient.CreateProxy("postgres_"+suffix,
 		fmt.Sprintf("0.0.0.0:%d", port),

@@ -78,7 +78,6 @@ func AddCDCBatchForFlow(ctx context.Context, pool shared.CatalogPool, flowJobNam
 	return nil
 }
 
-// update num records and end-lsn for a cdc batch
 func UpdateNumRowsAndEndLSNForCDCBatch(
 	ctx context.Context,
 	pool shared.CatalogPool,
@@ -86,12 +85,16 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	batchID int64,
 	numRows uint32,
 	batchEndCheckpoint model.CdcCheckpoint,
+	firstRowReceivedAt *time.Time,
+	firstRowCommitTime *time.Time,
 ) error {
 	if _, err := pool.Exec(ctx,
 		`UPDATE peerdb_stats.cdc_batches
-		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW()
-		WHERE flow_name=$4 AND batch_id=$5`,
-		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
+		SET rows_in_batch=$1, batch_end_lsn=$2, batch_end_lsn_text=$3, sync_time=NOW(),
+		first_row_received_at=$4, first_row_commit_time=$5
+		WHERE flow_name=$6 AND batch_id=$7`,
+		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text,
+		firstRowReceivedAt, firstRowCommitTime, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
@@ -113,6 +116,28 @@ func UpdateEndTimeForCDCBatch(
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}
 	return nil
+}
+
+func GetFirstRowTimesForBatchRange(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	startBatchID int64,
+	endBatchID int64,
+) (time.Time, time.Time, bool, error) {
+	var minReceivedAt, minCommitTime *time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT MIN(first_row_received_at), MIN(first_row_commit_time)
+		FROM peerdb_stats.cdc_batches
+		WHERE flow_name=$1 AND batch_id BETWEEN $2 AND $3 AND first_row_received_at IS NOT NULL`,
+		flowJobName, startBatchID, endBatchID,
+	).Scan(&minReceivedAt, &minCommitTime); err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("error while querying first row times: %w", err)
+	}
+	if minReceivedAt == nil || minCommitTime == nil {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	return *minReceivedAt, *minCommitTime, true, nil
 }
 
 func GetPendingNormalizeLagByFlow(
@@ -232,9 +257,6 @@ func AddCDCBatchTablesForFlow(
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
 	}
 
-	otelManager.Metrics.SyncedTablesPerBatchGauge.Record(ctx, syncedTablesCount, metric.WithAttributeSet(attribute.NewSet(
-		attribute.Int64(otel_metrics.BatchIdKey, batchID))))
-
 	for destinationTableName, operations := range tableNameOperations {
 		for _, opAndCount := range operations {
 			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
@@ -335,10 +357,16 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	}
 
 	var rangeStart, rangeEnd *string
-	if partition.Range != nil {
+	if partition.RangeOffloaded {
+		internal.LoggerFromCtx(ctx).Info(
+			"omitting partition_start/partition_end from qrep_partitions because it's offloaded",
+			slog.String("partitionId", partition.PartitionId))
+	} else if partition.Range != nil {
 		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			rangeStart, rangeEnd = new(strconv.FormatInt(x.IntRange.Start, 10)), new(strconv.FormatInt(x.IntRange.End, 10))
+		case *protos.PartitionRange_NumericRange:
+			rangeStart, rangeEnd = new(strconv.FormatInt(x.NumericRange.Start, 10)), new(strconv.FormatInt(x.NumericRange.End, 10))
 		case *protos.PartitionRange_UintRange:
 			rangeStart, rangeEnd = new(strconv.FormatUint(x.UintRange.Start, 10)), new(strconv.FormatUint(x.UintRange.End, 10))
 		case *protos.PartitionRange_TimestampRange:
@@ -365,12 +393,16 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			rangeEnd = new(rangeEndValue.(string))
 		case *protos.PartitionRange_ObjectIdRange:
 			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
+		case *protos.PartitionRange_StringRange:
+			// quote so bytes that postgres text columns reject (e.g. NUL, which
+			// would wedge the snapshot in a retry loop) become visible escapes
+			rangeStart, rangeEnd = new(strconv.Quote(x.StringRange.Start)), new(strconv.Quote(x.StringRange.End))
 		case *protos.PartitionRange_NullRange:
 			// leave rangeStart and rangeEnd as nil
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
-	} else if !partition.FullTablePartition {
+	} else if !partition.FullTablePartition && len(partition.ChildTableRanges) == 0 {
 		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}

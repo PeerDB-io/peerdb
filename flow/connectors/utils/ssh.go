@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -19,9 +20,10 @@ import (
 const SSHKeepaliveInterval = 15 * time.Second
 
 type SSHTunnel struct {
-	*ssh.Client
+	client        *ssh.Client
+	logger        *slog.Logger
 	keepaliveChan atomic.Pointer[chan struct{}]
-	badTunnel     bool
+	badTunnel     atomic.Bool
 }
 
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -90,19 +92,40 @@ func NewSSHTunnel(
 			return nil, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return &SSHTunnel{Client: client, badTunnel: false}, nil
+		return &SSHTunnel{
+			client: client,
+			logger: internal.SlogLoggerFromCtx(ctx),
+		}, nil
 	}
 
 	return nil, nil
 }
 
+// IsBad reports whether the tunnel has been marked unusable (keepalive failure or explicit close).
+// Safe to call on a nil tunnel, in which case it returns false.
+func (tunnel *SSHTunnel) IsBad() bool {
+	return tunnel != nil && tunnel.badTunnel.Load()
+}
+
+func (tunnel *SSHTunnel) IsActive() bool {
+	return tunnel != nil && tunnel.client != nil
+}
+
+func (tunnel *SSHTunnel) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := tunnel.client.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, exceptions.NewSSHTunnelDialError(err)
+	}
+	return NewDeadlineCapableConn(conn), nil
+}
+
 func (tunnel *SSHTunnel) Close() error {
-	if tunnel != nil && tunnel.Client != nil {
+	if tunnel != nil && tunnel.client != nil {
 		if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 			close(*keepaliveChan)
 		}
-		tunnel.badTunnel = true
-		return tunnel.Client.Close()
+		tunnel.badTunnel.Store(true)
+		return tunnel.client.Close()
 	}
 	return nil
 }
@@ -112,7 +135,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 ) {
 	ticker := time.NewTicker(SSHKeepaliveInterval)
 	defer ticker.Stop()
-	logger := internal.LoggerFromCtx(ctx)
+	logger := tunnel.logger
 	// in case request hangs, we want to detect that and not send another request
 	requestSent := atomic.Bool{}
 	var keepaliveErr error
@@ -124,11 +147,11 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 		case <-ticker.C:
 			if requestSent.Load() {
 				// Previous keepalive request didn't return yet, something's wrong
-				logger.Error("Previous keepalive request still pending, marking tunnel as bad")
+				logger.ErrorContext(ctx, "Previous keepalive request still pending, marking tunnel as bad")
 				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 					close(*keepaliveChan)
 				}
-				tunnel.badTunnel = true
+				tunnel.badTunnel.Store(true)
 				if onFailure != nil {
 					onFailure()
 				}
@@ -136,7 +159,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 			}
 			go func() {
 				requestSent.Store(true)
-				_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
+				_, _, err := tunnel.client.SendRequest("keepalive@openssh.com", true, nil)
 				requestSent.Store(false)
 				if err != nil {
 					keepaliveErr = err
@@ -152,11 +175,11 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 			// channel closed from outside
 			return
 		case <-errChan:
-			logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
+			logger.ErrorContext(ctx, "Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
 			if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
 				close(*keepaliveChan)
 			}
-			tunnel.badTunnel = true
+			tunnel.badTunnel.Store(true)
 			if onFailure != nil {
 				onFailure()
 			}
@@ -166,7 +189,7 @@ func (tunnel *SSHTunnel) runKeepaliveLoop(
 }
 
 func (tunnel *SSHTunnel) StartKeepalive(ctx context.Context, onFailure func()) {
-	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+	if tunnel == nil || tunnel.client == nil || tunnel.badTunnel.Load() {
 		return
 	}
 	if tunnel.keepaliveChan.Load() != nil {
@@ -182,7 +205,7 @@ func (tunnel *SSHTunnel) StartKeepalive(ctx context.Context, onFailure func()) {
 // returns a channel that is closed if the SSH keepalive fails,
 // or nil if no SSH tunnel is configured
 func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
-	if tunnel == nil || tunnel.Client == nil || tunnel.badTunnel {
+	if tunnel == nil || tunnel.client == nil || tunnel.badTunnel.Load() {
 		// nil channel would be of no consequence in a select
 		// UNLESS it's the only branch in a select, in which case it would block forever
 		return nil

@@ -13,7 +13,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
@@ -93,7 +93,7 @@ func (s PeerFlowE2ETestSuiteBQ) Teardown(ctx context.Context) {
 func SetupBigquerySuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 	t.Helper()
 
-	suffix := shared.RandomString(8)
+	suffix := common.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
 	conn, err := SetupPostgres(t, bqSuffix)

@@ -17,19 +17,16 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
-	return pg_validation.OIDToName(c.typeMap, recvOID, customTypeMapping)
-}
-
 func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
 ) types.QValueKind {
 	colType, err := PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
@@ -55,6 +52,10 @@ func qValueKindToPostgresType(colTypeStr string) string {
 	case types.QValueKindInt32, types.QValueKindUInt32:
 		return "INTEGER"
 	case types.QValueKindInt64, types.QValueKindUInt64:
+		return "BIGINT"
+	case types.QValueKindUint16Enum:
+		return "INTEGER"
+	case types.QValueKindUint64Set:
 		return "BIGINT"
 	case types.QValueKindFloat32:
 		return "REAL"
@@ -256,6 +257,9 @@ func (c *PostgresConnector) convertToString(oid uint32, value any) string {
 	if value == nil {
 		return ""
 	}
+	if hwAddr, ok := value.(net.HardwareAddr); ok {
+		return hwAddr.String()
+	}
 	if buf, err := c.typeMap.Encode(oid, pgtype.TextFormatCode, value, nil); err == nil {
 		return shared.UnsafeFastReadOnlyBytesToString(buf)
 	}
@@ -376,7 +380,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	nullable bool,
 	dstType protos.DBType,
 	value any,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
@@ -570,7 +574,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 					return types.QValueNumeric{}, nil
 				}
 			}
-			precision, scale := datatypes.ParseNumericTypmod(typmod)
+			precision, scale := common.ParseNumericTypmod(typmod)
 			return types.QValueNumeric{
 				Val:       num,
 				Precision: precision,
@@ -710,7 +714,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				}
 			}
 			if allValid {
-				precision, scale := datatypes.ParseNumericTypmod(typmod)
+				precision, scale := common.ParseNumericTypmod(typmod)
 				return types.QValueArrayNumeric{
 					Val:       numArr,
 					Precision: precision,

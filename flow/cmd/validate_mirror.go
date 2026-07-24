@@ -8,10 +8,13 @@ import (
 	"regexp"
 	"slices"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -34,6 +37,13 @@ var FlagConstraints = map[string]flagConstraint{
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
+	if req.ConnectionConfigs != nil {
+		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
+			return nil, NewInternalApiError(err)
+		} else {
+			req.ConnectionConfigs.Version = internalVersion
+		}
+	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
@@ -65,7 +75,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			return nil, NewAlreadyExistsApiError(
 				fmt.Errorf("mirror with name %s already exists", connectionConfigs.FlowJobName),
 				NewMirrorErrorInfo(map[string]string{
-					ErrorMetadataOffendingField: "flow_job_name",
+					common.ErrorMetadataOffendingField: "flow_job_name",
 				}))
 		}
 	}
@@ -94,6 +104,10 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		}
 	}
 
+	if apiErr := h.checkSourcePeerReuse(ctx, connectionConfigs); apiErr != nil {
+		return nil, apiErr
+	}
+
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
 		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
 	)
@@ -106,8 +120,39 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer srcClose(ctx)
 
 	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
-		return nil, NewFailedPreconditionApiError(
-			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+		if missing, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
+			return nil, NewFailedPreconditionApiError(
+				missing,
+				NewSourceTableMissingErrorInfo(),
+				NewSourceTableMissingPreconditionFailure(missing.Tables))
+		}
+		if notInPub, ok := errors.AsType[*common.TablesNotInPublicationError](err); ok {
+			return nil, NewFailedPreconditionApiError(
+				notInPub,
+				NewTablesNotInPublicationErrorInfo(notInPub.Publication),
+				NewTablesNotInPublicationPreconditionFailure(notInPub.Publication, notInPub.Tables))
+		}
+		if replicaIdErr, ok := errors.AsType[*common.ReplicaIdentifierInUseError](err); ok {
+			// Beyond other PeerDB mirrors, a replica id must not be already
+			// registered at source.
+			// We only enforce this check if the mirror doesn't already exist as
+			// a resync in that case might happen while the mirror is not paused thus
+			// detecting the same mirror as a conflict.
+			if mirrorExists, err := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName); err != nil {
+				return nil, NewInternalApiError(
+					fmt.Errorf("failed to check if mirror name exists: %w", err))
+			} else if !mirrorExists {
+				return nil, NewFailedPreconditionApiError(
+					fmt.Errorf("source peer %q pins a replica id = %s, which is already in use by a replica registered on the source database",
+						connectionConfigs.SourceName, replicaIdErr.Id),
+					NewMirrorErrorInfo(map[string]string{
+						common.ErrorMetadataOffendingField: "source_name",
+					}))
+			}
+		} else {
+			return nil, NewFailedPreconditionApiError(
+				fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+		}
 	}
 
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
@@ -136,6 +181,73 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
+}
+
+// checkSourcePeerReuse rejects a CDC mirror whose MySQL source peer pins a fixed server_id while
+// that peer already backs another streaming CDC mirror. A fixed server_id can only be used by one
+// concurrent binlog connection, so sharing such a peer across mirrors makes their replicas collide
+// on the source. Peers without a fixed server_id fall back to a random per-connection id and are
+// safe to reuse.
+func (h *FlowRequestHandler) checkSourcePeerReuse(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) APIError {
+	// A pinned server_id only matters for CDC; a snapshot-only mirror never opens a binlog connection.
+	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
+		return nil
+	}
+
+	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
+	}
+	mysqlCfg := peer.GetMysqlConfig()
+	if mysqlCfg == nil || mysqlCfg.ServerId == nil {
+		return nil
+	}
+
+	// CDC flows for this source peer other than the mirror being validated.
+	// query_string IS NULL filters out QRep flows, which do
+	// not stream the binlog.
+	query := `
+	SELECT f.name name, f.config_proto config_proto
+	FROM flows f
+	JOIN peers p ON f.source_peer = p.id AND p.name = $1
+	WHERE f.name != $2 AND f.config_proto IS NOT NULL AND f.query_string IS NULL
+	`
+
+	rows, err := h.pool.Query(ctx, query, cfg.SourceName, cfg.FlowJobName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to check source peer reuse for %s: %w", cfg.SourceName, err))
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		var configBytes []byte
+		if err := rows.Scan(&name, &configBytes); err != nil {
+			return NewInternalApiError(fmt.Errorf("failed to read flow row while checking peer reuse: %w", err))
+		}
+		var existing protos.FlowConnectionConfigsCore
+		if err := proto.Unmarshal(configBytes, &existing); err != nil {
+			return NewInternalApiError(fmt.Errorf("failed to unmarshal config for flow %s: %w", name, err))
+		}
+		// A snapshot-only mirror never streams the binlog, so it cannot collide on server_id.
+		if existing.DoInitialSnapshot && existing.InitialSnapshotOnly {
+			continue
+		}
+		return NewFailedPreconditionApiError(
+			fmt.Errorf("source peer %q pins server_id=%d, which cannot be shared across mirrors; "+
+				"it is already used by CDC mirror %q. Use a distinct source peer (or one without a fixed server_id) for this mirror",
+				cfg.SourceName, mysqlCfg.GetServerId(), name),
+			NewMirrorErrorInfo(map[string]string{
+				common.ErrorMetadataOffendingField: "source_name",
+			}))
+	}
+	if err := rows.Err(); err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to iterate flows while checking peer reuse for %s: %w", cfg.SourceName, err))
+	}
+
+	return nil
 }
 
 func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {

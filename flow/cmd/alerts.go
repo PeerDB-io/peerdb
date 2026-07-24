@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -31,7 +33,11 @@ func (h *FlowRequestHandler) GetAlertConfigs(
 		if err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to decrypt alert config: %w", err))
 		}
-		config.ServiceConfig = string(serviceConfig)
+		redacted, err := alerting.RedactSecrets(alerting.ServiceType(config.ServiceType), serviceConfig)
+		if err != nil {
+			return nil, NewInternalApiError(err)
+		}
+		config.ServiceConfig = string(redacted)
 		return config, nil
 	})
 	if err != nil {
@@ -49,7 +55,36 @@ func (h *FlowRequestHandler) PostAlertConfig(
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to get current enc key: %w", err))
 	}
-	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig))
+
+	// On update, fill empty secret fields from the stored config so callers
+	// can omit unchanged secrets (the API never returns them — see
+	// alerting.RedactSecrets).
+	serviceConfigPlaintext := req.Config.ServiceConfig
+	if req.Config.Id != -1 {
+		var existingPayload []byte
+		var existingEncKeyID string
+		err := h.pool.QueryRow(ctx,
+			"SELECT service_config, enc_key_id FROM peerdb_stats.alerting_config WHERE id = $1",
+			req.Config.Id,
+		).Scan(&existingPayload, &existingEncKeyID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, NewInternalApiError(fmt.Errorf("failed to load existing alert config: %w", err))
+		}
+		if err == nil {
+			existingPlaintext, err := internal.Decrypt(ctx, existingEncKeyID, existingPayload)
+			if err != nil {
+				return nil, NewInternalApiError(fmt.Errorf("failed to decrypt existing alert config: %w", err))
+			}
+			merged, err := alerting.MergeSecrets(alerting.ServiceType(req.Config.ServiceType),
+				shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig), existingPlaintext)
+			if err != nil {
+				return nil, NewInternalApiError(err)
+			}
+			serviceConfigPlaintext = string(merged)
+		}
+	}
+
+	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(serviceConfigPlaintext))
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to encrypt alert config: %w", err))
 	}

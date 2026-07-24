@@ -5,16 +5,44 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  pull_request_target:
-    branches: [main]
 
 jobs:
+  docker-build-external:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      matrix:
+        # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
+        runner: [ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
+
+      - name: Set Short Commit Hash
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build PeerDB Images
+        run: |
+          docker buildx bake \
+            --file ./docker-bake.hcl \
+            --set '*.platform=linux/amd64' \
+            --set '*.output=type=cacheonly'
+        env:
+          SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
+          TAG: latest-dev
+
   docker-build:
     if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
-      github.event_name == 'push'
-    environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
@@ -24,16 +52,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
       - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
         with:
           registry: ghcr.io
           username: ${{github.actor}}

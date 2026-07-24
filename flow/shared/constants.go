@@ -35,6 +35,12 @@ const (
 	InternalVersion_JsonEscapeDotsInKeys
 	// MongoDB: `_id` column values stored as-is without redundant quotes
 	InternalVersion_MongoDBIdWithoutRedundantQuotes
+	// MySQL: convert enums to integers for older versions without binlog row metadata support
+	InternalVersion_MySQL5ConvertEnumsToInts
+	// MySQL: convert BIT to UInt64
+	InternalVersion_MySQLConvertBitToUInt64
+	// MySQL: convert sets to integers for older versions without binlog row metadata support
+	InternalVersion_MySQL5ConvertSetsToInts
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

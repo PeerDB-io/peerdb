@@ -7,16 +7,22 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	if err := pkg_pg.CheckUnsupportedDatabase(ctx, c.conn); err != nil {
+		return err
+	}
+
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
 		return err
@@ -41,6 +47,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
+	var missingTables []common.QualifiedTable
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
@@ -62,8 +69,15 @@ func (c *PostgresConnector) CheckSourceTables(
 		if err := c.conn.QueryRow(ctx,
 			fmt.Sprintf("SELECT %s FROM %s LIMIT 0", selectedColumnsStr, parsedTable),
 		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UndefinedTable {
+				missingTables = append(missingTables, *parsedTable)
+				continue
+			}
 			return fmt.Errorf("failed to select from table %s: %w", parsedTable, err)
 		}
+	}
+	if len(missingTables) > 0 {
+		return common.NewSourceTablesMissingError(missingTables)
 	}
 
 	if pubName != "" && !noCDC {
@@ -93,20 +107,19 @@ func (c *PostgresConnector) CheckSourceTables(
 			if err != nil {
 				return err
 			}
-			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-				var schema string
-				var table string
-				if err := row.Scan(&schema, &table); err != nil {
-					return "", err
+			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (common.QualifiedTable, error) {
+				var qt common.QualifiedTable
+				if err := row.Scan(&qt.Namespace, &qt.Table); err != nil {
+					return common.QualifiedTable{}, err
 				}
-				return fmt.Sprintf("%s.%s", common.QuoteIdentifier(schema), common.QuoteIdentifier(table)), nil
+				return qt, nil
 			})
 			if err != nil {
 				return err
 			}
 
 			if len(missing) != 0 {
-				return fmt.Errorf("some tables missing from publication: %s", strings.Join(missing, ", "))
+				return common.NewTablesNotInPublicationError(pubName, missing)
 			}
 		}
 	}
@@ -191,7 +204,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 
 func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, env map[string]string) error {
 	// Check if we can create a replication connection
-	conn, err := c.CreateReplConn(ctx, env)
+	conn, _, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to create replication connection: %v", err)
 	}
@@ -205,7 +218,7 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context, en
 }
 
 func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Context, srcTableNames []string) error {
-	pubName := "_peerdb_tmp_test_publication_" + shared.RandomString(5)
+	pubName := "_peerdb_tmp_test_publication_" + common.RandomString(5)
 	if err := c.CreatePublication(ctx, srcTableNames, pubName); err != nil {
 		return err
 	}
@@ -241,6 +254,11 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	pubName := cfg.PublicationName
+	// Check source tables before the publication, for better errors
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
@@ -250,10 +268,6 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
 			return fmt.Errorf("invalid publication creation permissions: %w", err)
 		}
-	}
-
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
-		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
 	return nil
@@ -266,6 +280,10 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 ) error {
 	if cfg.Resync {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
+	}
+
+	if cfg.System == protos.TypeSystem_PG && cfg.Env["PEERDB_PG_AUTOMATED_SCHEMA_DUMP"] == "true" {
+		return nil // pg_dump will create the schema and tables on the destination
 	}
 
 	// Validate that all source columns exist in destination tables
@@ -285,7 +303,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		}
 
 		// Get destination table columns with types
-		dstColumns, err := pg_validation.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
+		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
 		if err != nil {
 			// If table doesn't exist, check that the schema does before continuing
 			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
@@ -294,7 +312,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 					return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, parseErr)
 				}
 				if _, alreadyChecked := checkedSchemas[parsedDst.Namespace]; !alreadyChecked {
-					if schemaErr := pg_validation.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
+					if schemaErr := pkg_pg.CheckSchemaExists(ctx, c.conn, parsedDst.Namespace); schemaErr != nil {
 						return schemaErr
 					}
 					checkedSchemas[parsedDst.Namespace] = struct{}{}
@@ -306,7 +324,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 
 		if cfg.DoInitialSnapshot {
 			// Check if destination table already has rows
-			if err := pg_validation.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
 				return err
 			}
 		}
@@ -321,24 +339,24 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 			}
 
 			// Resolve rename if present
-			columnMappings := make([]pg_validation.ColumnMapping, 0, len(tableMapping.Columns))
+			columnMappings := make([]pkg_pg.ColumnMapping, 0, len(tableMapping.Columns))
 			for _, col := range tableMapping.Columns {
-				columnMappings = append(columnMappings, pg_validation.ColumnMapping{
+				columnMappings = append(columnMappings, pkg_pg.ColumnMapping{
 					SourceName:      col.SourceName,
 					DestinationName: col.DestinationName,
 				})
 			}
-			colName = pg_validation.ResolveDestinationColumnName(colName, columnMappings)
+			colName = pkg_pg.ResolveDestinationColumnName(colName, columnMappings)
 
 			// Check if the column exists in destination
-			if err := pg_validation.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
+			if err := pkg_pg.CheckColumnExists(srcField.Name, colName, dstColumns, dstTableIdentifier); err != nil {
 				return err
 			}
 
 			// Check type compatibility when using the PG type system
 			if cfg.System == protos.TypeSystem_PG {
 				dstCol := dstColumns[colName]
-				if err := pg_validation.CheckColumnTypeCompatibility(
+				if err := pkg_pg.CheckColumnTypeCompatibility(
 					srcField.Name, srcField.Type, srcField.TypeModifier,
 					colName, dstCol.TypeName, dstCol.TypeMod,
 					dstTableIdentifier,

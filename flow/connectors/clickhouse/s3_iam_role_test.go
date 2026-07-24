@@ -10,9 +10,15 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
+	const bucketNameEnvVar = "FLOW_TESTS_AWS_S3_BUCKET_NAME"
+	if os.Getenv(bucketNameEnvVar) == "" {
+		t.Skipf("skipping test since %s is not set", bucketNameEnvVar)
+	}
+
 	for _, envVar := range []string{
 		"AWS_ACCESS_KEY_ID",
 		"AWS_SECRET_ACCESS_KEY",
@@ -27,20 +33,18 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	} {
 		t.Setenv(envVar, "")
 	}
-	for _, envVar := range []string{
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"AWS_SESSION_TOKEN",
-	} {
-		t.Setenv(envVar, os.Getenv("FLOW_TESTS_"+envVar))
-	}
-	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv("FLOW_TESTS_AWS_S3_BUCKET_NAME"))
+	internal.SetupFlowAWSCredentialsFromEnv(t)
+	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv(bucketNameEnvVar))
+	// Fixture rows have _peerdb_timestamp values from 2025; push the raw-table TTL far enough out that it doesn't
+	// evict them. The TTL expression wraps the timestamp in toDateTime() (a 32-bit type capped at 2106-02-07), so the
+	// 2025 base + INTERVAL must stay under that ceiling; 25000 days (~68y) lands around 2093, comfortably within range.
+	t.Setenv("PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS", "25000")
 	ctx := t.Context()
 
 	conn, err := NewClickHouseConnector(ctx, nil,
 		&protos.ClickhouseConfig{
-			Host:       "localhost",
-			Port:       9000,
+			Host:       internal.ClickHouseTestHost(),
+			Port:       internal.ClickHouseTestPort(),
 			Database:   "default",
 			DisableTls: true,
 		})

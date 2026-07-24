@@ -1,6 +1,6 @@
 package datatypes
 
-import pg_validation "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+import "github.com/PeerDB-io/peerdb/flow/pkg/common"
 
 const (
 	// defaults
@@ -89,18 +89,12 @@ func MakeNumericTypmod(precision int32, scale int32) int32 {
 	return (precision << 16) | (scale & 0x7ff) + VARHDRSZ
 }
 
-// This is to reverse what make_numeric_typmod of Postgres does:
-// https://github.com/postgres/postgres/blob/21912e3c0262e2cfe64856e028799d6927862563/src/backend/utils/adt/numeric.c#L897
-func ParseNumericTypmod(typmod int32) (int16, int16) {
-	return pg_validation.ParseNumericTypmod(typmod)
-}
-
 func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
 	if typmod == -1 {
 		return warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
-	precision, scale := ParseNumericTypmod(typmod)
+	precision, scale := common.ParseNumericTypmod(typmod)
 	return GetNumericTypeForWarehousePrecisionScale(precision, scale, warehouseNumeric)
 }
 

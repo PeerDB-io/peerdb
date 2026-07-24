@@ -50,8 +50,7 @@ func (h *FlowRequestHandler) CancelTableAddition(
 	var output *protos.CancelTableAdditionOutput
 	err = cancelTableAdditionFuture.Get(ctx, &output)
 	if err != nil {
-		var tableRemovalErr *exceptions.TableRemovalInCancellationError
-		if errors.As(err, &tableRemovalErr) {
+		if _, ok := errors.AsType[*exceptions.TableRemovalInCancellationError](err); ok {
 			return nil, NewFailedPreconditionApiError(err)
 		}
 		return nil, NewInternalApiError(fmt.Errorf("cancel table addition workflow failed: %w", err))

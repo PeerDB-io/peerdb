@@ -182,9 +182,8 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	workflowID := getWorkflowID(cfg.FlowJobName)
-	var errNotFound *serviceerror.NotFound
 	desc, err := h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
-	if err != nil && !errors.As(err, &errNotFound) {
+	if _, ok := errors.AsType[*serviceerror.NotFound](err); err != nil && !ok {
 		return nil, NewInternalApiError(fmt.Errorf("failed to query the workflow execution: %w", err))
 	} else if err == nil {
 		// If workflow is actively running, handle based on AttachToExisting
@@ -206,9 +205,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
-	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
-		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
-		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
+	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
+		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
+			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
+			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
+		}
 	}
 
 	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
@@ -436,8 +437,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
-		var errNotFound *exceptions.NotFoundError
-		if errors.As(err, &errNotFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
 		return nil, NewInternalApiError(fmt.Errorf("unable to get workflowID: %w", err))
@@ -448,7 +448,13 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, NewInternalApiError(err)
 	}
 
-	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
+	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&
+		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion
+		//  where the config is updated but the flow is not reflecting those changes since it's already completed/failed
+		(currState != protos.FlowStatus_STATUS_TERMINATED &&
+			currState != protos.FlowStatus_STATUS_TERMINATING &&
+			currState != protos.FlowStatus_STATUS_FAILED &&
+			currState != protos.FlowStatus_STATUS_COMPLETED) {
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
@@ -460,6 +466,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow update: %w", err))
 		}
 		telemetry.LogActivityStartFlowConfigUpdate(ctx, req.FlowJobName, req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
+		h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Flow config update signaled")
 	}
 
 	slog.InfoContext(ctx, "[flow-state-change] received request", logs,
@@ -472,6 +479,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
 				if changeErr == nil {
 					telemetry.LogActivityPauseFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror pause signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
@@ -479,13 +487,16 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 				if changeErr == nil {
 					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resume signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
-				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+				changeErr = h.resyncByRecreatingFlow(ctx, req.FlowJobName, req.DropMirrorStats,
+					req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
 				}
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
@@ -501,15 +512,18 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
+
 				// validate mirror first because once the mirror is dropped, there's no going back
+				// Note: We do not validate snapshot parameters (SnapshotNumRowsPerPartition, etc)
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
-					return nil, NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
+					return nil, err
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
@@ -524,6 +538,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 				if changeErr == nil {
 					telemetry.LogActivityTerminateFlow(ctx, req.FlowJobName)
+					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror termination signaled")
 				}
 			}
 		default:
@@ -534,6 +549,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 		if changeErr != nil {
 			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", changeErr))
+			// Preserve typed API errors
+			if apiErr, ok := changeErr.(APIError); ok {
+				return nil, apiErr
+			}
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow: %w", changeErr))
 		}
 	}
@@ -645,6 +664,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	ctx context.Context,
 	flowName string,
 	dropStats bool,
+	cdcConfigUpdate *protos.CDCFlowConfigUpdate,
 ) error {
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return fmt.Errorf("unable to get maintenance mode status: %w", err)
@@ -673,9 +693,15 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	config.Resync = true
 	config.DoInitialSnapshot = true
 	// validate mirror first because once the mirror is dropped, there's no going back
-	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
-		ConnectionConfigs: config,
-	}); err != nil {
+	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
+		return NewInternalApiError(err)
+	} else {
+		config.Version = internalVersion
+	}
+	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
+	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
+
+	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
 		return err
 	}
 
@@ -684,7 +710,6 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	}
 
 	workflowID := getWorkflowID(config.FlowJobName)
-	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
 	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
 	}

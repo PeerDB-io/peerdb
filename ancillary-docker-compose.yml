@@ -1,5 +1,23 @@
 name: peerdb-ancillary-services
 
+# Shared postgres entrypoint enabling TLS with test certs present in the repository
+x-postgres-entrypoint: &postgres-entrypoint
+  - sh
+  - -c
+  - |
+    set -e
+    SRC=/etc/postgresql/certs
+    DST=/run/pgssl
+    mkdir -p "$$DST"
+    install -m 644 -o postgres -g postgres "$$SRC/server.crt" "$$DST/server.crt"
+    install -m 600 -o postgres -g postgres "$$SRC/server.key" "$$DST/server.key"
+    install -m 644 -o postgres -g postgres "$$SRC/client.crt" "$$DST/ca.crt"
+    exec docker-entrypoint.sh postgres \
+      -c ssl=on \
+      -c ssl_cert_file=$$DST/server.crt \
+      -c ssl_key_file=$$DST/server.key \
+      -c ssl_ca_file=$$DST/ca.crt
+#ssl_ca_file is used for client certificate verification
 services:
   mongodb:
     container_name: peerdb-mongodb
@@ -24,6 +42,7 @@ services:
 
   clickhouse:
     container_name: peerdb-clickhouse
+    hostname: clickhouse
     image: ${CLICKHOUSE_IMAGE}
     restart: unless-stopped
     ports:
@@ -31,6 +50,58 @@ services:
       - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  clickhouse-keeper:
+    container_name: peerdb-clickhouse-keeper
+    hostname: clickhouse-keeper
+    image: ${CLICKHOUSE_IMAGE}
+    restart: unless-stopped
+    command: ["clickhouse", "keeper", "--config-file=/etc/clickhouse-keeper/keeper_config.xml"]
+    volumes:
+      - clickhouse_keeper_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9181 && printf ruok >&3 && timeout 2 cat <&3 | grep -q imok"]
+      interval: 2s
+      timeout: 10s
+      retries: 15
+
+  clickhouse-02:
+    container_name: peerdb-clickhouse-02
+    hostname: clickhouse-02
+    image: ${CLICKHOUSE_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${CI_CLICKHOUSE_HTTP_PORT_02}:8123"
+      - "${CI_CLICKHOUSE_NATIVE_PORT_02}:9000"
+    volumes:
+      - clickhouse_02_data:/var/lib/clickhouse/
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node2/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
     ulimits:
       nofile:
         soft: 262144
@@ -46,6 +117,8 @@ services:
   mysql-gtid:
     container_name: peerdb-mysql-gtid
     image: mysql:9.5
+    command:
+      - "--binlog-row-metadata=FULL"
     restart: unless-stopped
     volumes:
       - mysql_gtid_data:/var/lib/mysql
@@ -83,18 +156,21 @@ services:
   mariadb:
     container_name: peerdb-mariadb
     image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
-    command: ["--log-bin=maria"]
+    command:
+      - "--log-bin=maria"
+      - "--binlog-format=ROW"
+      - "--binlog-row-metadata=FULL"
     restart: unless-stopped
     volumes:
       - mariadb_data:/var/lib/mysql
     ports:
       - "${CI_MARIADB_PORT}:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: ${CI_MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${CI_MARIADB_ROOT_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MARIADB_ROOT_PASSWORD}"]
       interval: 2s
       timeout: 10s
       retries: 5
@@ -105,6 +181,7 @@ services:
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./volumes/pg-tls:/etc/postgresql/certs:ro
     ports:
       - "${PG_PORT}:5432"
     environment:
@@ -112,6 +189,30 @@ services:
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: ${PG_DATABASE}
       POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    entrypoint: *postgres-entrypoint
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  postgres2:
+    container_name: peerdb-postgres2
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - postgres2_data:/var/lib/postgresql/data
+      - ./volumes/pg-tls:/etc/postgresql/certs:ro
+    ports:
+      - "${PG2_PORT}:5432"
+    environment:
+      PGUSER: ${PG2_USER}
+      POSTGRES_PASSWORD: ${PG2_PASSWORD}
+      POSTGRES_DB: ${PG2_DATABASE}
+      POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+    entrypoint: *postgres-entrypoint
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -129,9 +230,62 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
+  toxiproxy:
+    container_name: peerdb-test-toxiproxy
+    # Same image as CI flow
+    image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
+    restart: unless-stopped
+    ports:
+      - 18474:8474
+      - 9902:9902
+      - 9904:9904
+      - 9903:9903
+      - 10001:10001
+      - 12001:12001
+      - 12002:12002
+      - 12003:12003
+      - 12004:12004
+      - 12005:12005
+      - 14001:14001
+      - 14002:14002
+      - 14003:14003
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  openssh:
+    container_name: peerdb-test-ssh
+    # Same image as CI flow
+    image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+      - DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
 volumes:
   postgres_data:
+  postgres2_data:
   clickhouse_data:
+  clickhouse_keeper_data:
+  clickhouse_02_data:
   mongo_data:
   mysql_gtid_data:
   mysql_pos_data:
@@ -139,4 +293,5 @@ volumes:
 
 networks:
   default:
-    name: peerdb_network
+    name: peerdb_network_${DEFAULT_TILT_PORT:-default}
+    external: true

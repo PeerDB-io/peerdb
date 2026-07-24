@@ -51,7 +51,12 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
-	peerDBColumns := []string{isDeletedColName, versionColName}
+	peerDBColumns := []string{versionColName}
+	if cfg.SoftDeleteColName != "" {
+		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
+	} else {
+		peerDBColumns = append(peerDBColumns, defaultIsDeletedColName)
+	}
 	if cfg.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
@@ -112,6 +117,15 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			c.chVersion, tableMapping.SourceTableIdentifier,
 			len(processedSchema.PrimaryKeyColumns) > 0,
 			sortingKeys, engine,
+		); err != nil {
+			return err
+		}
+		if err := chvalidate.ValidateClusterShardingKey(
+			c.Config.Cluster,
+			tableMapping.ShardingKey,
+			tableMapping.SourceTableIdentifier,
+			len(processedSchema.PrimaryKeyColumns) > 0,
+			sortingKeys,
 		); err != nil {
 			return err
 		}

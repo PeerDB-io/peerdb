@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -48,19 +47,34 @@ const (
 		sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT EXISTS(SELECT * FROM %s.%s WHERE mirror_job_name=$1)"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
+	setSessionReplicaRoleSQL             = "SET LOCAL session_replication_role = 'replica'"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
 	_peerdb_batch_id=$1`
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
 	_peerdb_batch_id=$1 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
+	mergeStatementSQLJsonbToRecord = `WITH src_rank AS (
+		SELECT r.*,_peerdb_record_type,_peerdb_unchanged_toast_columns, _peerdb_timestamp,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s, jsonb_to_record(_peerdb_data) AS r(%s)
+		WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name = $2
+	)
+	MERGE INTO %s dst
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns
+		FROM src_rank WHERE _peerdb_rank=1 ORDER BY _peerdb_timestamp) src
+	ON %s
+	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
+	INSERT (%s) VALUES (%s) %s
+	WHEN MATCHED AND src._peerdb_record_type=2 THEN %s`
 	mergeStatementSQL = `WITH src_rank AS (
-		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns, _peerdb_timestamp,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name=$2
 	)
 	MERGE INTO %s dst
-	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns
+		FROM src_rank WHERE _peerdb_rank=1 ORDER BY _peerdb_timestamp) src
 	ON %s
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s) %s
@@ -68,14 +82,14 @@ const (
 	fallbackUpsertStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+		FROM %s.%s WHERE _peerdb_batch_id=$1 AND _peerdb_destination_table_name=$2
 	)
 	INSERT INTO %s (%s) SELECT %s FROM src_rank WHERE _peerdb_rank=1 AND _peerdb_record_type!=2
 	ON CONFLICT (%s) DO UPDATE SET %s`
 	fallbackDeleteStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+		FROM %s.%s WHERE _peerdb_batch_id=$1 AND _peerdb_destination_table_name=$2
 	)
 	%s src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
@@ -249,7 +263,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	var slotName pgtype.Text
 	err := c.conn.QueryRow(ctx,
 		"SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
-		slot).Scan(&slotName)
+		pgx.QueryExecModeSimpleProtocol, slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -262,7 +276,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 	// Check if the publication exists
 	var pubName pgtype.Text
 	if err := c.conn.QueryRow(ctx,
-		"SELECT pubname FROM pg_publication WHERE pubname = $1", publication,
+		"SELECT pubname FROM pg_publication WHERE pubname = $1", pgx.QueryExecModeSimpleProtocol, publication,
 	).Scan(&pubName); err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -312,7 +326,7 @@ func getSlotInfo(
 		NULL::bigint
 	`
 	statsJoin := ""
-	if pgversion >= shared.POSTGRES_16 {
+	if pgversion >= shared.POSTGRES_14 {
 		statsSelect = `
 			EXTRACT(EPOCH FROM psrs.stats_reset)::bigint,
 			psrs.spill_txns,
@@ -532,7 +546,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		conn, err := c.CreateReplConn(ctx, env)
+		conn, _, err := c.CreateReplConn(ctx, env)
 		if err != nil {
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
@@ -642,7 +656,7 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if column.Type == "numeric" && column.TypeModifier != -1 {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			precision, scale := common.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 

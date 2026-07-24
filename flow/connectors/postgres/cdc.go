@@ -22,8 +22,10 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
@@ -32,12 +34,14 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+//nolint:govet // fieldalignment: fields grouped by purpose for readability
 type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
@@ -51,9 +55,12 @@ type PostgresCDCSource struct {
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
+	idToRelKindMap            map[uint32]byte
+	publishViaPartitionRoot   bool
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
+	alerter                                  *alerting.Alerter
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
@@ -62,6 +69,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+	warnedTypeChanges                        sync.Map
 }
 
 type PostgresCDCConfig struct {
@@ -80,13 +88,68 @@ type PostgresCDCConfig struct {
 	InternalVersion                          uint32
 }
 
+const clockOffsetTTL = time.Hour
+
+// getPostgresClockOffset returns the cached difference between the source server
+// clock and this process's clock.
+func (c *PostgresConnector) getPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if time.Since(c.clockOffsetUpdatedAt) < clockOffsetTTL {
+		return c.clockOffset, nil
+	}
+	offset, err := c.queryPostgresClockOffset(ctx)
+	if err != nil {
+		return c.clockOffset, err
+	}
+	c.clockOffset = offset
+	c.clockOffsetUpdatedAt = time.Now()
+	return offset, nil
+}
+
+// SourceClockOffset implements connectors.SourceClockOffsetConnector.
+func (c *PostgresConnector) SourceClockOffset(ctx context.Context) (time.Duration, error) {
+	return c.getPostgresClockOffset(ctx)
+}
+
+// queryPostgresClockOffset estimates the difference between the source server
+// clock and this process's clock.
+func (c *PostgresConnector) queryPostgresClockOffset(ctx context.Context) (time.Duration, error) {
+	if c.conn == nil {
+		return 0, errors.New("PostgreSQL connection is nil")
+	}
+
+	requestStarted := time.Now()
+	var serverTime time.Time
+	err := c.conn.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&serverTime)
+	responseReceived := time.Now()
+	if err != nil {
+		return 0, fmt.Errorf("failed to query PostgreSQL server time: %w", err)
+	}
+
+	return serverTime.Sub(requestStarted.Add(responseReceived.Sub(requestStarted) / 2)), nil
+}
+
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
-	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx,
+	childToParentRelIDMap, idToRelKindMap, err := getChildToParentRelIDMap(ctx,
 		c.conn, slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping)),
 		cdcConfig.HandleInheritanceForNonPartitionedTables)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
+	}
+
+	var publishViaPartitionRoot bool
+	majorVersion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error getting major version: %w", err)
+	}
+	if majorVersion >= shared.POSTGRES_13 {
+		if err := c.conn.QueryRow(ctx,
+			"SELECT COALESCE(pubviaroot, false) FROM pg_publication WHERE pubname=$1",
+			cdcConfig.Publication,
+		).Scan(&publishViaPartitionRoot); err != nil {
+			return nil, fmt.Errorf("error checking publish_via_partition_root for publication %s: %w",
+				cdcConfig.Publication, err)
+		}
 	}
 
 	var schemaNameForRelID map[uint32]string
@@ -107,7 +170,10 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		publication:                              cdcConfig.Publication,
 		commitLock:                               nil,
 		childToParentRelIDMapping:                childToParentRelIDMap,
+		idToRelKindMap:                           idToRelKindMap,
+		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
+		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
@@ -136,14 +202,14 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 
 func getChildToParentRelIDMap(ctx context.Context,
 	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
-) (map[uint32]uint32, error) {
+) (map[uint32]uint32, map[uint32]byte, error) {
 	relkinds := "'p'"
 	if handleInheritanceForNonPartitionedTables {
 		relkinds = "'p', 'r'"
 	}
 
 	query := fmt.Sprintf(`
-		SELECT parent.oid AS parentrelid, child.oid AS childrelid
+		SELECT parent.oid AS parentrelid, child.oid AS childrelid, parent.relkind
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
@@ -152,19 +218,22 @@ func getChildToParentRelIDMap(ctx context.Context,
 
 	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
-		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
+		return nil, nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
 
 	childToParentRelIDMap := make(map[uint32]uint32)
+	idToRelKindMap := make(map[uint32]byte)
 	var parentRelID, childRelID pgtype.Uint32
-	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID}, func() error {
+	var relkind byte
+	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID, &relkind}, func() error {
 		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
+		idToRelKindMap[parentRelID.Uint32] = relkind
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
+		return nil, nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
 	}
 
-	return childToParentRelIDMap, nil
+	return childToParentRelIDMap, idToRelKindMap, nil
 }
 
 // replProcessor implements ingesting PostgreSQL logical replication tuples into items.
@@ -176,7 +245,7 @@ type replProcessor[Items model.Items] interface {
 		p *PostgresCDCSource,
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
-		customTypeMapping map[uint32]shared.CustomDataType,
+		customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	) error
 
 	AddStringColumn(items Items, name string, value string)
@@ -193,7 +262,7 @@ func (pgProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -228,7 +297,7 @@ func (qProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -268,7 +337,7 @@ func processTuple[Items model.Items](
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	nameAndExclude model.NameAndExclude,
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	schemaName string,
 	baseRecord model.BaseRecord,
 ) (Items, map[string]struct{}, error) {
@@ -316,7 +385,7 @@ func processTuple[Items model.Items](
 }
 
 func (p *PostgresCDCSource) decodeColumnData(
-	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]pkg_pg.CustomDataType, version uint32,
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
@@ -446,6 +515,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 	return types.QValueString{Val: string(data)}, nil
 }
 
+func clientSidePingPeriod(walSenderTimeout time.Duration) time.Duration {
+	return 3 * walSenderTimeout / 4
+}
+
 // PullCdcRecords pulls records from req's cdc stream
 func PullCdcRecords[Items model.Items](
 	ctx context.Context,
@@ -455,6 +528,10 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
+	postgresClockOffset, err := p.getPostgresClockOffset(ctx)
+	if err != nil {
+		logger.Warn("failed to calculate PostgreSQL clock offset", slog.Any("error", err))
+	}
 
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
@@ -462,14 +539,31 @@ func PullCdcRecords[Items model.Items](
 		replLock.Lock()
 		defer replLock.Unlock()
 		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+			pglogrepl.StandbyStatusUpdate{
+				WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load()),
+			},
 		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
 		return nil
 	}
 
+	// determine message wait period in function of idle and wal_sender timeouts
+	// this value controls for how long the main message loop is blocked waiting for new messages from Postgres.
+	messageWaitPeriod := req.IdleTimeout
+	if p.walSenderTimeout.isSet && p.walSenderTimeout.duration > 0 {
+		// If set, consider for ping interval
+		messageWaitPeriod = min(req.IdleTimeout, clientSidePingPeriod(p.walSenderTimeout.duration))
+	}
+
+	logger.Debug("Message wait period determined",
+		slog.Duration("messageWaitPeriod", messageWaitPeriod),
+		slog.Duration("wal_sender_timeout", p.walSenderTimeout.duration),
+		slog.Duration("req.IdleTimeout", req.IdleTimeout),
+	)
+
 	records := req.RecordStream
+	warnedReplIdentTables := make(map[string]struct{})
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
@@ -482,13 +576,9 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
-	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
-	if err != nil {
-		return err
-	}
 	var cdcRecordsStorage *utils.CDCStore[Items]
-	if cdcStoreEnabled {
+	if p.cdcStoreEnabled {
+		var err error
 		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
 		if err != nil {
 			return err
@@ -501,6 +591,11 @@ func PullCdcRecords[Items model.Items](
 		if totalRecords == 0 {
 			records.SignalAsEmpty()
 		}
+		trace.SpanFromContext(ctx).SetAttributes(
+			attribute.Int64(otel_metrics.RowsInBatchKey, totalRecords),
+			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
+			attribute.Int64(otel_metrics.LastCheckpointIDKey, int64(clientXLogPos)),
+		)
 		logger.Info("[finished] PullRecords",
 			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -539,7 +634,8 @@ func PullCdcRecords[Items model.Items](
 	defer shutdown()
 
 	var standByLastLogged time.Time
-	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+	var largeTxnLastLogged time.Time
+	nextRecordDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
@@ -556,8 +652,8 @@ func PullCdcRecords[Items model.Items](
 
 		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
-			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
+			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
+			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextRecordDeadline))
 		}
 		if totalRecords%50000 == 0 {
 			logger.Info("pulling records",
@@ -622,7 +718,7 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		// if we are past the next standby deadline (?)
-		if time.Now().After(nextStandbyMessageDeadline) {
+		if time.Now().After(nextRecordDeadline) {
 			if totalRecords != 0 {
 				logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
 
@@ -634,26 +730,40 @@ func PullCdcRecords[Items model.Items](
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
+					accumulatedBytes := totalFetchedBytes.Load()
 					logger.Info("commit lock, waiting for commit to return records",
 						slog.Int64("records", totalRecords),
-						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int64("bytes", accumulatedBytes),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+
+					if time.Since(largeTxnLastLogged) > time.Minute {
+						if !largeTxnLastLogged.IsZero() {
+							userMsg := fmt.Sprintf(
+								"Reading a large already-committed transaction off the replication slot; "+
+									"sync will continue once it's fully received (%d records, %s buffered so far).",
+								totalRecords, utils.HumanReadableBytes(accumulatedBytes))
+							p.alerter.LogFlowInfo(ctx, p.flowJobName, userMsg)
+						}
+						largeTxnLastLogged = time.Now()
+					}
+
 					waitingForCommit = true
 				}
 			} else {
 				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
-			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
+			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 		}
 
-		var receiveCtx context.Context
-		var cancel context.CancelFunc
-		if totalRecords == 0 {
-			receiveCtx, cancel = context.WithCancel(ctx)
-		} else {
-			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
+		// Since we are interrupting the receive message call as soon as `messageWaitPeriod` is over
+		// to send a ping to Postgres, now()+messageWaitPeriod might overshoot `nextRecordDeadline`
+		// this check prevents that situation.
+		receiveDeadline := time.Now().Add(messageWaitPeriod)
+		if receiveDeadline.After(nextRecordDeadline) {
+			receiveDeadline = nextRecordDeadline
 		}
+		receiveCtx, cancel := context.WithDeadline(ctx, receiveDeadline)
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
@@ -665,17 +775,23 @@ func PullCdcRecords[Items model.Items](
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
 		}
 
-		if err != nil && p.commitLock == nil {
-			if pgconn.Timeout(err) {
-				logger.Info("Stand-by deadline reached, returning currently accumulated records",
-					slog.Int64("records", totalRecords),
-					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()),
-					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
-				return nil
-			} else {
-				return fmt.Errorf("ReceiveMessage failed: %w", err)
+		if err != nil && pgconn.Timeout(err) {
+			// On timeout, always send a ping before moving on to read more messages
+			if err := sendStandbyAfterReplLock("receive-timeout"); err != nil {
+				return err
 			}
+			// After that, we let the condition checks at the beginging of the loop,
+			// specifically "if we are past the next standby deadline (?)" to
+			// handle having reached the standby deadline.
+			continue
+		}
+
+		if err != nil {
+			// If the SSH tunnel went bad (e.g. keepalive failure), we proactively close the replication connection.
+			if p.ssh.IsBad() {
+				return exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", err))
+			}
+			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
 		switch msg := rawMsg.(type) {
@@ -689,7 +805,6 @@ func PullCdcRecords[Items model.Items](
 				if err != nil {
 					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 				}
-
 				if int64(pkm.ServerWALEnd) > latestServerWALEnd.Load() {
 					latestServerWALEnd.Store(int64(pkm.ServerWALEnd))
 				}
@@ -713,7 +828,8 @@ func PullCdcRecords[Items model.Items](
 
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
-				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, postgresClockOffset,
+					processor, warnedReplIdentTables)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -885,12 +1001,18 @@ func processMessage[Items model.Items](
 	batch *model.CDCStream[Items],
 	xld pglogrepl.XLogData,
 	currentClientXlogPos pglogrepl.LSN,
+	postgresClockOffset time.Duration,
 	processor replProcessor[Items],
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing logical message: %w", err)
+		var msgType string
+		if len(xld.WALData) > 0 {
+			msgType = string(xld.WALData[0])
+		}
+		return nil, fmt.Errorf("error parsing logical message (msgType=%q, walStart=%s): %w", msgType, xld.WALStart.String(), err)
 	}
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
 	if err != nil {
@@ -900,11 +1022,13 @@ func processMessage[Items model.Items](
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
 		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.UpdateMessage:
-		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping)
+		return processUpdateMessage(p, xld.WALStart, msg, processor, customTypeMapping, warnedReplIdentTables)
 	case *pglogrepl.DeleteMessage:
 		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
@@ -914,16 +1038,27 @@ func processMessage[Items model.Items](
 			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.otelManager.Metrics.ReceivedCommitLSNGauge.Record(ctx, int64(msg.CommitLSN))
-		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
+		p.otelManager.Metrics.SourceLagGauge.Record(ctx,
+			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
+		originalRelID := msg.RelationID
+		var parentRelKind byte
 		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		msg.RelationID, parentRelKind, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
 		if err != nil {
 			return nil, err
 		}
 
 		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+			return nil, nil
+		}
+
+		// With publish_via_partition_root = true, PG emits a parent RelationMessage
+		// followed by a child RelationMessage for each partition. The parent's
+		// column list matches the tuple data wire format, so skip the child's
+		// to avoid overwriting with a potentially reordered column definition.
+		if originalRelID != msg.RelationID && parentRelKind == 'p' && p.publishViaPartitionRoot {
 			return nil, nil
 		}
 
@@ -963,7 +1098,7 @@ func processInsertMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1005,7 +1140,8 @@ func processUpdateMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	warnedReplIdentTables map[string]struct{},
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1016,6 +1152,20 @@ func processUpdateMessage[Items model.Items](
 
 	// log lsn and relation id for debugging
 	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+
+	// By default, replica identity is the same as source PK/destination ordering key,
+	// so when it changes the destination can see duplicates or missed deletes.
+	// UpdateMessageTupleTypeKey fires when any replica identity column changes; if a replica identity is a superset
+	// of the dest ordering key (much rarer), the change to the extra columns is harmless and the warning doesn't apply.
+	// Replica identity full (OldTupleType=UpdateMessageTupleTypeOld) would require us to compare column values
+	// ourselves which we're avoiding for perf reasons, so absence of warning doesn't guarantee there wasn't a change.
+	if msg.OldTupleType == pglogrepl.UpdateMessageTupleTypeKey {
+		if _, warned := warnedReplIdentTables[tableName]; !warned {
+			warnedReplIdentTables[tableName] = struct{}{}
+			p.logger.Warn("UpdateMessage changed a replica identity column, destination may see duplicates/missed deletes",
+				slog.String("tableName", tableName))
+		}
+	}
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -1068,7 +1218,7 @@ func processDeleteMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]shared.CustomDataType,
+	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -1155,7 +1305,7 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			typeName, err := p.postgresOIDToName(column.DataType, customTypeMapping)
+			typeName, err := pkg_pg.OIDToName(p.typeMap, column.DataType, customTypeMapping)
 			if err != nil {
 				return nil, err
 			}
@@ -1221,8 +1371,22 @@ func processRelationMessage[Items model.Items](
 			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
 				column.Name, schemaDelta.SrcTableName))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
+				prevRelMap[column.Name], currRelMap[column.Name])
+			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
+				p.logger.Warn("column type change detected, not propagating",
+					slog.String("table", schemaDelta.SrcTableName),
+					slog.String("column", column.Name),
+					slog.String("from", prevRelMap[column.Name]),
+					slog.String("to", currRelMap[column.Name]),
+					slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
+				)
+				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+					attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+					attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+				)))
+			}
 		}
 	}
 	for _, column := range prevSchema.Columns {
@@ -1299,7 +1463,7 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 // filtered by relkind; parent needs to be a partitioned table by default
 func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
-) (uint32, error) {
+) (uint32, byte, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
 	relkinds := "'p'"
 	if p.handleInheritanceForNonPartitionedTables {
@@ -1316,9 +1480,9 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 			relID,
 		).Scan(&parentRelID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return relID, nil
+				return relID, 0, nil
 			}
-			return 0, fmt.Errorf("failed to query pg_inherits: %w", err)
+			return 0, 0, fmt.Errorf("failed to query pg_inherits: %w", err)
 		}
 		p.childToParentRelIDMapping[relID] = parentRelID
 		p.hushWarnUnknownTableDetected[relID] = struct{}{}
@@ -1326,8 +1490,8 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 			slog.Uint64("childRelID", uint64(relID)),
 			slog.Uint64("parentRelID", uint64(parentRelID)),
 			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
-		return parentRelID, nil
+		return parentRelID, p.idToRelKindMap[parentRelID], nil
 	}
 
-	return relID, nil
+	return relID, p.idToRelKindMap[relID], nil
 }

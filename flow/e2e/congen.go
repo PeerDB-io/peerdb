@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -39,9 +39,9 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 
 func CreatePeer(t *testing.T, peer *protos.Peer) {
 	t.Helper()
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	res, err := utils.CreatePeerNoValidate(t.Context(), pool, peer, false)
+	res, err := utils.CreatePeerNoValidate(t.Context(), shared.CatalogPool{Pool: pool}, peer, true)
 	require.NoError(t, err)
 	if res.Status != protos.CreatePeerStatus_CREATED {
 		require.Fail(t, res.Message)
@@ -68,6 +68,12 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 				ShardingKey:                "id",
 			})
 		}
+	}
+
+	if _, ok := s.Source().(*PostgresSource); ok {
+		slotName := connpostgres.GetDefaultSlotName(c.FlowJobName)
+		require.LessOrEqual(t, len(slotName), 64,
+			"slot name %q is %d chars, PostgreSQL limit is 64 and may cause conflicts on test rerun", slotName, len(slotName))
 	}
 
 	ret := &protos.FlowConnectionConfigs{

@@ -50,8 +50,7 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	defer cancelCtx()
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
-		var errNotFound *exceptions.NotFoundError
-		if errors.As(err, &errNotFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(err)
 		}
 		return nil, NewInternalApiError(fmt.Errorf("failed to load peer: %w", err))
@@ -92,8 +91,7 @@ func (h *FlowRequestHandler) GetPeerType(
 	defer cancelCtx()
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
-		var errNotFound *exceptions.NotFoundError
-		if errors.As(err, &errNotFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(err)
 		}
 		return nil, NewInternalApiError(fmt.Errorf("failed to load peer: %w", err))

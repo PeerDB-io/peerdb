@@ -20,7 +20,7 @@ type flowStatusUpdate struct {
 
 func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
 	var updates []flowStatusUpdate
-	rows, err := s.pg.PostgresConnector.Conn().Query(
+	rows, err := s.catalog.Query(
 		s.t.Context(),
 		fmt.Sprintf(`SELECT old_status, new_status FROM flow_status_updates_%s
 		WHERE flow_job_name = $1 AND old_status != new_status ORDER BY id ASC`, s.suffix),
@@ -46,7 +46,7 @@ func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpda
 }
 
 func (s APITestSuite) setupFlowStatusTestDependencies() {
-	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+	_, err := s.catalog.Exec(s.t.Context(),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS flow_status_updates_%s (
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
@@ -55,7 +55,7 @@ func (s APITestSuite) setupFlowStatusTestDependencies() {
 		)`, s.suffix))
 	require.NoError(s.t, err)
 	// Track updates to status via a trigger
-	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+	_, err = s.catalog.Exec(s.t.Context(),
 		// create trigger
 		fmt.Sprintf(`CREATE OR REPLACE FUNCTION flow_status_update_%[1]s_trigger() RETURNS TRIGGER AS $$
 			BEGIN
@@ -76,13 +76,13 @@ func (s APITestSuite) cleanupFlowStatusTestDependencies() {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
+	_, err := s.catalog.Exec(cleanupCtx,
 		fmt.Sprintf("DROP TRIGGER IF EXISTS flow_status_update_%s ON flows;", s.suffix))
 	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
+	_, err = s.catalog.Exec(cleanupCtx,
 		fmt.Sprintf("DROP FUNCTION IF EXISTS flow_status_update_%s_trigger();", s.suffix))
 	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
+	_, err = s.catalog.Exec(cleanupCtx,
 		fmt.Sprintf("DROP TABLE IF EXISTS flow_status_updates_%s;", s.suffix))
 	require.NoError(s.t, err)
 }
@@ -120,7 +120,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	require.NotNil(s.t, response)
 
 	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	RequireEqualTables(s.ch, "status_test", cols)

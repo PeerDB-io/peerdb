@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 import ReactSelect from 'react-select';
+import { useTheme as useStyledTheme } from 'styled-components';
 
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { useSelectTheme } from '@/app/styles/select';
@@ -75,6 +76,7 @@ export default function SelectSortingKeys({
   setRows,
 }: SortingKeysProps) {
   const selectTheme = useSelectTheme();
+  const styledTheme = useStyledTheme();
   const sortingKeysSelections = useMemo(
     () => SortedSelection(tableRow, (setting) => setting.ordering),
     [tableRow]
@@ -257,7 +259,10 @@ export default function SelectSortingKeys({
           />
           <div style={sortingKeyPillContainerStyle}>
             {sortingKeysSelections.map((col: ColumnSetting) => (
-              <div key={col.sourceName} style={sortingKeyPillStyle}>
+              <div
+                key={col.sourceName}
+                style={sortingKeyPillStyle(styledTheme)}
+              >
                 <p style={{ fontSize: '0.7rem' }}>{col.sourceName}</p>
                 <Button
                   variant='normalBorderless'
@@ -308,7 +313,10 @@ export default function SelectSortingKeys({
           />
           <div style={sortingKeyPillContainerStyle}>
             {partitioningKeysSelections.map((col: ColumnSetting) => (
-              <div key={col.sourceName} style={sortingKeyPillStyle}>
+              <div
+                key={col.sourceName}
+                style={sortingKeyPillStyle(styledTheme)}
+              >
                 <p style={{ fontSize: '0.7rem' }}>{col.sourceName}</p>
                 <Button
                   variant='normalBorderless'

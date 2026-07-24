@@ -15,10 +15,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-//nolint:govet // field alignment not important
 type testCase struct {
 	name                  string
 	config                *protos.QRepConfig
@@ -65,6 +65,10 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 			Query:               query,
 			WatermarkTable:      schemaQualifiedTable,
 			WatermarkColumn:     ctidColumnName,
+			// The test table fits in a single 8 KB page, so block-based CTID partitioning only emit 1 partition.
+			// Override with PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE = false to test legacy behavior
+			// with NTileBucketPartitioning. We have separate tests below for testing CtidBlockPartitioning logic.
+			Env: map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "false"},
 		},
 		expectedNumPartitions: expectedNum,
 	}
@@ -91,7 +95,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	}
 	t.Cleanup(func() { conn.Close(t.Context()) })
 
-	schemaName := "test_" + strings.ToLower(shared.RandomString(8))
+	schemaName := "test_" + strings.ToLower(common.RandomString(8))
 
 	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
@@ -320,7 +324,6 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -343,11 +346,25 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 
 func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
-	schemaName, conn, connStr := setupTestSchema(t)
+	_, conn, connStr := setupTestSchema(t)
 
-	// Root table partitioned by region
-	rootTable := schemaName + ".multi_level"
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+	// Use a mixed-case schema name as well to verify OID-based lookups work
+	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
+	schemaName := "Test_" + common.RandomString(8)
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
+
+	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
+	// rootTable is the unquoted form passed to PeerDB; rootTableDDL is the quoted form for SQL DDL.
+	rootTable := schemaName + ".MultiLevel"
+	rootTableDDL := schemaNameDDL + `."MultiLevel"`
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL,
 			region INT NOT NULL,
@@ -355,7 +372,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 			value TEXT,
 			PRIMARY KEY (region, category, id)
 		) PARTITION BY RANGE (region)
-	`, rootTable))
+	`, rootTableDDL))
 	require.NoError(t, err)
 
 	rowsPerPartition := 20
@@ -364,15 +381,15 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 
 	// Two mid-level partitions, each sub-partitioned by category
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
+		mid := fmt.Sprintf(`%s."Region_%d"`, schemaNameDDL, r)
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
 			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
-			mid, rootTable, r*50, (r+1)*50))
+			mid, rootTableDDL, r*50, (r+1)*50))
 		require.NoError(t, err)
 
 		// Three leaf partitions per mid-level
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
+			leaf := fmt.Sprintf(`%s."Region_%d_Cat_%d"`, schemaNameDDL, r, c)
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
 				leaf, mid, c*33, (c+1)*33))
@@ -381,14 +398,15 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	}
 
 	// 6 leaf tables total, insert 20 rows into each
+	// expectedLeaves uses unquoted names since that's what format('%s.%s', ...) in pg_class returns
 	expectedLeaves := make([]string, 0, numLeafChildTablesPerMidLevelTable*numMidLevelTables)
 	for r := range numMidLevelTables {
 		for c := range numLeafChildTablesPerMidLevelTable {
-			leaf := fmt.Sprintf("%s.region_%d_cat_%d", schemaName, r, c)
+			leaf := fmt.Sprintf("%s.Region_%d_Cat_%d", schemaName, r, c)
 			expectedLeaves = append(expectedLeaves, leaf)
 			for j := range rowsPerPartition {
 				_, err = conn.Exec(t.Context(), fmt.Sprintf(
-					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTable),
+					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTableDDL),
 					r*50, c*33+j%33, fmt.Sprintf("v_%d_%d_%d", r, c, j))
 				require.NoError(t, err)
 			}
@@ -401,7 +419,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		conn:    conn,
 		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testMultiLevel"))),
 	}
-	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTable)
+	query := fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, rootTableDDL)
 	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
 		FlowJobName:           "test_ctid_multi_level",
 		NumRowsPerPartition:   10,
@@ -409,7 +427,6 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        rootTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -429,7 +446,7 @@ func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 		require.Positive(t, childTableCounts[leaf])
 	}
 	for r := range numMidLevelTables {
-		mid := fmt.Sprintf("%s.region_%d", schemaName, r)
+		mid := fmt.Sprintf("%s.Region_%d", schemaName, r)
 		require.Zero(t, childTableCounts[mid], mid)
 	}
 }
@@ -471,7 +488,6 @@ func TestCTIDPartitioningOnEmptyPartitionedTable(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)
@@ -529,7 +545,6 @@ func TestCTIDPartitioningGroupingWhenChildrenExceedBudget(t *testing.T) {
 		Query:                 query,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -555,10 +570,10 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 		numPartitions: 8,
 		logger:        log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testOffsetBounds"))),
 	}
-	leafBlocks := map[string]int64{
-		"public.t1": 100,
-		"public.t2": 45,
-		"public.t3": 10,
+	leafBlocks := map[string]tableBlockStats{
+		"public.t1": {blockCount: 100},
+		"public.t2": {blockCount: 45},
+		"public.t3": {blockCount: 10},
 	}
 	// blocksPerPartition = DivCeil(155, 8) = 20
 	partitions, err := ctidPartitionsForChildTables(pp, leafBlocks)
@@ -597,27 +612,42 @@ func TestCtidPartitionsForChildTablesOffsetNumberBounds(t *testing.T) {
 
 func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 	t.Parallel()
-	schemaName, conn, connStr := setupTestSchema(t)
+	_, conn, connStr := setupTestSchema(t)
 
-	parentTable := schemaName + ".parent_inh"
-	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTable))
+	// Use a mixed-case schema name as well to verify OID-based lookups work
+	// for both schema and table identifiers (to_regclass lowercases unquoted identifiers).
+	schemaName := "Test_" + common.RandomString(8)
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
+
+	// Mixed-case names to verify OID-based lookups work (to_regclass lowercases unquoted identifiers).
+	// parentTable is the unquoted form passed to PeerDB; parentTableDDL is the quoted form for SQL DDL.
+	parentTable := schemaName + ".ParentInh"
+	parentTableDDL := schemaNameDDL + `."ParentInh"`
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
 	require.NoError(t, err)
 
 	numChildren := 3
 	rowsPerTable := 20
-	childTables := make([]string, numChildren)
+	childTablesDDL := make([]string, numChildren)
 	for i := range numChildren {
-		childTables[i] = fmt.Sprintf("%s.child_inh_%d", schemaName, i)
-		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTables[i], parentTable))
+		childTablesDDL[i] = fmt.Sprintf(`%s."ChildInh_%d"`, schemaNameDDL, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTablesDDL[i], parentTableDDL))
 		require.NoError(t, err)
 	}
 
 	for j := range rowsPerTable {
 		_, err = conn.Exec(t.Context(), fmt.Sprintf(
-			`INSERT INTO %s (value) VALUES ($1)`, parentTable), fmt.Sprintf("parent_%d", j))
+			`INSERT INTO %s (value) VALUES ($1)`, parentTableDDL), fmt.Sprintf("parent_%d", j))
 		require.NoError(t, err)
 	}
-	for i, child := range childTables {
+	for i, child := range childTablesDDL {
 		for j := range rowsPerTable {
 			_, err = conn.Exec(t.Context(), fmt.Sprintf(
 				`INSERT INTO %s (value) VALUES ($1)`, child), fmt.Sprintf("child_%d_%d", i, j))
@@ -637,7 +667,6 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 8,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -649,10 +678,11 @@ func TestCTIDPartitioningOnInheritedTable(t *testing.T) {
 			childTablesCovered[ctr.Table] = true
 		}
 	}
+	// pg_class returns unquoted names from format('%s.%s', ...) so assertions use the unquoted form
 	require.Len(t, childTablesCovered, 1+numChildren)
-	require.True(t, childTablesCovered[parentTable])
-	for _, child := range childTables {
-		require.True(t, childTablesCovered[child])
+	require.True(t, childTablesCovered[schemaName+".ParentInh"])
+	for i := range numChildren {
+		require.True(t, childTablesCovered[fmt.Sprintf("%s.ChildInh_%d", schemaName, i)])
 	}
 }
 
@@ -700,7 +730,6 @@ func TestCTIDPartitioningOnMultiLevelInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 10,
 		WatermarkTable:        grandparent,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, partitions)
@@ -745,10 +774,383 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 		NumPartitionsOverride: 4,
 		WatermarkTable:        parentTable,
 		WatermarkColumn:       "ctid",
-		Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)
+}
+
+// analyzeTables runs ANALYZE on each table so that pg_class.reltuples/relpages are
+// populated; without this the density-based row estimate is 0 and ComputeNumPartitions
+// falls back to a precise COUNT(*) instead of exercising the estimation path.
+func analyzeTables(t *testing.T, conn *pgx.Conn, tables []string) {
+	t.Helper()
+	for _, tbl := range tables {
+		if _, err := conn.Exec(t.Context(), "ANALYZE "+tbl); err != nil {
+			t.Fatalf("Failed to ANALYZE %s: %v", tbl, err)
+		}
+	}
+}
+
+// computeNumPartitionsForTest runs ComputeNumPartitions against watermarkTable inside a
+// read-only transaction. It canonicalizes the identifier exactly like GetQRepPartitions so
+// mixed-case names resolve through the OID-based lookups.
+func computeNumPartitionsForTest(t *testing.T, conn *pgx.Conn, watermarkTable string, rowsPerPartition int64) int64 {
+	t.Helper()
+	parsed, err := common.ParseTableIdentifier(watermarkTable)
+	require.NoError(t, err)
+
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context()) //nolint:errcheck
+
+	pp := PartitionParams{
+		tx:             tx,
+		watermarkTable: parsed.String(),
+		logger:         log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testComputeNumPartitions"))),
+	}
+	numPartitions, err := ComputeNumPartitions(t.Context(), pp, rowsPerPartition)
+	require.NoError(t, err)
+	return numPartitions
+}
+
+// sumEstimatedRows walks watermarkTable's partition/inheritance tree and returns the estimated
+// row count summed across the discovered tables (the same value ComputeNumPartitions uses),
+// along with the discovered table names. This directly exercises the density-based estimation,
+// distinguishing it from the precise COUNT(*) fallback.
+func sumEstimatedRows(t *testing.T, conn *pgx.Conn, watermarkTable string) (int64, []string) {
+	t.Helper()
+	parsed, err := common.ParseTableIdentifier(watermarkTable)
+	require.NoError(t, err)
+
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context()) //nolint:errcheck
+
+	tc, err := classifyTable(t.Context(), tx, parsed.String())
+	require.NoError(t, err)
+
+	var stats map[string]tableBlockStats
+	switch {
+	case tc.relkind == "p":
+		stats, err = getPartitionedTables(t.Context(), tx, tc.oid)
+	case tc.relhassubclass:
+		stats, err = getInheritedTables(t.Context(), tx, tc.oid, tc.qualifiedName, make(map[uint32]struct{}))
+	default:
+		t.Fatalf("table %s is neither partitioned nor inherited", watermarkTable)
+	}
+	require.NoError(t, err)
+
+	var estimated int64
+	tables := make([]string, 0, len(stats))
+	for name, bs := range stats {
+		estimated += int64(bs.blockDensity * float64(bs.blockCount))
+		tables = append(tables, name)
+	}
+	return estimated, tables
+}
+
+// TestComputeNumPartitionsOnPartitionedTable mirrors TestCTIDPartitioningOnPartitionedTable:
+// a single-level range-partitioned table. ComputeNumPartitions should sum the estimated row
+// counts of the leaf partitions (the partitioned parent itself stores no rows).
+func TestComputeNumPartitionsOnPartitionedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	parentTable := schemaName + ".partitioned_test"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, parentTable))
+	require.NoError(t, err)
+
+	rowsPerChild := 25
+	numChildTables := 4
+	totalRows := int64(rowsPerChild * numChildTables) // 100
+	tablesToAnalyze := []string{parentTable}
+	for i := range numChildTables {
+		child := fmt.Sprintf("%s.child_%d", schemaName, i)
+		lo := i * rowsPerChild
+		hi := (i + 1) * rowsPerChild
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			child, parentTable, lo, hi))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, child)
+	}
+	for i := range numChildTables {
+		for j := range rowsPerChild {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (partition_key, value) VALUES ($1, $2)`, parentTable),
+				i*rowsPerChild+j, fmt.Sprintf("val_%d_%d", i, j))
+			require.NoError(t, err)
+		}
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	// The estimate should sum the leaf partitions only and be close to the actual row count.
+	estimated, tables := sumEstimatedRows(t, conn, parentTable)
+	require.Len(t, tables, numChildTables)
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// 100 estimated rows / 40 per partition = DivCeil(100, 40) = 3
+	rowsPerPartition := int64(40)
+	numPartitions := computeNumPartitionsForTest(t, conn, parentTable, rowsPerPartition)
+	require.Equal(t, shared.DivCeil(totalRows, rowsPerPartition), numPartitions)
+}
+
+// TestComputeNumPartitionsOnMultiLevelPartitionedTable mirrors
+// TestCTIDPartitioningOnMultiLevelPartitionedTable: a multi-level partitioned table with
+// mixed-case schema/table names (to verify OID-based lookups). ComputeNumPartitions should
+// recurse to the leaf partitions and sum their estimated row counts.
+func TestComputeNumPartitionsOnMultiLevelPartitionedTable(t *testing.T) {
+	t.Parallel()
+	_, conn, _ := setupTestSchema(t)
+
+	// Mixed-case schema/table names to verify OID-based lookups (to_regclass lowercases
+	// unquoted identifiers).
+	schemaName := "Test_" + common.RandomString(8)
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
+
+	rootTable := schemaName + ".MultiLevel"
+	rootTableDDL := schemaNameDDL + `."MultiLevel"`
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			region INT NOT NULL,
+			category INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (region, category, id)
+		) PARTITION BY RANGE (region)
+	`, rootTableDDL))
+	require.NoError(t, err)
+
+	rowsPerLeaf := 20
+	numMidLevelTables := 2
+	numLeafPerMid := 3
+	totalRows := int64(rowsPerLeaf * numMidLevelTables * numLeafPerMid) // 120
+	tablesToAnalyze := []string{rootTableDDL}
+	for r := range numMidLevelTables {
+		mid := fmt.Sprintf(`%s."Region_%d"`, schemaNameDDL, r)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d) PARTITION BY RANGE (category)`,
+			mid, rootTableDDL, r*50, (r+1)*50))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, mid)
+
+		for c := range numLeafPerMid {
+			leaf := fmt.Sprintf(`%s."Region_%d_Cat_%d"`, schemaNameDDL, r, c)
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+				leaf, mid, c*33, (c+1)*33))
+			require.NoError(t, err)
+			tablesToAnalyze = append(tablesToAnalyze, leaf)
+		}
+	}
+	for r := range numMidLevelTables {
+		for c := range numLeafPerMid {
+			for j := range rowsPerLeaf {
+				_, err = conn.Exec(t.Context(), fmt.Sprintf(
+					`INSERT INTO %s (region, category, value) VALUES ($1, $2, $3)`, rootTableDDL),
+					r*50, c*33+j%33, fmt.Sprintf("v_%d_%d_%d", r, c, j))
+				require.NoError(t, err)
+			}
+		}
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	// Only the 6 leaf partitions store rows; mid-level partitioned tables are recursed through.
+	estimated, tables := sumEstimatedRows(t, conn, rootTable)
+	require.Len(t, tables, numMidLevelTables*numLeafPerMid)
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// 120 estimated rows / 50 per partition = DivCeil(120, 50) = 3
+	rowsPerPartition := int64(50)
+	numPartitions := computeNumPartitionsForTest(t, conn, rootTable, rowsPerPartition)
+	require.Equal(t, shared.DivCeil(totalRows, rowsPerPartition), numPartitions)
+}
+
+// TestComputeNumPartitionsOnEmptyPartitionedTable mirrors
+// TestCTIDPartitioningOnEmptyPartitionedTable: a partitioned table with only empty partitions.
+// The estimate is 0 (which also exercises the relpages=0 guard), so ComputeNumPartitions falls
+// back to COUNT(*) and returns no partitions.
+func TestComputeNumPartitionsOnEmptyPartitionedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	parentTable := schemaName + ".empty_partitioned"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL,
+			partition_key INT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (partition_key, id)
+		) PARTITION BY RANGE (partition_key)
+	`, parentTable))
+	require.NoError(t, err)
+
+	tablesToAnalyze := []string{parentTable}
+	for i := range 4 {
+		child := fmt.Sprintf("%s.empty_child_%d", schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%d) TO (%d)`,
+			child, parentTable, i*25, (i+1)*25))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, child)
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	numPartitions := computeNumPartitionsForTest(t, conn, parentTable, 10)
+	require.Zero(t, numPartitions)
+}
+
+// TestComputeNumPartitionsOnInheritedTable mirrors TestCTIDPartitioningOnInheritedTable:
+// a single-level inheritance hierarchy with mixed-case names. ComputeNumPartitions should sum
+// the estimated row counts across the parent (which stores its own rows) and every child.
+func TestComputeNumPartitionsOnInheritedTable(t *testing.T) {
+	t.Parallel()
+	_, conn, _ := setupTestSchema(t)
+
+	// Mixed-case schema/table names to verify OID-based lookups.
+	schemaName := "Test_" + common.RandomString(8)
+	schemaNameDDL := `"` + schemaName + `"`
+	_, err := conn.Exec(t.Context(), `CREATE SCHEMA `+schemaNameDDL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if _, err := conn.Exec(t.Context(), `DROP SCHEMA `+schemaNameDDL+` CASCADE`); err != nil {
+			t.Logf("Failed to drop schema: %v", err)
+		}
+	})
+
+	parentTable := schemaName + ".ParentInh"
+	parentTableDDL := schemaNameDDL + `."ParentInh"`
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTableDDL))
+	require.NoError(t, err)
+
+	numChildren := 3
+	rowsPerTable := 20
+	// The parent stores its own rows in the inheritance case, so it counts toward the total.
+	totalRows := int64(rowsPerTable * (numChildren + 1)) // 80
+	tablesToAnalyze := []string{parentTableDDL}
+	childTablesDDL := make([]string, numChildren)
+	for i := range numChildren {
+		childTablesDDL[i] = fmt.Sprintf(`%s."ChildInh_%d"`, schemaNameDDL, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, childTablesDDL[i], parentTableDDL))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, childTablesDDL[i])
+	}
+	for j := range rowsPerTable {
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`INSERT INTO %s (value) VALUES ($1)`, parentTableDDL), fmt.Sprintf("parent_%d", j))
+		require.NoError(t, err)
+	}
+	for i, child := range childTablesDDL {
+		for j := range rowsPerTable {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (value) VALUES ($1)`, child), fmt.Sprintf("child_%d_%d", i, j))
+			require.NoError(t, err)
+		}
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	// The estimate should cover the parent plus every child.
+	estimated, tables := sumEstimatedRows(t, conn, parentTable)
+	require.Len(t, tables, numChildren+1)
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// 80 estimated rows / 30 per partition = DivCeil(80, 30) = 3
+	rowsPerPartition := int64(30)
+	numPartitions := computeNumPartitionsForTest(t, conn, parentTable, rowsPerPartition)
+	require.Equal(t, shared.DivCeil(totalRows, rowsPerPartition), numPartitions)
+}
+
+// TestComputeNumPartitionsOnMultiLevelInheritedTable mirrors
+// TestCTIDPartitioningOnMultiLevelInheritedTable: a grandparent -> parents -> leaves hierarchy
+// where every table stores its own rows. ComputeNumPartitions should sum estimates across all
+// of them.
+func TestComputeNumPartitionsOnMultiLevelInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	grandparent := schemaName + ".grandparent"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, grandparent))
+	require.NoError(t, err)
+
+	parent1 := schemaName + ".parent_1"
+	parent2 := schemaName + ".parent_2"
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, parent1, grandparent))
+	require.NoError(t, err)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, parent2, grandparent))
+	require.NoError(t, err)
+
+	leaf1 := schemaName + ".leaf_1"
+	leaf2 := schemaName + ".leaf_2"
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, leaf1, parent1))
+	require.NoError(t, err)
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s () INHERITS (%s)`, leaf2, parent2))
+	require.NoError(t, err)
+
+	rowsPerTable := 15
+	allTables := []string{grandparent, parent1, parent2, leaf1, leaf2}
+	totalRows := int64(rowsPerTable * len(allTables)) // 75
+	for _, tbl := range allTables {
+		for j := range rowsPerTable {
+			_, err = conn.Exec(t.Context(), fmt.Sprintf(
+				`INSERT INTO %s (value) VALUES ($1)`, tbl), fmt.Sprintf("v_%d", j))
+			require.NoError(t, err)
+		}
+	}
+	analyzeTables(t, conn, allTables)
+
+	// The estimate should cover every table in the hierarchy.
+	estimated, tables := sumEstimatedRows(t, conn, grandparent)
+	require.Len(t, tables, len(allTables))
+	require.InDelta(t, totalRows, estimated, float64(totalRows)*0.1,
+		"estimated rows %d should be within 10%% of actual %d", estimated, totalRows)
+
+	// 75 estimated rows / 30 per partition = DivCeil(75, 30) = 3
+	rowsPerPartition := int64(30)
+	numPartitions := computeNumPartitionsForTest(t, conn, grandparent, rowsPerPartition)
+	require.Equal(t, shared.DivCeil(totalRows, rowsPerPartition), numPartitions)
+}
+
+// TestComputeNumPartitionsOnEmptyInheritedTable mirrors
+// TestCTIDPartitioningOnEmptyInheritedTable: an inheritance hierarchy with no rows anywhere.
+// The estimate is 0 (also exercising the relpages=0 guard), so ComputeNumPartitions falls back
+// to COUNT(*) and returns no partitions.
+func TestComputeNumPartitionsOnEmptyInheritedTable(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	parentTable := schemaName + ".empty_inh"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id SERIAL PRIMARY KEY, value TEXT)`, parentTable))
+	require.NoError(t, err)
+
+	tablesToAnalyze := []string{parentTable}
+	for i := range 3 {
+		child := fmt.Sprintf("%s.empty_inh_child_%d", schemaName, i)
+		_, err = conn.Exec(t.Context(), fmt.Sprintf(
+			`CREATE TABLE %s () INHERITS (%s)`, child, parentTable))
+		require.NoError(t, err)
+		tablesToAnalyze = append(tablesToAnalyze, child)
+	}
+	analyzeTables(t, conn, tablesToAnalyze)
+
+	numPartitions := computeNumPartitionsForTest(t, conn, parentTable, 10)
+	require.Zero(t, numPartitions)
 }
 
 // returns the number of rows inserted

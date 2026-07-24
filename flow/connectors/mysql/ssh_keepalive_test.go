@@ -2,33 +2,56 @@ package connmysql
 
 import (
 	"context"
-	"os"
+	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	toxiproxy "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
-	toxiproxyDownProxyPort    = 42001
-	toxiproxyLatencyProxyPort = 42002
-	toxiproxyResetProxyPort   = 42003
+	toxiproxyDownProxyPort              = 12001
+	toxiproxyLatencyProxyPort           = 12002
+	toxiproxyResetProxyPort             = 12003
+	toxiproxyCDCHangProxyPort           = 12004
+	toxiproxyCDCCloseHangProxyPort      = 12005
+	toxiproxyCloseSyncerWithTimeoutPort = 12006
+	toxiproxyBinlogStalenessPort        = 12007
 )
 
-func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
-) (*MySqlConnector, utils.SSHKeepaliveTestConfig) {
+func resolveMySQL(t *testing.T) (string, uint32, string) {
+	t.Helper()
+	return internal.MySQLSSHUpstreamHost(),
+		internal.MySQLTestPortWithFallback(3306),
+		internal.MySQLTestRootPasswordWithFallback("cipass")
+}
+
+// Connector -> Toxi -> SSH -> MySQL
+func setupMySQLConnectorWithSSHProxy(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*MySqlConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
 	toxiproxyClient := utils.NewToxiproxyClient(t)
 	sshProxy := utils.CreateSSHProxy(t, toxiproxyClient, proxyName, proxyPort)
 
+	mysqlHost, mysqlPort, mysqlRootPass := resolveMySQL(t)
+
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:     "mysql",
-		Port:     3306,
+		Host:     mysqlHost,
+		Port:     mysqlPort,
 		User:     "root",
-		Password: "cipass",
+		Password: mysqlRootPass,
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
@@ -44,6 +67,51 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName str
 	err = connector.ConnectionActive(ctx)
 	require.NoError(t, err, "Initial connection should work")
 
+	return connector, sshProxy
+}
+
+// Connector -> SSH -> Toxi -> MySQL
+func setupMySQLConnectorWithMySQLProxy(
+	ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*MySqlConnector, *toxiproxy.Proxy) {
+	t.Helper()
+
+	toxiproxyClient := utils.NewToxiproxyClient(t)
+	mysqlHost, mysqlPort, mysqlRootPass := resolveMySQL(t)
+	upstream := mysqlHost + ":" + strconv.FormatUint(uint64(mysqlPort), 10)
+	mysqlProxy := utils.CreateToxiproxyForward(t, toxiproxyClient, proxyName, proxyPort, upstream)
+
+	sshPortStr := utils.SSHServerPort
+	sshPort, err := strconv.ParseUint(sshPortStr, 10, 32)
+	require.NoError(t, err)
+
+	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
+		Host:     utils.MySQLProxyHost,
+		Port:     uint32(proxyPort),
+		User:     "root",
+		Password: mysqlRootPass,
+		Database: "mysql",
+		SshConfig: &protos.SSHConfig{
+			Host:     "localhost",
+			Port:     uint32(sshPort),
+			User:     "testuser",
+			Password: "testpass",
+		},
+		DisableTls: true,
+	})
+	require.NoError(t, err)
+
+	err = connector.ConnectionActive(ctx)
+	require.NoError(t, err, "Initial connection should work")
+
+	return connector, mysqlProxy
+}
+
+func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName string, proxyPort int,
+) (*MySqlConnector, utils.SSHKeepaliveTestConfig) {
+	t.Helper()
+
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, proxyName, proxyPort)
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 
 	return connector, utils.SSHKeepaliveTestConfig{
@@ -56,29 +124,252 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, proxyName str
 	}
 }
 
-func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
+func TestMySQLOnlyIntegrationSSHKeepaliveTunnelDown(t *testing.T) {
+	t.Parallel()
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveDownTest(t, cfg)
 }
 
-func TestMySQLSSHKeepaliveLatency(t *testing.T) {
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
+func TestMySQLOnlyIntegrationSSHKeepaliveLatency(t *testing.T) {
+	t.Parallel()
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveLatencyTest(t, cfg)
 }
 
-func TestMySQLSSHResetPeer(t *testing.T) {
-	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
-		t.Skip("Skipping SSH keepalive test for MariaDB")
-	}
-	connector, cfg := setupMySQLConnectorWithSSH(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
+func TestMySQLOnlyIntegrationSSHResetPeer(t *testing.T) {
+	t.Parallel()
+	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	utils.RunSSHResetPeerTest(t, cfg)
+}
+
+func setupCDCPullRecords(
+	ctx context.Context, t *testing.T, connector *MySqlConnector, flowJobName string,
+) (*model.PullRecordsRequest[model.RecordItems], *otel_metrics.OtelManager) {
+	t.Helper()
+
+	gtidOn, err := connector.GetGtidModeOn(ctx)
+	require.NoError(t, err)
+
+	var offsetText string
+	if gtidOn {
+		gset, err := connector.GetMasterGTIDSet(ctx)
+		require.NoError(t, err)
+		offsetText = gset.String()
+	} else {
+		pos, err := connector.GetMasterPos(ctx)
+		require.NoError(t, err)
+		offsetText = posToOffsetText(pos)
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            flowJobName,
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.NameAndExclude{},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		LastOffset:             model.CdcCheckpoint{Text: offsetText},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+		ConsumedOffset:         &atomic.Int64{},
+	}
+
+	return req, otelManager
+}
+
+func TestMySQLOnlyIntegrationSSHKeepaliveCDCHang(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
+	defer connector.Close()
+
+	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
+
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_hang")
+
+	pullDone := concurrency.NewLatch[error]()
+	go func() {
+		pullDone.Set(connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req))
+	}()
+	go func() {
+		for range req.RecordStream.GetRecords() {
+		}
+	}()
+
+	time.Sleep(2 * time.Second)
+
+	t.Log("Adding latency toxic to simulate network black hole during CDC streaming")
+	_, err := sshProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
+		"latency": 120000,
+	})
+	require.NoError(t, err)
+
+	// Wait for keepalive to detect the failure first — if PullRecords exits before
+	// the keepalive fires, something else closed the connection (driver timeout, etc.)
+	select {
+	case <-keepaliveChan:
+		t.Log("SSH keepalive detected failure")
+	case <-pullDone.Chan():
+		t.Fatal("PullRecords exited before SSH keepalive fired — connection closed by something other than keepalive")
+	case <-time.After(3 * utils.SSHKeepaliveInterval):
+		t.Fatal("SSH keepalive did not fire in time")
+	}
+
+	select {
+	case <-pullDone.Chan():
+		pullErr := pullDone.Wait()
+		require.Error(t, pullErr, "PullRecords should fail after SSH keepalive detects black hole")
+		t.Logf("PullRecords returned: %v", pullErr)
+	case <-time.After(10 * time.Second):
+		t.Fatal("PullRecords did not return after SSH keepalive closed the connection")
+	}
+}
+
+func TestMySQLOnlyIntegrationSSHKeepaliveCDCCloseHang(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
+	defer connector.Close()
+
+	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
+	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
+
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_close_hang")
+
+	// Use a short-lived context so PullRecords starts shutting down while
+	// the connection is blocked by latency
+	cancelCtx, cancel := context.WithTimeout(ctx, 7*time.Second)
+	defer cancel()
+
+	pullDone := concurrency.NewLatch[error]()
+	go func() {
+		pullDone.Set(connector.PullRecords(cancelCtx, shared.CatalogPool{}, otelManager, req))
+	}()
+	go func() {
+		for range req.RecordStream.GetRecords() {
+		}
+	}()
+
+	// Wait for CDC streaming to establish before adding latency
+	time.Sleep(2 * time.Second)
+
+	// Add high latency so the connection becomes unresponsive without erroring
+	t.Log("Adding latency toxic to block the connection during CDC streaming and cleanup")
+	_, err := sshProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
+		"latency": 120000,
+	})
+	require.NoError(t, err)
+
+	t.Logf("Waiting for context cancel (~5s), then PullRecords should hang until keepalive fires (within %s)", 3*utils.SSHKeepaliveInterval)
+
+	// Wait for keepalive to detect the failure — PullRecords should be hanging
+	// until keepalive closes the underlying connection
+	select {
+	case <-keepaliveChan:
+		t.Log("SSH keepalive detected failure")
+	case <-time.After(3 * utils.SSHKeepaliveInterval):
+		t.Fatal("SSH keepalive did not fire in time")
+	}
+
+	select {
+	case <-pullDone.Chan():
+		pullErr := pullDone.Wait()
+		require.ErrorIs(t, pullErr, context.DeadlineExceeded)
+	case <-time.After(10 * time.Second):
+		t.Fatal("PullRecords did not return after SSH keepalive closed the connection")
+	}
+}
+
+func TestMySQLOnlyIntegrationCloseSyncerWithTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(
+		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
+	defer connector.Close()
+
+	pos, err := connector.GetMasterPos(ctx)
+	require.NoError(t, err)
+	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
+	require.NoError(t, err)
+
+	// Let CDC streaming establish before blocking the MySQL server.
+	time.Sleep(2 * time.Second)
+
+	// Black-hole the MySQL server so syncer.Close() hangs
+	_, err = mysqlProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
+		"latency": 120000,
+	})
+	require.NoError(t, err)
+
+	syncerCloseTimeout := 2 * time.Second
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		connector.closeSyncerWithTimeout(syncer, syncerCloseTimeout)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		elapsed := time.Since(start)
+		require.GreaterOrEqual(t, elapsed, syncerCloseTimeout)
+		require.Less(t, elapsed, syncerCloseTimeout+time.Second)
+	case <-time.After(10 * time.Second):
+		t.Fatal("closeSyncerWithTimeout did not return on timeout")
+	}
+}
+
+// TestMySQLOnlyIntegrationBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL,
+// PullRecords returns MySQLStaleConnectionError once time.Since(lastEventAt) exceeds the staleness threshold.
+func TestMySQLOnlyIntegrationBinlogStalenessThreshold(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(ctx, t, "my-binlog-staleness-test", toxiproxyBinlogStalenessPort)
+	defer connector.Close()
+
+	// use a short staleness threshold to make test faster
+	connector.binlogHeartbeatPeriod = 1 * time.Second
+	const binlogStalenessThreshold = 3 * time.Second
+
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_binlog_staleness")
+	req.Env = map[string]string{"PEERDB_MYSQL_BINLOG_STALENESS_SECONDS": "3"}
+
+	pullDone := concurrency.NewLatch[error]()
+	go func() {
+		pullDone.Set(connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req))
+	}()
+	go func() {
+		for range req.RecordStream.GetRecords() {
+		}
+	}()
+
+	// Let CDC streaming + heartbeats establish
+	time.Sleep(2 * time.Second)
+
+	t.Log("Adding latency toxic to silence the bastion <-> MySQL link")
+	_, err := mysqlProxy.AddToxic("staleness-latency", "latency", "", 1.0, toxiproxy.Attributes{
+		"latency": 120000,
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-pullDone.Chan():
+		pullErr := pullDone.Wait()
+		require.Error(t, pullErr)
+		var staleErr *exceptions.MySQLStaleConnectionError
+		require.ErrorAs(t, pullErr, &staleErr)
+		require.GreaterOrEqual(t, staleErr.Since, binlogStalenessThreshold)
+		require.Equal(t, connector.binlogHeartbeatPeriod, staleErr.HeartbeatPeriod)
+		t.Logf("PullRecords returned staleness error after %v (heartbeat=%v)",
+			staleErr.Since, staleErr.HeartbeatPeriod)
+	case <-time.After(30 * time.Second):
+		t.Fatal("PullRecords did not return MySQLStaleConnectionError within staleness budget")
+	}
 }

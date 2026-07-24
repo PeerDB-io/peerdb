@@ -47,7 +47,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 }
 
 func GetCatalogConnectionStringFromEnv(ctx context.Context) string {
-	return GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
+	return GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "catalog_test_access")
 }
 
 func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig {
@@ -58,15 +58,5 @@ func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig
 		Password:   PeerDBCatalogPassword(ctx),
 		Database:   PeerDBCatalogDatabase(),
 		RequireTls: PeerDBCatalogRequireTls(),
-	}
-}
-
-func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
-	return &protos.PostgresConfig{
-		Host:     GetEnvString("PG_HOST", "localhost"),
-		Port:     uint32(getEnvUint[uint16]("PG_PORT", 5432)),
-		User:     GetEnvString("PG_USER", "postgres"),
-		Password: GetEnvString("PG_PASSWORD", "postgres"),
-		Database: GetEnvString("PG_DATABASE", "postgres"),
 	}
 }

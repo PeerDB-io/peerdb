@@ -14,7 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type S3TestHelper struct {
@@ -90,7 +90,7 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		}
 	}
 
-	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
+	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), common.RandomString(6))
 
 	s3config := &protos.S3Config{
 		Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefix),

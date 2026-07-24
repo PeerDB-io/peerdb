@@ -119,7 +119,6 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 }
 
 func TestAvroSizeComputation(t *testing.T) {
-	//nolint:govet // fieldalignment: readability over struct packing in test definitions
 	type subtestDef struct {
 		name       string
 		kind       types.QValueKind
@@ -266,6 +265,22 @@ func TestAvroSizeComputation(t *testing.T) {
 			numRecords: 10_000,
 			genValue: func() types.QValue {
 				return types.QValueEnum{Val: randomText(10 + rand.IntN(50))}
+			},
+		},
+		{
+			name:       "uint16enum",
+			kind:       types.QValueKindUint16Enum,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUint16Enum{Val: uint16(rand.IntN(65536))}
+			},
+		},
+		{
+			name:       "uint64set",
+			kind:       types.QValueKindUint64Set,
+			numRecords: 10_000,
+			genValue: func() types.QValue {
+				return types.QValueUint64Set{Val: rand.Uint64()}
 			},
 		},
 		{

@@ -75,7 +75,8 @@ func GetAvroSchemaFromQValueKind(
 	case types.QValueKindGeometry, types.QValueKindGeography, types.QValueKindPoint:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
-		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64,
+		types.QValueKindUint16Enum, types.QValueKindUint64Set:
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
 	case types.QValueKindFloat32:
 		if targetDWH == protos.DBType_BIGQUERY {
@@ -291,6 +292,10 @@ func QValueToAvro(
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt16:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+	case types.QValueUint16Enum:
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+	case types.QValueUint64Set:
+		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt32:
 		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt64:
@@ -366,8 +371,17 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration, so sizeOpt) (any, i
 	return t, varIntSize(int64(t/time.Microsecond), so)
 }
 
-func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avroVal int64, so sizeOpt) (any, int64) {
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+const (
+	// TODO:
+	// This limits match the current ClickHouse stable version ranges.
+	// These are being expended with https://github.com/ClickHouse/ClickHouse/issues/65380
+	// Follow-up to update these limits or make them dynamic in function of the target ClickHouse dp
+	// capabilities.
+	ClickHouseMinYear = 1900
+	ClickHouseMaxYear = 2299
+)
+
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
 		year := t.Year()
@@ -380,26 +394,36 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, avr
 				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), varIntSize(0, so)
 			}
 		}
+	case protos.DBType_CLICKHOUSE:
+		if year := t.Year(); year < ClickHouseMinYear {
+			t = time.Date(ClickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		} else if year > ClickHouseMaxYear {
+			t = time.Date(ClickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+		}
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		s := t.Format(format)
 		return s, stringSize(s, so)
 	}
+	// Timestamps are micros since epoch; dates are days since epoch. Both encoded as Avro varint.
+	avroVal := t.UnixMicro()
+	if isDate {
+		avroVal = t.Unix() / 86400
+	}
 	return t, varIntSize(avroVal, so)
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", t.UnixMicro(), so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700", false, so)
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time, so sizeOpt) (any, int64) {
-	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", t.UnixMicro(), so)
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999", false, so)
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64) {
-	// Date is days since epoch, encoded as Avro int (varint)
-	return c.processGeneralTime(t, "2006-01-02", t.Unix()/86400, so)
+	return c.processGeneralTime(t, "2006-01-02", true, so)
 }
 
 func (c *QValueAvroConverter) processNullableUnion(

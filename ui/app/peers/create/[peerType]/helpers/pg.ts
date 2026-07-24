@@ -61,6 +61,14 @@ export const postgresSetting: PeerSetting[] = [
     optional: true,
   },
   {
+    label: 'Skip Certificate Verification?',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, skipCertVerification: value as boolean })),
+    type: 'switch',
+    tips: 'Skip TLS certificate verification (insecure, use with caution).',
+    optional: true,
+  },
+  {
     label: 'Root Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
@@ -83,6 +91,54 @@ export const postgresSetting: PeerSetting[] = [
       setter((curr) => ({ ...curr, tlsHost: value as string })),
     tips: 'Overrides expected hostname during tls cert verification.',
     optional: true,
+  },
+  {
+    label: 'Client Certificate',
+    field: 'clientTls.certificate',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        const pg = curr as PostgresConfig;
+        const certificate = value as string;
+        if (!certificate && !pg.clientTls?.privateKey) {
+          const newCurr = { ...pg };
+          delete newCurr.clientTls;
+          return newCurr;
+        }
+        return {
+          ...pg,
+          clientTls: {
+            certificate,
+            privateKey: pg.clientTls?.privateKey ?? '',
+          },
+        };
+      }),
+    type: 'file',
+    optional: true,
+    tips: 'Client certificate (PEM) presented to the server for mutual TLS. Requires TLS to be enabled, and must be paired with the client private key.',
+  },
+  {
+    label: 'Client Private Key',
+    field: 'clientTls.privateKey',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        const pg = curr as PostgresConfig;
+        const privateKey = value as string;
+        if (!privateKey && !pg.clientTls?.certificate) {
+          const newCurr = { ...pg };
+          delete newCurr.clientTls;
+          return newCurr;
+        }
+        return {
+          ...pg,
+          clientTls: {
+            certificate: pg.clientTls?.certificate ?? '',
+            privateKey,
+          },
+        };
+      }),
+    type: 'file',
+    optional: true,
+    tips: 'Private key (PEM) for the client certificate. Requires TLS to be enabled, and must be paired with the client certificate.',
   },
   {
     label: 'Authentication type',
@@ -202,6 +258,7 @@ export const blankPostgresSetting: PostgresConfig = {
   password: '',
   database: '',
   requireTls: false,
+  skipCertVerification: false,
   authType: PostgresAuthType.POSTGRES_PASSWORD,
   awsAuth: {
     region: '',

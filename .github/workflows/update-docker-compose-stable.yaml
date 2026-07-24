@@ -1,11 +1,9 @@
 name: Update Deployment tags (Docker Compose and Helm Charts)
 
 on:
-  workflow_dispatch:
-    inputs: {}
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  release:
+    types:
+      - published
 
 permissions:
   issues: write
@@ -25,10 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest_tag="$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')"
+          latest_tag="${{ github.event.release.tag_name }}"
           echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
   update-docker-compose-tag:
     runs-on: ubuntu-latest
@@ -38,7 +33,7 @@ jobs:
       PR_LABEL: dependencies
       PR_TITLE: "feat: upgrade `docker-compose.yml` stable image tags"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
       - name: Update PeerDb Version in docker-compose.yml
@@ -81,7 +76,7 @@ jobs:
       STABLE_PEERDB_VERSION: stable-${{ needs.get-latest-release.outputs.latest_tag }}
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
           repository: PeerDB-io/peerdb-enterprise
@@ -95,19 +90,15 @@ jobs:
           yq -e -i '.appVersion = strenv(PEERDB_VERSION)' peerdb-catalog/Chart.yaml
           yq -e -i '.peerdb.version = strenv(STABLE_PEERDB_VERSION)' peerdb/values.yaml
           git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
-      - name: Get next version
-        if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
-        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e # 2024.10.1
+      - name: Repo SemVer
+        uses: lhstrh/action-repo-semver@23839f38b149db8715f21dbd38e6dde122817222
         id: version
-        with:
-          scheme: semver
-          increment: patch
       - name: Update Chart version
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         run: |
           set -eo pipefail
-          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb/Chart.yaml
-          yq -e -i '.version = "${{ steps.version.outputs.version }}"' peerdb-catalog/Chart.yaml
+          yq -e -i '.version = "${{ steps.version.outputs.next-patch }}"' peerdb/Chart.yaml
+          yq -e -i '.version = "${{ steps.version.outputs.next-patch }}"' peerdb-catalog/Chart.yaml
       - name: Update helm-docs for both charts
         if: ${{ steps.update-peerdb-version.outputs.changes == 'true' }}
         run: |
@@ -126,7 +117,7 @@ jobs:
           if [ "$PR_ID" == "" ]; then
             PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
           fi
-          echo 'This PR updates the PeerDB release version to `${{ env.PEERDB_VERSION }}` and the chart version to `${{ steps.version.outputs.version }}`.' > pr_body.txt
+          echo 'This PR updates the PeerDB release version to `${{ env.PEERDB_VERSION }}` and the chart version to `${{ steps.version.outputs.next-patch }}`.' > pr_body.txt
           echo 'Please review and merge it to update the charts.' >> pr_body.txt
           gh pr edit "$PR_ID" --body "$(cat pr_body.txt)"
           gh pr merge "$PR_ID" --squash --auto

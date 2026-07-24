@@ -15,7 +15,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 type PeerFlowE2ETestSuiteSF struct {
@@ -79,7 +79,7 @@ func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*m
 func SetupSnowflakeSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	t.Helper()
 
-	suffix := shared.RandomString(8)
+	suffix := common.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 

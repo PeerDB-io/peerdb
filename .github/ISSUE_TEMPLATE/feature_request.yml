@@ -1,0 +1,77 @@
+name: Feature request
+description: Suggest a feature or improvement for PeerDB
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Please describe the problem you are trying to solve and what you would like to happen.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem are you trying to solve, and what is the use case?
+      placeholder: When replicating ..., I need ... but currently ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe what you would like to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or workarounds you have considered.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: source_connector
+    attributes:
+      label: Source connector
+      description: If this request relates to a source connector, select it here. Leave blank if not applicable.
+      options:
+        - Postgres
+        - MySQL
+        - MongoDB
+        - BigQuery
+        - Other
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚠️ Deprecated destination connectors
+
+        The following destination connectors are **deprecated** and no longer actively maintained: **Snowflake**, **BigQuery**, **ElasticSearch**, **Kafka**, **Redpanda**, **Confluent**, **Azure Event Hubs**, **Google Pub/Sub**, and **S3**. New features for these destinations are unlikely to be prioritized. Note: BigQuery is deprecated **only as a destination** — it remains a supported source. See the [deprecated connectors documentation](https://github.com/PeerDB-io/peerdb/blob/main/docs/deprecated-connectors.md).
+
+  - type: dropdown
+    id: destination_connector
+    attributes:
+      label: Destination connector
+      description: If this request relates to a destination connector, select it here (see the deprecation notice above). Leave blank if not applicable.
+      options:
+        - ClickHouse
+        - ClickHouse Cloud
+        - Postgres
+        - S3
+        - Snowflake
+        - BigQuery
+        - ElasticSearch
+        - Kafka
+        - Redpanda
+        - Confluent
+        - Azure Event Hubs
+        - Google Pub/Sub
+        - Other
+    validations:
+      required: false

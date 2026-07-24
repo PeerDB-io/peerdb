@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"math"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,20 +24,29 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type MySqlConnector struct {
+	clockOffsetUpdatedAt time.Time
+	logger               log.Logger
+	collationCharset     atomic.Pointer[map[uint64]string]
+	conn                 atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts             atomic.Pointer[chan context.Context]
+	ssh                  *utils.SSHTunnel
+	rdsAuth              *utils.RDSAuth
+	config               *protos.MySqlConfig
 	*metadataStore.PostgresMetadata
-	config         *protos.MySqlConfig
-	ssh            *utils.SSHTunnel
-	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       atomic.Pointer[chan context.Context]
-	logger         log.Logger
-	rdsAuth        *utils.RDSAuth
-	serverVersion  string
-	totalBytesRead atomic.Int64
-	deltaBytesRead atomic.Int64
+	warnedUnsupportedEventTypes sync.Map
+	warnedCharsets              sync.Map
+	warnedTypeChanges           sync.Map
+	serverVersion               string
+	binlogHeartbeatPeriod       time.Duration
+	clockOffset                 time.Duration
+	totalBytesRead              atomic.Int64
+	deltaBytesRead              atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -60,12 +71,13 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		ssh:              ssh,
-		conn:             atomic.Pointer[client.Conn]{},
-		logger:           logger,
-		rdsAuth:          rdsAuth,
+		PostgresMetadata:      pgMetadata,
+		config:                config,
+		ssh:                   ssh,
+		conn:                  atomic.Pointer[client.Conn]{},
+		logger:                logger,
+		rdsAuth:               rdsAuth,
+		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
 	go func() { //nolint:gosec // G118: long-lived goroutine, not request-scoped
@@ -76,6 +88,10 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			case <-ssh.GetKeepaliveChan(ctx):
 				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
+				// close the SSH tunnel so that BinlogSyncer notices too
+				if err := ssh.Close(); err != nil {
+					c.logger.Error("Failed to close SSH client", slog.Any("error", err))
+				}
 				if conn := c.conn.Swap(nil); conn != nil {
 					c.logger.Info("Closing connection due to SSH keepalive failure")
 					if err := conn.Close(); err != nil {
@@ -155,10 +171,10 @@ func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh != nil && c.ssh.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.Client.DialContext, false)
+	if c.ssh.IsActive() {
+		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.DialContext)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
 	return meteredDialer.DialContext
 }
@@ -175,6 +191,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			if !c.config.DisableTls {
 				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+					nil,
 				)
 				if err != nil {
 					return err
@@ -227,8 +244,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 
 	// set session timezone to UTC (use numeric offset to avoid tz table dependency)
 	if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
-		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 			c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
 		} else {
 			return fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
@@ -244,8 +260,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 	case mysql.MySQLFlavor:
 		// set max_execution_time to unlimited
 		if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
-			var mErr *mysql.MyError
-			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 				// max_execution_time is not supported, ignore the error
 				c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
 			} else {
@@ -255,8 +270,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 	case mysql.MariaDBFlavor:
 		// set max_statement_time to unlimited
 		if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
-			var mErr *mysql.MyError
-			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if mErr, ok := errors.AsType[*mysql.MyError](err); ok && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
 				// max_statement_time is not supported, ignore the error
 				c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
 			} else {
@@ -265,6 +279,12 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 	return nil
+}
+
+func escapeWithNoBackslashEscapes(s string) string {
+	// mysql.Escape must NOT be used because MySQL connector session has sql_mode set
+	// to NO_BACKSLASH_ESCAPES (see setSessionSettings). Only quotes needs to be escaped.
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // withRetries return an iterable over connections,
@@ -294,20 +314,26 @@ func (c *MySqlConnector) ExecuteNoRetry(ctx context.Context, cmd string, args ..
 }
 
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
-	var connectionErr error
+	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewMySQLExecuteError(err)
 		}
 
-		rs, err := conn.Execute(cmd, args...)
-		if err != nil && mysql.ErrorEqual(err, mysql.ErrBadConn) {
-			connectionErr = err
-			continue
+		if rs, err := conn.Execute(cmd, args...); err != nil {
+			if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+				retryableErr = err
+				continue
+			}
+			return nil, exceptions.NewMySQLExecuteError(err)
+		} else {
+			return rs, nil
 		}
-		return rs, err
 	}
-	return nil, connectionErr
+	if retryableErr != nil {
+		return nil, exceptions.NewMySQLExecuteError(retryableErr)
+	}
+	return nil, nil
 }
 
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
@@ -315,42 +341,45 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	resultCb client.SelectPerResultCallback,
 	args ...any,
 ) error {
-	var connectionErr error
+	var retryableErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return err
+			return exceptions.NewMySQLExecuteError(err)
 		}
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
 			if err != nil {
-				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
-					connectionErr = err
+				if mysql.ErrorEqual(err, mysql.ErrBadConn) || exceptions.InvalidSequenceRe.MatchString(err.Error()) {
+					retryableErr = err
 					continue
 				}
-				return err
+				return exceptions.NewMySQLExecuteError(err)
 			}
 		}
 		return nil
 	}
-	return connectionErr
+	if retryableErr != nil {
+		return exceptions.NewMySQLExecuteError(retryableErr)
+	}
+	return nil
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
@@ -412,8 +441,28 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
 	}
 
-	name, _ := rr.GetString(0, 0)
-	pos, _ := rr.GetUint(0, 1)
+	if rr == nil || rr.Resultset == nil || rr.RowNumber() == 0 {
+		return mysql.Position{}, fmt.Errorf("%s returned no binary log position; "+
+			"binary logging may be disabled or the position is unreadable", showBinlogStatus)
+	}
+
+	name, err := rr.GetString(0, 0)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to read log file from %s: %w", showBinlogStatus, err)
+	}
+	pos, err := rr.GetUint(0, 1)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to read log position from %s: %w", showBinlogStatus, err)
+	}
+	if name == "" || pos == 0 {
+		return mysql.Position{}, fmt.Errorf("%s returned no binary log position; "+
+			"binary logging may be disabled or the position is unreadable", showBinlogStatus)
+	}
+	if pos > math.MaxUint32 {
+		return mysql.Position{}, fmt.Errorf("%s returned binary log position %d in file %s, "+
+			"which exceeds 4GiB and cannot be represented in file/position replication; use GTID replication",
+			showBinlogStatus, pos, name)
+	}
 	return mysql.Position{Name: name, Pos: uint32(pos)}, nil
 }
 
@@ -429,7 +478,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	var query string
 	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
-		query = "select @@gtid_current_pos"
+		query = "select @@gtid_binlog_pos"
 	default:
 		query = "select @@GLOBAL.gtid_executed"
 	}
@@ -468,13 +517,12 @@ func (c *MySqlConnector) StatActivity(
 		fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER='%s'", mysql.Escape(c.config.User)))
 	if err != nil {
 		// 42S02 is ER_NO_SUCH_TABLE
-		var myErr *mysql.MyError
-		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+		if myErr, ok := errors.AsType[*mysql.MyError](err); ok && myErr.Code == 1146 && myErr.State == "42S02" {
 			// mariadb
 			rs, err = c.Execute(ctx,
 				fmt.Sprintf("SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
 					" FROM performance_schema.threads WHERE USER='%s'", mysql.Escape(c.config.User)))
-			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+			if myErr, ok := errors.AsType[*mysql.MyError](err); ok && myErr.Code == 1146 && myErr.State == "42S02" {
 				rs, err = c.Execute(ctx,
 					fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER='%s'",
 						mysql.Escape(c.config.User)))
@@ -554,4 +602,16 @@ func (c *MySqlConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 	}
 	defer rs.Close()
 	return rs.GetInt(0, 0)
+}
+
+func (c *MySqlConnector) IsBinlogRowMetadataSupported(ctx context.Context) (bool, error) {
+	versionToCmp := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		versionToCmp = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := c.CompareServerVersion(ctx, versionToCmp)
+	if err != nil {
+		return false, fmt.Errorf("failed to get server version: %w", err)
+	}
+	return cmp >= 0, nil
 }

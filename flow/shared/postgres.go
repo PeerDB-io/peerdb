@@ -16,7 +16,6 @@ import (
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
-	pgutils "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -30,13 +29,6 @@ const (
 	POSTGRES_16 PGVersion = 160000
 	POSTGRES_17 PGVersion = 170000
 )
-
-// CustomDataType is an alias for the canonical type in flow/pkg/postgres.
-type CustomDataType = pgutils.CustomDataType
-
-func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
-	return pgutils.GetCustomDataTypes(ctx, conn)
-}
 
 func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
 	var hstoreOID *uint32
@@ -87,13 +79,13 @@ func RollbackTx(tx pgx.Tx, logger log.Logger) {
 }
 
 func IsSQLStateError(err error, sqlStates ...string) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && slices.Contains(sqlStates, pgErr.Code)
 }
 
 func IsSQLStateErrorSubstring(err error, sqlState string, substring string) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == sqlState && strings.Contains(pgErr.Error(), substring)
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == sqlState && strings.Contains(pgErr.Error(), substring)
 }
 
 type CatalogPool struct {

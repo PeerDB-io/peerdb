@@ -17,6 +17,10 @@ At PeerDB, we are building a fast, simple and the most cost effective way to str
 
 We support different modes of streaming - log based (CDC), cursor based (timestamp or integer) and XMIN based. Performance wise, we are 10x faster than existing tools. Features wise, we support native Postgres features such as comprehensive set of data-types incl. jsonb/arrays/geospatial, efficiently streaming TOAST columns, schema changes and so on.
 
+> **Mirror type deprecation notice:** CDC is the recommended and actively-maintained mirror type. The **Query Replication (QRep)** and **XMIN** mirror types are deprecated and no longer actively maintained; they remain fully functional, and no code is currently being removed.
+
+> **Connector deprecation notice:** The Snowflake, BigQuery, ElasticSearch, Kafka (including Confluent and Redpanda variants), Azure Event Hubs, Google Pub/Sub, and S3 **destination** connectors are deprecated and no longer actively maintained. They remain fully functional in the current and all prior releases, and no code is currently being removed. The actively-maintained paths going forward are Postgres → ClickHouse, Postgres → ClickHouse Cloud, and Postgres → Postgres. This deprecation applies to the **destination** role only — BigQuery remains a supported **source**. See the [connector status matrix](#status) and the [deprecated connectors migration guide](docs/deprecated-connectors.md) for how to pin to a release or fork the relevant code.
+
 ## Get started
 
 ```bash
@@ -65,7 +69,7 @@ PeerDB is an ETL/ELT tool built for PostgreSQL. We implement multiple Postgres n
 
 **For reliability**, we have mechanisms in place for fault tolerance - state management, automatic retries, handling idempotency and consistency and so on (<https://blog.peerdb.io/using-temporal-to-scale-data-synchronization-at-peerdb>). Configurable batching and parallelism prevent out of memory (OOMs) and crashes.
 
-**From a feature richness standpoint**, we support efficient syncing of tables with large (TOAST) columns. We support multiple streaming modes - log based (CDC), cursor based (timestamp or integer) and XMIN based. We provide rich data-type mapping and plan to support every possible type (incl. Custom types) that Postgres supports to the best extent possible on the target data-store.
+**From a feature richness standpoint**, we support efficient syncing of tables with large (TOAST) columns. We support multiple streaming modes - log based (CDC), cursor based (timestamp or integer) and XMIN based (the cursor-based / Query Replication and XMIN modes are deprecated; CDC is recommended). We provide rich data-type mapping and plan to support every possible type (incl. Custom types) that Postgres supports to the best extent possible on the target data-store.
 
 ### Now available natively in ClickHouse Cloud (Generally Available)
 
@@ -89,7 +93,26 @@ You can use Postgres’ ecosystem to manage your ETL —
 
 ## Status
 
-We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
+We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors).
+
+| Connector | Direction (source/destination) | Status |
+| --- | --- | --- |
+| Postgres | Source | **Actively maintained** |
+| MySQL | Source | **Actively maintained** |
+| MongoDB | Source | **Actively maintained** |
+| BigQuery | Source | **Actively maintained** |
+| ClickHouse | Destination | **Actively maintained** |
+| ClickHouse Cloud | Destination | **Actively maintained** |
+| Postgres | Destination | **Actively maintained** |
+| S3 | Destination | **Deprecated** |
+| Snowflake | Destination | **Deprecated** |
+| BigQuery | Destination | **Deprecated** |
+| ElasticSearch | Destination | **Deprecated** |
+| Kafka | Destination | **Deprecated** |
+| Redpanda | Destination | **Deprecated** |
+| Confluent | Destination | **Deprecated** |
+| Azure Event Hubs | Destination | **Deprecated** |
+| Google Pub/Sub | Destination | **Deprecated** |
 
 ## Local End to End testing
 
@@ -100,7 +123,7 @@ For example:
 ```bash
 cd flow
 go clean -cache
-env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/
+go test -v -run TestGenericCH_MySQL ./e2e/
 ```
 
 Or local debugging sessions.
@@ -110,6 +133,8 @@ These tests require both PeerDB services, source and destination stores to be ru
 This is done through [Tilt](https://tilt.dev/) orchestrated Docker compose.
 
 To get the environment up you first need to specify the shared environment variables for both the test and the test environment in your local `.env` file. You can use the provided `.env.example` as a template: `cp .env.example .env `.
+
+If a `.env` file is present in the project root, tests will automatically load it. Any variable defined in `.env` can be overridden by user-provided environment variables.
 
 :memo: In the template, services URLs are set to `host.docker.internal`, which is the name for the default Docker gateway in Docker Desktop set-ups such as macOS and Windows. Using the default gateway address allows both test processes and services running inside Docker to access services on the host machine. In native Docker (Linux) this name is not resolved by default, you might replace it with the default gateway IP (e.g., `172.18.0.1`) or add a custom entry to your `/etc/hosts` file to resolve `host.docker.internal` to the appropriate IP address. e.g:
 
@@ -127,10 +152,10 @@ And follow the status of the services and access logs through the Tilt UI at htt
 
 <img width="1593" height="693" alt="image" src="https://github.com/user-attachments/assets/6c294dda-ca8f-45cc-b75c-11594118a641" />
 
-Since `.env` is the environment configuration source of truth, it can be used directly to inject the required variables to the test execution processes. e.g:
+Since `.env` is the environment configuration source of truth, tests automatically pick it up from the project root. For example:
 
 ```bash
-go clean -cache; env -f ../.env go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+go clean -cache; go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
 ```
 
 ### Running tests from Tilt
@@ -144,7 +169,7 @@ Available test launchers:
 - **e2e_postgres** -- Postgres to ClickHouse generic tests (`TestGenericCH_PG`)
 - **e2e_mysql-gtid** -- MySQL GTID to ClickHouse generic tests (`TestGenericCH_MySQL`)
 - **e2e_mysql-pos** -- MySQL File-Pos to ClickHouse generic tests (`TestGenericCH_MySQL`)
-- **e2e_mariadb** -- MariaDB to ClickHouse generic tests (`TestGenericCH_MySQL`)
+- **e2e_mariadb** -- MariaDB to ClickHouse generic tests (`TestGenericCH_MariaDB`)
 - **e2e_mongodb** -- MongoDB to ClickHouse test suite (`TestMongoClickhouseSuite`)
 
 Each launcher automatically depends on the required services and provisioning steps, so Tilt will ensure all prerequisites are running before executing the tests. To trigger a test, click the resource in the Tilt UI and press the trigger (play) button.

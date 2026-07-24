@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
@@ -44,6 +45,8 @@ type ValidationConnector interface {
 type MirrorSourceValidationConnector interface {
 	GetTableSchemaConnector
 
+	// ValidateMirrorSource checks that the source is ready to replicate the configured tables.
+	// MUST return *common.SourceTablesMissingError when a mapped source table is absent.
 	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigsCore) error
 }
 
@@ -108,13 +111,10 @@ type CDCPullConnectorCore interface {
 	FinishExport(any) error
 
 	// Setup replication in prep for initial copy
-	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
+	SetupReplication(context.Context, shared.CatalogPool, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context, map[string]string) error
-
-	// Ping source to keep connection alive. Can be called concurrently with pulling records; skips ping in that case.
-	ReplPing(context.Context) error
 
 	// Called when offset has been confirmed to destination
 	UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error
@@ -342,6 +342,14 @@ type GetServerSideCommitLagConnector interface {
 	GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error)
 }
 
+// SourceClockOffsetConnector exposes the source connector's estimated clock offset
+// (source clock minus worker clock).
+type SourceClockOffsetConnector interface {
+	Connector
+
+	SourceClockOffset(ctx context.Context) (time.Duration, error)
+}
+
 type DatabaseVariantConnector interface {
 	Connector
 
@@ -547,9 +555,13 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 }
 
 func GetConnector(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {
+	return getConnector(ctx, env, config, protos.DBType_DBTYPE_UNKNOWN)
+}
+
+func getConnector(ctx context.Context, env map[string]string, config *protos.Peer, cdcDestinationType protos.DBType) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, env, inner.PostgresConfig)
+		return connpostgres.NewPostgresConnectorWithCDCDestination(ctx, env, inner.PostgresConfig, cdcDestinationType)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
@@ -580,7 +592,7 @@ var noopClose = func(context.Context) {}
 // Gets typed connector by config. Returns a close function to recruit the compiler into helping us avoid connection leaks.
 func GetAs[T Connector](ctx context.Context, env map[string]string, config *protos.Peer) (T, func(context.Context), error) {
 	var none T
-	conn, err := GetConnector(ctx, env, config)
+	conn, err := getConnector(ctx, env, config, protos.DBType_DBTYPE_UNKNOWN)
 	if err != nil {
 		return none, noopClose, exceptions.NewPeerCreateError(err)
 	}
@@ -620,6 +632,34 @@ func GetByNameAs[T Connector](
 ) (T, func(context.Context), error) {
 	_, conn, connClose, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
 	return conn, connClose, err
+}
+
+// Gets connector by name, aware of CDC destination connector type.
+// Returns a close function to recruit the compiler into helping us avoid connection leaks.
+func GetByNameWithCDCDestinationTypeAs[T Connector](
+	ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string, destinationType protos.DBType,
+) (T, func(context.Context), error) {
+	var none T
+	peer, err := LoadPeer(ctx, catalogPool, name)
+	if err != nil {
+		return none, noopClose, err
+	}
+	conn, err := getConnector(ctx, env, peer, destinationType)
+	if err != nil {
+		return none, noopClose, exceptions.NewPeerCreateError(err)
+	}
+
+	if tconn, ok := conn.(T); ok {
+		connClose := func(closeCtx context.Context) {
+			if err := conn.Close(); err != nil {
+				internal.LoggerFromCtx(closeCtx).Error("error closing connector", slog.Any("error", err))
+			}
+		}
+		return tconn, connClose, nil
+	} else {
+		conn.Close()
+		return none, noopClose, errors.ErrUnsupported
+	}
 }
 
 // Gets Postgres connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
@@ -746,6 +786,10 @@ var (
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
 
 	_ GetServerSideCommitLagConnector = &connmongo.MongoConnector{}
+
+	_ SourceClockOffsetConnector = &connpostgres.PostgresConnector{}
+	_ SourceClockOffsetConnector = &connmysql.MySqlConnector{}
+	_ SourceClockOffsetConnector = &connmongo.MongoConnector{}
 
 	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}

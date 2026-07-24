@@ -8,6 +8,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+parser.workspace = true
 pem = "3.0"
 pt = { path = "../pt" }
 sqlparser.workspace = true

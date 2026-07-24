@@ -21,14 +21,6 @@ func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
 }
 
 func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
-		return nil
-	}
-
-	if err := shared_mongo.ValidateOplogRetention(ctx, c.client); err != nil {
-		return err
-	}
-
 	tables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
 	for _, tm := range cfg.TableMappings {
 		t, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
@@ -41,5 +33,10 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return err
 	}
 
-	return nil
+	// no need to check oplog retention for initial-snapshot-only mirrors
+	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
+		return nil
+	}
+
+	return shared_mongo.ValidateOplogRetention(ctx, c.client)
 }

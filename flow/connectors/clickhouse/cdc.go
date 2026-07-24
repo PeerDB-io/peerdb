@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -70,7 +72,13 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		rawTableName += "_shard"
 	}
 
-	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
+	ttlDays, err := internal.PeerDBClickHouseRawTableTTLDays(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load raw table TTL days: %w", err)
+	}
+	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)` +
+		` TTL toDateTime(fromUnixTimestamp64Nano(_peerdb_timestamp)) + INTERVAL ` + strconv.FormatUint(uint64(ttlDays), 10) + ` DAY` +
+		` SETTINGS ttl_only_drop_parts = 1`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
 	); err != nil {
@@ -97,7 +105,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]string, version uint32) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
-		StagingPath:                c.credsProvider.BucketPath,
+		StagingPath:                c.staging.BucketPath(),
 		FlowJobName:                flowJobName,
 		DestinationTableIdentifier: c.GetRawTableName(flowJobName),
 		Env:                        env,
@@ -324,6 +332,18 @@ func (c *ClickHouseConnector) RenameTables(
 		}
 
 		if originalTableExists {
+			// Before swapping, resolve the shard table that the original Distributed table currently points to.
+			// After the EXCHANGE the Distributed table is dropped, leaving that shard orphaned unless we drop it explicitly.
+			var originalShardTable string
+			if c.Config.Cluster != "" {
+				originalShardTable, err = c.getDistributedShardTable(ctx, renameRequest.NewName)
+				if err != nil {
+					c.logger.Warn("could not resolve shard table for original distributed table, old shard may be left behind",
+						slog.String("table", renameRequest.NewName), slog.Any("error", err))
+					originalShardTable = ""
+				}
+			}
+
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",
@@ -336,6 +356,15 @@ func (c *ClickHouseConnector) RenameTables(
 					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
+				}
+				// Drop the original shard table that is now orphaned after the Distributed table was exchanged and dropped.
+				if originalShardTable != "" {
+					if err := c.execWithLogging(ctx,
+						fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(originalShardTable), onCluster),
+					); err != nil {
+						return nil, fmt.Errorf("unable to drop orphaned shard table %s: %w", originalShardTable, err)
+					}
+					c.logger.Info("dropped orphaned shard table after resync exchange", slog.String("shardTable", originalShardTable))
 				}
 			} else if ex, ok := err.(*clickhouse.Exception); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
 				// move on to the fallback code if unimplemented, in all other error codes / types return,
@@ -404,17 +433,22 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		return nil
 	}
 
-	for _, tableName := range req.DestinationTableNames {
+	// chunk to bound statement size, one mutation covers many tables instead of one mutation each
+	for chunk := range slices.Chunk(req.DestinationTableNames, 100) {
+		quoted := make([]string, len(chunk))
+		for i, tableName := range chunk {
+			quoted[i] = peerdb_clickhouse.QuoteLiteral(tableName)
+		}
 		// Better to use lightweight deletes here as the main goal is to not have
 		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
-		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
+		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name IN (%s)"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
+			c.GetRawTableName(req.FlowJobName), strings.Join(quoted, ","), req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
-			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
+			return fmt.Errorf("unable to remove tables from raw table: %w", err)
 		}
 
-		c.logger.Info("successfully removed entries for table from raw table", slog.String("table", tableName))
+		c.logger.Info("successfully removed entries for tables from raw table", slog.Any("tables", chunk))
 	}
 
 	return nil

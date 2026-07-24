@@ -8,10 +8,15 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+	chproto "github.com/ClickHouse/ch-go/proto"
+	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+	chvproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 )
 
 func CheckNotSystemDatabase(database string) error {
@@ -25,6 +30,29 @@ func CheckNotSystemDatabase(database string) error {
 var acceptableTableEngines = []string{
 	EngineReplacingMergeTree, EngineMergeTree, EngineReplicatedReplacingMergeTree, EngineReplicatedMergeTree,
 	EngineCoalescingMergeTree, EngineNull,
+}
+
+// supportedDatabaseEngines are the ClickHouse database engines that can be used
+// as a replication destination. Foreign-database engines such as MySQL or
+// PostgreSQL expose read-only proxied tables and cannot be written to.
+var supportedDatabaseEngines = []string{"Atomic", "Replicated", "Shared"}
+
+func validateDatabaseEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn) error {
+	var engine string
+	if err := QueryRow(ctx, logger, conn,
+		"SELECT engine FROM system.databases WHERE name = currentDatabase()",
+	).Scan(&engine); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("failed to determine destination database engine: %w", err)
+	}
+
+	if !slices.Contains(supportedDatabaseEngines, engine) {
+		return fmt.Errorf("unsupported destination database engine %q; "+
+			"only Atomic, Replicated and Shared database engines are supported", engine)
+	}
+	return nil
 }
 
 func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger log.Logger,
@@ -95,6 +123,107 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 	return nil
 }
 
+func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
+	allowedDomains := strings.Split(allowedDomainString, ",")
+	if len(allowedDomains) == 0 {
+		return nil
+	}
+	// check if chHost ends with one of the allowed domains
+	for _, domain := range allowedDomains {
+		if strings.HasSuffix(chHost, domain) {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid ClickHouse host domain: %s. Allowed domains: %s",
+		chHost, strings.Join(allowedDomains, ","))
+}
+
+func ValidateClickHousePeer(
+	ctx context.Context,
+	logger log.Logger,
+	allowedDomains string,
+	serviceHost string,
+	conn clickhouse.Conn,
+	stagingValidator objectstore.StagingValidator,
+) error {
+	// Hostname validation
+	if err := ValidateClickHouseHost(ctx, serviceHost, allowedDomains); err != nil {
+		return err
+	}
+
+	// Destination database engine validation
+	if err := validateDatabaseEngine(ctx, logger, conn); err != nil {
+		return err
+	}
+
+	// Target service validation
+
+	validateDummyTableName := "peerdb_validation_" + common.RandomString(4)
+	validateDummyTableNameRenamed := validateDummyTableName + "_renamed"
+
+	// create a table
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
+	); err != nil {
+		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
+	}
+	defer func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		for _, table := range []string{validateDummyTableName, validateDummyTableNameRenamed} {
+			for attempt := range 3 {
+				if attempt > 0 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				}
+				err := Exec(dropCtx, logger, conn, "DROP TABLE IF EXISTS "+table)
+				if err == nil {
+					break
+				}
+				var chException *clickhouse.Exception
+				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+					logger.Warn("validation drop table blocked by in-flight DDL, retrying",
+						slog.String("table", table), slog.Int("attempt", attempt+1))
+					continue
+				}
+				logger.Error("validation failed to drop table", slog.String("table", table), slog.Any("error", err))
+				break
+			}
+		}
+	}()
+
+	// add a column
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+	); err != nil {
+		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
+	}
+
+	// rename the table
+	if err := Exec(ctx, logger, conn,
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableNameRenamed),
+	); err != nil {
+		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
+	}
+
+	// insert a row
+	if err := Exec(ctx, logger, conn, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableNameRenamed)); err != nil {
+		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableNameRenamed, err)
+	}
+
+	// drop the table
+	if err := Exec(ctx, logger, conn, "DROP TABLE IF EXISTS "+validateDummyTableNameRenamed); err != nil {
+		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
+	}
+
+	// Staging validation
+
+	// validate staging storage
+	if err := stagingValidator(ctx); err != nil {
+		return fmt.Errorf("failed to validate staging bucket: %w", err)
+	}
+	return nil
+}
+
 type ClickHouseColumn struct {
 	Name        string
 	Type        string
@@ -148,7 +277,7 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 }
 
 func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
-	chVersion *chproto.Version, sourceTable string,
+	chVersion *chvproto.Version, sourceTable string,
 	hasPrimaryKeys bool, sortingKeys []string, engine string,
 ) error {
 	if hasPrimaryKeys || len(sortingKeys) > 0 {
@@ -157,7 +286,7 @@ func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhous
 	if engine == EngineNull || engine == EngineMergeTree {
 		return nil
 	}
-	if chVersion == nil || !chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
+	if chVersion == nil || !chvproto.CheckMinVersion(chvproto.Version{Major: 25, Minor: 12, Patch: 0}, *chVersion) {
 		return nil
 	}
 	var settingVal string
@@ -173,4 +302,81 @@ func ValidateOrderingKeys(ctx context.Context, logger log.Logger, conn clickhous
 		"cannot determine ORDER BY key from source table %s; empty sort key is not supported",
 		sourceTable,
 	)
+}
+
+// ValidateClusterShardingKey returns an error when the destination is a multi-shard cluster,
+// the source table has no primary key and no custom ordering, and no explicit sharding_key is
+// provided. In that configuration ClickHouse would reject writes to the Distributed table
+// (error 55: "Method write is not supported by storage Distributed with more than one shard
+// and no sharding key provided").
+func ValidateClusterShardingKey(cluster, shardingKey, sourceTable string, hasPrimaryKeys bool, sortingKeys []string) error {
+	if cluster == "" {
+		return nil
+	}
+	if shardingKey != "" || hasPrimaryKeys || len(sortingKeys) > 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"table %q has no primary key and no custom ordering columns; "+
+			"an explicit sharding_key is required for cluster deployments "+
+			"(e.g. sharding_key: rand() for random distribution across shards)",
+		sourceTable,
+	)
+}
+
+// ValidatePartitionByExpression validates the "PARTITION BY <expr>" expression of a table mapping.
+//
+// NOTE: it currently spot-checks the expression without type validation, for simplicity.
+// The expression runs against a "fake table": a subquery exposing every replicable column
+// of the mapping, all typed Dynamic, as in the following example:
+//
+//	SELECT (toYYYYMM(t))
+//	FROM (
+//	    SELECT CAST(NULL, 'Dynamic') AS `id`,
+//	           CAST(NULL, 'Dynamic') AS `t`
+//	)
+//	LIMIT 0
+//
+// This catches references to unknown or excluded columns and syntax errors while staying
+// type-agnostic — a sweet spot between no validation and a full validation requiring type
+// awareness, which adds several layers of complexity. Type misuse and DDL-only rules
+// (deterministic expressions, nullable keys) still surface at destination-table creation.
+func ValidatePartitionByExpression(
+	ctx context.Context,
+	logger log.Logger,
+	conn clickhouse.Conn,
+	expression string,
+	targetTable string,
+	columnNames []string,
+	excludedColumns []string,
+) error {
+	if expression == "" {
+		// Nothing to validate
+		return nil
+	}
+
+	// If the validation query fails to execute in CH, we deem the expression invalid
+	rows, err := Query(ctx, logger, conn, buildPartitionByValidationQuery(expression, columnNames, excludedColumns))
+	if err != nil {
+		return fmt.Errorf("invalid partition expression (%s) for table %s: %w", expression, targetTable, err)
+	}
+	rows.Close()
+	return nil
+}
+
+// buildPartitionByValidationQuery renders the type-agnostic probe query: the mapping's
+// replicable columns as Dynamic placeholders. PeerDB's metadata columns (_peerdb_*) are
+// deliberately not exposed, so expressions may only reference replicated source columns.
+func buildPartitionByValidationQuery(expression string, columnNames, excludedColumns []string) string {
+	excludedSet := make(map[string]struct{}, len(excludedColumns))
+	for _, col := range excludedColumns {
+		excludedSet[col] = struct{}{}
+	}
+	placeholders := make([]string, 0, len(columnNames))
+	for _, column := range columnNames {
+		if _, excluded := excludedSet[column]; !excluded {
+			placeholders = append(placeholders, "CAST(NULL, 'Dynamic') AS "+QuoteIdentifier(column))
+		}
+	}
+	return fmt.Sprintf("SELECT (%s) FROM (SELECT %s) LIMIT 0", expression, strings.Join(placeholders, ", "))
 }

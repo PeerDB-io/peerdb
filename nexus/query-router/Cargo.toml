@@ -1,0 +1,19 @@
+[package]
+name = "query-router"
+version = "0.1.0"
+edition = "2024"
+authors = ["PeerDB <copyright@peerdb.io>"]
+
+[dependencies]
+analyzer = { path = "../analyzer" }
+parser.workspace = true
+anyhow = "1"
+async-trait = "0.1"
+catalog = { path = "../catalog", default-features = false }
+futures = { version = "0.3.28", features = ["executor"] }
+pgwire.workspace = true
+pt = { path = "../pt" }
+rand = "0.10"
+sqlparser.workspace = true
+tokio.workspace = true
+tracing.workspace = true

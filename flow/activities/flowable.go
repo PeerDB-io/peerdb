@@ -71,15 +71,11 @@ func getInitialNormalizeBatchID(
 	catalogPool shared.CatalogPool,
 	env map[string]string,
 	destinationName string,
+	destinationType protos.DBType,
 	flowName string,
 ) (int64, error) {
-	dstPeer, err := connectors.LoadPeer(ctx, catalogPool, destinationName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load destination peer for normalize state: %w", err)
-	}
-
 	// Postgres keeps normalize progress in destination-local metadata.
-	if dstPeer.Type == protos.DBType_POSTGRES {
+	if destinationType == protos.DBType_POSTGRES {
 		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get postgres destination connector for normalize state: %w", err)
@@ -360,7 +356,14 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
 
-	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+
+	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
+	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
@@ -383,7 +386,7 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
-		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, config.FlowJobName,
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
 	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -401,7 +404,7 @@ func (a *FlowableActivity) SyncFlow(
 	// under normal steady operation where the batch hits idle timeout every time it will match the hours very closely
 	// effective hours will be longer if pull is idling, or there are waits on big transactions,
 	// or the sync interval is so small that start/stop overhead starts being visible
-	// will be shorter if the batches hit the size limit rather rather than idle timeout
+	// will be shorter if the batches hit the size limit rather than idle timeout
 	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
@@ -413,12 +416,6 @@ func (a *FlowableActivity) SyncFlow(
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
-	group.Go(func() error {
-		if err := a.maintainReplConn(groupCtx, config.FlowJobName, srcConn, syncDone); err != nil {
-			return a.Alerter.LogFlowError(groupCtx, config.FlowJobName, err)
-		}
-		return nil
-	})
 
 	for groupCtx.Err() == nil {
 		syncNum := currentSyncFlowNum.Add(1)
@@ -427,10 +424,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
@@ -449,9 +446,7 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-			)))
+			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
@@ -475,7 +470,7 @@ func (a *FlowableActivity) SyncFlow(
 	return nil
 }
 
-func (a *FlowableActivity) syncRecords(
+func (a *FlowableActivity) pullAndSync(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
@@ -516,14 +511,14 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
 }
 
-func (a *FlowableActivity) syncPg(
+func (a *FlowableActivity) pullAndSyncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
@@ -535,7 +530,7 @@ func (a *FlowableActivity) syncPg(
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
@@ -588,7 +583,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			if bytes > 100<<30 { // 100 GiB
 				msg := fmt.Sprintf("large table detected: %s (%s). Counting/partitioning queries for parallel "+
 					"snapshotting may take minutes to hours to execute. This is normal for tables over 100 GiB.",
-					config.WatermarkTable, utils.FormatTableSize(bytes))
+					config.WatermarkTable, utils.HumanReadableBytes(bytes))
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, msg)
 			}
 		} else {
@@ -601,6 +596,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, shared.WrapError("failed to get partitions from source", err))
 	}
 	if len(partitions) > 0 {
+		shouldOffload, err := internal.PeerDBOffloadPartitionRanges(ctx, config.Env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read offload partition ranges setting: %w", err)
+		}
+		if shouldOffload && config.InitialCopyOnly {
+			if err := connmetadata.OffloadPartitionRanges(
+				ctx, a.CatalogPool, config.ParentMirrorName, runUUID, partitions,
+			); err != nil {
+				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
+			}
+		}
 		if err := monitoring.InitializeQRepRun(
 			ctx,
 			logger,
@@ -666,6 +672,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	if err != nil {
 		logger.Error("failed to initialize replication method", slog.Any("error", err))
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	if err := connmetadata.RestoreOffloadedPartitionRanges(ctx, a.CatalogPool, runUUID, partitions.Partitions); err != nil {
+		return fmt.Errorf("failed to rehydrate partition ranges: %w", err)
 	}
 
 	for i, partition := range partitions.Partitions {
@@ -827,10 +837,14 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var notFound *exceptions.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+			return nil
+		}
+		if _, ok := errors.AsType[*exceptions.AuthError](err); ok {
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("auth error, skipping to avoid triggering security tools", slog.String("peer", req.PeerName))
 			return nil
 		}
 		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
@@ -840,8 +854,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	defer srcClose(ctx)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] hostname not found, skipping: %w", err))
 			return nil
 		} else {
@@ -863,13 +876,11 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] hostname not found, skipping: %w", err))
 			return nil
 		} else {
-			var notFound *exceptions.NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 				logger := internal.LoggerFromCtx(ctx)
 				logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
 				return nil
@@ -1072,6 +1083,7 @@ type metricsFlowMetadata struct {
 	config                *protos.FlowConnectionConfigsCore
 	sourcePeerConfig      *protos.Peer
 	destinationPeerConfig *protos.Peer
+	tags                  map[string]string
 	name                  string
 	workflowID            string
 	sourcePeerName        string
@@ -1095,6 +1107,7 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 		},
 		FlowName: m.config.FlowJobName,
 		Status:   m.status,
+		Tags:     m.tags,
 	}
 }
 
@@ -1274,6 +1287,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 				f.config_proto AS config_proto,
 				f.workflow_id AS workflow_id,
 				f.updated_at AS updated_at,
+				f.tags AS tags,
 				COALESCE(sp.name, '') AS source_peer_name,
 				COALESCE(sp.type, 0) AS source_peer_type,
 				COALESCE(dp.name, '') AS destination_peer_name,
@@ -1307,6 +1321,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 			&configProto,
 			&f.workflowID,
 			&f.updatedAt,
+			&f.tags,
 			&f.sourcePeerName,
 			&f.sourcePeerType,
 			&f.destinationPeerName,
@@ -1623,6 +1638,10 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
 			return true, nil
 		}
+	case *protos.PartitionRange_StringRange:
+		// checking for new rows is only possible for standalone QRepFlowWorkflow;
+		// this is a legacy feature and string partitioning is not supported
+		return false, errors.New("checking for new rows by a string partition range is not supported")
 	default:
 		return false, fmt.Errorf("unknown range type: %v", x)
 	}
@@ -1732,8 +1751,6 @@ func (a *FlowableActivity) updateTableSchemaMappingForResync(
 			return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to update table_schema_mapping: %w", err))
 		}
 	}
-
-	a.Alerter.LogFlowInfo(ctx, flowJobName, "Resync completed for all tables")
 
 	if commitErr := tx.Commit(ctx); commitErr != nil {
 		return a.Alerter.LogFlowError(ctx, flowJobName, fmt.Errorf("failed to commit updating table_schema_mapping: %w", commitErr))
@@ -1885,6 +1902,19 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
+	tableNames := make([]string, 0, len(tablesToRemove))
+	for _, table := range tablesToRemove {
+		tableNames = append(tableNames, table.DestinationTableIdentifier)
+	}
+	slices.Sort(tableNames)
+	tableNames = slices.Compact(tableNames)
+	if len(tableNames) == 0 || syncBatchID <= normBatchID {
+		logger.Info("[RemoveTablesFromRawTable] no pending raw rows to remove, skipping",
+			slog.Int64("syncBatchID", syncBatchID), slog.Int64("normalizeBatchID", normBatchID),
+			slog.Int("tables", len(tableNames)))
+		return nil
+	}
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -1898,10 +1928,6 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	}
 	defer dstClose(ctx)
 
-	tableNames := make([]string, 0, len(tablesToRemove))
-	for _, table := range tablesToRemove {
-		tableNames = append(tableNames, table.DestinationTableIdentifier)
-	}
 	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,
@@ -2074,6 +2100,12 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
+func (a *FlowableActivity) PeerDBClickHouseInitialLoadAllowNonEmptyTables(
+	ctx context.Context, env map[string]string,
+) (bool, error) {
+	return internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, env)
+}
+
 func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
 	_, isActive := activeFlowStatuses[status]
 	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
@@ -2139,4 +2171,73 @@ func (a *FlowableActivity) MigratePostgresTableOIDs(
 	}
 
 	return nil
+}
+
+func (a *FlowableActivity) PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBPGAutomatedSchemaDump(ctx, env)
+}
+
+func (a *FlowableActivity) RunPgDumpSchema(
+	ctx context.Context,
+	input *protos.RunPgDumpSchemaInput,
+) (bool, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowName)
+
+	srcPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load source peer: %w", err))
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, input.DestinationName)
+	if err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("failed to load destination peer: %w", err))
+	}
+
+	srcPgConfig, ok := srcPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("source peer %s is not a PostgreSQL peer", input.SourceName))
+	}
+
+	dstPgConfig, ok := dstPeer.Config.(*protos.Peer_PostgresConfig)
+	if !ok {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName,
+			fmt.Errorf("destination peer %s is not a PostgreSQL peer", input.DestinationName))
+	}
+
+	// skip schema migration for peers using SSH tunnels
+	if srcPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: source peer uses SSH tunnel")
+		return false, nil
+	}
+	if dstPgConfig.PostgresConfig.SshConfig != nil {
+		logger.Info("skipping pg_dump schema migration: destination peer uses SSH tunnel")
+		return false, nil
+	}
+
+	// skip schema migration for non-password auth (e.g. IAM)
+	if srcPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: source peer uses non-password auth")
+		return false, nil
+	}
+	if dstPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
+		logger.Info("skipping pg_dump schema migration: destination peer uses non-password auth")
+		return false, nil
+	}
+
+	logger.Info("running pg_dump schema migration from source to destination",
+		slog.String("source", input.SourceName), slog.String("destination", input.DestinationName))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("starting pg_dump schema migration from %s to %s", input.SourceName, input.DestinationName))
+
+	start := time.Now()
+	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
+		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
+	}
+
+	elapsed := time.Since(start).Round(time.Millisecond)
+	logger.Info("pg_dump schema migration completed successfully", slog.Duration("elapsed", elapsed))
+	a.Alerter.LogFlowInfo(ctx, input.FlowName,
+		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))
+	return true, nil
 }

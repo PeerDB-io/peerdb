@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -35,7 +36,7 @@ func TestGenericBQ(t *testing.T) {
 func TestGenericCH_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	})))
@@ -44,8 +45,17 @@ func TestGenericCH_PG(t *testing.T) {
 func TestGenericCH_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericCH_MariaDB(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "machg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	})))
 }
@@ -53,7 +63,7 @@ func TestGenericCH_MySQL(t *testing.T) {
 func TestGenericChCluster_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchclg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchclg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupPostgres(t, suffix)
 		return source, suffix, err
 	})))
@@ -62,8 +72,17 @@ func TestGenericChCluster_PG(t *testing.T) {
 func TestGenericChCluster_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychclg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychclg_" + strings.ToLower(common.RandomString(8))
 		source, err := SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericChCluster_MariaDB(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
+		t.Helper()
+		suffix := "machclg_" + strings.ToLower(common.RandomString(8))
+		source, err := SetupMariaDB(t, suffix)
 		return source, suffix, err
 	})))
 }
@@ -238,35 +257,20 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
-	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+	// MySQL auto-increment ids surface as unsigned bigints, Postgres SERIAL ids as int32.
+	idKind := types.QValueKindInt32
+	if _, isMySQL := s.Source().(*MySqlSource); isMySQL {
+		idKind = types.QValueKindUInt64
 	}
+
+	expectedTableSchema := ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column c2 and insert another row.
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName)))
@@ -274,35 +278,15 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
@@ -311,40 +295,16 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 
 	// alter source table, drop column c3 and insert another row.
@@ -353,40 +313,16 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 	// verify we got our two rows, if schema did not match up it will error.
 	EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
+	expectedTableSchema = ExpectedDestinationSchema(s, dstTable, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c3"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema, output[dstTableName]))
 	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
 
 	env.Cancel(t.Context())
@@ -452,6 +388,124 @@ func (s Generic) Test_Partitioned_Table() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s Generic) Test_Partitioned_Table_With_Different_Column_Ordering() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_partition_reorder"
+	dstTable := "test_partition_reorder_dst"
+	srcSchemaTable := AttachSchema(s, srcTable)
+
+	// Parent: column ordering: id, key, value, created_at
+	// p1: uses parent column ordering
+	// p2: attaches partitioned table with different column ordering from parent
+	// p3: attaches partitioned table with same column ordering as parent
+	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s(
+			id INT NOT NULL,
+			key TEXT,
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			PRIMARY KEY (created_at, id)
+		) PARTITION BY RANGE(created_at);
+		CREATE TABLE %[1]s_p1
+			PARTITION OF %[1]s
+			FOR VALUES FROM ('2024-01-01') TO ('2024-05-01');
+		CREATE TABLE %[1]s_p2(
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			key TEXT,
+			id INT NOT NULL,
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p2
+			FOR VALUES FROM ('2024-05-01') TO ('2024-09-01');
+		CREATE TABLE %[1]s_p3(
+			id INT NOT NULL,
+			key TEXT,
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p3
+			FOR VALUES FROM ('2024-09-01') TO ('2025-01-01');
+	`, srcSchemaTable))
+	require.NoError(t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Batch 1: insert into all 3 partitions, verify correctness
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at) VALUES
+			(1, 'a', 10, '2024-02-15'),
+			(2, 'b', 20, '2024-06-15'),
+			(3, 'c', 30, '2024-10-15')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "first batch 3 rows",
+		srcTable, dstTable, `id,key,value,created_at`)
+
+	// DDL: add a new partition dynamically while CDC is running
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_p4(
+			value INT,
+			created_at TIMESTAMP DEFAULT now(),
+			key TEXT,
+			id INT NOT NULL,
+			PRIMARY KEY (created_at, id)
+		);
+		ALTER TABLE %[1]s ATTACH PARTITION %[1]s_p4
+			FOR VALUES FROM ('2025-01-01') TO ('2025-05-01');
+	`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	// Batch 2: insert into all 4 partitions, verify correctness
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at) VALUES
+			(4, 'd', 40, '2024-11-15'),
+			(5, 'e', 50, '2024-03-15'),
+			(6, 'f', 60, '2024-07-15'),
+			(7, 'g', 70, '2025-02-15')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "all 7 rows",
+		srcTable, dstTable, `id,key,value,created_at`)
+
+	// DDL: add a new column to the parent, should propagate to all children
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN extra TEXT`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	// Batch 3: insert into all 4 partitions, verify correctness with new column addition
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id, key, value, created_at, extra) VALUES
+			(8, 'h', 80, '2024-08-15', 'x1'),
+			(9, 'l', 90, '2024-12-15', 'x2'),
+			(10, 'j', 100, '2024-04-15', 'x3'),
+			(11, 'k', 110, '2025-01-15', 'x4')`, srcSchemaTable))
+	EnvNoError(t, env, err)
+
+	EnvWaitForEqualTablesWithNames(env, s, "all 11 rows with new column",
+		srcTable, dstTable, `id,key,value,created_at,extra`)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	t := s.T()
 
@@ -494,66 +548,36 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
 	EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
 
-	expectedTableSchema1 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+	// MySQL auto-increment ids surface as unsigned bigints, Postgres SERIAL ids as int32.
+	_, isMySQL := s.Source().(*MySqlSource)
+	idKind := types.QValueKindInt32
+	if isMySQL {
+		idKind = types.QValueKindUInt64
 	}
-	expectedTableSchema2 := &protos.TableSchema{
-		TableIdentifier: ExpectedDestinationTableName(s, dstTable1),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(types.QValueKindBoolean),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-		},
+
+	// table1 received a DML referencing c2, so c2 reached the destination.
+	expectedTableSchema1 := ExpectedDestinationSchema(s, dstTable1, []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1},
+	})
+	// table2's c2 was added on the source but not yet referenced by its own DML. MySQL applies the ALTER
+	// eagerly from the binlog, so c2 has already reached table2's destination; Postgres defers it until
+	// table2's next DML (pgoutput emits the relation message lazily).
+	table2Columns := []*protos.FieldDescription{
+		{Name: ExpectedDestinationIdentifier(s, "id"), Type: string(idKind), TypeModifier: -1},
+		{Name: ExpectedDestinationIdentifier(s, "c1"), Type: string(types.QValueKindInt64), TypeModifier: -1},
 	}
+	if isMySQL {
+		table2Columns = append(table2Columns,
+			&protos.FieldDescription{Name: ExpectedDestinationIdentifier(s, "c2"), Type: string(types.QValueKindInt64), TypeModifier: -1})
+	}
+	expectedTableSchema2 := ExpectedDestinationSchema(s, dstTable2, table2Columns)
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (3, 3)`, srcTableName1)))
 	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (2, 2)`, srcTableName2)))
@@ -564,8 +588,11 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	EnvNoError(t, env, err)
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
-	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
+	// After table2's DML arrives, it should have the same columns as table1
+	// while keeping its own table identifier.
+	expectedTableSchema2.Columns = expectedTableSchema1.Columns
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema1, output[dstTableName1]))
+	EnvTrue(t, env, RequireEqualTableSchemas(t, expectedTableSchema2, output[dstTableName2]))
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -852,22 +879,6 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	// add a partition to the source table after CDC is running to test if
-	// the partition is picked up by the flow.
-	go func() {
-		time.Sleep(15 * time.Second)
-		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		CREATE TABLE %[1]s_2024q4
-			PARTITION OF %[1]s
-			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
-		EnvNoError(t, env, err)
-		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
-			srcSchemaTable))
-		EnvNoError(t, env, err)
-	}()
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testName := fmt.Sprintf("test_name_%d", i)
@@ -876,6 +887,19 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 				srcSchemaTable, max(1, i)), testName)
 		EnvNoError(t, env, err)
 	}
+	// add a partition to the source table after CDC is running to test if
+	// the partition is picked up by the flow.
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_2024q4
+			PARTITION OF %[1]s
+			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
+	EnvNoError(t, env, err)
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
+		srcSchemaTable))
+	EnvNoError(t, env, err)
 	t.Log("Inserted 13 rows into the source table")
 
 	EnvWaitForEqualTablesWithNames(env, s, "normalizing 13 rows", srcTable, dstTable, `id,name,created_at`)
@@ -970,7 +994,7 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	require.NoError(t, err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, "test_inheritance_dynconf"),
+		FlowJobName:   AddSuffix(s, "test_inheritance_dyncnf"),
 		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
@@ -984,17 +1008,6 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// add a child table after CDC is running to test if is picked up by the flow.
-	go func() {
-		time.Sleep(15 * time.Second)
-		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
-		EnvNoError(t, env, err)
-		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
-		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
-			srcSchemaTable))
-		EnvNoError(t, env, err)
-		t.Log("Inserted 2 rows into child table created during CDC")
-	}()
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');
 	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2025-02-01');
@@ -1002,6 +1015,14 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 		srcSchemaTable))
 	EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
+	EnvNoError(t, env, err)
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
+	INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
+		srcSchemaTable))
+	EnvNoError(t, env, err)
+	t.Log("Inserted 2 rows into child table created during CDC")
 
 	EnvWaitForEqualTablesWithNames(env, s,
 		"rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
@@ -1021,8 +1042,8 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	srcTable := "test_custom_slot_cdc"
 	dstTable := "test_custom_slot_cdc_dst"
 	srcSchemaTable := AttachSchema(s, srcTable)
-	customSlotName := "112_custom_slot_" + strings.ToLower(shared.RandomString(8))
-	customPubName := "112_custom_pub_" + strings.ToLower(shared.RandomString(8))
+	customSlotName := "112_custom_slot_" + strings.ToLower(common.RandomString(8))
+	customPubName := "112_custom_pub_" + strings.ToLower(common.RandomString(8))
 
 	// Create table and insert initial data
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`

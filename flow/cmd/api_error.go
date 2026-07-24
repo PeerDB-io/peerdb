@@ -2,14 +2,17 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/gogo/googleapis/google/rpc"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/protoadapt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/grpc_handler"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // APIError is a strongly-typed error that must be a gRPC status error.
@@ -24,31 +27,31 @@ func newAPIError(s *status.Status) *apiError {
 	return &apiError{status: s}
 }
 
-func NewInvalidArgumentApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewInvalidArgumentApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.InvalidArgument, err, details...))
 }
 
-func NewFailedPreconditionApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewFailedPreconditionApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.FailedPrecondition, err, details...))
 }
 
-func NewInternalApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewInternalApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.Internal, err, details...))
 }
 
-func NewUnavailableApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewUnavailableApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.Unavailable, err, details...))
 }
 
-func NewUnimplementedApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewUnimplementedApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.Unimplemented, err, details...))
 }
 
-func NewAlreadyExistsApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewAlreadyExistsApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.AlreadyExists, err, details...))
 }
 
-func NewNotFoundApiError(err error, details ...*rpc.ErrorInfo) *apiError {
+func NewNotFoundApiError(err error, details ...protoadapt.MessageV1) *apiError {
 	return newAPIError(convertToStatus(codes.NotFound, err, details...))
 }
 
@@ -70,18 +73,14 @@ func (e *apiError) Code() codes.Code {
 	return e.status.Code()
 }
 
-func convertToStatus(code codes.Code, err error, details ...*rpc.ErrorInfo) *status.Status {
+func convertToStatus(code codes.Code, err error, details ...protoadapt.MessageV1) *status.Status {
 	errorStatus := status.New(code, err.Error())
 	if len(details) == 0 {
 		return errorStatus
 	}
-	convertedDetails := make([]protoadapt.MessageV1, len(details))
-	for i, detail := range details {
-		convertedDetails[i] = detail
-	}
-	richStatus, err := errorStatus.WithDetails(convertedDetails...)
+	richStatus, err := errorStatus.WithDetails(details...)
 	if err != nil {
-		// This cannot happen because we control all calls to convertToStatus and only pass code != OK and allow only rpc.ErrorInfo in details
+		// This cannot happen because we control all calls to convertToStatus and only pass code != OK and valid proto details
 		slog.Error("Failed to convert to grpc proto error", slog.Any("error", err)) //nolint:sloglint // No context in conversion helper
 		return errorStatus
 	}
@@ -107,34 +106,57 @@ func AsAPIError(err error) APIError {
 	return NewInternalApiError(err)
 }
 
-const (
-	ErrorInfoReasonClickHousePeer = "CLICKHOUSE_PEER"
-	ErrorInfoReasonMirror         = "MIRROR"
-)
-
-const (
-	ErrorInfoDomain = "peerdb.io"
-)
-
-const (
-	ErrorMetadataDownstreamErrorCode = "downstreamErrorCode"
-	ErrorMetadataOffendingField      = "offendingField"
-)
-
-func NewClickHousePeerErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
+func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason:   ErrorInfoReasonClickHousePeer,
-		Domain:   ErrorInfoDomain,
+		Reason:   common.ErrorInfoReasonMirror,
+		Domain:   common.ErrorInfoDomain,
 		Metadata: metadata,
 	}
 }
 
-func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
+func NewSourceTableMissingErrorInfo() *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason:   ErrorInfoReasonMirror,
-		Domain:   ErrorInfoDomain,
-		Metadata: metadata,
+		Reason: common.ErrorInfoReasonSourceTableMissing,
+		Domain: common.ErrorInfoDomain,
 	}
+}
+
+// NewSourceTableMissingPreconditionFailure builds the per-table breakdown detail
+// that accompanies the SOURCE_TABLE_MISSING ErrorInfo on FailedPrecondition.
+func NewSourceTableMissingPreconditionFailure(tables []common.QualifiedTable) protoadapt.MessageV1 {
+	violations := make([]*errdetails.PreconditionFailure_Violation, len(tables))
+	for i, t := range tables {
+		subject := fmt.Sprintf("%s.%s", t.Namespace, t.Table)
+		violations[i] = &errdetails.PreconditionFailure_Violation{
+			Type:        common.ErrorInfoReasonSourceTableMissing,
+			Subject:     subject,
+			Description: fmt.Sprintf("source table %s does not exist", subject),
+		}
+	}
+	return protoadapt.MessageV1Of(&errdetails.PreconditionFailure{Violations: violations})
+}
+
+func NewTablesNotInPublicationErrorInfo(publication string) *rpc.ErrorInfo {
+	return &rpc.ErrorInfo{
+		Reason:   common.ErrorInfoReasonTablesNotInPublication,
+		Domain:   common.ErrorInfoDomain,
+		Metadata: map[string]string{common.ErrorMetadataPublication: publication},
+	}
+}
+
+// NewTablesNotInPublicationPreconditionFailure builds the per-table breakdown detail
+// that accompanies the TABLES_NOT_IN_PUBLICATION ErrorInfo on FailedPrecondition.
+func NewTablesNotInPublicationPreconditionFailure(publication string, tables []common.QualifiedTable) protoadapt.MessageV1 {
+	violations := make([]*errdetails.PreconditionFailure_Violation, len(tables))
+	for i, t := range tables {
+		subject := fmt.Sprintf("%s.%s", t.Namespace, t.Table)
+		violations[i] = &errdetails.PreconditionFailure_Violation{
+			Type:        common.ErrorInfoReasonTablesNotInPublication,
+			Subject:     subject,
+			Description: fmt.Sprintf("table %s is not in publication %q", subject, publication),
+		}
+	}
+	return protoadapt.MessageV1Of(&errdetails.PreconditionFailure{Violations: violations})
 }
 
 var ErrUnderMaintenance = errors.New("PeerDB is under maintenance. Please retry in a few minutes")

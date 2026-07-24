@@ -8,28 +8,34 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 	additionalTableMappings []*protos.TableMapping,
+	checkDestination bool,
 ) bool {
-	currentSrcTables := make([]string, 0, len(currentTableMappings))
-	currentDstTables := make([]string, 0, len(currentTableMappings))
-	additionalSrcTables := make([]string, 0, len(additionalTableMappings))
-	additionalDstTables := make([]string, 0, len(additionalTableMappings))
-
+	currentSrcTables := make(map[string]struct{}, len(currentTableMappings))
+	var currentDstTables map[string]struct{}
+	if checkDestination {
+		currentDstTables = make(map[string]struct{}, len(currentTableMappings))
+	}
 	for _, currentTableMapping := range currentTableMappings {
-		currentSrcTables = append(currentSrcTables, currentTableMapping.SourceTableIdentifier)
-		currentDstTables = append(currentDstTables, currentTableMapping.DestinationTableIdentifier)
+		currentSrcTables[currentTableMapping.SourceTableIdentifier] = struct{}{}
+		if checkDestination {
+			currentDstTables[currentTableMapping.DestinationTableIdentifier] = struct{}{}
+		}
 	}
 	for _, additionalTableMapping := range additionalTableMappings {
-		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
-		additionalDstTables = append(additionalDstTables, additionalTableMapping.DestinationTableIdentifier)
+		if _, exists := currentSrcTables[additionalTableMapping.SourceTableIdentifier]; exists {
+			return true
+		}
+		if checkDestination {
+			if _, exists := currentDstTables[additionalTableMapping.DestinationTableIdentifier]; exists {
+				return true
+			}
+		}
 	}
-
-	return shared.ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
-		shared.ArraysHaveOverlap(currentDstTables, additionalDstTables)
+	return false
 }
 
 // given the output of GetTableSchema, processes it to be used by CDCFlow

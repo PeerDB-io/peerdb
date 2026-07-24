@@ -1,0 +1,328 @@
+package internal
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+)
+
+// repoRoot returns the repository root (the directory containing .env.example) so test fixtures can
+// be referenced by paths relative to it, independent of a test's working directory.
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".env.example")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("could not locate repository root (.env.example)")
+		}
+		dir = parent
+	}
+}
+
+func loadRootCAFromEnv(envVar string) *string {
+	path := os.Getenv(envVar)
+	if path == "" {
+		return nil
+	}
+	if !filepath.IsAbs(path) {
+		if root, err := repoRoot(); err == nil {
+			path = filepath.Join(root, path)
+		}
+	}
+	// #nosec G703 -- This is test code
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("%s=%q: failed to read PEM file: %v", envVar, path, err))
+	}
+	s := string(pem)
+	return &s
+}
+
+func ClickHouseTestHost() string {
+	return GetEnvString("CI_CLICKHOUSE_HOST", "localhost")
+}
+
+func ClickHouseTestPort() uint32 {
+	return uint32(getEnvUint[uint16]("CI_CLICKHOUSE_NATIVE_PORT", 9000))
+}
+
+func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:       GetEnvString("PG_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:       GetEnvString("PG_USER", "postgres"),
+		Password:   GetEnvString("PG_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG_DATABASE", "postgres"),
+		RequireTls: GetEnvBool("PG_REQUIRE_TLS", false),
+		RootCa:     loadRootCAFromEnv("PG_ROOT_CA_PATH"),
+	}
+}
+
+// GetMutualTLSPostgresConfigFromEnv builds a Postgres config that authenticates with a client
+// certificate over TLS. Returns nil unless PG_MTLS_CLIENT_CERT_PATH,
+// PG_MTLS_CLIENT_KEY_PATH and PG_MTLS_ROOT_CA_PATH are all set.
+func GetMutualTLSPostgresConfigFromEnv() *protos.PostgresConfig {
+	clientCert := loadRootCAFromEnv("PG_MTLS_CLIENT_CERT_PATH")
+	clientKey := loadRootCAFromEnv("PG_MTLS_CLIENT_KEY_PATH")
+	rootCA := loadRootCAFromEnv("PG_MTLS_ROOT_CA_PATH")
+	if clientCert == nil || clientKey == nil || rootCA == nil {
+		return nil
+	}
+	return &protos.PostgresConfig{
+		Host:       GetEnvString("PG_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG_PORT", 5432)),
+		User:       GetEnvString("PG_USER", "postgres"),
+		Password:   GetEnvString("PG_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG_DATABASE", "postgres"),
+		RequireTls: true,
+		RootCa:     rootCA,
+		ClientTls: &protos.ClientTlsConfig{
+			Certificate: *clientCert,
+			PrivateKey:  *clientKey,
+		},
+	}
+}
+
+func GetSecondaryPostgresConfigFromEnv() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:       GetEnvString("PG2_HOST", "localhost"),
+		Port:       uint32(getEnvUint[uint16]("PG2_PORT", 5437)),
+		User:       GetEnvString("PG2_USER", "postgres"),
+		Password:   GetEnvString("PG2_PASSWORD", "postgres"),
+		Database:   GetEnvString("PG2_DATABASE", "postgres"),
+		RequireTls: GetEnvBool("PG2_REQUIRE_TLS", false),
+		RootCa:     loadRootCAFromEnv("PG2_ROOT_CA_PATH"),
+	}
+}
+
+func PostgresSSHUpstreamHostWithFallback(fallback string) string {
+	return GetEnvString("SSH_POSTGRES_HOST", fallback)
+}
+
+func MySQLSSHUpstreamHost() string {
+	return GetEnvString("CI_SSH_MYSQL_HOST", "")
+}
+
+func MySQLTestHostWithFallback(fallback string) string {
+	return GetEnvString("CI_MYSQL_HOST", fallback)
+}
+
+func MySQLTestHost() string {
+	return MySQLTestHostWithFallback("localhost")
+}
+
+func MySQLTestPortWithFallback(fallback uint32) uint32 {
+	return mysqlTestPortWithEnvFallback("CI_MYSQL_PORT", fallback)
+}
+
+func mysqlTestPortWithEnvFallback(envName string, fallback uint32) uint32 {
+	envPortStr, ok := os.LookupEnv(envName)
+	if !ok {
+		return fallback
+	}
+	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to parse %s: %v", envName, err))
+	}
+	return uint32(envPort)
+}
+
+func MySQLTestPort() uint32 {
+	return MySQLTestPortWithFallback(3306)
+}
+
+func MySQLTestRootPasswordWithFallback(fallback string) string {
+	return GetEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
+}
+
+func MariaDBTestHost() string {
+	return GetEnvString("CI_MARIADB_HOST", "localhost")
+}
+
+func MariaDBTestPort() uint32 {
+	return mysqlTestPortWithEnvFallback("CI_MARIADB_PORT", 3308)
+}
+
+func MariaDBTestRootPasswordWithFallback(fallback string) string {
+	return GetEnvString("CI_MARIADB_ROOT_PASSWORD", fallback)
+}
+
+func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := os.Getenv("CI_MYSQL_VERSION"); version {
+	case "mysql-gtid":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_GTID
+	case "mysql-pos":
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	default:
+		require.Failf(t, "unexpected MySQL test version", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MYSQL, protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+}
+
+func MariaDBTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
+	t.Helper()
+	switch version := os.Getenv("CI_MARIADB_VERSION"); version {
+	case "maria-11", "maria-12", "maria-13":
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	default:
+		require.Failf(t, "unexpected MariaDB test version", "got %q", version)
+		return protos.MySqlFlavor_MYSQL_MARIA, protos.MySqlReplicationMechanism_MYSQL_GTID
+	}
+}
+
+func GetMySQLConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MySQLTestHost(),
+		Port:                 MySQLTestPort(),
+		User:                 "root",
+		Password:             MySQLTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
+}
+
+func GetMariaDBConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
+	return &protos.MySqlConfig{
+		Host:                 MariaDBTestHost(),
+		Port:                 MariaDBTestPort(),
+		User:                 "root",
+		Password:             MariaDBTestRootPasswordWithFallback("cipass"),
+		Database:             "",
+		DisableTls:           true,
+		Flavor:               flavor,
+		ReplicationMechanism: mechanism,
+	}
+}
+
+// setupAWSCredsFromEnv copies the three AWS_* credential env vars from sources
+// named "<sourcePrefix>AWS_ACCESS_KEY_ID" etc. into the unprefixed AWS_* names
+// for the duration of the test. Each source must be non-empty.
+func setupAWSCredsFromEnv(t *testing.T, sourcePrefix string) {
+	t.Helper()
+	for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+		source := sourcePrefix + name
+		value := os.Getenv(source)
+		require.NotEmpty(t, value, "missing "+source+" env var")
+		t.Setenv(name, value)
+	}
+}
+
+func SetupFlowAWSCredentialsFromEnv(t *testing.T) {
+	t.Helper()
+	setupAWSCredsFromEnv(t, "FLOW_TESTS_")
+}
+
+// SkipRDSIAMAuthIfRequested skips the test when FLOW_TESTS_RDS_IAM_AUTH_SKIP is set (in local),
+// doesn't skip if not explicitly set (CI)
+func SkipRDSIAMAuthIfRequested(t *testing.T) {
+	t.Helper()
+	if GetEnvBool("FLOW_TESTS_RDS_IAM_AUTH_SKIP", false) {
+		t.Skip("FLOW_TESTS_RDS_IAM_AUTH_SKIP is set")
+	}
+}
+
+func SetupRDSIAMAuthAWSCredentials(t *testing.T) {
+	t.Helper()
+	setupAWSCredsFromEnv(t, "FLOW_TESTS_RDS_IAM_AUTH_")
+}
+
+func RDSIAMAuthAssumeRoleConfig(t *testing.T) *protos.AwsAuthenticationConfig {
+	t.Helper()
+	assumeRoleArn := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE")
+	require.NotEmpty(t, assumeRoleArn, "missing FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE env var")
+	chainedRoleArnEnv := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE") // Optional
+	var maybeChainedRoleArn *string
+	if chainedRoleArnEnv != "" {
+		maybeChainedRoleArn = &chainedRoleArnEnv
+	}
+	return &protos.AwsAuthenticationConfig{
+		AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
+		AuthConfig: &protos.AwsAuthenticationConfig_Role{
+			Role: &protos.AWSAuthAssumeRoleConfig{
+				AssumeRoleArn:  assumeRoleArn,
+				ChainedRoleArn: maybeChainedRoleArn,
+			},
+		},
+	}
+}
+
+type RDSIAMAuthTestConnectionInfo struct {
+	Host      string
+	ProxyHost string
+	Username  string
+}
+
+func RDSIAMAuthPostgresTestConnectionInfo(t *testing.T) RDSIAMAuthTestConnectionInfo {
+	t.Helper()
+	info := RDSIAMAuthTestConnectionInfo{
+		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES"),
+		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY"),
+		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES"),
+	}
+	require.NotEmpty(t, info.Host, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES env var")
+	require.NotEmpty(t, info.ProxyHost, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY env var")
+	require.NotEmpty(t, info.Username, "missing FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES env var")
+	return info
+}
+
+func RDSIAMAuthMySQLTestConnectionInfo(t *testing.T) RDSIAMAuthTestConnectionInfo {
+	t.Helper()
+	info := RDSIAMAuthTestConnectionInfo{
+		Host:      os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL"),
+		ProxyHost: os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY"),
+		Username:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL"),
+	}
+	require.NotEmpty(t, info.Host, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL env var")
+	require.NotEmpty(t, info.ProxyHost, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY env var")
+	require.NotEmpty(t, info.Username, "missing FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL env var")
+	return info
+}
+
+type MongoTestCredentials struct {
+	URI      string
+	Username string
+	Password string
+}
+
+func MongoAdminTestCredentials(t *testing.T) MongoTestCredentials {
+	t.Helper()
+	creds := MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_ADMIN_URI"),
+		Username: os.Getenv("CI_MONGO_ADMIN_USERNAME"),
+		Password: os.Getenv("CI_MONGO_ADMIN_PASSWORD"),
+	}
+	require.NotEmpty(t, creds.URI, "missing CI_MONGO_ADMIN_URI env var")
+	require.NotEmpty(t, creds.Username, "missing CI_MONGO_ADMIN_USERNAME env var")
+	require.NotEmpty(t, creds.Password, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	return creds
+}
+
+func MongoUserTestCredentials(t *testing.T) MongoTestCredentials {
+	t.Helper()
+	creds := MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_URI"),
+		Username: os.Getenv("CI_MONGO_USERNAME"),
+		Password: os.Getenv("CI_MONGO_PASSWORD"),
+	}
+	require.NotEmpty(t, creds.URI, "missing CI_MONGO_URI env var")
+	require.NotEmpty(t, creds.Username, "missing CI_MONGO_USERNAME env var")
+	require.NotEmpty(t, creds.Password, "missing CI_MONGO_PASSWORD env var")
+	return creds
+}

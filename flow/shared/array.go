@@ -18,22 +18,6 @@ func ArrayMinus[T comparable](first, second []T) []T {
 	return result
 }
 
-func ArraysHaveOverlap[T comparable](first, second []T) bool {
-	lookup := make(map[T]struct{}, len(second))
-
-	for _, element := range second {
-		lookup[element] = struct{}{}
-	}
-
-	for _, element := range first {
-		if _, exists := lookup[element]; exists {
-			return true
-		}
-	}
-
-	return false
-}
-
 func ArrayCastElements[T any](arr []any) []T {
 	res := make([]T, 0, len(arr))
 	for _, val := range arr {

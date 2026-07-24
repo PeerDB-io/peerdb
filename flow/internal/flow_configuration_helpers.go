@@ -26,3 +26,21 @@ func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flow
 
 	return &cfgFromDB, nil
 }
+
+func ApplySnapshotConfigOverrides(config *protos.FlowConnectionConfigsCore, update *protos.CDCFlowConfigUpdate) {
+	if update == nil {
+		return
+	}
+	if update.SnapshotNumRowsPerPartition > 0 {
+		config.SnapshotNumRowsPerPartition = update.SnapshotNumRowsPerPartition
+	}
+	if update.SnapshotNumPartitionsOverride > 0 {
+		config.SnapshotNumPartitionsOverride = update.SnapshotNumPartitionsOverride
+	}
+	if update.SnapshotMaxParallelWorkers > 0 {
+		config.SnapshotMaxParallelWorkers = update.SnapshotMaxParallelWorkers
+	}
+	if update.SnapshotNumTablesInParallel > 0 {
+		config.SnapshotNumTablesInParallel = update.SnapshotNumTablesInParallel
+	}
+}
