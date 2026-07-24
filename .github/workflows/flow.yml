@@ -108,6 +108,24 @@ jobs:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
+      opensearch:
+        image: opensearchproject/opensearch:3
+        ports:
+          - 19200:9200
+        env:
+          discovery.type: single-node
+          plugins.security.ssl.http.enabled: false
+          plugins.ml.enabled: false
+          plugins.security.disabled: true
+          bootstrap.memory_lock: true
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: S3curepa55!
+          OPENSEARCH_USERNAME: admin
+          OPENSEARCH_PASSWORD: S3curepa55!
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/ || exit 1"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
       otelcol:
         image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
         ports:
@@ -653,6 +671,7 @@ jobs:
           PEERDB_SWITCHBOARD_ENABLED: "true"
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
+          OPENSEARCH_TEST_ADDRESS: http://localhost:19200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_HOST: localhost
           CI_MYSQL_PORT: 3306
