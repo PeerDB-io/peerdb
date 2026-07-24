@@ -136,7 +136,7 @@ func stringMidpoint(s1 string, s2 string) (string, bool) {
 	s1, s2 = s1[i:], s2[i:]
 
 	// When the first differing byte in both strings are outside printable ASCII
-	// (both below or both above), treat it as unsplittable so we don't rabbit-holing
+	// (both below or both above), treat it as unsplittable so we aren't rabbit-holing
 	// into generating a lot of single-row partitions.
 	var b1, b2 byte
 	if s1 != "" {
