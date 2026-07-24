@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -323,6 +324,79 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	require.Contains(t, query, "JSONExtract(_peerdb_match_data, 'id', 'Int64') AS `id`")
 	require.Contains(t, query, "_peerdb_match_data != ''")
 	require.Contains(t, query, "_peerdb_record_type = 1")
+}
+
+func TestResolveSoftDeleteColumnName(t *testing.T) {
+	columns := []peerdb_clickhouse.ClickHouseColumn{
+		{Name: "_peerdb_is_deleted"},
+		{Name: "_PEERDB_IS_DELETED"},
+	}
+
+	require.Equal(t, "_PEERDB_IS_DELETED", resolveSoftDeleteColumnName("_PEERDB_IS_DELETED", columns))
+	require.Equal(t, "_peerdb_is_deleted", resolveSoftDeleteColumnName("_PeErDb_Is_DeLeTeD", columns[:1]))
+	require.Equal(t, "_peerdb_is_deleted", resolveSoftDeleteColumnName("", columns[:1]))
+	require.Equal(t, "custom_deleted", resolveSoftDeleteColumnName("custom_deleted", columns))
+}
+
+func TestBuildQuery_UsesDestinationSoftDeleteColumnCase(t *testing.T) {
+	ctx := t.Context()
+	tableName := "my_table"
+	resolvedName := resolveSoftDeleteColumnName(
+		"_PEERDB_IS_DELETED",
+		[]peerdb_clickhouse.ClickHouseColumn{{Name: "_peerdb_is_deleted"}},
+	)
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		map[string]*protos.TableSchema{
+			tableName: {
+				Columns: []*protos.FieldDescription{
+					{Name: "id", Type: string(types.QValueKindInt64)},
+				},
+			},
+		},
+		[]*protos.TableMapping{{
+			SourceTableIdentifier:      "public.my_table",
+			DestinationTableIdentifier: tableName,
+		}},
+		10,
+		5,
+		false,
+		false,
+		map[string]string{},
+		"raw_my_table",
+		nil,
+		false,
+		resolvedName,
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "AS `_peerdb_is_deleted`")
+	require.Contains(t, query, "(`id`,`_peerdb_is_deleted`,`_peerdb_version`)")
+	require.NotContains(t, query, "`_PEERDB_IS_DELETED`")
+}
+
+func TestProcessTableComparison_WithResolvedSoftDeleteColumnCase(t *testing.T) {
+	connector := &ClickHouseConnector{}
+	destinationColumns := []peerdb_clickhouse.ClickHouseColumn{
+		{Name: "id"},
+		{Name: "_peerdb_is_deleted"},
+		{Name: "_peerdb_version"},
+		{Name: "_peerdb_synced_at"},
+	}
+	softDeleteColName := resolveSoftDeleteColumnName("_PEERDB_IS_DELETED", destinationColumns)
+	err := connector.processTableComparison(
+		"my_table",
+		&protos.TableSchema{
+			Columns: []*protos.FieldDescription{{Name: "id"}},
+		},
+		destinationColumns,
+		[]string{softDeleteColName, "_peerdb_version", "_peerdb_synced_at"},
+		&protos.TableMapping{},
+	)
+	require.NoError(t, err)
 }
 
 func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
