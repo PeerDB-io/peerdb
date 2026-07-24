@@ -3860,3 +3860,238 @@ func (s ClickHouseSuite) Test_Offload_Partition_Ranges() {
 		flowConnConfig.FlowJobName).Scan(&remainingRanges))
 	require.Zero(s.t, remainingRanges)
 }
+
+func (s ClickHouseSuite) Test_Normalize_After_Destination_Column_Drop() {
+	srcTableName := "test_dst_col_drop"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_dst_col_drop_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT NOT NULL,
+			val TEXT NOT NULL
+		)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (1, 'first')", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_dst_col_drop"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1,val")
+
+	// user drops a column directly on the destination table
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	if s.cluster {
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s_shard` ON CLUSTER cicluster DROP COLUMN `val`", dstTableName)))
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` ON CLUSTER cicluster DROP COLUMN `val`", dstTableName)))
+	} else {
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `val`", dstTableName)))
+	}
+	require.NoError(s.t, ch.Close())
+
+	// normalize should hit ErrNoSuchColumnInTable, auto-remove the column from the schema and retry
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (2, 'second')", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize after destination column drop", srcTableName, dstTableName, "id,c1")
+
+	EnvWaitFor(s.t, env, time.Minute, "catalog schema updated to drop column", func() bool {
+		schema, err := internal.LoadTableSchemaFromCatalog(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, dstTableName)
+		if err != nil {
+			return false
+		}
+		return !slices.ContainsFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+			return col.Name == "val"
+		})
+	})
+
+	// subsequent syncs should normalize with the updated schema, omitting the dropped column
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (3, 'third')", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize with updated schema", srcTableName, dstTableName, "id,c1")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+}
+
+func (s ClickHouseSuite) Test_Column_Added_Back_After_Destination_Column_Drop() {
+	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("source DROP COLUMN requires binlog_row_metadata")
+		}
+	}
+
+	srcTableName := "test_dst_col_readd"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_dst_col_readd_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT NOT NULL,
+			val TEXT
+		)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (1, 'first')", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_dst_col_readd"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1,val")
+
+	// user drops a column directly on the destination table
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	if s.cluster {
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s_shard` ON CLUSTER cicluster DROP COLUMN `val`", dstTableName)))
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` ON CLUSTER cicluster DROP COLUMN `val`", dstTableName)))
+	} else {
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `val`", dstTableName)))
+	}
+	require.NoError(s.t, ch.Close())
+
+	// normalize hits ErrNoSuchColumnInTable and auto-removes the column from the schema
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (2, 'second')", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize after destination column drop", srcTableName, dstTableName, "id,c1")
+	EnvWaitFor(s.t, env, time.Minute, "catalog schema updated to drop column", func() bool {
+		schema, err := internal.LoadTableSchemaFromCatalog(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, dstTableName)
+		if err != nil {
+			return false
+		}
+		return !slices.ContainsFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+			return col.Name == "val"
+		})
+	})
+
+	// drop the column on the source too; DML after the DDL updates the cached relation message
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1) VALUES (3)", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize after source column drop", srcTableName, dstTableName, "id,c1")
+
+	// re-add the column on the source: the schema delta should add it back to the
+	// catalog schema and recreate it on the destination
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN val TEXT", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val) VALUES (4, 'fourth')", srcFullName)))
+
+	EnvWaitFor(s.t, env, time.Minute, "catalog schema updated to re-add column", func() bool {
+		schema, err := internal.LoadTableSchemaFromCatalog(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, dstTableName)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+			return col.Name == "val"
+		})
+	})
+	EnvWaitForEqualTablesWithNames(env, s, "normalize after column re-added", srcTableName, dstTableName, "id,c1,val")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+}
+
+func (s ClickHouseSuite) Test_Normalize_After_Destination_Two_Column_Drop() {
+	srcTableName := "test_dst_two_col_drop"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_dst_two_col_drop_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT NOT NULL,
+			val1 TEXT NOT NULL,
+			val2 TEXT NOT NULL
+		)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val1, val2) VALUES (1, 'first', 'uno')", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_dst_two_col_drop"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,c1,val1,val2")
+
+	// user drops two columns directly on the destination table
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	for _, col := range []string{"val1", "val2"} {
+		if s.cluster {
+			require.NoError(s.t, ch.Exec(s.t.Context(),
+				fmt.Sprintf("ALTER TABLE `%s_shard` ON CLUSTER cicluster DROP COLUMN `%s`", dstTableName, col)))
+			require.NoError(s.t, ch.Exec(s.t.Context(),
+				fmt.Sprintf("ALTER TABLE `%s` ON CLUSTER cicluster DROP COLUMN `%s`", dstTableName, col)))
+		} else {
+			require.NoError(s.t, ch.Exec(s.t.Context(),
+				fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", dstTableName, col)))
+		}
+	}
+	require.NoError(s.t, ch.Close())
+
+	// normalize should hit ErrNoSuchColumnInTable, auto-remove both columns from the schema and retry
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val1, val2) VALUES (2, 'second', 'dos')", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize after destination two column drop", srcTableName, dstTableName, "id,c1")
+
+	EnvWaitFor(s.t, env, time.Minute, "catalog schema updated to drop both columns", func() bool {
+		schema, err := internal.LoadTableSchemaFromCatalog(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, dstTableName)
+		if err != nil {
+			return false
+		}
+		return !slices.ContainsFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+			return col.Name == "val1" || col.Name == "val2"
+		})
+	})
+
+	// subsequent syncs should normalize with the updated schema, omitting both dropped columns
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (c1, val1, val2) VALUES (3, 'third', 'tres')", srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize with updated schema", srcTableName, dstTableName, "id,c1")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+}
