@@ -1153,6 +1153,37 @@ func TestComputeNumPartitionsOnEmptyInheritedTable(t *testing.T) {
 	require.Zero(t, numPartitions)
 }
 
+func TestEstimatedNumRowsForTableFractionHandling(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	table := schemaName + ".estimated_num_rows"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id INT, pad TEXT)`, table))
+	require.NoError(t, err)
+
+	const numRows = 1009
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s SELECT i, repeat('x', 100) FROM generate_series(1, %d) i`, table, numRows))
+	require.NoError(t, err)
+
+	// ANALYZE will scan the entire table when it's this small, returning 1009 reltuples.
+	// Dividing 1009 by any pages count between 2 and 1008 produces a fraction.
+	analyzeTables(t, conn, []string{table})
+
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context()) //nolint:errcheck
+
+	pp := PartitionParams{
+		tx:             tx,
+		watermarkTable: table,
+		logger:         log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testFractionalEstimate"))),
+	}
+	estimate, err := estimatedNumRowsForTable(t.Context(), pp)
+	require.NoError(t, err)
+	require.Positive(t, estimate)
+}
+
 // returns the number of rows inserted
 func prepareTestData(t *testing.T, pool *pgx.Conn, schema string, includeNulls bool) int {
 	t.Helper()
