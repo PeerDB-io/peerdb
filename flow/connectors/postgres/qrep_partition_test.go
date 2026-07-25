@@ -1153,6 +1153,50 @@ func TestComputeNumPartitionsOnEmptyInheritedTable(t *testing.T) {
 	require.Zero(t, numPartitions)
 }
 
+// TestEstimatedNumRowsForTableFractionalEstimate guards the round() in the row estimation
+// formula: reltuples::numeric / relpages * pages almost always yields a numeric with
+// fractional digits, which pgtype.Numeric.Int64Value refuses to convert to int64. Without
+// rounding in SQL the estimate silently degrades to 0, forcing the precise COUNT(*) fallback.
+func TestEstimatedNumRowsForTableFractionalEstimate(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, _ := setupTestSchema(t)
+
+	table := schemaName + ".fractional_estimate"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %s (id INT, pad TEXT)`, table))
+	require.NoError(t, err)
+
+	// 1009 is prime, so with relpages > 1 the reltuples/relpages density cannot be an
+	// integer, forcing fractional digits out of the unrounded formula
+	const numRows = 1009
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %s SELECT i, repeat('x', 100) FROM generate_series(1, %d) i`, table, numRows))
+	require.NoError(t, err)
+	analyzeTables(t, conn, []string{table})
+
+	// sanity-check the fixture still exercises the regression: the unrounded formula
+	// must produce a value with fractional digits
+	var fractional bool
+	require.NoError(t, conn.QueryRow(t.Context(), `
+		SELECT est != trunc(est) FROM (
+			SELECT c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer) AS est
+			FROM pg_class c WHERE c.oid = to_regclass($1)
+		) s`, table).Scan(&fractional))
+	require.True(t, fractional, "fixture no longer produces a fractional estimate, adjust numRows")
+
+	tx, err := conn.BeginTx(t.Context(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context()) //nolint:errcheck
+
+	pp := PartitionParams{
+		tx:             tx,
+		watermarkTable: table,
+		logger:         log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testFractionalEstimate"))),
+	}
+	estimate, err := estimatedNumRowsForTable(t.Context(), pp)
+	require.NoError(t, err)
+	require.InEpsilon(t, numRows, estimate, 0.1)
+}
+
 // returns the number of rows inserted
 func prepareTestData(t *testing.T, pool *pgx.Conn, schema string, includeNulls bool) int {
 	t.Helper()
