@@ -14,6 +14,10 @@ func hashString(s string) uint32 {
 }
 
 func HashedPartitionKey(s string, numPartitions uint32) string {
+	if numPartitions == 0 {
+		return "0"
+	}
+
 	partition := hashString(s) % numPartitions
 	return strconv.FormatUint(uint64(partition), 10)
 }
