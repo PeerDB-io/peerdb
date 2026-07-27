@@ -2,7 +2,6 @@ package connbigquery
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -67,51 +66,50 @@ type BigQueryConnector struct {
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	datasetID := config.GetDatasetId()
-	projectID := config.GetProjectId()
-	projectPart, datasetPart, found := strings.Cut(datasetID, ".")
-	if found && strings.Contains(datasetPart, ".") {
-		return nil,
-			fmt.Errorf("invalid dataset ID: %s. Ensure that it is just a single string or string1.string2", datasetID)
-	}
-	if projectPart != "" && datasetPart != "" {
-		datasetID = datasetPart
-		projectID = projectPart
-	}
-
-	serviceAccount, err := NewBigQueryServiceAccount(config)
+	projectID, datasetID, err := resolveBigQueryResource(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %w", err)
+		return nil, err
 	}
 
-	saJSON, err := json.Marshal(serviceAccount) //nolint:gosec // G117: credential struct marshaled for inline use
+	credentialConfig, err := newBigQueryCredentialConfig(ctx, config, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal service account: %v", err)
+		return nil, err
 	}
 
-	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
-		CredentialsJSON: saJSON,
+	detectOptions := &credentials.DetectOptions{
 		Scopes: []string{
 			bigquery.Scope,
 			storage.ScopeFullControl, // we should split it into two clients later
 		},
-	})
+	}
+	var creds *auth.Credentials
+	if credentialConfig.credentialType == credentials.ExternalAccount {
+		creds, err = credentials.NewCredentialsFromJSON(
+			credentials.ExternalAccount,
+			credentialConfig.credentialsJSON,
+			detectOptions,
+		)
+	} else {
+		// Keep the legacy service-account-key path unchanged.
+		detectOptions.CredentialsJSON = credentialConfig.credentialsJSON //nolint:staticcheck // Preserve legacy service-account-key behavior.
+		creds, err = credentials.DetectDefault(detectOptions)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create credentials: %v", err)
 	}
 
 	client, err := bigquery.NewClient(
 		ctx,
-		bigquery.DetectProjectID,
+		credentialConfig.clientProjectID,
 		option.WithAuthCredentials(creds),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
-	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
-		logger.Error("failed to get dataset metadata", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to get dataset metadata: %v", err)
+	if err := validateBigQueryConnection(ctx, client, projectID, datasetID); err != nil {
+		logger.Error("failed to validate BigQuery connection", slog.Any("error", err))
+		return nil, err
 	}
 
 	storageClient, err := storage.NewClient(ctx, option.WithAuthCredentials(creds))
@@ -138,11 +136,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 }
 
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
-	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
-		return fmt.Errorf("failed to get dataset metadata: %v", err)
-	}
-
-	return nil
+	return validateBigQueryConnection(ctx, c.client, c.projectID, c.datasetID)
 }
 
 func (c *BigQueryConnector) ValidateMirrorDestination(
@@ -200,10 +194,25 @@ func (c *BigQueryConnector) Close() error {
 
 // ConnectionActive returns nil if the connection is active.
 func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
-	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
-		return fmt.Errorf("failed to get dataset metadata: %v", err)
-	}
+	return validateBigQueryConnection(ctx, c.client, c.projectID, c.datasetID)
+}
 
+func validateBigQueryConnection(
+	ctx context.Context,
+	client *bigquery.Client,
+	projectID, datasetID string,
+) error {
+	if datasetID == "" {
+		datasets := client.Datasets(ctx)
+		datasets.ProjectID = projectID
+		if _, err := datasets.Next(); err != nil && !errors.Is(err, iterator.Done) {
+			return fmt.Errorf("failed to list BigQuery datasets: %w", err)
+		}
+		return nil
+	}
+	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
+		return fmt.Errorf("failed to get dataset metadata: %w", err)
+	}
 	return nil
 }
 
