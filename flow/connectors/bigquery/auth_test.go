@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -82,6 +84,11 @@ func TestResolveBigQueryResource(t *testing.T) {
 			datasetID:     "dataset",
 			wantProjectID: "resource-project",
 			wantDatasetID: "dataset",
+		},
+		{
+			name:          "project without default dataset",
+			projectID:     "resource-project",
+			wantProjectID: "resource-project",
 		},
 		{
 			name:          "qualified dataset overrides project",
@@ -310,13 +317,12 @@ func TestWorkloadIdentityUsesExplicitResourceProject(t *testing.T) {
 
 	config := &protos.BigqueryConfig{
 		ProjectId: "resource-project",
-		DatasetId: "dataset",
 		AuthType:  BigQueryAuthTypeServiceAccountWorkloadIdentity,
 	}
 	projectID, datasetID, err := resolveBigQueryResource(config)
 	require.NoError(t, err)
 	require.Equal(t, "resource-project", projectID)
-	require.Equal(t, "dataset", datasetID)
+	require.Empty(t, datasetID)
 
 	credentialConfig, err := newBigQueryCredentialConfig(t.Context(), config, projectID)
 	require.NoError(t, err)
@@ -324,10 +330,50 @@ func TestWorkloadIdentityUsesExplicitResourceProject(t *testing.T) {
 	require.Equal(t, "resource-project", credentialConfig.clientProjectID)
 }
 
+func TestValidateBigQueryConnectionWithoutDefaultDataset(t *testing.T) {
+	requestPaths := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requestPaths <- request.URL.Path
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"kind":"bigquery#datasetList","datasets":[]}`))
+	}))
+	defer server.Close()
+
+	client, err := bigquery.NewClient(
+		t.Context(),
+		"resource-project",
+		option.WithEndpoint(server.URL),
+		option.WithoutAuthentication(),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	require.NoError(t, validateBigQueryConnection(t.Context(), client, "resource-project", ""))
+	require.Equal(t, "/projects/resource-project/datasets", <-requestPaths)
+}
+
+func TestValidateBigQueryConnectionWithoutDefaultDatasetReportsListingFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		http.Error(response, `{"error":{"code":403,"message":"permission denied"}}`, http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client, err := bigquery.NewClient(
+		t.Context(),
+		"resource-project",
+		option.WithEndpoint(server.URL),
+		option.WithoutAuthentication(),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = validateBigQueryConnection(t.Context(), client, "resource-project", "")
+	require.ErrorContains(t, err, "failed to list BigQuery datasets")
+}
+
 func TestWorkloadIdentityRequiresPeerProject(t *testing.T) {
 	config := &protos.BigqueryConfig{
-		DatasetId: "dataset",
-		AuthType:  BigQueryAuthTypeServiceAccountWorkloadIdentity,
+		AuthType: BigQueryAuthTypeServiceAccountWorkloadIdentity,
 	}
 	_, err := newBigQueryCredentialConfig(t.Context(), config, "")
 	require.ErrorContains(t, err, "project ID must be set in the peer")
@@ -342,7 +388,6 @@ func TestWorkloadIdentityCredentialConfigReportsMissingDeploymentConfig(t *testi
 
 	config := &protos.BigqueryConfig{
 		ProjectId: "resource-project",
-		DatasetId: "dataset",
 		AuthType:  BigQueryAuthTypeServiceAccountWorkloadIdentity,
 	}
 	_, err := newBigQueryCredentialConfig(t.Context(), config, config.ProjectId)
