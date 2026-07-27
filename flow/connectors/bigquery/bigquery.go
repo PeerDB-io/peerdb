@@ -107,9 +107,9 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
-	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
-		logger.Error("failed to get dataset metadata", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to get dataset metadata: %v", err)
+	if err := validateBigQueryConnection(ctx, client, projectID, datasetID); err != nil {
+		logger.Error("failed to validate BigQuery connection", slog.Any("error", err))
+		return nil, err
 	}
 
 	storageClient, err := storage.NewClient(ctx, option.WithAuthCredentials(creds))
@@ -136,11 +136,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 }
 
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
-	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
-		return fmt.Errorf("failed to get dataset metadata: %v", err)
-	}
-
-	return nil
+	return validateBigQueryConnection(ctx, c.client, c.projectID, c.datasetID)
 }
 
 func (c *BigQueryConnector) ValidateMirrorDestination(
@@ -198,10 +194,25 @@ func (c *BigQueryConnector) Close() error {
 
 // ConnectionActive returns nil if the connection is active.
 func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
-	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
-		return fmt.Errorf("failed to get dataset metadata: %v", err)
-	}
+	return validateBigQueryConnection(ctx, c.client, c.projectID, c.datasetID)
+}
 
+func validateBigQueryConnection(
+	ctx context.Context,
+	client *bigquery.Client,
+	projectID, datasetID string,
+) error {
+	if datasetID == "" {
+		datasets := client.Datasets(ctx)
+		datasets.ProjectID = projectID
+		if _, err := datasets.Next(); err != nil && !errors.Is(err, iterator.Done) {
+			return fmt.Errorf("failed to list BigQuery datasets: %w", err)
+		}
+		return nil
+	}
+	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
+		return fmt.Errorf("failed to get dataset metadata: %w", err)
+	}
 	return nil
 }
 
