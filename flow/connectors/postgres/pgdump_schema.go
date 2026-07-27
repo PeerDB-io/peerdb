@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -30,7 +32,17 @@ var incompatibleLineRE = regexp.MustCompile(`^(SET\s+transaction_timeout\s*=|\\(
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.
 func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) error {
-	if err := pipeCommand(ctx, srcConfig, dstConfig, "pg_dump", buildPgDumpArgs(srcConfig)); err != nil {
+	srcAddr, err := resolvePgAddr(ctx, srcConfig)
+	if err != nil {
+		return fmt.Errorf("source: %w", err)
+	}
+	dstAddr, err := resolvePgAddr(ctx, dstConfig)
+	if err != nil {
+		return fmt.Errorf("destination: %w", err)
+	}
+
+	if err := pipeCommand(ctx, srcConfig, dstConfig, srcAddr, dstAddr,
+		"pg_dump", buildPgDumpArgs(srcConfig, srcAddr.host)); err != nil {
 		return fmt.Errorf("pg_dump schema migration failed: %w", err)
 	}
 
@@ -42,10 +54,12 @@ func pipeCommand(
 	ctx context.Context,
 	srcConfig *protos.PostgresConfig,
 	dstConfig *protos.PostgresConfig,
+	srcAddr pgAddr,
+	dstAddr pgAddr,
 	srcBinary string,
 	srcArgs []string,
 ) error {
-	psqlArgs := buildPsqlArgs(dstConfig)
+	psqlArgs := buildPsqlArgs(dstConfig, dstAddr.host)
 
 	srcCmd := exec.CommandContext(ctx, srcBinary, srcArgs...)
 	psqlCmd := exec.CommandContext(ctx, "psql", psqlArgs...)
@@ -54,9 +68,16 @@ func pipeCommand(
 	srcCmd.Env = append(os.Environ(), "PGPASSWORD="+srcConfig.Password)
 	psqlCmd.Env = append(os.Environ(), "PGPASSWORD="+dstConfig.Password)
 
+	if srcAddr.hostaddr != "" {
+		srcCmd.Env = append(srcCmd.Env, "PGHOSTADDR="+srcAddr.hostaddr)
+	}
+	if dstAddr.hostaddr != "" {
+		psqlCmd.Env = append(psqlCmd.Env, "PGHOSTADDR="+dstAddr.hostaddr)
+	}
+
 	// handle TLS env vars
-	appendTLSEnv(ctx, srcCmd, srcConfig)
-	appendTLSEnv(ctx, psqlCmd, dstConfig)
+	appendTLSEnv(ctx, srcCmd, srcConfig, srcAddr)
+	appendTLSEnv(ctx, psqlCmd, dstConfig, dstAddr)
 
 	return runPipeline(ctx, srcCmd, psqlCmd, srcBinary, "psql", filterIncompatibleLines)
 }
@@ -233,14 +254,55 @@ func runPipeline(
 	return nil
 }
 
-func tlsHostOrHost(config *protos.PostgresConfig) string {
-	if config.TlsHost != "" {
-		return config.TlsHost
-	}
-	return config.Host
+// pgAddr is how a raw libpq invocation (pg_dump/psql) should address one peer.
+type pgAddr struct {
+	// host is the -h value. When hostaddr is empty, it is simply what libpq
+	// resolves and dials. When hostaddr is set, libpq dials hostaddr instead
+	// and host is only the SNI name sent and the name the server certificate
+	// is checked against.
+	host string
+	// hostaddr is the numeric IP libpq dials (PGHOSTADDR), bypassing DNS.
+	// Set only when the dial target and the certificate name differ.
+	hostaddr string
 }
 
-func buildPgDumpArgs(config *protos.PostgresConfig) []string {
+// lookupHost is swappable for tests.
+var lookupHost = func(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// resolvePgAddr mirrors the pgx path's semantics (ParseConfig/CreateTlsConfig):
+// always dial Host; TlsHost, when TLS is in play, is only the name the server
+// certificate is checked against.
+func resolvePgAddr(ctx context.Context, config *protos.PostgresConfig) (pgAddr, error) {
+	host := internal.SanitizePGHost(config.Host)
+	tlsHost := internal.SanitizePGHost(config.TlsHost)
+
+	hasRootCA := config.RootCa != nil && *config.RootCa != ""
+	shouldUseTls := internal.PGMustUseTlsConnection(config) || hasRootCA
+
+	if !shouldUseTls || tlsHost == "" || tlsHost == host {
+		return pgAddr{host: host}, nil
+	}
+
+	// Connect to Host, verify as TlsHost: libpq spells it host=TlsHost
+	// hostaddr=Host, but hostaddr only accepts numeric IPs, so resolve
+	// hostnames ourselves.
+	hostaddr := host
+	if _, err := netip.ParseAddr(hostaddr); err != nil {
+		addrs, err := lookupHost(ctx, host)
+		if err != nil {
+			return pgAddr{}, fmt.Errorf("failed to resolve host %s: %w", host, err)
+		}
+		if len(addrs) == 0 {
+			return pgAddr{}, fmt.Errorf("host %s resolved to no addresses", host)
+		}
+		hostaddr = addrs[0]
+	}
+	return pgAddr{host: tlsHost, hostaddr: hostaddr}, nil
+}
+
+func buildPgDumpArgs(config *protos.PostgresConfig, host string) []string {
 	port := config.Port
 	if port == 0 {
 		port = 5432
@@ -250,7 +312,7 @@ func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
-		"-h", tlsHostOrHost(config),
+		"-h", host,
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 	}
@@ -260,14 +322,14 @@ func buildPgDumpArgs(config *protos.PostgresConfig) []string {
 	return args
 }
 
-func buildPsqlArgs(config *protos.PostgresConfig) []string {
+func buildPsqlArgs(config *protos.PostgresConfig, host string) []string {
 	port := config.Port
 	if port == 0 {
 		port = 5432
 	}
 
 	args := []string{
-		"-h", tlsHostOrHost(config),
+		"-h", host,
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
 		// Wrap the entire dump in a single transaction so partial failures
@@ -287,19 +349,34 @@ func buildPsqlArgs(config *protos.PostgresConfig) []string {
 	return args
 }
 
-func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig) {
+func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig, addr pgAddr) {
 	hasRootCA := config.RootCa != nil && *config.RootCa != ""
 	if !internal.PGMustUseTlsConnection(config) && !hasRootCA {
 		return
 	}
 
+	// libpq checks the certificate name against the -h value (addr.host).
+	// Mirror CreateTlsConfig: a cert presented on an IP connection may not
+	// carry a matching IP SAN, so we only do name verification for hostnames.
+	_, ipErr := netip.ParseAddr(addr.host)
+	hostIsIP := ipErr == nil
+
 	switch {
 	case config.SkipCertVerification:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
-	case hasRootCA:
+	case hasRootCA && hostIsIP:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
-	default:
+	case hasRootCA:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-full")
+	case hostIsIP:
+		// No CA and an IP host: libpq can't verify the chain without also
+		// checking the name (sslrootcert=system forces verify-full), so
+		// encryption only.
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	default:
+		// No CA and a hostname: verify against the system trust store.
+		// sslrootcert=system needs libpq 16+.
+		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-full", "PGSSLROOTCERT=system")
 	}
 
 	if hasRootCA && !config.SkipCertVerification {
@@ -316,9 +393,5 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 		}
 		tmpFile.Close()
 		cmd.Env = append(cmd.Env, "PGSSLROOTCERT="+tmpFile.Name())
-	}
-
-	if config.TlsHost != "" {
-		cmd.Env = append(cmd.Env, "PGHOSTADDR="+config.Host)
 	}
 }

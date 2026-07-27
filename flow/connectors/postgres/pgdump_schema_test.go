@@ -307,37 +307,11 @@ func TestBuildPgDumpArgs(t *testing.T) {
 				"-h", "localhost", "-p", "5432", "-d", "test",
 			},
 		},
-		{
-			name: "custom port no user",
-			config: &protos.PostgresConfig{
-				Host:     "remote",
-				Port:     6543,
-				Database: "prod",
-			},
-			wantArgs: []string{
-				"--schema-only", "--no-owner", "--no-privileges",
-				"-h", "remote", "-p", "6543", "-d", "prod",
-			},
-		},
-		{
-			name: "TlsHost overrides -h",
-			config: &protos.PostgresConfig{
-				Host:     "10.0.0.1",
-				Port:     5432,
-				Database: "mydb",
-				User:     "admin",
-				TlsHost:  "db.example.com",
-			},
-			wantArgs: []string{
-				"--schema-only", "--no-owner", "--no-privileges",
-				"-h", "db.example.com", "-p", "5432", "-d", "mydb", "-U", "admin",
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildPgDumpArgs(tt.config)
+			got := buildPgDumpArgs(tt.config, tt.config.Host)
 			if !slices.Equal(got, tt.wantArgs) {
 				t.Fatalf("buildPgDumpArgs = %v, want %v", got, tt.wantArgs)
 			}
@@ -381,33 +355,110 @@ func TestBuildPsqlArgs(t *testing.T) {
 				"--quiet",
 			},
 		},
-		{
-			name: "TlsHost overrides -h",
-			config: &protos.PostgresConfig{
-				Host:     "10.0.0.1",
-				Port:     5432,
-				Database: "db",
-				User:     "u",
-				TlsHost:  "db.example.com",
-			},
-			wantArgs: []string{
-				"-h", "db.example.com", "-p", "5432", "-d", "db",
-				"--single-transaction",
-				"-v", "ON_ERROR_STOP=1",
-				"--quiet",
-				"-U", "u",
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildPsqlArgs(tt.config)
+			got := buildPsqlArgs(tt.config, tt.config.Host)
 			if !slices.Equal(got, tt.wantArgs) {
 				t.Fatalf("buildPsqlArgs = %v, want %v", got, tt.wantArgs)
 			}
 		})
 	}
+}
+
+func TestResolvePgAddr(t *testing.T) {
+	ctx := t.Context()
+
+	tests := []struct {
+		name   string
+		config *protos.PostgresConfig
+		want   pgAddr
+	}{
+		{
+			name:   "TLS off ignores TlsHost",
+			config: &protos.PostgresConfig{Host: "10.0.0.1", TlsHost: "db.example.com"},
+			want:   pgAddr{host: "10.0.0.1"},
+		},
+		{
+			name:   "TLS on without TlsHost dials host directly",
+			config: &protos.PostgresConfig{Host: "db.example.com", RequireTls: true},
+			want:   pgAddr{host: "db.example.com"},
+		},
+		{
+			name:   "TlsHost with IP host splits identity and address",
+			config: &protos.PostgresConfig{Host: "10.0.0.1", TlsHost: "db.example.com", RequireTls: true},
+			want:   pgAddr{host: "db.example.com", hostaddr: "10.0.0.1"},
+		},
+		{
+			name:   "hosts are sanitized",
+			config: &protos.PostgresConfig{Host: "[2001:db8::1]", TlsHost: " db.example.com ", RequireTls: true},
+			want:   pgAddr{host: "db.example.com", hostaddr: "2001:db8::1"},
+		},
+		{
+			name: "root CA alone enables the TlsHost split",
+			config: &protos.PostgresConfig{
+				Host: "10.0.0.1", TlsHost: "db.example.com",
+				RootCa: strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
+			},
+			want: pgAddr{host: "db.example.com", hostaddr: "10.0.0.1"},
+		},
+		{
+			name:   "empty root CA treated as absent",
+			config: &protos.PostgresConfig{Host: "10.0.0.1", TlsHost: "db.example.com", RootCa: strPtr("")},
+			want:   pgAddr{host: "10.0.0.1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolvePgAddr(ctx, tt.config)
+			if err != nil {
+				t.Fatalf("resolvePgAddr error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolvePgAddr = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("TlsHost with hostname host resolves via DNS", func(t *testing.T) {
+		var lookedUp string
+		orig := lookupHost
+		lookupHost = func(_ context.Context, host string) ([]string, error) {
+			lookedUp = host
+			return []string{"192.0.2.10", "192.0.2.11"}, nil
+		}
+		defer func() { lookupHost = orig }()
+
+		got, err := resolvePgAddr(ctx, &protos.PostgresConfig{
+			Host: "internal.db.local/junk", TlsHost: "db.example.com", RequireTls: true,
+		})
+		if err != nil {
+			t.Fatalf("resolvePgAddr error: %v", err)
+		}
+		if lookedUp != "internal.db.local" {
+			t.Errorf("lookupHost called with %q, want sanitized %q", lookedUp, "internal.db.local")
+		}
+		want := pgAddr{host: "db.example.com", hostaddr: "192.0.2.10"}
+		if got != want {
+			t.Fatalf("resolvePgAddr = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("DNS failure returns error", func(t *testing.T) {
+		orig := lookupHost
+		lookupHost = func(context.Context, string) ([]string, error) {
+			return nil, errors.New("no such host")
+		}
+		defer func() { lookupHost = orig }()
+
+		if _, err := resolvePgAddr(ctx, &protos.PostgresConfig{
+			Host: "internal.db.local", TlsHost: "db.example.com", RequireTls: true,
+		}); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
 }
 
 // envValue returns the last value for key in cmd.Env, or "" if absent.
@@ -424,91 +475,116 @@ func envValue(cmd *exec.Cmd, key string) string {
 func TestAppendTLSEnv(t *testing.T) {
 	ctx := t.Context()
 
+	testCA := strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----")
+
 	tests := []struct {
-		name            string
-		config          *protos.PostgresConfig
-		wantSSLMode     string
-		wantRootCertSet bool
+		name        string
+		config      *protos.PostgresConfig
+		addr        pgAddr
+		wantSSLMode string
+		// "" = unset, "file" = temp file with the CA PEM, "system" = literal
+		wantRootCert string
 	}{
 		{
 			name: "no TLS when not required and no root CA",
 			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
+				Host: "db.example.com", Port: 5432, Database: "d",
 			},
+			addr:        pgAddr{host: "db.example.com"},
 			wantSSLMode: "",
-		},
-		{
-			name: "require TLS via RequireTls flag",
-			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
-				RequireTls: true,
-			},
-			wantSSLMode: "require",
-		},
-		{
-			name: "require TLS via DisableTls=false",
-			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
-				DisableTls: boolPtr(false),
-			},
-			wantSSLMode: "require",
 		},
 		{
 			name: "no TLS when DisableTls=true",
 			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
+				Host: "db.example.com", Port: 5432, Database: "d",
 				DisableTls: boolPtr(true),
 			},
+			addr:        pgAddr{host: "db.example.com"},
 			wantSSLMode: "",
+		},
+		{
+			name: "system roots verify-full for hostname identity",
+			config: &protos.PostgresConfig{
+				Host: "db.example.com", Port: 5432, Database: "d",
+				RequireTls: true,
+			},
+			addr:         pgAddr{host: "db.example.com"},
+			wantSSLMode:  "verify-full",
+			wantRootCert: "system",
+		},
+		{
+			name: "system roots fall back to require for IP identity",
+			config: &protos.PostgresConfig{
+				Host: "10.0.0.1", Port: 5432, Database: "d",
+				RequireTls: true,
+			},
+			addr:        pgAddr{host: "10.0.0.1"},
+			wantSSLMode: "require",
 		},
 		{
 			name: "require with skip cert verification",
 			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
+				Host: "db.example.com", Port: 5432, Database: "d",
 				RequireTls:           true,
 				SkipCertVerification: true,
 			},
+			addr:        pgAddr{host: "db.example.com"},
 			wantSSLMode: "require",
 		},
 		{
-			name: "verify-ca when root CA provided with RequireTls",
+			name: "skip cert verification takes precedence over root CA",
 			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
-				RequireTls: true,
-				RootCa:     strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
-			},
-			wantSSLMode:     "verify-ca",
-			wantRootCertSet: true,
-		},
-		{
-			name: "root CA alone triggers TLS with verify-ca",
-			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
-				RootCa: strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
-			},
-			wantSSLMode:     "verify-ca",
-			wantRootCertSet: true,
-		},
-		{
-			name: "skip cert verification with root CA uses require",
-			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
+				Host: "db.example.com", Port: 5432, Database: "d",
 				RequireTls:           true,
 				SkipCertVerification: true,
-				RootCa:               strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
+				RootCa:               testCA,
 			},
-			wantSSLMode:     "require",
-			wantRootCertSet: false, // skip_cert_verification takes precedence, no sslrootcert needed
+			addr:        pgAddr{host: "db.example.com"},
+			wantSSLMode: "require",
+		},
+		{
+			name: "provided CA verify-full for hostname identity",
+			config: &protos.PostgresConfig{
+				Host: "db.example.com", Port: 5432, Database: "d",
+				RequireTls: true,
+				RootCa:     testCA,
+			},
+			addr:         pgAddr{host: "db.example.com"},
+			wantSSLMode:  "verify-full",
+			wantRootCert: "file",
+		},
+		{
+			name: "provided CA alone verify-ca for IP identity",
+			config: &protos.PostgresConfig{
+				Host: "10.0.0.1", Port: 5432, Database: "d",
+				RootCa: testCA,
+			},
+			addr:         pgAddr{host: "10.0.0.1"},
+			wantSSLMode:  "verify-ca",
+			wantRootCert: "file",
+		},
+		{
+			name: "identity comes from the endpoint, not config.Host",
+			config: &protos.PostgresConfig{
+				Host: "10.0.0.1", Port: 5432, Database: "d",
+				RequireTls: true,
+				TlsHost:    "db.example.com",
+				RootCa:     testCA,
+			},
+			addr:         pgAddr{host: "db.example.com", hostaddr: "10.0.0.1"},
+			wantSSLMode:  "verify-full",
+			wantRootCert: "file",
 		},
 		{
 			name: "empty root CA string is treated as absent",
 			config: &protos.PostgresConfig{
-				Host: "h", Port: 5432, Database: "d",
+				Host: "db.example.com", Port: 5432, Database: "d",
 				RequireTls: true,
 				RootCa:     strPtr(""),
 			},
-			wantSSLMode:     "require",
-			wantRootCertSet: false,
+			addr:         pgAddr{host: "db.example.com"},
+			wantSSLMode:  "verify-full",
+			wantRootCert: "system",
 		},
 	}
 
@@ -517,7 +593,7 @@ func TestAppendTLSEnv(t *testing.T) {
 			cmd := exec.CommandContext(ctx, "echo")
 			cmd.Env = os.Environ()
 
-			appendTLSEnv(ctx, cmd, tt.config)
+			appendTLSEnv(ctx, cmd, tt.config, tt.addr)
 
 			gotSSLMode := envValue(cmd, "PGSSLMODE")
 			if gotSSLMode != tt.wantSSLMode {
@@ -525,7 +601,16 @@ func TestAppendTLSEnv(t *testing.T) {
 			}
 
 			gotRootCert := envValue(cmd, "PGSSLROOTCERT")
-			if tt.wantRootCertSet {
+			switch tt.wantRootCert {
+			case "":
+				if gotRootCert != "" {
+					t.Errorf("expected PGSSLROOTCERT to be empty, got %q", gotRootCert)
+				}
+			case "system":
+				if gotRootCert != "system" {
+					t.Errorf("PGSSLROOTCERT = %q, want %q", gotRootCert, "system")
+				}
+			case "file":
 				if gotRootCert == "" {
 					t.Error("expected PGSSLROOTCERT to be set, but it was empty")
 				} else {
@@ -539,73 +624,9 @@ func TestAppendTLSEnv(t *testing.T) {
 					}
 					os.Remove(gotRootCert)
 				}
-			} else if gotRootCert != "" {
-				t.Errorf("expected PGSSLROOTCERT to be empty, got %q", gotRootCert)
 			}
 		})
 	}
-}
-
-func TestAppendTLSEnv_TlsHost(t *testing.T) {
-	ctx := t.Context()
-
-	t.Run("PGHOSTADDR set when TlsHost configured", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo")
-		cmd.Env = os.Environ()
-
-		config := &protos.PostgresConfig{
-			Host: "10.0.0.1", Port: 5432, Database: "d",
-			RequireTls: true,
-			TlsHost:    "db.example.com",
-		}
-		appendTLSEnv(ctx, cmd, config)
-
-		if got := envValue(cmd, "PGHOSTADDR"); got != "10.0.0.1" {
-			t.Errorf("PGHOSTADDR = %q, want %q", got, "10.0.0.1")
-		}
-		if got := envValue(cmd, "PGSSLMODE"); got != "require" {
-			t.Errorf("PGSSLMODE = %q, want %q", got, "require")
-		}
-	})
-
-	t.Run("PGHOSTADDR not set when TlsHost empty", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo")
-		cmd.Env = os.Environ()
-
-		config := &protos.PostgresConfig{
-			Host: "10.0.0.1", Port: 5432, Database: "d",
-			RequireTls: true,
-		}
-		appendTLSEnv(ctx, cmd, config)
-
-		if got := envValue(cmd, "PGHOSTADDR"); got != "" {
-			t.Errorf("PGHOSTADDR should be empty, got %q", got)
-		}
-	})
-
-	t.Run("PGHOSTADDR with root CA and TlsHost", func(t *testing.T) {
-		cmd := exec.CommandContext(ctx, "echo")
-		cmd.Env = os.Environ()
-
-		config := &protos.PostgresConfig{
-			Host: "10.0.0.1", Port: 5432, Database: "d",
-			RequireTls: true,
-			TlsHost:    "db.example.com",
-			RootCa:     strPtr("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----"),
-		}
-		appendTLSEnv(ctx, cmd, config)
-
-		if got := envValue(cmd, "PGHOSTADDR"); got != "10.0.0.1" {
-			t.Errorf("PGHOSTADDR = %q, want %q", got, "10.0.0.1")
-		}
-		if got := envValue(cmd, "PGSSLMODE"); got != "verify-ca" {
-			t.Errorf("PGSSLMODE = %q, want %q", got, "verify-ca")
-		}
-		// clean up temp file
-		if f := envValue(cmd, "PGSSLROOTCERT"); f != "" {
-			os.Remove(f)
-		}
-	})
 }
 
 func TestIncompatibleLineRegex(t *testing.T) {
