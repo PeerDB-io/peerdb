@@ -265,6 +265,14 @@ var (
 	ErrorNotifyClickHousePermissionsError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_PERMISSIONS_ERROR", action: NotifyUser,
 	}
+	// Creating the destination table failed because a user-provided part of its definition
+	// (e.g. a PARTITION BY/ORDER BY expression or a custom column type) is invalid,
+	// such as referencing a column that does not exist in the normalized table
+	// or has a wrong type (this is the only practical case where validation might not
+	// caught the issues with PARTITION BY expressions).
+	ErrorNotifyInvalidDestinationTableDefinition = ErrorClass{
+		Class: "NOTIFY_INVALID_DESTINATION_TABLE_DEFINITION", action: NotifyUser,
+	}
 	// Catch-all for misc ClickHouse errors
 	ErrorNotifyClickHouseError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_ERROR", action: NotifyUser,
@@ -1086,6 +1094,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
+			// during table creation these come from user-provided pieces of the table
+			// definition, e.g. PARTITION BY toYYYYMM(col) referencing a nonexistent column
+			if tableCreationErr, ok := errors.AsType[*exceptions.ClickHouseNormalizedTableCreationError](err); ok {
+				return ErrorNotifyInvalidDestinationTableDefinition, ErrorInfo{
+					Source: chErrorInfo.Source,
+					Code:   chErrorInfo.Code,
+					AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+						ErrorAttributeKeyTable: tableCreationErr.DestinationTable,
+					},
+				}
+			}
 			if _, ok := errors.AsType[*exceptions.ClickHouseQRepSyncError](err); ok {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
