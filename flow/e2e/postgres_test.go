@@ -438,6 +438,71 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_raw_cleanup")
+	dstTableName := s.attachSchemaSuffix("test_raw_cleanup_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+			val TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_raw_cleanup_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 2
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD": "2",
+	}
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	mirrorJobsTable := fmt.Sprintf("_peerdb_internal.%s", "peerdb_mirror_jobs")
+	rawTableName := fmt.Sprintf(`_peerdb_internal."_peerdb_raw_%s"`,
+		strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)))
+
+	// insert 5 rounds of 2 rows each to create 5 batches
+	for round := range 5 {
+		for j := range 2 {
+			_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+				INSERT INTO %s(val) VALUES ($1)
+			`, srcTableName), fmt.Sprintf("val_%d_%d", round, j))
+			EnvNoError(s.t, env, err)
+		}
+		expectedBatchID := int64(round + 1)
+		EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf("normalize batch %d", expectedBatchID), func() bool {
+			var normBatchID int64
+			err := s.Conn().QueryRow(s.t.Context(),
+				fmt.Sprintf("SELECT normalize_batch_id FROM %s WHERE mirror_job_name=$1", mirrorJobsTable),
+				flowConnConfig.FlowJobName,
+			).Scan(&normBatchID)
+			return err == nil && normBatchID >= expectedBatchID
+		})
+	}
+
+	var rawCount int64
+	err = s.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT count(*) FROM %s", rawTableName),
+	).Scan(&rawCount)
+	EnvNoError(s.t, env, err)
+
+	s.t.Logf("raw table row count after cleanup: %d", rawCount)
+	assert.Equal(s.t, int64(6), rawCount, "expected exactly 6 rows (3 batches) retained in raw table")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	tc := NewTemporalClient(s.t)
 
