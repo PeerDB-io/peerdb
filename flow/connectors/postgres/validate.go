@@ -286,6 +286,11 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		return nil // pg_dump will create the schema and tables on the destination
 	}
 
+	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch custom type mapping: %w", err)
+	}
+
 	// Validate that all source columns exist in destination tables
 	checkedSchemas := make(map[string]struct{})
 	for _, tableMapping := range cfg.TableMappings {
@@ -303,7 +308,7 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		}
 
 		// Get destination table columns with types
-		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier)
+		dstColumns, err := pkg_pg.GetDestinationTableSchema(ctx, c.conn, dstTableIdentifier, customTypeMapping)
 		if err != nil {
 			// If table doesn't exist, check that the schema does before continuing
 			if errors.Is(err, pgx.ErrNoRows) || strings.Contains(err.Error(), "does not exist") {
