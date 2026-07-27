@@ -435,6 +435,26 @@ func TestClickHouseChaoticNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestClickHouseCreateNormalizedTableUnknownIdentifierShouldBeNotifyInvalidDestinationTableDefinition(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrUnknownIdentifier),
+		Message: "Missing columns: 'created_at' while processing: 'toYYYYMM(created_at)', required columns: 'created_at', " +
+			"available columns: 'userId' 'currency' '_peerdb_is_deleted' '_peerdb_synced_at' '_peerdb_version' 'createdAt' 'updatedAt'",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to setup normalized table bonuses: %w",
+			exceptions.NewClickHouseNormalizedTableCreationError(
+				fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err), "bonuses")))
+	assert.Equal(t, ErrorNotifyInvalidDestinationTableDefinition, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrUnknownIdentifier)),
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "bonuses",
+		},
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testing.T) {
 	// Simulate a publication does not exist error
 	err := &exceptions.PostgresWalError{
