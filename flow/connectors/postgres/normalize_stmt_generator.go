@@ -222,7 +222,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
-			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) VALUES(%s)",
+			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) OVERRIDING SYSTEM VALUE VALUES(%s)",
 				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
