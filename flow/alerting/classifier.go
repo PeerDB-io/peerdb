@@ -268,6 +268,8 @@ var (
 	// Creating the destination table failed because a user-provided part of its definition
 	// (e.g. a PARTITION BY/ORDER BY expression or a custom column type) is invalid,
 	// such as referencing a column that does not exist in the normalized table
+	// or has a wrong type (this is the only practical case where validation might not
+	// caught the issues with PARTITION BY expressions).
 	ErrorNotifyInvalidDestinationTableDefinition = ErrorClass{
 		Class: "NOTIFY_INVALID_DESTINATION_TABLE_DEFINITION", action: NotifyUser,
 	}
