@@ -204,7 +204,9 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
-	tc, err := setupTemporalClient(ctx, clientOptions)
+	tc, err := connectWithRetry(ctx, "temporal", func(ctx context.Context) (client.Client, error) {
+		return setupTemporalClient(ctx, clientOptions)
+	})
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
@@ -240,7 +242,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		)),
 	)
 
-	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogPool, err := connectWithRetry(ctx, "catalog", internal.GetCatalogConnectionPoolFromEnv)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
