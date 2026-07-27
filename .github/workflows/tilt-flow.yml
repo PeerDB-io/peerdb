@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -98,7 +98,7 @@ jobs:
       # go generate) on `tilt up`. The flow docker images and the host-run tests
       # both consume the resulting flow/generated code, so buf must be on PATH.
       - name: Install buf
-        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           setup_only: true
           github_token: ${{ github.token }}

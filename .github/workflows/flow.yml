@@ -96,7 +96,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redpanda:
-        image: redpandadata/redpanda@sha256:3e72ea35731a893bdd3b6d283eb554416377e23766434fc85dd7941540673639
+        image: redpandadata/redpanda@sha256:e61a2b5ad26a7c37b50d04c4df42db84e5ddebaa2a453143942fb621b1b09498
         ports:
           - 9092:9092
           - 9644:9644
@@ -129,7 +129,7 @@ jobs:
           - 14002:14002
           - 14003:14003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:204b64775f7dfb17761ed0644df348ba3cd811628334cc723aa69d61f4db893d
+        image: linuxserver/openssh-server:latest@sha256:9c5e178975fcc3917853f5e37cbf135ad7deb11de504ab0f460cc81a2e1eb539
         ports:
           - 2222:2222
         env:
@@ -142,10 +142,10 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
-      - uses: Kesin11/actions-timeline@v3.1.1
+      - uses: Kesin11/actions-timeline@7bf79990b7c09f5dfb570ac30b814ca597bd538e # v3.1.1
         with:
           expand-composite-actions: true
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
@@ -210,7 +210,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
