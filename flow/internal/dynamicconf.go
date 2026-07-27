@@ -527,6 +527,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
+		Description:      "Number of normalized batches to retain in raw table. After normalize, batches older than normalize_batch_id minus this value are deleted. 0 disables cleanup",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -936,4 +944,8 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 		}
 	}
 	return ops, nil
+}
+
+func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
 }
