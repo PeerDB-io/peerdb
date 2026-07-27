@@ -149,6 +149,9 @@ env:
   MARIADB_IMAGE: ${{ inputs.mariadb_image }}
   MONGODB_IMAGE: ${{ inputs.mongodb_image }}
   CLICKHOUSE_IMAGE: ${{ inputs.clickhouse_image }}
+  # If OTEL is present in the list of services, we enable it
+  # to be used in the PeerDB services.
+  ENABLE_OTEL_METRICS: ${{ contains(inputs.ancillary_services, 'otel-collector') && 'true' || 'false' }}
 
 jobs:
   tilt_flow_test:
@@ -252,6 +255,54 @@ jobs:
             sleep 2
           done
 
+      # Start the requested ancillary services and wait
+      # until they (and their provisioning steps) are confirmed up and running.
+      - name: Start requested ancillary services
+        env:
+          ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANCILLARY_SERVICES// /}" ]; then
+            echo "::error::No ancillary services specified."
+            exit 1
+          fi
+
+          echo "Enabling ancillary services: $ANCILLARY_SERVICES"
+          # enable accepts multiple resources at once...
+          tilt --port "$TILT_PORT" enable $ANCILLARY_SERVICES
+          # ...but enabling is not enough: each must be triggered to start.
+          for svc in $ANCILLARY_SERVICES; do
+            echo "Triggering $svc"
+            tilt --port "$TILT_PORT" trigger "$svc"
+          done
+
+          wait_ready() {
+            local res="$1"
+            echo "Waiting for $res to be Ready..."
+            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$res" --timeout=600s; then
+              echo "::error::$res did not become Ready."
+              tilt --port "$TILT_PORT" logs --tail 200 "$res" || true
+              exit 1
+            fi
+          }
+
+          # Wait until each service is Ready. Data stores also have an autostarted
+          # provision-<svc> step (gated on the DB) — wait for that too so the
+          # service is genuinely usable before the test runs.
+          for svc in $ANCILLARY_SERVICES; do
+            wait_ready "$svc"
+            if tilt --port "$TILT_PORT" get uiresource "provision-$svc" >/dev/null 2>&1; then
+              wait_ready "provision-$svc"
+            fi
+            # The 2-node ClickHouse cluster has an extra provisioning resource
+            # gated on node 2 + keeper (+ provision-clickhouse); wait for it too
+            # so cluster tests can't race it.
+            if [ "$svc" = "clickhouse-02" ]; then
+              wait_ready "provision-clickhouse-cluster"
+            fi
+          done
+          echo "All requested ancillary services are up and running."
+
       # Bring up the core PeerDB services, recovering any that fail to
       # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
       # occasionally come up unhealthy on a cold start; when that happens we
@@ -335,54 +386,6 @@ jobs:
             exit 1
           fi
           echo "Core PeerDB services are up."
-
-      # Start the requested ancillary services and wait
-      # until they (and their provisioning steps) are confirmed up and running.
-      - name: Start requested ancillary services
-        env:
-          ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
-        run: |
-          set -euo pipefail
-          if [ -z "${ANCILLARY_SERVICES// /}" ]; then
-            echo "::error::No ancillary services specified."
-            exit 1
-          fi
-
-          echo "Enabling ancillary services: $ANCILLARY_SERVICES"
-          # enable accepts multiple resources at once...
-          tilt --port "$TILT_PORT" enable $ANCILLARY_SERVICES
-          # ...but enabling is not enough: each must be triggered to start.
-          for svc in $ANCILLARY_SERVICES; do
-            echo "Triggering $svc"
-            tilt --port "$TILT_PORT" trigger "$svc"
-          done
-
-          wait_ready() {
-            local res="$1"
-            echo "Waiting for $res to be Ready..."
-            if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/$res" --timeout=600s; then
-              echo "::error::$res did not become Ready."
-              tilt --port "$TILT_PORT" logs --tail 200 "$res" || true
-              exit 1
-            fi
-          }
-
-          # Wait until each service is Ready. Data stores also have an autostarted
-          # provision-<svc> step (gated on the DB) — wait for that too so the
-          # service is genuinely usable before the test runs.
-          for svc in $ANCILLARY_SERVICES; do
-            wait_ready "$svc"
-            if tilt --port "$TILT_PORT" get uiresource "provision-$svc" >/dev/null 2>&1; then
-              wait_ready "provision-$svc"
-            fi
-            # The 2-node ClickHouse cluster has an extra provisioning resource
-            # gated on node 2 + keeper (+ provision-clickhouse); wait for it too
-            # so cluster tests can't race it.
-            if [ "$svc" = "clickhouse-02" ]; then
-              wait_ready "provision-clickhouse-cluster"
-            fi
-          done
-          echo "All requested ancillary services are up and running."
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest

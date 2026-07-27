@@ -280,6 +280,15 @@ services:
       timeout: 10s
       retries: 5
 
+  otel-collector:
+    container_name: peerdb-test-otel-collector
+    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+    volumes:
+      - ./volumes/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+
 volumes:
   postgres_data:
   postgres2_data:

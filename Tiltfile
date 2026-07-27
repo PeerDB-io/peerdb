@@ -276,6 +276,7 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 
 dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
 dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('otel-collector', labels=['Ancillary-TestInfra'], auto_init=False)
 
 # Cleanup
 

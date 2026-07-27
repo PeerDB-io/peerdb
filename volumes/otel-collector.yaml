@@ -1,0 +1,23 @@
+# Config for the otel-collector test service (ancillary-docker-compose.yml)
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        # 0.0.0.0 (not the image default's localhost) so the port mapping and
+        # the compose-network hostname both work.
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  debug: {}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      exporters: [debug]
