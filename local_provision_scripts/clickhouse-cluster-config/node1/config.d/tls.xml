@@ -1,0 +1,19 @@
+<!-- TLS listener for the native protocol, next to the plaintext ports the
+     rest of the suite uses. Same openSSL settings the pre-Tilt CI flow
+     configured; the certs are installed by the compose entrypoint from the
+     checked-in volumes/ch-tls test set. Exercised by
+     TestClickHouseTLSDirectory through the published CI_CLICKHOUSE_TLS_PORT. -->
+<clickhouse>
+  <tcp_port_secure>9440</tcp_port_secure>
+  <openSSL>
+    <server>
+      <certificateFile>/etc/clickhouse-server/tls/server.crt</certificateFile>
+      <privateKeyFile>/etc/clickhouse-server/tls/server.key</privateKeyFile>
+      <caConfig>/etc/clickhouse-server/tls/ca.crt</caConfig>
+      <verificationMode>relaxed</verificationMode>
+      <cacheSessions>true</cacheSessions>
+      <disableProtocols>sslv2,sslv3</disableProtocols>
+      <preferServerCiphers>true</preferServerCiphers>
+    </server>
+  </openSSL>
+</clickhouse>
