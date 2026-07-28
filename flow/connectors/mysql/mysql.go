@@ -253,7 +253,7 @@ func (c *MySqlConnector) setSessionSettings() error {
 
 	// MariaDB <= 11.5 defaults to latin1, which can result in Unicode to not be replicated correctly
 	if _, err := conn.Execute("SET NAMES utf8mb4"); err != nil {
-		c.logger.Warn("utf8mb4 not supported, ignoring", slog.Any("error", err))
+		return fmt.Errorf("fail to set session to utf8mb4: %w", err)
 	}
 
 	switch c.Flavor() {
@@ -279,6 +279,12 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 	return nil
+}
+
+func escapeWithNoBackslashEscapes(s string) string {
+	// mysql.Escape must NOT be used because MySQL connector session has sql_mode set
+	// to NO_BACKSLASH_ESCAPES (see setSessionSettings). Only quotes needs to be escaped.
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // withRetries return an iterable over connections,

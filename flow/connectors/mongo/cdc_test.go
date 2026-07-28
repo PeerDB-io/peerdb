@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"testing"
 	"time"
 
@@ -152,6 +153,49 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[0])), mockStore.persisted[0].Text)
 	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[1])), mockStore.persisted[1].Text)
 	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[3])), req.RecordStream.GetLastCheckpoint().Text)
+}
+
+func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
+	ctx := t.Context()
+
+	// idle triggers the DeadlineExceeded path for the mock, which closes
+	// the stream and calls createChangeStream again.
+	mockCS := newMockChangeStream(t, idle)
+	mockStore := &mockMetadataStore{}
+	streamCreations := 0
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(t.Context()),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			streamCreations++
+			if streamCreations == 1 {
+				return mockCS, nil
+			}
+			return nil, errors.New("stream creation failed")
+		},
+		metadataStore: mockStore,
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            "test_mongo_recreate_failure",
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	err = connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req)
+	require.ErrorContains(t, err, "failed to recreate change stream")
+	require.ErrorContains(t, err, "stream creation failed")
+	require.Equal(t, 2, streamCreations)
+	require.Len(t, mockStore.persisted, 1)
+	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[0])), mockStore.persisted[0].Text)
 }
 
 func b64(raw bson.Raw) string {

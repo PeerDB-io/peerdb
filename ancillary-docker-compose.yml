@@ -276,7 +276,7 @@ services:
   openssh:
     container_name: peerdb-test-ssh
     # Same image as CI flow
-    image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+    image: linuxserver/openssh-server:latest@sha256:9c5e178975fcc3917853f5e37cbf135ad7deb11de504ab0f460cc81a2e1eb539
     restart: unless-stopped
     ports:
       - "2222:2222"

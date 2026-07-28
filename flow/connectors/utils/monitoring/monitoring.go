@@ -394,7 +394,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		case *protos.PartitionRange_ObjectIdRange:
 			rangeStart, rangeEnd = &x.ObjectIdRange.Start, &x.ObjectIdRange.End
 		case *protos.PartitionRange_StringRange:
-			rangeStart, rangeEnd = &x.StringRange.Start, &x.StringRange.End
+			// quote so bytes that postgres text columns reject (e.g. NUL, which
+			// would wedge the snapshot in a retry loop) become visible escapes
+			rangeStart, rangeEnd = new(strconv.Quote(x.StringRange.Start)), new(strconv.Quote(x.StringRange.End))
 		case *protos.PartitionRange_NullRange:
 			// leave rangeStart and rangeEnd as nil
 		default:

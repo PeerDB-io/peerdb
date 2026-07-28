@@ -297,8 +297,10 @@ func (c *MongoConnector) PullRecords(
 		// Wrapped in a closure so changeStream is evaluated at return time. A direct
 		// `defer changeStream.Close()` would bind the original stream created above
 		// and miss any replacement made by recreateChangeStream.
-		if err := changeStream.Close(); err != nil {
-			c.logger.Warn("failed to close change stream", slog.Any("error", err))
+		if changeStream != nil {
+			if err := changeStream.Close(); err != nil {
+				c.logger.Warn("failed to close change stream", slog.Any("error", err))
+			}
 		}
 	}()
 
@@ -314,12 +316,14 @@ func (c *MongoConnector) PullRecords(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
 			attribute.Int64(otel_metrics.BytesPulledKey, cumulativeBytesProcessed.Load()),
 		)
-		if rt := changeStream.ResumeToken(); rt != nil {
-			rtStr := base64.StdEncoding.EncodeToString(rt)
-			if len(rtStr) > 64 {
-				rtStr = rtStr[:64]
+		if changeStream != nil {
+			if rt := changeStream.ResumeToken(); rt != nil {
+				rtStr := base64.StdEncoding.EncodeToString(rt)
+				if len(rtStr) > 64 {
+					rtStr = rtStr[:64]
+				}
+				span.SetAttributes(attribute.String(otel_metrics.ResumeTokenKey, rtStr))
 			}
-			span.SetAttributes(attribute.String(otel_metrics.ResumeTokenKey, rtStr))
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),

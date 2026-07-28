@@ -53,7 +53,7 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 }
 
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	conn, err := connectWithRetry(ctx, "catalog", internal.GetCatalogConnectionPoolFromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -91,7 +91,9 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
 	}
 
-	c, err := setupTemporalClient(ctx, clientOptions)
+	c, err := connectWithRetry(ctx, "temporal", func(ctx context.Context) (client.Client, error) {
+		return setupTemporalClient(ctx, clientOptions)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}

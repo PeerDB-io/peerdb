@@ -77,7 +77,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		return nil, fmt.Errorf("failed to load raw table TTL days: %w", err)
 	}
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)` +
-		` TTL toDateTime(fromUnixTimestamp64Nano(_peerdb_timestamp)) + INTERVAL ` + strconv.FormatUint(uint64(ttlDays), 10) + ` DAY`
+		` TTL toDateTime(fromUnixTimestamp64Nano(_peerdb_timestamp)) + INTERVAL ` + strconv.FormatUint(uint64(ttlDays), 10) + ` DAY` +
+		` SETTINGS ttl_only_drop_parts = 1`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
 	); err != nil {
