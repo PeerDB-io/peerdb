@@ -467,9 +467,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	mirrorJobsTable := fmt.Sprintf("_peerdb_internal.%s", "peerdb_mirror_jobs")
-	rawTableName := fmt.Sprintf(`_peerdb_internal."_peerdb_raw_%s"`,
-		strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)))
+	mirrorJobsTable := "_peerdb_internal.peerdb_mirror_jobs"
+	rawTableName := `_peerdb_internal."_peerdb_raw_` +
+		strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)) + `"`
 
 	// insert 5 rounds of 2 rows each to create 5 batches
 	for round := range 5 {
@@ -490,14 +490,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
 		})
 	}
 
-	var rawCount int64
-	err = s.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT count(*) FROM %s", rawTableName),
-	).Scan(&rawCount)
-	EnvNoError(s.t, env, err)
-
-	s.t.Logf("raw table row count after cleanup: %d", rawCount)
-	assert.Equal(s.t, int64(6), rawCount, "expected exactly 6 rows (3 batches) retained in raw table")
+	// wait for cleanup to take effect - with threshold=2 and 5 batches,
+	// cutoff = 5 - 2 = 3, so batches 1,2 are deleted, batches 3,4,5 remain (6 rows)
+	EnvWaitFor(s.t, env, 1*time.Minute, "raw table cleanup", func() bool {
+		var rawCount int64
+		err := s.Conn().QueryRow(s.t.Context(),
+			"SELECT count(*) FROM "+rawTableName,
+		).Scan(&rawCount)
+		s.t.Logf("raw table row count: %d", rawCount)
+		return err == nil && rawCount == 6
+	})
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
