@@ -18,6 +18,9 @@ on:
     #paths-ignore: *ignore_paths
 
 permissions:
+  # id-token: needed by tilt-flow.yml's OIDC AWS-credentials step (RDS IAM
+  # auth tests); a reusable workflow cannot exceed its caller's grant.
+  id-token: write
   contents: read
 
 jobs:
@@ -85,4 +88,5 @@ jobs:
         CI_MYSQL_VERSION=${{ matrix.db-version.mysql }}
         CI_MYSQL_PORT=${{ matrix.db-version.mysql == 'mysql-pos' && '3307' || '3306' }}
         CI_MARIADB_VERSION=${{ matrix.db-version.mariadb }}
+        FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit

@@ -88,6 +88,26 @@ on:
   workflow_call:
     inputs: *tilt_flow_inputs
     secrets:
+      # RDS IAM auth test wiring: the OIDC role the runner assumes plus the
+      # role/host/username targets the tests connect to (rds_test.go).
+      FLOW_TESTS_AWS_ROLE_ARN:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY:
+        required: false
+      FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL:
+        required: false
       CI_O11Y_TARGET_API_KEY_ID:
         required: false
       CI_O11Y_TARGET_API_KEY_SECRET:
@@ -114,6 +134,9 @@ on:
         required: false
 
 permissions:
+  # id-token: OIDC role assumption in the Configure AWS credentials step
+  # (RDS IAM auth tests).
+  id-token: write
   contents: read
 
 concurrency:
@@ -152,6 +175,15 @@ env:
   # If OTEL is present in the list of services, we enable it
   # to be used in the PeerDB services.
   ENABLE_OTEL_METRICS: ${{ contains(inputs.ancillary_services, 'otel-collector') && 'true' || 'false' }}
+  # RDS IAM auth test targets (rds_test.go)
+  FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
+  FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
+  FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
+  FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY }}
+  FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
+  FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
+  FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY }}
+  FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
 
 jobs:
   tilt_flow_test:
@@ -420,6 +452,28 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
+      # Temporary AWS credentials for the RDS IAM auth tests, assumed via
+      # OIDC. The tests read them as FLOW_TESTS_RDS_IAM_AUTH_AWS_*
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6
+        id: setup-aws
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-west-2
+          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          output-credentials: true
+
+      # The RDS IAM auth tests verify TLS against AWS's RDS root CAs
+      # trust them system-wide.
+      - name: Setup AWS CA Certs
+        env:
+          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/aws-global-bundle.pem" "$URL"
+          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- "$RUNNER_TEMP/aws-global-bundle.pem" '/-----BEGIN CERTIFICATE-----/' '{*}'
+          sudo update-ca-certificates
+
       # Run the tests on the host against the Tilt-provided stack, selected by
       # the Go test matcher.
       - name: Run tests
@@ -435,10 +489,23 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # Temporary AWS credentials for the RDS IAM auth tests, minted by the
+          # setup-aws step; their targets come from the workflow-level
+          # FLOW_TESTS_RDS_IAM_AUTH_* env.
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
         run: |
           # Disable errexit so we can capture gotestsum's exit code and still emit
           # coverage for the artifact upload; keep nounset.
           set +e -u
+
+          # The Configure AWS credentials step exports real AWS_* variables into
+          # the job env. Drop them so the tests fall back to the minio values in
+          # .env (godotenv never overrides variables already present in the
+          # process environment); the RDS IAM tests get the real credentials via
+          # the FLOW_TESTS_RDS_IAM_AUTH_AWS_* copies above instead.
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION
 
           # Per-run test environment overrides (e.g. the MySQL flavor under
           # test). Exported before gotestsum runs: the tests' .env auto-load
