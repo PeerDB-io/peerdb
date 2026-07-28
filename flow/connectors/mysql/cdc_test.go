@@ -535,6 +535,35 @@ func TestAlterTableAddColumnDefault(t *testing.T) {
 	}
 }
 
+// Enums and sets become an ordinal or bitmask without row metadata, so the member name MySQL
+// gives as the default no longer describes a value the destination column can hold.
+func TestAlterTableAddColumnDefaultEnumSetWithoutRowMetadata(t *testing.T) {
+	lit := func(s string) *string { return &s }
+
+	for _, tc := range []struct {
+		name        string
+		colDef      string
+		rowMetadata bool
+		want        *string
+	}{
+		{name: "enum with row metadata", colDef: "ENUM('a','b') DEFAULT 'b'", rowMetadata: true, want: lit("'b'")},
+		{name: "set with row metadata", colDef: "SET('x','y') DEFAULT 'x,y'", rowMetadata: true, want: lit("'x,y'")},
+		{name: "enum without row metadata", colDef: "ENUM('a','b') DEFAULT 'b'", want: nil},
+		{name: "set without row metadata", colDef: "SET('x','y') DEFAULT 'x,y'", want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+tc.colDef))
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+
+			fd, err := fieldDescriptionFromMysqlColumn(col, tc.rowMetadata, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, fd.DefaultExpr)
+		})
+	}
+}
+
 func TestParseSQLAlterTableAddColumnEnumWithoutRowMetadata(t *testing.T) {
 	stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c ENUM('a','b','c')"))
 	require.NoError(t, err)

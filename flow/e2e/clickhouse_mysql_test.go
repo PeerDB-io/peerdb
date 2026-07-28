@@ -1498,8 +1498,8 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 
 type mysqlAddColumnDefaultCase struct{ name, def, val string }
 
-func mysqlAddColumnDefaultTestCases() []mysqlAddColumnDefaultCase {
-	return []mysqlAddColumnDefaultCase{
+func mysqlAddColumnDefaultTestCases(rowMetadata bool) []mysqlAddColumnDefaultCase {
+	cols := []mysqlAddColumnDefaultCase{
 		{"c_tinyint", "TINYINT DEFAULT -128", "-1"},
 		{"c_tinyint_u", "TINYINT UNSIGNED DEFAULT 255", "1"},
 		{"c_bool", "TINYINT(1) DEFAULT TRUE", "0"},
@@ -1528,20 +1528,32 @@ func mysqlAddColumnDefaultTestCases() []mysqlAddColumnDefaultCase {
 		{"c_varchar_empty", "VARCHAR(20) DEFAULT ''", "'nonempty'"},
 		{"c_varchar_quote", "VARCHAR(20) DEFAULT 'it''s'", "'x'"},
 		{"c_varchar_charset", "VARCHAR(20) CHARACTER SET utf8mb4 DEFAULT 'uni'", "'y'"},
-		{"c_enum", "ENUM('a','b','c') DEFAULT 'b'", "'c'"},
-		{"c_set", "SET('x','y','z') DEFAULT 'x,z'", "'y'"},
 		// Binary types accept a plain DEFAULT where BLOB does not.
 		{"c_binary", "BINARY(4) DEFAULT 'abcd'", "'wxyz'"},
 		{"c_varbinary", "VARBINARY(10) DEFAULT 'bin'", "'other'"},
 	}
+
+	// Without row metadata these land as an ordinal/bitmask that the member name in the DDL
+	// cannot fill, so the default is declined and there is nothing to assert.
+	if rowMetadata {
+		cols = append(cols,
+			mysqlAddColumnDefaultCase{"c_enum", "ENUM('a','b','c') DEFAULT 'b'", "'c'"},
+			mysqlAddColumnDefaultCase{"c_set", "SET('x','y','z') DEFAULT 'x,z'", "'y'"},
+		)
+	}
+
+	return cols
 }
 
 // Test_MySQL_AlterTableAddColumnDefault covers rows that existed before an ADD COLUMN with a
 // DEFAULT.
 func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+	require.NoError(s.t, err)
 
 	srcTableName := "test_add_col_default"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -1568,7 +1580,7 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 	// what makes ClickHouse fall back to the column default when reading it.
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	cols := mysqlAddColumnDefaultTestCases()
+	cols := mysqlAddColumnDefaultTestCases(cmp >= 0)
 	adds := make([]string, len(cols))
 	names := make([]string, 0, len(cols)+1)
 	vals := make([]string, len(cols))

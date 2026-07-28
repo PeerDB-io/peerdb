@@ -1231,7 +1231,9 @@ func fieldDescriptionFromMysqlColumn(
 		case ast.ColumnOptionNotNull:
 			nullable = false
 		case ast.ColumnOptionDefaultValue:
-			if option.Expr != nil {
+			// Servers without binlog row metadata carry enums and sets as their ordinal or
+			// bitmask, so the member name MySQL states as the default would not convert.
+			if option.Expr != nil && qkind != types.QValueKindUint16Enum && qkind != types.QValueKindUint64Set {
 				if literal, ok := defaultExprFromMysqlColumnOption(option.Expr); ok {
 					defaultExpr = &literal
 				}
