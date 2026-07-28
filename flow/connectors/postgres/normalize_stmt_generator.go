@@ -113,6 +113,9 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
 	for _, column := range normalizedTableSchema.Columns {
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, column.Name) {
+			continue
+		}
 		quotedCol := common.QuoteIdentifier(column.Name)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
@@ -207,7 +210,11 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
-	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
+	quotedPKColumnNames := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkCol := range normalizedTableSchema.PrimaryKeyColumns {
+		quotedPKColumnNames = append(quotedPKColumnNames, common.QuoteIdentifier(pkCol))
+	}
+	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns, quotedPKColumnNames)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
@@ -277,7 +284,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	return mergeStmt
 }
 
-func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string) []string {
+func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string, quotedPKCols []string) []string {
 	handleSoftDelete := n.peerdbCols.SoftDeleteColName != ""
 	stmtCount := len(unchangedToastColumns)
 	if handleSoftDelete {
@@ -291,6 +298,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, u
 			unchangedColsArray[i] = common.QuoteIdentifier(unchangedToastCol)
 		}
 		otherCols := shared.ArrayMinus(quotedCols, unchangedColsArray)
+		otherCols = shared.ArrayMinus(otherCols, quotedPKCols)
 		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))

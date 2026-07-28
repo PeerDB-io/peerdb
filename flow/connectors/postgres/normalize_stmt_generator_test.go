@@ -25,7 +25,7 @@ func TestGenerateMergeUpdateStatement(t *testing.T) {
 			SoftDeleteColName: "",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols, nil)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -55,7 +55,7 @@ func TestGenerateMergeUpdateStatement_WithSoftDelete(t *testing.T) {
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols, nil)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -87,7 +87,7 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			SoftDeleteColName: "",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols, nil)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -129,7 +129,7 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *tes
 			SoftDeleteColName: "_peerdb_soft_delete",
 		},
 	}
-	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols)
+	result := normalizeGen.generateUpdateStatements(allCols, unchangedToastCols, nil)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -298,9 +298,9 @@ func TestGenerateMergeStatement_ToastColumns(t *testing.T) {
 	normalized := normalizeSQL(result)
 	// Should have an update branch for unchanged toast col = '' (all cols updated)
 	require.Contains(t, normalized, normalizeSQL(`_peerdb_unchanged_toast_columns=''`))
-	// Should have an update branch for unchanged toast col = 'big_col' (only id and small_col updated)
+	// Should have an update branch for unchanged toast col = 'big_col' (only small_col updated, id is PK so excluded)
 	require.Contains(t, normalized, normalizeSQL(`_peerdb_unchanged_toast_columns='big_col'`))
-	require.Contains(t, normalized, normalizeSQL(`"id"=src."id","small_col"=src."small_col"`))
+	require.Contains(t, normalized, normalizeSQL(`"small_col"=src."small_col","_peerdb_synced_at"=CURRENT_TIMESTAMP`))
 }
 
 func TestGenerateMergeStatement_UserDefinedType(t *testing.T) {
