@@ -462,6 +462,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
 	flowConnConfig.MaxBatchSize = 2
 	flowConnConfig.Env = map[string]string{
 		"PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD": "2",
+		"PEERDB_GROUP_NORMALIZE":                      "1",
 	}
 
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
