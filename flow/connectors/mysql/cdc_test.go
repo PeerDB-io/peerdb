@@ -477,6 +477,64 @@ func TestAlterTableTypes(t *testing.T) {
 	}
 }
 
+func TestAlterTableAddColumnDefault(t *testing.T) {
+	// want is nil for a column with no default, and for one whose default we decline to translate
+	for _, tc := range []struct {
+		name   string
+		colDef string
+		want   *string
+	}{
+		// integers, including the unary sign wrapper the parser emits for signed literals
+		{name: "int", colDef: "INT DEFAULT 5", want: new("5")},
+		{name: "int negative", colDef: "INT DEFAULT -1", want: new("-1")},
+		{name: "int explicit positive", colDef: "INT DEFAULT +7", want: new("7")},
+		{name: "int not null", colDef: "INT NOT NULL DEFAULT 0", want: new("0")},
+		{name: "bigint unsigned max", colDef: "BIGINT UNSIGNED DEFAULT 18446744073709551615", want: new("18446744073709551615")},
+		// the magnitude exceeds int64, so it arrives as a uint64 datum behind the unary minus
+		{name: "bigint min", colDef: "BIGINT DEFAULT -9223372036854775808", want: new("-9223372036854775808")},
+		{name: "boolean true", colDef: "TINYINT(1) DEFAULT TRUE", want: new("1")},
+		{name: "boolean false", colDef: "TINYINT(1) DEFAULT FALSE", want: new("0")},
+
+		// scale is preserved: the parser hands these over as *types.MyDecimal
+		{name: "decimal", colDef: "DECIMAL(10,2) DEFAULT 1.50", want: new("1.50")},
+		{name: "double", colDef: "DOUBLE DEFAULT 3.14", want: new("3.14")},
+		{name: "double negative", colDef: "DOUBLE DEFAULT -3.14", want: new("-3.14")},
+		{name: "double exponent", colDef: "DOUBLE DEFAULT 1e5", want: new("100000")},
+
+		// strings, quoted with SQL doubling so the literal is dialect neutral
+		{name: "varchar", colDef: "VARCHAR(10) DEFAULT 'abc'", want: new("'abc'")},
+		{name: "varchar empty", colDef: "VARCHAR(10) DEFAULT ''", want: new("''")},
+		{name: "varchar with quote", colDef: "VARCHAR(10) DEFAULT 'it''s'", want: new("'it''s'")},
+		{name: "varchar with charset", colDef: "VARCHAR(10) CHARACTER SET utf8mb4 DEFAULT 'x'", want: new("'x'")},
+		{name: "date", colDef: "DATE DEFAULT '2020-01-01'", want: new("'2020-01-01'")},
+		{name: "enum", colDef: "ENUM('a','b') DEFAULT 'a'", want: new("'a'")},
+
+		// declined: no default at all, or one we refuse to translate
+		{name: "no default", colDef: "INT", want: nil},
+		{name: "null default", colDef: "INT DEFAULT NULL", want: nil},
+		{name: "current timestamp", colDef: "DATETIME DEFAULT CURRENT_TIMESTAMP", want: nil},
+		{name: "now", colDef: "DATETIME DEFAULT NOW()", want: nil},
+		{name: "current timestamp on update", colDef: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", want: nil},
+		{name: "function call", colDef: "CHAR(36) DEFAULT (UUID())", want: nil},
+		{name: "bit literal", colDef: "BIT(8) DEFAULT b'101'", want: nil},
+		// backslashes and control characters escape differently across dialects
+		{name: "string with backslash", colDef: `VARCHAR(10) DEFAULT 'a\\b'`, want: nil},
+		{name: "string with tab", colDef: `VARCHAR(10) DEFAULT 'a\tb'`, want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmts, warns, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+tc.colDef))
+			require.NoError(t, err)
+			require.Empty(t, warns)
+			require.Len(t, stmts, 1)
+			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+
+			fd, err := fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, fd.DefaultExpr)
+		})
+	}
+}
+
 func TestParseSQLAlterTableAddColumnEnumWithoutRowMetadata(t *testing.T) {
 	stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c ENUM('a','b','c')"))
 	require.NoError(t, err)

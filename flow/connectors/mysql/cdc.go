@@ -13,6 +13,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/pingcap/tidb/pkg/parser/opcode"
+	tidbtypes "github.com/pingcap/tidb/pkg/types"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -1162,6 +1165,53 @@ func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
 	return nil
 }
 
+// defaultExprFromMysqlColumnOption renders a MySQL column DEFAULT as a SQL literal that
+// destinations can splice into DDL verbatim.
+func defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
+	negate := false
+	if unary, ok := expr.(*ast.UnaryOperationExpr); ok {
+		switch unary.Op {
+		case opcode.Minus:
+			negate = true
+		case opcode.Plus:
+		default:
+			return "", false
+		}
+		expr = unary.V
+	}
+
+	value, ok := expr.(ast.ValueExpr)
+	if !ok {
+		// CURRENT_TIMESTAMP, NOW(), UUID(), ... arrive as *ast.FuncCallExpr
+		return "", false
+	}
+
+	var literal string
+	switch v := value.GetValue().(type) {
+	case int64:
+		literal = strconv.FormatInt(v, 10)
+	case uint64:
+		literal = strconv.FormatUint(v, 10)
+	case float64:
+		literal = strconv.FormatFloat(v, 'g', -1, 64)
+	case *tidbtypes.MyDecimal:
+		literal = v.String()
+	case string:
+		if negate || strings.ContainsAny(v, "\\\t\n\r\x00") {
+			return "", false
+		}
+		return "'" + strings.ReplaceAll(v, "'", "''") + "'", true
+	default:
+		// DEFAULT NULL is a nil datum, bit literals are types.BinaryLiteral
+		return "", false
+	}
+
+	if negate {
+		literal = "-" + literal
+	}
+	return literal, true
+}
+
 func fieldDescriptionFromMysqlColumn(
 	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) (*protos.FieldDescription, error) {
@@ -1175,10 +1225,17 @@ func fieldDescriptionFromMysqlColumn(
 	}
 
 	nullable := true
+	var defaultExpr *string
 	for _, option := range col.Options {
-		if option.Tp == ast.ColumnOptionNotNull {
+		switch option.Tp {
+		case ast.ColumnOptionNotNull:
 			nullable = false
-			break
+		case ast.ColumnOptionDefaultValue:
+			if option.Expr != nil {
+				if literal, ok := defaultExprFromMysqlColumnOption(option.Expr); ok {
+					defaultExpr = &literal
+				}
+			}
 		}
 	}
 
@@ -1201,6 +1258,7 @@ func fieldDescriptionFromMysqlColumn(
 		Type:         string(qkind),
 		TypeModifier: typmod,
 		Nullable:     nullable,
+		DefaultExpr:  defaultExpr,
 	}, nil
 }
 
