@@ -294,6 +294,13 @@ jobs:
             sleep 2
           done
 
+          echo "Waiting for the Tiltfile evaluation to complete..."
+          if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
+            echo "::error::Tiltfile evaluation did not complete."
+            cat "$RUNNER_TEMP/tilt-up.log" || true
+            exit 1
+          fi
+
       # Start the requested ancillary services and wait
       # until they (and their provisioning steps) are confirmed up and running.
       - name: Start requested ancillary services
