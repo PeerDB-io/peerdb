@@ -151,6 +151,7 @@ concurrency:
   #
   # - Consecutive commits in a PR branch cancel their builds.
   # - Consecutive commits in main do not cancel each other's runs.
+  #
   group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
@@ -526,9 +527,15 @@ jobs:
           # The Configure AWS credentials step exports real AWS_* variables into
           # the job env. Drop them so the tests fall back to the minio values in
           # .env (godotenv never overrides variables already present in the
-          # process environment); the RDS IAM tests get the real credentials via
-          # the FLOW_TESTS_RDS_IAM_AUTH_AWS_* copies above instead.
-          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION
+          # process environment); the IAM tests get the real credentials via
+          # the FLOW_TESTS_* copies above instead.
+          #
+          # AWS_DEFAULT_REGION (us-west-2, from the setup-aws step) is kept:
+          # the IAM tests blank AWS_REGION and rely on the SDK falling back to
+          # it for the real-AWS region — without it the S3 hostname is built
+          # with an empty region ("<bucket>.s3..amazonaws.com"). The minio
+          # suites are unaffected because AWS_REGION from .env outranks it.
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION
 
           # Per-run test environment overrides (e.g. the MySQL flavor under
           # test). Exported before gotestsum runs: the tests' .env auto-load
