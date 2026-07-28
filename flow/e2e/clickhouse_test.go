@@ -2248,6 +2248,157 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Index() {
 	RequireEnvCanceled(s.t, env)
 }
 
+type pgAddColumnDefaultCase struct{ name, def, val string }
+
+// Test_PG_AlterTableAddColumnDefault covers rows that existed before an ADD COLUMN with a DEFAULT.
+func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_add_col_default"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_add_col_default_dst"
+	enumType := s.attachSchemaSuffix("add_col_default_mood")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TYPE "+enumType+" AS ENUM ('sad','ok')"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Row 1 must land before the ALTER so it sits in a part predating the new columns; that is what
+	// makes ClickHouse fall back to the column default when reading it.
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	cols := []pgAddColumnDefaultCase{
+		{"c_int", "INT DEFAULT 5", "10"},
+		{"c_int_neg", "INT DEFAULT -1", "-20"},
+		{"c_int_zero", "INT DEFAULT 0", "1"},
+		{"c_int_nn", "INT NOT NULL DEFAULT 7", "30"},
+		{"c_smallint", "SMALLINT DEFAULT -32768", "3"},
+		{"c_bigint", "BIGINT DEFAULT 9223372036854775807", "1"},
+		// exact and approximate numeric; numeric keeps the scale as written
+		{"c_numeric", "NUMERIC(10,2) DEFAULT 1.50", "9.99"},
+		{"c_double", "DOUBLE PRECISION DEFAULT 2.5", "3.5"},
+		{"c_bool", "BOOLEAN DEFAULT true", "false"},
+		// strings, including the quoting edge cases
+		{"c_text", "TEXT DEFAULT 'hello'", "'world'"},
+		{"c_text_empty", "TEXT DEFAULT ''", "'nonempty'"},
+		{"c_text_quote", "TEXT DEFAULT 'it''s'", "'x'"},
+		{"c_varchar", "VARCHAR(20) DEFAULT 'dflt'", "'set'"},
+		{"c_enum", enumType + " DEFAULT 'ok'", "'sad'"},
+		{"c_uuid", "UUID DEFAULT '00000000-0000-0000-0000-000000000001'", "'11111111-1111-1111-1111-111111111111'"},
+		{"c_jsonb", `JSONB DEFAULT '{"a": 1}'`, `'{"b": 2}'`},
+		// date and time literals; pg renders a timestamptz in UTC, which is the zone our connections run in
+		{"c_date", "DATE DEFAULT '2020-01-02'", "'2021-02-03'"},
+		{"c_ts", "TIMESTAMP DEFAULT '2020-01-02 03:04:05.678'", "'2021-02-03 04:05:06.789'"},
+		{"c_tstz", "TIMESTAMPTZ DEFAULT '2020-01-02 03:04:05+02'", "'2021-02-03 04:05:06+03'"},
+	}
+
+	adds := make([]string, len(cols))
+	names := make([]string, 0, len(cols)+1)
+	vals := make([]string, len(cols))
+	names = append(names, "id")
+	for i, c := range cols {
+		adds[i] = "ADD COLUMN " + c.name + " " + c.def
+		names = append(names, c.name)
+		vals[i] = c.val
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s %s", srcFullName, strings.Join(adds, ", "))))
+
+	// Row 2 arrives through CDC carrying its own values, so the ordinary path is exercised alongside
+	// row 1's read-time default.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (%s) VALUES (2, %s)",
+		srcFullName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc add column with default",
+		srcTableName, dstTableName, strings.Join(names, ","))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_PG_AlterTableAddColumnDefaultUntranslated covers defaults deliberately not carried over, plus
+// one ClickHouse rejects outright. Neither may stall replication for the table.
+func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefaultUntranslated() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_add_col_default_untranslated"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_add_col_default_untranslated_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	cols := []pgAddColumnDefaultCase{
+		// Evaluating these on the destination would yield a different value per query, so they are
+		// declined rather than translated.
+		{"c_now", "TIMESTAMPTZ DEFAULT now()", "'2021-02-03 04:05:06+00'"},
+		{"c_serial", "SERIAL", "9"},
+		// Not a constant, pg hands over the whole expression.
+		{"c_expr", "INT DEFAULT (2 + 3)", "9"},
+		// Nullable columns already read back as NULL, so nothing needs to be emitted.
+		{"c_null", "INT DEFAULT NULL", "42"},
+		// Array and binary literals are spelled differently on the destination.
+		{"c_array", "INT[] DEFAULT '{1,2}'", "'{3,4}'"},
+		{"c_bytea", `BYTEA DEFAULT '\x0001'`, `'\x0203'`},
+		// Backslashes escape differently across dialects, so the default is declined.
+		{"c_backslash", `TEXT DEFAULT E'a\\b'`, "'plain'"},
+		// Translated, but ClickHouse cannot parse it; the column is then added without a default.
+		{"c_infinity", "TIMESTAMP DEFAULT 'infinity'", "'2021-02-03 04:05:06'"},
+	}
+
+	adds := make([]string, len(cols))
+	names := make([]string, 0, len(cols)+1)
+	vals := make([]string, len(cols))
+	names = append(names, "id")
+	for i, c := range cols {
+		adds[i] = "ADD COLUMN " + c.name + " " + c.def
+		names = append(names, c.name)
+		vals[i] = c.val
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s %s", srcFullName, strings.Join(adds, ", "))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (%s) VALUES (1, %s)",
+		srcFullName, strings.Join(names, ", "), strings.Join(vals, ", "))))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc add column with untranslated default",
+		srcTableName, dstTableName, strings.Join(names, ","))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	var pgSource *PostgresSource
 	var ok bool

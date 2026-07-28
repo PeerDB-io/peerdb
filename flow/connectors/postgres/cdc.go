@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
@@ -1315,7 +1317,6 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
@@ -1333,9 +1334,11 @@ func processRelationMessage[Items model.Items](
 		return !isExcluded
 	}
 
+	addedColumnNames := make([]string, 0)
 	addedColumnTypeOIDs := make([]uint32, 0)
 	for _, column := range currRel.Columns {
 		if isAddedColumnAndNotExcluded(column.Name) {
+			addedColumnNames = append(addedColumnNames, column.Name)
 			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 		}
 	}
@@ -1345,26 +1348,43 @@ func processRelationMessage[Items model.Items](
 		return nil, fmt.Errorf("error getting schema names for added column types: %w", err)
 	}
 
+	// relation messages carry neither nullability nor defaults, so they come from pg_catalog. That
+	// reflects the table as it stands now rather than as of the DDL, which only differs if the column
+	// was altered again in between.
+	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, currRel.RelationID, addedColumnNames)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if isAddedColumnAndNotExcluded(column.Name) {
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
+			catalogInfo := addedColumnCatalogInfo[column.Name]
+			var defaultExpr *string
+			// destinations on the PG type system splice the column type in verbatim, so a literal
+			// rendered for a QValueKind would not fit their DDL
+			if catalogInfo.defaultExpr != "" && prevSchema.System == protos.TypeSystem_Q {
+				if literal, ok := defaultExprFromPostgresDefault(
+					catalogInfo.defaultExpr, types.QValueKind(currRelMap[column.Name]),
+				); ok {
+					defaultExpr = &literal
+				}
+			}
+			addedColumn := &protos.FieldDescription{
 				Name:           column.Name,
 				Type:           currRelMap[column.Name],
 				TypeModifier:   column.TypeModifier,
-				Nullable:       false,
+				Nullable:       !catalogInfo.notNull,
 				TypeSchemaName: typeSchemaNameMapping[column.DataType],
-			})
-			// pg does not send nullable info, only whether column is part of replica identity
-			// After loop we will correct this based on pg_catalog,
-			// but can skip specific scenario where replident is default or index
-			if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
-				currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
-				potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
+				DefaultExpr:    defaultExpr,
 			}
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, addedColumn)
 			p.logger.Info("Detected added column",
-				slog.String("columnName", column.Name),
-				slog.String("columnType", currRelMap[column.Name]),
+				slog.String("columnName", addedColumn.Name),
+				slog.String("columnType", addedColumn.Type),
+				slog.Bool("nullable", addedColumn.Nullable),
+				slog.String("sourceDefault", catalogInfo.defaultExpr),
+				slog.String("default", addedColumn.GetDefaultExpr()),
 				slog.String("relationName", schemaDelta.SrcTableName))
 		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
 			// Column is added but excluded
@@ -1396,36 +1416,6 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
-	if len(potentiallyNullableAddedColumns) > 0 {
-		p.logger.Info("Checking for potentially nullable columns in table",
-			slog.String("tableName", schemaDelta.SrcTableName),
-			slog.Any("potentiallyNullable", potentiallyNullableAddedColumns))
-
-		rows, err := p.conn.Query(
-			ctx,
-			fmt.Sprintf(
-				"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
-				strings.Join(potentiallyNullableAddedColumns, ","),
-			),
-			currRel.RelationID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
-		}
-
-		attnames, err := pgx.CollectRows[string](rows, pgx.RowTo)
-		if err != nil {
-			return nil, fmt.Errorf("error collecting rows for column nullable info for schema change: %w", err)
-		}
-		for _, column := range schemaDelta.AddedColumns {
-			if slices.Contains(attnames, column.Name) {
-				column.Nullable = true
-				p.logger.Info(fmt.Sprintf("Detected column %s in table %s as nullable",
-					column.Name, schemaDelta.SrcTableName))
-			}
-		}
-	}
-
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
@@ -1435,6 +1425,163 @@ func processRelationMessage[Items model.Items](
 		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
+}
+
+type addedColumnCatalogInfo struct {
+	// as rendered by pg_get_expr, empty when the column has no default
+	defaultExpr string
+	notNull     bool
+}
+
+// fetchAddedColumnCatalogInfo reads the nullability and DEFAULT of the named columns from pg_catalog.
+func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
+	ctx context.Context, relID uint32, columnNames []string,
+) (map[string]addedColumnCatalogInfo, error) {
+	if len(columnNames) == 0 {
+		return nil, nil
+	}
+
+	// generated columns keep their expression in pg_attrdef too, and it is not a default
+	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull,
+		CASE WHEN a.attgenerated = '' THEN pg_catalog.pg_get_expr(d.adbin, d.adrelid) END
+		FROM pg_catalog.pg_attribute a
+		LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
+		relID, columnNames)
+	if err != nil {
+		return nil, fmt.Errorf("error looking up added column info for schema change: %w", err)
+	}
+
+	catalogInfo := make(map[string]addedColumnCatalogInfo, len(columnNames))
+	var name string
+	var notNull bool
+	var defaultExpr pgtype.Text
+	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &defaultExpr}, func() error {
+		catalogInfo[name] = addedColumnCatalogInfo{defaultExpr: defaultExpr.String, notNull: notNull}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error collecting added column info for schema change: %w", err)
+	}
+	return catalogInfo, nil
+}
+
+// pg renders numbers as digits with an optional sign, fraction and exponent
+var pgNumericLiteralRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$`)
+
+// defaultExprFromPostgresDefault renders a Postgres column DEFAULT, as returned by pg_get_expr, as a
+// SQL literal that destinations can splice into DDL verbatim. Only constants of a type whose text form
+// carries over are translated; everything else is declined, leaving the column without a default.
+func defaultExprFromPostgresDefault(rendered string, qkind types.QValueKind) (string, bool) {
+	value, quoted, ok := parsePostgresDefaultConstant(rendered)
+	if !ok {
+		return "", false
+	}
+
+	switch qkind {
+	case types.QValueKindBoolean:
+		if quoted || (value != "true" && value != "false") {
+			return "", false
+		}
+		return value, true
+
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindInt256, types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32,
+		types.QValueKindUInt64, types.QValueKindUInt256, types.QValueKindFloat32, types.QValueKindFloat64,
+		types.QValueKindNumeric:
+		// negative numbers and the wider integers arrive quoted; unquoting keeps the DDL readable.
+		// Non-finite values such as 'NaN' are left behind, destinations disagree on those.
+		if !pgNumericLiteralRegex.MatchString(value) {
+			return "", false
+		}
+		return value, true
+
+	case types.QValueKindTimestampTZ:
+		// our connections run with timezone=UTC so pg renders this offset, and the destination column
+		// carries no zone of its own, making the offset something it may well refuse to parse
+		value, ok = strings.CutSuffix(value, "+00")
+		if !ok {
+			return "", false
+		}
+		return quoteDefaultLiteral(value, quoted)
+
+	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
+		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore, types.QValueKindINET,
+		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate, types.QValueKindTimestamp:
+		return quoteDefaultLiteral(value, quoted)
+
+	default:
+		// bytea, arrays, interval, time and the geo types all have a text form the destination reads
+		// differently, if at all
+		return "", false
+	}
+}
+
+// quoteDefaultLiteral quotes value for splicing into DDL, declining anything whose escaping is not
+// portable across dialects.
+func quoteDefaultLiteral(value string, quoted bool) (string, bool) {
+	if !quoted || strings.ContainsFunc(value, func(r rune) bool { return r == '\\' || r < ' ' }) {
+		return "", false
+	}
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true
+}
+
+// parsePostgresDefaultConstant reduces a DEFAULT rendered by pg_get_expr to the constant it holds,
+// returning the value with pg's quoting undone and whether it was quoted. Postgres constant folds
+// defaults and labels them with their type, so `5`, `(-1)`, `1.50`, `'-32768'::integer` and
+// `'abc'::character varying` are all constants, while `now()`, `(id * 2)` and `'{1,2}'::integer[]`
+// are not.
+func parsePostgresDefaultConstant(rendered string) (string, bool, bool) {
+	expr := strings.TrimSpace(rendered)
+	if strings.HasPrefix(expr, "'") {
+		value, rest, ok := cutPostgresStringLiteral(expr)
+		return value, true, ok && isPostgresTypeLabel(rest)
+	}
+
+	value, rest, _ := strings.Cut(expr, "::")
+	if !isPostgresTypeLabel(rest) {
+		return "", false, false
+	}
+	value = strings.TrimSpace(value)
+	// an unlabelled signed number is parenthesized, keeping the sign away from the scanner
+	if strings.HasPrefix(value, "(") && strings.HasSuffix(value, ")") {
+		value = strings.TrimSpace(value[1 : len(value)-1])
+	}
+	return value, false, value != ""
+}
+
+// cutPostgresStringLiteral consumes the leading single quoted literal of expr, undoing the doubling pg
+// uses for embedded quotes, and returns whatever follows it. Our connections run with
+// standard_conforming_strings=on, so backslashes carry no meaning here.
+func cutPostgresStringLiteral(expr string) (string, string, bool) {
+	var value strings.Builder
+	for i := 1; i < len(expr); i++ {
+		if expr[i] != '\'' {
+			value.WriteByte(expr[i])
+		} else if i+1 < len(expr) && expr[i+1] == '\'' {
+			value.WriteByte('\'')
+			i++
+		} else {
+			return value.String(), expr[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// isPostgresTypeLabel reports whether rest is the `::type` label pg appends to a constant, and nothing
+// more. Refusing anything else is what keeps composite expressions out: `'x'::text || 'y'::text` trips
+// on the operator, `'{1,2}'::integer[]` on the brackets.
+func isPostgresTypeLabel(rest string) bool {
+	if rest == "" {
+		return true
+	}
+	name, ok := strings.CutPrefix(rest, "::")
+	if !ok || name == "" {
+		return false
+	}
+	// names may be schema qualified and quoted, and `timestamp with time zone` brings spaces along
+	return !strings.ContainsFunc(name, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' && r != '"' && r != ' '
+	})
 }
 
 // getParentRelIDIfPartitioned checks if the relation ID is a child table
