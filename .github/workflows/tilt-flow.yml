@@ -148,7 +148,10 @@ concurrency:
   # matrix fan-out from flow.yml doesn't cancel its own sibling jobs, and fork
   # PRs (pull_request_target runs on the base ref) don't collide with pushes
   # to main.
-  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}
+  #
+  # - Consecutive commits in a PR branch cancel their builds.
+  # - Consecutive commits in main do not cancel each other's runs.
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
