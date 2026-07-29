@@ -640,3 +640,13 @@ jobs:
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+      - name: Ingest pkg tests results for analysis
+        if: success() || failure()
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: "tilt-pkg-${{ steps.run-identity.outputs.suffix }}"
+          test-results-file: logs/pkg-test-results.xml
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
