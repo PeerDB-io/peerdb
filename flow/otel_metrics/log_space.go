@@ -13,7 +13,8 @@ type LogSpaceInfo struct {
 	LimitBytes *int64
 	// nil when safe_wal_size is unavailable or max_slot_wal_keep_size is unlimited
 	SafeBytes *int64
-	UsedBytes int64
+	// nil when the current and restart LSNs cannot be safely compared
+	UsedBytes *int64
 }
 
 type LogSpaceGauges struct {
@@ -23,7 +24,9 @@ type LogSpaceGauges struct {
 }
 
 func (g LogSpaceGauges) Record(ctx context.Context, info LogSpaceInfo, attributeSet metric.RecordOption) {
-	g.UsedGauge.Record(ctx, info.UsedBytes, attributeSet)
+	if info.UsedBytes != nil {
+		g.UsedGauge.Record(ctx, *info.UsedBytes, attributeSet)
+	}
 	if info.LimitBytes == nil || *info.LimitBytes <= 0 {
 		return
 	}
