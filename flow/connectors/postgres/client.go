@@ -479,6 +479,62 @@ func getSlotInfo(
 	return slotInfoRows, nil
 }
 
+type walRetentionSettings struct {
+	// Both are nil when the setting does not exist (PG<13) or does not impose a cap:
+	// max_slot_wal_keep_size defaults to -1 (unlimited) and wal_keep_size to 0.
+	MaxSlotWalKeepSizeBytes *int64
+	WalKeepSizeBytes        *int64
+}
+
+// LimitBytes mirrors how Postgres derives safe_wal_size: the cap only exists when
+// max_slot_wal_keep_size is non-negative, and wal_keep_size can raise it. Compare
+// `failSeg = targetSeg + Max(slotKeepSegs, keepSegs) + 1` in pg_get_replication_slots. Postgres
+// rounds both settings down to whole WAL segments and adds one, so this is accurate to within a
+// segment, which is immaterial at the cap sizes we recommend.
+func (s walRetentionSettings) LimitBytes() *int64 {
+	if s.MaxSlotWalKeepSizeBytes == nil {
+		return nil
+	}
+	limit := *s.MaxSlotWalKeepSizeBytes
+	if s.WalKeepSizeBytes != nil && *s.WalKeepSizeBytes > limit {
+		limit = *s.WalKeepSizeBytes
+	}
+	return &limit
+}
+
+// getWalRetentionSettings reads the settings bounding how much WAL a slot may retain. Both are
+// readable by any role, and pg_settings is an in-memory scan.
+func getWalRetentionSettings(ctx context.Context, conn *pgx.Conn) (walRetentionSettings, error) {
+	rows, err := conn.Query(ctx, `SELECT
+			name,
+			CASE WHEN setting::bigint < 0 THEN NULL
+				ELSE pg_size_bytes(setting || COALESCE(unit, '')) END
+		FROM pg_settings WHERE name IN ('max_slot_wal_keep_size', 'wal_keep_size')`)
+	if err != nil {
+		return walRetentionSettings{}, fmt.Errorf("failed to read WAL retention settings: %w", err)
+	}
+	defer rows.Close()
+
+	var settings walRetentionSettings
+	for rows.Next() {
+		var name string
+		var bytes *int64
+		if err := rows.Scan(&name, &bytes); err != nil {
+			return walRetentionSettings{}, err
+		}
+		switch name {
+		case "max_slot_wal_keep_size":
+			settings.MaxSlotWalKeepSizeBytes = bytes
+		case "wal_keep_size":
+			settings.WalKeepSizeBytes = bytes
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return walRetentionSettings{}, err
+	}
+	return settings, nil
+}
+
 // GetSlotInfo gets the information about the replication slot size and LSNs.
 // If slotName is non-empty, only that slot is returned.
 // If slotName is empty and peerdbManagedOnly is false, all slots in the database are returned.

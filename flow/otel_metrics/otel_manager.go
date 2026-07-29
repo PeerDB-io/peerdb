@@ -43,6 +43,9 @@ const (
 	ConfirmedToCurrentMBGaugeName        = "confirmed_to_current_lsn"
 	WalStatusGaugeName                   = "wal_status"
 	SafeWalSizeGaugeName                 = "safe_wal_size"
+	SourceLogSpaceUsedGaugeName          = "source_log_space_used"
+	SourceLogSpaceLimitGaugeName         = "source_log_space_limit"
+	SourceLogSpaceUsedRatioGaugeName     = "source_log_space_used_ratio"
 	SlotActiveGaugeName                  = "slot_active"
 	WalSenderStateGaugeName              = "walsender_state"
 	LogicalDecodingWorkMemGaugeName      = "logical_decoding_work_mem"
@@ -105,6 +108,7 @@ type Metrics struct {
 	ConfirmedToCurrentMBGauge        metric.Float64Gauge
 	WalStatusGauge                   metric.Int64Gauge
 	SafeWalSizeGauge                 metric.Int64Gauge
+	LogSpace                         LogSpaceGauges
 	SlotActiveGauge                  metric.Int64Gauge
 	WalSenderStateGauge              metric.Int64Gauge
 	StatsResetGauge                  metric.Int64Gauge
@@ -160,6 +164,7 @@ type SlotMetricGauges struct {
 	ConfirmedToCurrentMBGauge       metric.Float64Gauge
 	WalStatusGauge                  metric.Int64Gauge
 	SafeWalSizeGauge                metric.Int64Gauge
+	LogSpace                        LogSpaceGauges
 	SlotActiveGauge                 metric.Int64Gauge
 	WalSenderStateGauge             metric.Int64Gauge
 	StatsResetGauge                 metric.Int64Gauge
@@ -347,6 +352,31 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.SafeWalSizeGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SafeWalSizeGaugeName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Slot's safe_wal_size field (available PG13+)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogSpace.UsedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SourceLogSpaceUsedGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("WAL bytes retained by a Postgres replication slot"),
+	); err != nil {
+		return err
+	}
+
+	// Only emitted when the source enforces a cap, so its absence means "unbounded".
+	if om.Metrics.LogSpace.LimitGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SourceLogSpaceLimitGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Postgres replication slot WAL retention limit derived from "+
+			"max(max_slot_wal_keep_size, wal_keep_size)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogSpace.UsedRatioGauge, err = om.GetOrInitFloat64Gauge(
+		BuildMetricName(SourceLogSpaceUsedRatioGaugeName),
+		metric.WithUnit("1"),
+		metric.WithDescription("Fraction of a Postgres replication slot's WAL retention limit in use; "+
+			"only emitted when a limit is configured and can exceed 1 once breached"),
 	); err != nil {
 		return err
 	}
