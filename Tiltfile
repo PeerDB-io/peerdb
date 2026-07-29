@@ -281,7 +281,9 @@ dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
 # flow-service stdout -> otel-collector-agent (DaemonSet analog) ->
 # edge-collector (per-service pod analog) -> customer sink (debug exporter).
 # Enable both resources to try it; see volumes/otel/README.md.
-dc_resource('edge-collector', labels=['Ancillary-LogDelivery'], auto_init=False)
+dc_resource('edge-collector', labels=['Ancillary-LogDelivery'], auto_init=False,
+    resource_deps=['provision-clickhouse'],
+)
 dc_resource('otel-collector-agent', labels=['Ancillary-LogDelivery'], auto_init=False, resource_deps=['edge-collector'])
 
 # Cleanup

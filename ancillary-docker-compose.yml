@@ -290,6 +290,11 @@ services:
     image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.157.0}
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      EDGE_COLLECTOR_CH_ENDPOINT: ${EDGE_COLLECTOR_CH_ENDPOINT:-http://${CI_CLICKHOUSE_HOST}:${CI_CLICKHOUSE_HTTP_PORT}}
+      EDGE_COLLECTOR_CH_DATABASE: ${EDGE_COLLECTOR_CH_DATABASE:-default}
+      EDGE_COLLECTOR_CH_USERNAME: ${EDGE_COLLECTOR_CH_USERNAME:-default}
+      EDGE_COLLECTOR_CH_PASSWORD: ${EDGE_COLLECTOR_CH_PASSWORD:-}
     volumes:
       - ./volumes/otel/edge-collector.yaml:/etc/otelcol/config.yaml:ro
     ports:

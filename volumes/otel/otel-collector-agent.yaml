@@ -46,11 +46,14 @@ processors:
           - set(log.attributes["compose.project"], log.attributes["attrs"]["com.docker.compose.project"])
           - set(log.attributes["compose.service"], log.attributes["attrs"]["com.docker.compose.service"])
 
+  # Tenant identity gate: the local analog of the DaemonSet keeping only
+  # `clickpipes-svc-<serviceID>` namespaces. Anything that is not a ClickPipe monitored
+  # is dropped here.
   filter/only_flow_services:
     error_mode: ignore
     logs:
       log_record:
-        - attributes["compose.service"] == nil
+        - attributes["compose.service"] == nil or not (IsMatch(attributes["compose.service"], "^flow-") or IsMatch(attributes["compose.service"], "^peerdb"))
 
   # Parse the slog JSON that flow services write to stdout
   transform/parse_slog:
@@ -95,7 +98,7 @@ exporters:
       max_interval: 10s
       max_elapsed_time: 60s
   debug:
-    verbosity: detailed
+    verbosity: basic
 
 service:
   pipelines:

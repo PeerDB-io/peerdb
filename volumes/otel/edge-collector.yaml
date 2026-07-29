@@ -1,14 +1,5 @@
 # Local simulation of the per-service `edge-collector` pod from the
 # "ClickPipes Log Delivery Architecture" proposal (DBI-903).
-#
-# This is the *static* configuration described in Part A of the proposal: it
-# funnels in log events shipped by the collector agent(s), keeps only
-# customer-relevant records, simplifies them, and forwards them to the
-# customer-controlled sink. In this simulation the sink is the debug exporter,
-# so delivered events are visible with `docker logs peerdb-edge-collector`
-# (or the edge-collector resource logs in the Tilt UI).
-#
-# See volumes/otel/README.md for the k8s -> docker-compose mapping.
 
 receivers:
   otlp:
@@ -24,10 +15,6 @@ processors:
     limit_mib: 192
     spike_limit_mib: 64
 
-  # Functional mission per the proposal: filter out and simplify events,
-  # leaving only customer-relevant information. PeerDB's alerting funnel
-  # (flow/alerting/alerting.go, InsertFlowLog) tags those records with
-  # logAudience=user; everything else is dropped here.
   filter/customer_relevant:
     error_mode: ignore
     logs:
@@ -49,23 +36,24 @@ exporters:
   debug:
     verbosity: detailed
 
-  # Shape of the real customer sink exporter — swap it into the pipeline to
-  # point the simulation at an actual OTLP endpoint. The queue/retry bounds
-  # are the proposal's safety and back-pressure boundary: when the sink cannot
-  # accept events in a timely fashion, events are dropped so that sink
-  # availability issues stay transparent to the ClickPipes services.
-  # otlphttp/customer:
-  #   endpoint: https://customer-sink.example.com:4318
-  #   headers:
-  #     authorization: "${env:CUSTOMER_SINK_TOKEN}"
-  #   sending_queue:
-  #     enabled: true
-  #     queue_size: 1024
-  #   retry_on_failure:
-  #     enabled: true
-  #     initial_interval: 1s
-  #     max_interval: 30s
-  #     max_elapsed_time: 120s
+  # ClickPipes tenant service sink (default)
+  clickhouse:
+    endpoint: ${env:EDGE_COLLECTOR_CH_ENDPOINT}
+    database: ${env:EDGE_COLLECTOR_CH_DATABASE}
+    username: ${env:EDGE_COLLECTOR_CH_USERNAME}
+    password: ${env:EDGE_COLLECTOR_CH_PASSWORD}
+    logs_table_name: otel_logs
+    create_schema: true
+    ttl: 72h
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      queue_size: 1024
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
 
 service:
   pipelines:
@@ -76,4 +64,4 @@ service:
          #- filter/customer_relevant
          #- transform/simplify
          #- batch
-      exporters: [debug]
+      exporters: [debug, clickhouse]
