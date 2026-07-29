@@ -274,9 +274,19 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
+			defaultExpr := addedColumn.DefaultExpr
+			if defaultExpr != nil && (qvKind == types.QValueKindTime || qvKind == types.QValueKindTimeTZ) &&
+				!slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled) {
+				// on the legacy path time lands in DateTime64 as an offset from the epoch,
+				// which the source's 'HH:MM:SS' literal does not describe
+				c.logger.Warn("[schema delta replay] omitting source default for time column without Time64 support",
+					slog.String("column", addedColumn.Name), slog.String("default", *defaultExpr))
+				defaultExpr = nil
+			}
+
 			columnDef := clickHouseColType
-			if addedColumn.DefaultExpr != nil {
-				columnDef += " DEFAULT " + *addedColumn.DefaultExpr
+			if defaultExpr != nil {
+				columnDef += " DEFAULT " + *defaultExpr
 			}
 
 			addColumn := func(tableName, def string) error {
@@ -289,11 +299,11 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			// retry without default if ch rejected the expression
 			addColumnWithDefaultFallback := func(tableName string) error {
 				err := addColumn(tableName, columnDef)
-				if err == nil || addedColumn.DefaultExpr == nil {
+				if err == nil || defaultExpr == nil {
 					return err
 				}
 				c.logger.Warn("[schema delta replay] retrying added column without its source default",
-					slog.String("column", addedColumn.Name), slog.String("default", *addedColumn.DefaultExpr),
+					slog.String("column", addedColumn.Name), slog.String("default", *defaultExpr),
 					slog.String("destination table name", tableName), slog.Any("error", err))
 				return addColumn(tableName, clickHouseColType)
 			}

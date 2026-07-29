@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	rand "math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1505,7 +1506,7 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 	}
 
 	type mysqlAddColumnDefaultCase struct{ name, def, val string }
-	mysqlAddColumnDefaultTestCases := func(rowMetadata bool) []mysqlAddColumnDefaultCase {
+	mysqlAddColumnDefaultTestCases := func(rowMetadata bool, time64 bool) []mysqlAddColumnDefaultCase {
 		cols := []mysqlAddColumnDefaultCase{
 			{"c_tinyint", "TINYINT DEFAULT -128", "-1"},
 			{"c_tinyint_u", "TINYINT UNSIGNED DEFAULT 255", "1"},
@@ -1528,7 +1529,6 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 			// Date and time literals.
 			{"c_date", "DATE DEFAULT '2020-01-02'", "'2021-02-03'"},
 			{"c_datetime", "DATETIME(3) DEFAULT '2020-01-02 03:04:05.678'", "'2021-02-03 04:05:06.789'"},
-			{"c_time", "TIME DEFAULT '13:14:15'", "'16:17:18'"},
 			// Strings, including the quoting edge cases and a charset-prefixed literal.
 			{"c_char", "CHAR(10) DEFAULT 'abc'", "'xyz'"},
 			{"c_varchar", "VARCHAR(20) DEFAULT 'dflt'", "'set'"},
@@ -1538,6 +1538,12 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 			// Binary types accept a plain DEFAULT where BLOB does not.
 			{"c_binary", "BINARY(4) DEFAULT 'abcd'", "'wxyz'"},
 			{"c_varbinary", "VARBINARY(10) DEFAULT 'bin'", "'other'"},
+		}
+
+		// Only a Time64 column holds the source literal; without it the destination keeps time as
+		// an offset from the epoch, so the default is declined (see the untranslated test).
+		if time64 {
+			cols = append(cols, mysqlAddColumnDefaultCase{"c_time", "TIME DEFAULT '13:14:15'", "'16:17:18'"})
 		}
 
 		// Without row metadata these land as an ordinal/bitmask that the member name in the DDL
@@ -1580,7 +1586,11 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 	supportsBinlogRowMetadata, err := mysource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 	require.NoError(s.t, err)
 
-	cols := mysqlAddColumnDefaultTestCases(supportsBinlogRowMetadata >= 0)
+	flags, err := s.connector.GetFlags(s.t.Context())
+	require.NoError(s.t, err)
+
+	cols := mysqlAddColumnDefaultTestCases(supportsBinlogRowMetadata >= 0,
+		slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled))
 	adds := make([]string, len(cols))
 	names := make([]string, 0, len(cols)+1)
 	vals := make([]string, len(cols))
@@ -1607,7 +1617,8 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 }
 
 // Test_MySQL_AlterTableAddColumnDefaultUntranslated covers defaults deliberately not carried over,
-// plus one ClickHouse rejects outright. Neither may stall replication for the table.
+// whether declined while reading the DDL or by the destination. Neither may stall replication for
+// the table.
 func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefaultUntranslated() {
 	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
@@ -1643,6 +1654,9 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefaultUntranslated() {
 		{"c_bit", "BIT(8) DEFAULT b'101'", "b'11111111'"},
 		// Backslashes escape differently across dialects, so the default is declined.
 		{"c_backslash", `VARCHAR(10) DEFAULT 'a\\b'`, "'plain'"},
+		// Declined unless the destination has Time64, since DateTime64 holds time as an offset
+		// from the epoch rather than as the literal MySQL states.
+		{"c_time", "TIME DEFAULT '13:14:15'", "'16:17:18'"},
 	}
 
 	adds := make([]string, len(cols))
