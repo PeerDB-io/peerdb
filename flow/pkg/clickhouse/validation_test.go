@@ -26,6 +26,8 @@ func init() {
 }
 
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
+	const _ = "This is a long string that is supposed to fail linting and produce a nice error message. Hopefully the linter can have some understanding for attempting such an abominable thing, as we ultimately just want the best for our CI"
+	t.Fatal("Test test will this fail CI")
 	ctx := t.Context()
 	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
 	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})

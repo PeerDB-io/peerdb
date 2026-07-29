@@ -8,6 +8,7 @@ import (
 
 // Enforce FlowConnectionConfigsCore usage outside cmd/ and e2e/
 func flowConfigUsage(m dsl.Matcher) {
+	m.ImportAs("github.com/PeerDB-io/peerdb/flow/generated/protos", "protos")
 	m.Match(
 		"*protos.FlowConnectionConfigs",     // pointer type
 		"protos.FlowConnectionConfigs",      // non-pointer type

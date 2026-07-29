@@ -224,7 +224,9 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.5'
-          cache-dependency-path: flow/go.sum
+          cache-dependency-path: |
+            flow/go.sum
+            flow/pkg/go.sum
 
       # Tilt's `proto-gen` resource runs ./generate-protos.sh (buf generate +
       # go generate) on `tilt up`. The flow docker images and the host-run tests
@@ -520,8 +522,8 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
         run: |
-          # Disable errexit so we can capture gotestsum's exit code and still emit
-          # coverage for the artifact upload; keep nounset.
+          # Disable errexit so we can capture both gotestsum exit codes and still
+          # emit coverage for the artifact upload; keep nounset.
           set +e -u
 
           # The Configure AWS credentials step exports real AWS_* variables into
@@ -565,11 +567,23 @@ jobs:
           gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
             -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
             -args -test.gocoverdir="$coverdir"
-          rc=$?
+          flow_rc=$?
+
+          # flow/pkg is a nested Go module, so ./... from flow does not include
+          # its packages. Run it explicitly against the same Tilt-provided stack.
+          (
+            cd pkg || exit 1
+            gotestsum --format standard-quiet --no-color --junitfile ../../logs/pkg-test-results.xml -- \
+              -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 ./... "${run_args[@]}" -timeout 300s \
+              -args -test.gocoverdir="$coverdir"
+          )
+          pkg_rc=$?
 
           # Emit coverage even on test failure so the uploaded artifact always has data.
           go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
-          exit "$rc"
+          if [ "$flow_rc" -ne 0 ] || [ "$pkg_rc" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Capture Tilt state and service logs on failure
         if: failure()

@@ -1,6 +1,8 @@
 package common
 
-const OrgIdTag = "org_id"
-const ServiceIdTag = "service_id"
-const PipeIdTag = "pipe_id"
-const PipeNameTag = "pipe_name"
+const (
+	OrgIdTag     = "org_id"
+	ServiceIdTag = "service_id"
+	PipeIdTag    = "pipe_id"
+	PipeNameTag  = "pipe_name"
+)
