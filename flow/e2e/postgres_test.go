@@ -473,6 +473,26 @@ func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
 	rawTableName := `_peerdb_internal."_peerdb_raw_` +
 		strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)) + `"`
 
+	// Remove raw table from any publications so DELETE works in CI
+	// (CI uses same PG for source/dest with FOR ALL TABLES publication)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		DO $$ DECLARE pub TEXT;
+		BEGIN
+			FOR pub IN
+				SELECT p.pubname FROM pg_publication p
+				JOIN pg_publication_rel pr ON p.oid = pr.prpubid
+				JOIN pg_class c ON c.oid = pr.prrelid
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname = '_peerdb_internal'
+				AND c.relname = '_peerdb_raw_%s'
+			LOOP
+				EXECUTE format('ALTER PUBLICATION %%I DROP TABLE %s', pub);
+			END LOOP;
+		END $$;
+	`, strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)),
+		rawTableName))
+	require.NoError(s.t, err)
+
 	// insert 5 rounds of 2 rows each to create 5 batches
 	for round := range 5 {
 		for j := range 2 {
