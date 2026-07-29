@@ -12,6 +12,7 @@ require (
 	github.com/go-mysql-org/go-mysql v1.15.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	go.temporal.io/sdk v1.46.0

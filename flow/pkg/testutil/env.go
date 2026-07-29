@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -78,4 +79,24 @@ func loadEnvOnce() {
 	}
 
 	slog.WarnContext(ctx, "LoadEnv: no .env file found above flow directory")
+}
+
+func ClickHouseTestHost() string {
+	host, ok := os.LookupEnv("CI_CLICKHOUSE_HOST")
+	if !ok {
+		return "localhost"
+	}
+	return host
+}
+
+func ClickHouseTestPort() uint32 {
+	portString, ok := os.LookupEnv("CI_CLICKHOUSE_NATIVE_PORT")
+	if !ok {
+		return 9000
+	}
+	port, err := strconv.ParseUint(portString, 10, 16)
+	if err != nil {
+		return 9000
+	}
+	return uint32(port)
 }

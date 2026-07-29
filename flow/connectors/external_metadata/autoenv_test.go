@@ -1,7 +1,7 @@
 package connmetadata
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/internal/testutil"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 // The store tests connect to the catalog, so load connection settings from
