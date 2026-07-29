@@ -314,6 +314,11 @@ func (c *PostgresConnector) cleanupOldRawBatches(
 	rawTableIdentifier string,
 	normalizeBatchID int64,
 ) {
+	c.logger.Info("raw batch cleanup check",
+		slog.Bool("envNil", env == nil),
+		slog.Int("envLen", len(env)),
+		slog.Int64("normalizeBatchID", normalizeBatchID),
+	)
 	threshold, err := internal.PeerDBPostgresRawBatchCleanupThreshold(ctx, env)
 	if err != nil {
 		c.logger.Warn("failed to read raw batch cleanup threshold setting", slog.Any("error", err))
