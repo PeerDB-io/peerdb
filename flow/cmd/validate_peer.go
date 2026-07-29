@@ -43,7 +43,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr, NewSourceValidationFailedErrorInfo())
 	}
 	defer conn.Close()
 
@@ -53,7 +53,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return &protos.ValidatePeerResponse{
 				Status:  protos.ValidatePeerStatus_INVALID,
 				Message: displayErr.Error(),
-			}, NewFailedPreconditionApiError(displayErr)
+			}, NewFailedPreconditionApiError(displayErr, NewSourceValidationFailedErrorInfo())
 		}
 	}
 
@@ -62,7 +62,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr, NewSourceValidationFailedErrorInfo())
 	}
 
 	return &protos.ValidatePeerResponse{
