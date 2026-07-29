@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -53,6 +54,8 @@ const (
 const mariadbPartialRowDataEvent replication.EventType = 172
 
 const clockOffsetTTL = time.Hour
+
+var warnedDdlDefaultTypes sync.Map
 
 // getMySQLClockOffset returns the cached difference between the source server
 // clock and this process's clock.
@@ -1201,8 +1204,15 @@ func defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
 			return "", false
 		}
 		return "'" + strings.ReplaceAll(v, "'", "''") + "'", true
+	case nil, tidbtypes.BinaryLiteral:
+		// DEFAULT NULL and bit literals are deliberately not translated.
+		return "", false
 	default:
-		// DEFAULT NULL is a nil datum, bit literals are types.BinaryLiteral
+		typeName := fmt.Sprintf("%T", v)
+		if _, loaded := warnedDdlDefaultTypes.LoadOrStore(typeName, struct{}{}); !loaded {
+			slog.Warn("unexpected MySQL column default datum type; omitting default",
+				slog.String("type", typeName))
+		}
 		return "", false
 	}
 
