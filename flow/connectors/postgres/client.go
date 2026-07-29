@@ -486,11 +486,8 @@ type walRetentionSettings struct {
 	WalKeepSizeBytes        *int64
 }
 
-// LimitBytes mirrors how Postgres derives safe_wal_size: the cap only exists when
-// max_slot_wal_keep_size is non-negative, and wal_keep_size can raise it. Compare
-// `failSeg = targetSeg + Max(slotKeepSegs, keepSegs) + 1` in pg_get_replication_slots. Postgres
-// rounds both settings down to whole WAL segments and adds one, so this is accurate to within a
-// segment, which is immaterial at the cap sizes we recommend.
+// LimitBytes returns the effective WAL retention cap used to normalize safe_wal_size.
+// It is nil when max_slot_wal_keep_size is unlimited or unavailable; wal_keep_size can raise it.
 func (s walRetentionSettings) LimitBytes() *int64 {
 	if s.MaxSlotWalKeepSizeBytes == nil {
 		return nil

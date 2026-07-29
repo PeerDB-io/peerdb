@@ -11,13 +11,15 @@ import (
 type LogSpaceInfo struct {
 	// nil when max_slot_wal_keep_size is unlimited or unavailable
 	LimitBytes *int64
-	UsedBytes  int64
+	// nil when safe_wal_size is unavailable or max_slot_wal_keep_size is unlimited
+	SafeBytes *int64
+	UsedBytes int64
 }
 
 type LogSpaceGauges struct {
 	UsedGauge      metric.Int64Gauge
 	LimitGauge     metric.Int64Gauge
-	UsedRatioGauge metric.Float64Gauge
+	SafeRatioGauge metric.Float64Gauge
 }
 
 func (g LogSpaceGauges) Record(ctx context.Context, info LogSpaceInfo, attributeSet metric.RecordOption) {
@@ -26,5 +28,7 @@ func (g LogSpaceGauges) Record(ctx context.Context, info LogSpaceInfo, attribute
 		return
 	}
 	g.LimitGauge.Record(ctx, *info.LimitBytes, attributeSet)
-	g.UsedRatioGauge.Record(ctx, float64(info.UsedBytes)/float64(*info.LimitBytes), attributeSet)
+	if info.SafeBytes != nil {
+		g.SafeRatioGauge.Record(ctx, float64(*info.SafeBytes)/float64(*info.LimitBytes), attributeSet)
+	}
 }

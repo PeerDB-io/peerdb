@@ -45,7 +45,7 @@ const (
 	SafeWalSizeGaugeName                 = "safe_wal_size"
 	SourceLogSpaceUsedGaugeName          = "source_log_space_used"
 	SourceLogSpaceLimitGaugeName         = "source_log_space_limit"
-	SourceLogSpaceUsedRatioGaugeName     = "source_log_space_used_ratio"
+	SourceLogSpaceSafeRatioGaugeName     = "source_log_space_safe_ratio"
 	SlotActiveGaugeName                  = "slot_active"
 	WalSenderStateGaugeName              = "walsender_state"
 	LogicalDecodingWorkMemGaugeName      = "logical_decoding_work_mem"
@@ -372,11 +372,11 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
-	if om.Metrics.LogSpace.UsedRatioGauge, err = om.GetOrInitFloat64Gauge(
-		BuildMetricName(SourceLogSpaceUsedRatioGaugeName),
+	if om.Metrics.LogSpace.SafeRatioGauge, err = om.GetOrInitFloat64Gauge(
+		BuildMetricName(SourceLogSpaceSafeRatioGaugeName),
 		metric.WithUnit("1"),
-		metric.WithDescription("Fraction of a Postgres replication slot's WAL retention limit in use; "+
-			"only emitted when a limit is configured and can exceed 1 once breached"),
+		metric.WithDescription("Fraction of a Postgres replication slot's effective WAL retention limit "+
+			"that remains safe; only emitted when safe_wal_size and a finite limit are available"),
 	); err != nil {
 		return err
 	}

@@ -932,8 +932,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slotMetricGauges.SafeWalSizeGauge.Record(ctx, *slotInfo.SafeWalSize, attributeSet)
 	}
 
-	// safe_wal_size alone cannot be thresholded at a percentage, and it is NULL whenever
-	// max_slot_wal_keep_size is -1, so emit the retained bytes against the configured cap.
+	// safe_wal_size is the remaining safe WAL headroom. Normalize it by Postgres's effective
+	// retention limit so alerts can threshold it as a percentage. It is NULL whenever
+	// max_slot_wal_keep_size is -1.
 	if currentLSN < restartLSN {
 		// Either LSN failing to parse above leaves it at zero, so don't report a negative size.
 		logger.Warn("current LSN precedes restart LSN, skipping log space metrics",
@@ -944,6 +945,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slotMetricGauges.LogSpace.Record(ctx, otel_metrics.LogSpaceInfo{
 			UsedBytes:  int64(currentLSN) - int64(restartLSN),
 			LimitBytes: walRetention.LimitBytes(),
+			SafeBytes:  slotInfo.SafeWalSize,
 		}, attributeSet)
 	}
 
