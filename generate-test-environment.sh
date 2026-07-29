@@ -1,5 +1,6 @@
 #!/bin/sh
 ENVIRONMENT_FILE=ancillary.env
+FLOW_WORKFLOW=.github/workflows/flow.yml
 
 if [ -f "$ENVIRONMENT_FILE" ]; then
     echo "Environment file $ENVIRONMENT_FILE already exists. Skipping"
@@ -7,45 +8,75 @@ if [ -f "$ENVIRONMENT_FILE" ]; then
 fi
 
 #export POSTGRES_VERSION=18;
-#VERSIONS=$(cat .github/workflows/flow.yml | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
-VERSIONS=$(cat .github/workflows/flow.yml | yq '.jobs.flow_test.strategy.matrix."db-version"[-1]') # Select last version row in the matrix.
+#VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
+VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[-1]') # Select last version row in the matrix.
 
-# Version extraction is conditional on the presence of overriding values
-if [ -z "$MYSQL_VERSION" ]; then
-    #MYSQL_VERSION=$(echo "$VERSIONS" | yq -r '.mysql')
-    # Hardcode MYSQL version to the most popular one since we might replace the flow version
-    MYSQL_VERSION="9.5"
+# Resolve a flavor label to its docker image using the
+# version-configs mapping in the flow.yml matrix for the default version (last row).
+flavor_image() {
+    cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.\"version-configs\"[-1].$1.\"$2\""
+}
+
+# Use explicitly set <DB>_IMAGE wins if present; otherwise the image is derived from
+# <DB>_VERSION, which itself falls back to the flow.yml matrix.
+if [ -z "$MYSQL_GTID_IMAGE" ]; then
+    if [ -n "$MYSQL_VERSION" ]; then
+        MYSQL_GTID_IMAGE="mysql:${MYSQL_VERSION}"
+    else
+        MYSQL_GTID_IMAGE=$(flavor_image mysql mysql-gtid)
+    fi
 fi;
 
-if [ -z "$POSTGRES_VERSION" ]; then
-    POSTGRES_VERSION=$(echo "$VERSIONS" | yq -r '.pg')
+if [ -z "$MYSQL_POS_IMAGE" ]; then
+    MYSQL_POS_IMAGE="biarms/mysql:5.7"
 fi;
 
-if [ -z "$MONGODB_VERSION" ]; then
-    MONGODB_VERSION=$(echo "$VERSIONS" | yq -r '.mongo')
+if [ -z "$MARIADB_IMAGE" ]; then
+    if [ -z "$MARIADB_VERSION" ]; then
+        MARIADB_VERSION="maria-11"
+    fi
+    MARIADB_IMAGE=$(flavor_image mariadb "$MARIADB_VERSION")
 fi;
 
-if [ -z "$CLICKHOUSE_VERSION" ]; then
-    CLICKHOUSE_VERSION="latest"
+if [ -z "$POSTGRES_IMAGE" ]; then
+    if [ -z "$POSTGRES_VERSION" ]; then
+        POSTGRES_VERSION=$(echo "$VERSIONS" | yq -r '.pg')
+    fi
+    POSTGRES_IMAGE="imresamu/postgis:${POSTGRES_VERSION}-3.5-alpine"
 fi;
 
-if [ -z "$POSTGRES_VERSION" ] || [ -z "$MYSQL_VERSION" ] || [ -z "$MONGODB_VERSION" ] || [ -z "$CLICKHOUSE_VERSION" ]; then
-    echo "Missing version information for one of the databases."
-    echo "Please check the flow.yml matrix and ensure it has the correct versions,"
-    echo "or set them in the environment variables:"
-    echo "  - POSTGRES_VERSION"
-    echo "  - MYSQL_VERSION"
-    echo "  - MONGODB_VERSION"
-    echo "  - CLICKHOUSE_VERSION"
-    exit 1
-fi
+if [ -z "$MONGODB_IMAGE" ]; then
+    if [ -z "$MONGODB_VERSION" ]; then
+        MONGODB_VERSION=$(echo "$VERSIONS" | yq -r '.mongo')
+    fi
+    MONGODB_IMAGE="mongo:${MONGODB_VERSION}"
+fi;
+
+if [ -z "$CLICKHOUSE_IMAGE" ]; then
+    if [ -z "$CLICKHOUSE_VERSION" ]; then
+        CLICKHOUSE_VERSION="latest"
+    fi
+    CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:${CLICKHOUSE_VERSION}"
+fi;
+
+for img in "POSTGRES_IMAGE=$POSTGRES_IMAGE" "MYSQL_GTID_IMAGE=$MYSQL_GTID_IMAGE" "MYSQL_POS_IMAGE=$MYSQL_POS_IMAGE" \
+           "MARIADB_IMAGE=$MARIADB_IMAGE" "MONGODB_IMAGE=$MONGODB_IMAGE" "CLICKHOUSE_IMAGE=$CLICKHOUSE_IMAGE"; do
+    case "$img" in
+        *=|*=null)
+            echo "Missing information: $img"
+            exit 1
+            ;;
+    esac
+done
 
 # Propagate configured parameters from env
 cat .env > "$ENVIRONMENT_FILE"
 echo "" >> "$ENVIRONMENT_FILE"
 
-# With the versions, we can resolve the docker images to be used by the ancillary services
-echo MONGODB_IMAGE="mongo:${MONGODB_VERSION}" >> "$ENVIRONMENT_FILE"
-echo CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:${CLICKHOUSE_VERSION}" >> "$ENVIRONMENT_FILE"
-echo POSTGRES_IMAGE="imresamu/postgis:${POSTGRES_VERSION}-3.5-alpine" >> "$ENVIRONMENT_FILE"
-echo MYSQL_IMAGE="mysql:${MYSQL_VERSION}" >> "$ENVIRONMENT_FILE"
+# The resolved docker images to be used by the ancillary services
+echo MONGODB_IMAGE="${MONGODB_IMAGE}" >> "$ENVIRONMENT_FILE"
+echo CLICKHOUSE_IMAGE="${CLICKHOUSE_IMAGE}" >> "$ENVIRONMENT_FILE"
+echo POSTGRES_IMAGE="${POSTGRES_IMAGE}" >> "$ENVIRONMENT_FILE"
+echo MYSQL_GTID_IMAGE="${MYSQL_GTID_IMAGE}" >> "$ENVIRONMENT_FILE"
+echo MYSQL_POS_IMAGE="${MYSQL_POS_IMAGE}" >> "$ENVIRONMENT_FILE"
+echo MARIADB_IMAGE="${MARIADB_IMAGE}" >> "$ENVIRONMENT_FILE"

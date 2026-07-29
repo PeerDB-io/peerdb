@@ -206,6 +206,13 @@ local_resource(
     resource_deps=['peerdb', 'provision-mariadb'],
 )
 
+# CI (tilt-flow.yml) exports the ancillary image pins as empty strings when
+# their workflow inputs are omitted, and compose interpolation lets a
+# set-but-empty process variable shadow the env_file fallbacks that
+# generate-test-environment.sh resolves into ancillary.env.
+for var in [k for k in os.environ.keys() if k.endswith('_IMAGE') and os.environ[k] == '']:
+    os.unsetenv(var)
+
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
 local('./generate-test-environment.sh')
@@ -276,6 +283,7 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 
 dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
 dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('otel-collector', labels=['Ancillary-TestInfra'], auto_init=False)
 
 # Cleanup
 
