@@ -38,10 +38,6 @@ processors:
     limit_mib: 192
     spike_limit_mib: 64
 
-  # Tenant-identity analog: hoist the compose labels docker embeds when
-  # `logging.options.labels` is configured on the emitting service. Lines from
-  # any other container have no "attrs" map, error here, and are left
-  # untouched (then dropped by the filter below).
   transform/compose_identity:
     error_mode: ignore
     log_statements:
@@ -50,20 +46,13 @@ processors:
           - set(log.attributes["compose.project"], log.attributes["attrs"]["com.docker.compose.project"])
           - set(log.attributes["compose.service"], log.attributes["attrs"]["com.docker.compose.service"])
 
-  # Tenant boundary: only flow-service records move on — the analog of the
-  # agent shipping only clickpipes-svc-* namespaces (and, per the proposal's
-  # design notes, of the sender-side partitioning that is security-critical in
-  # production). This also breaks any feedback loop: the collectors' own
-  # stdout carries no compose labels, so it is dropped here.
   filter/only_flow_services:
     error_mode: ignore
     logs:
       log_record:
         - attributes["compose.service"] == nil
 
-  # Parse the slog JSON that flow services write to stdout: severity plus the
-  # attributes the edge-collector filters on (logAudience) and propagates
-  # (flowName). Non-JSON lines (e.g. stack traces) pass through unparsed.
+  # Parse the slog JSON that flow services write to stdout
   transform/parse_slog:
     error_mode: ignore
     log_statements:
@@ -72,9 +61,10 @@ processors:
           - set(log.cache, ParseJSON(log.attributes["log"]))
           - set(log.body, log.cache["msg"])
           - set(log.severity_text, log.cache["level"])
-          - set(log.attributes["logAudience"], log.cache["logAudience"])
+          - set(log.attributes["logAudience"], "user") # Hardcoded on initial stage
           - set(log.attributes["flowName"], log.cache["flowName"])
           - set(log.attributes["deploymentUID"], log.cache["deploymentUID"])
+          - set(log.attributes["log.record.original"], log.cache)
 
   # Drop the raw docker transport fields before sending over the wire.
   transform/cleanup:
@@ -90,15 +80,11 @@ processors:
   batch: {}
 
 exporters:
-  # Out-of-band isolation policy from the proposal: a small queue and a
-  # bounded retry window, so an unavailable edge-collector makes the agent
-  # drop log events instead of buffering unboundedly or exerting back
-  # pressure on the rest of the agent.
+  # Funel-in to edge-collector
   otlp/edge-collector:
     endpoint: edge-collector:4317
     tls:
-      # Production design mandates at least server-side TLS between the agent
-      # and edge-collector; the local simulation runs plaintext.
+      # TODO: TLS
       insecure: true
     sending_queue:
       enabled: true
@@ -119,7 +105,7 @@ service:
         - memory_limiter
         - transform/compose_identity
         - filter/only_flow_services
-      #  - transform/parse_slog
-      #  - transform/cleanup
-      #  - batch
+        - transform/parse_slog
+        - transform/cleanup
+      #  - batch # Disabled for local debugging as we need to see events as soon as they come
       exporters: [otlp/edge-collector]
