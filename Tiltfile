@@ -277,6 +277,13 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
 dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
 
+# Log Delivery simulation (DBI-903 "ClickPipes Log Delivery Architecture"):
+# flow-service stdout -> otel-collector-agent (DaemonSet analog) ->
+# edge-collector (per-service pod analog) -> customer sink (debug exporter).
+# Enable both resources to try it; see volumes/otel/README.md.
+dc_resource('edge-collector', labels=['Ancillary-LogDelivery'], auto_init=False)
+dc_resource('otel-collector-agent', labels=['Ancillary-LogDelivery'], auto_init=False, resource_deps=['edge-collector'])
+
 # Cleanup
 
 load('ext://uibutton', 'cmd_button', 'location')

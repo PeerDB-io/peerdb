@@ -280,6 +280,39 @@ services:
       timeout: 10s
       retries: 5
 
+  # Log Delivery simulation (DBI-903 "ClickPipes Log Delivery Architecture"):
+  # a per-service OTel `edge-collector` plus a stand-in for the
+  # clickpipes-otel-collector-agent DaemonSet that ships flow-service stdout
+  # to it. See volumes/otel/README.md. No healthchecks: the collector images
+  # are distroless (no shell to exec).
+  edge-collector:
+    container_name: peerdb-edge-collector
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.157.0}
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./volumes/otel/edge-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "${EDGE_COLLECTOR_OTLP_PORT:-24317}:4317"
+      - "${EDGE_COLLECTOR_OTLP_HTTP_PORT:-24318}:4318"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  otel-collector-agent:
+    container_name: peerdb-otel-collector-agent
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.157.0}
+    restart: unless-stopped
+    # Root is required to read docker's container log files.
+    user: "0:0"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./volumes/otel/otel-collector-agent.yaml:/etc/otelcol/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - edge-collector
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
   postgres2_data:
