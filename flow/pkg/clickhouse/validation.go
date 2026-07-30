@@ -16,7 +16,6 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 )
 
 func CheckNotSystemDatabase(database string) error {
@@ -144,7 +143,6 @@ func ValidateClickHousePeer(
 	allowedDomains string,
 	serviceHost string,
 	conn clickhouse.Conn,
-	stagingValidator objectstore.StagingValidator,
 ) error {
 	// Hostname validation
 	if err := ValidateClickHouseHost(ctx, serviceHost, allowedDomains); err != nil {
@@ -215,12 +213,6 @@ func ValidateClickHousePeer(
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableNameRenamed, err)
 	}
 
-	// Staging validation
-
-	// validate staging storage
-	if err := stagingValidator(ctx); err != nil {
-		return fmt.Errorf("failed to validate staging bucket: %w", err)
-	}
 	return nil
 }
 

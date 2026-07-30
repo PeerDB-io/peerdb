@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -123,7 +123,23 @@ func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error
 }
 
 func (g *gcsStagingStore) Validate(ctx context.Context) error {
-	return objectstore.NewGCSStagingValidator(g.client, g.bucket, g.prefix)(ctx)
+	key := strings.TrimPrefix(g.prefix+"/"+stagingCheckObjectPrefix+uuid.NewString(), "/")
+	obj := g.client.Bucket(g.bucket).Object(key)
+
+	w := obj.NewWriter(ctx)
+	if _, err := w.Write([]byte(time.Now().Format(time.RFC3339))); err != nil {
+		w.Close()
+		return fmt.Errorf("failed to write test object to GCS: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("failed to finalize test object in GCS: %w", err)
+	}
+
+	if err := obj.Delete(ctx); err != nil {
+		return fmt.Errorf("failed to delete test object from GCS: %w", err)
+	}
+
+	return nil
 }
 
 func (g *gcsStagingStore) BucketPath() string {
