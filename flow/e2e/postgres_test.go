@@ -438,6 +438,80 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s PeerFlowE2ETestSuitePG) Test_Raw_Batch_Cleanup_PG() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_raw_cleanup")
+	dstTableName := s.attachSchemaSuffix("test_raw_cleanup_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+			val TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_raw_cleanup_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 2
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD": "2",
+		"PEERDB_GROUP_NORMALIZE":                      "1",
+	}
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	mirrorJobsTable := "_peerdb_internal.peerdb_mirror_jobs"
+	rawTableName := `_peerdb_internal."_peerdb_raw_` +
+		strings.ToLower(shared.ReplaceIllegalCharactersWithUnderscores(flowConnConfig.FlowJobName)) + `"`
+
+	// Set REPLICA IDENTITY FULL so DELETE works when the table is published
+	// (CI uses same PG for source/dest with FOR ALL TABLES publication)
+	_, err = s.Conn().Exec(s.t.Context(), "ALTER TABLE "+rawTableName+" REPLICA IDENTITY FULL")
+	require.NoError(s.t, err)
+
+	// insert 5 rounds of 2 rows each to create 5 batches
+	for round := range 5 {
+		for j := range 2 {
+			_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+				INSERT INTO %s(val) VALUES ($1)
+			`, srcTableName), fmt.Sprintf("val_%d_%d", round, j))
+			EnvNoError(s.t, env, err)
+		}
+		expectedBatchID := int64(round + 1)
+		EnvWaitFor(s.t, env, 3*time.Minute, fmt.Sprintf("normalize batch %d", expectedBatchID), func() bool {
+			var normBatchID int64
+			err := s.Conn().QueryRow(s.t.Context(),
+				fmt.Sprintf("SELECT normalize_batch_id FROM %s WHERE mirror_job_name=$1", mirrorJobsTable),
+				flowConnConfig.FlowJobName,
+			).Scan(&normBatchID)
+			return err == nil && normBatchID >= expectedBatchID
+		})
+	}
+
+	// wait for cleanup to take effect - with threshold=2 and 5 batches,
+	// cutoff = 5 - 2 = 3, so batches 1,2 are deleted, batches 3,4,5 remain (6 rows)
+	EnvWaitFor(s.t, env, 1*time.Minute, "raw table cleanup", func() bool {
+		var rawCount int64
+		err := s.Conn().QueryRow(s.t.Context(),
+			"SELECT count(*) FROM "+rawTableName,
+		).Scan(&rawCount)
+		s.t.Logf("raw table row count: %d", rawCount)
+		return err == nil && rawCount == 6
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	tc := NewTemporalClient(s.t)
 
