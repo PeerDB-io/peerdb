@@ -328,23 +328,7 @@ func (c *PostgresConnector) cleanupOldRawBatches(
 		return
 	}
 
-	tx, err := c.conn.Begin(ctx)
-	if err != nil {
-		c.logger.Warn("failed to begin transaction for raw batch cleanup", slog.Any("error", err))
-		return
-	}
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
-			c.logger.Warn("failed to rollback raw batch cleanup transaction", slog.Any("error", err))
-		}
-	}()
-
-	if _, err := tx.Exec(ctx, setSessionReplicaRoleSQL); err != nil {
-		c.logger.Warn("failed to set session_replication_role for raw batch cleanup", slog.Any("error", err))
-		return
-	}
-
-	result, err := tx.Exec(ctx,
+	result, err := c.conn.Exec(ctx,
 		fmt.Sprintf("DELETE FROM %s.%s WHERE _peerdb_batch_id < $1", c.metadataSchema, rawTableIdentifier),
 		cutoffBatchID,
 	)
@@ -353,11 +337,6 @@ func (c *PostgresConnector) cleanupOldRawBatches(
 			slog.Any("error", err),
 			slog.Int64("cutoffBatchID", cutoffBatchID),
 		)
-		return
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		c.logger.Warn("failed to commit raw batch cleanup", slog.Any("error", err))
 		return
 	}
 	c.logger.Info("cleaned up old raw table batches",
