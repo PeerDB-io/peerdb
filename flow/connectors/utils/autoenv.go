@@ -3,7 +3,7 @@ package utils
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peerdb/flow/internal/testutil"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 func init() {

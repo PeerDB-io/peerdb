@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 func collectBatches(ch <-chan *objectBatch) []*objectBatch {
@@ -191,8 +191,8 @@ func TestFetchURLBatchLimits(t *testing.T) {
 	ctx := t.Context()
 
 	conn, err := NewClickHouseConnector(ctx, nil, &protos.ClickhouseConfig{
-		Host:       internal.ClickHouseTestHost(),
-		Port:       internal.ClickHouseTestPort(),
+		Host:       testutil.ClickHouseTestHost(),
+		Port:       testutil.ClickHouseTestPort(),
 		Database:   "default",
 		DisableTls: true,
 	})

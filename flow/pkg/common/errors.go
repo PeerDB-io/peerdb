@@ -34,8 +34,8 @@ func (e *SourceTablesMissingError) Error() string {
 }
 
 type TablesNotInPublicationError struct {
-	Tables      []QualifiedTable
 	Publication string
+	Tables      []QualifiedTable
 }
 
 func NewTablesNotInPublicationError(publication string, tables []QualifiedTable) *TablesNotInPublicationError {

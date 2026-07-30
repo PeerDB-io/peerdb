@@ -61,7 +61,7 @@ linters:
         hugeParam:
           sizeThreshold: 1024
         ruleguard:
-          rules: cmd/codegen/ruleguard.rules.go
+          rules: ${config-path}/cmd/codegen/ruleguard.rules.go
     gosec:
       excludes:
         - G115

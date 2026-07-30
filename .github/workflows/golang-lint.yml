@@ -26,12 +26,22 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
+      # flow/pkg's Ruleguard config imports flow/generated/protos, so lint needs
+      # both modules in a workspace. e2e_cleanup is linted under it too.
+      - name: Configure Go workspace
+        run: go work init ./flow ./flow/pkg ./e2e_cleanup
       - name: golangci-lint flow
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
           working-directory: ./flow
           args: --timeout=10m
+      - name: golangci-lint flow/pkg
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12.2
+          working-directory: ./flow/pkg
+          args: --config=../.golangci.yml --timeout=10m
       - name: golangci-lint e2e_cleanup
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:

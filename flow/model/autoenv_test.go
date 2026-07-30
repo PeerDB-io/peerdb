@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/internal/testutil"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 // Tests in this package reach the catalog through dynamic-setting lookups,
