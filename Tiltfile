@@ -279,12 +279,6 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
 ])
 
-# Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
-
-dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
-dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
-dc_resource('otel-collector', labels=['Ancillary-TestInfra'], auto_init=False)
-
 # Log Delivery simulation (DBI-903 "ClickPipes Log Delivery Architecture"):
 # flow-service stdout -> otel-collector-agent (DaemonSet analog) ->
 # edge-collector (per-service pod analog) -> customer sink (debug exporter).
@@ -293,6 +287,12 @@ dc_resource('edge-collector', labels=['Ancillary-LogDelivery'], auto_init=False,
     resource_deps=['provision-clickhouse'],
 )
 dc_resource('otel-collector-agent', labels=['Ancillary-LogDelivery'], auto_init=False, resource_deps=['edge-collector'])
+
+# Test services: Services supporting test execution that are not data stores, like proxies, mock servers, etc.
+
+dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('otel-collector', labels=['Ancillary-TestInfra'], auto_init=False)
 
 # Cleanup
 
