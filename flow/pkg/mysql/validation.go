@@ -77,12 +77,12 @@ func CheckMySQL5BinlogSettings(conn *client.Conn, logger log.Logger) error {
 
 	binlogFormat := string(row[0].AsString())
 	if binlogFormat != "ROW" {
-		return fmt.Errorf("binlog_format must be set to 'ROW', currently " + binlogFormat)
+		return fmt.Errorf("binlog_format must be set to 'ROW', currently %s", binlogFormat)
 	}
 	if checkBinlogRowImage {
 		binlogRowImage := string(row[1].AsString())
 		if binlogRowImage != "FULL" {
-			return fmt.Errorf("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+			return fmt.Errorf("binlog_row_image must be set to 'FULL', currently %s", binlogRowImage)
 		}
 	}
 
@@ -111,26 +111,25 @@ func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
 
 	binlogExpireLogsSeconds := row[0].AsUint64()
 	if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
-		return fmt.Errorf(
-			"binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently " +
-				strconv.FormatUint(binlogExpireLogsSeconds, 10))
+		return fmt.Errorf("binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently %d",
+			binlogExpireLogsSeconds)
 	}
 	binlogFormat := string(row[1].AsString())
 	if binlogFormat != "ROW" {
-		return fmt.Errorf("binlog_format must be set to 'ROW', currently " + binlogFormat)
+		return fmt.Errorf("binlog_format must be set to 'ROW', currently %s", binlogFormat)
 	}
 	binlogRowImage := string(row[2].AsString())
 	if binlogRowImage != "FULL" {
-		return fmt.Errorf("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+		return fmt.Errorf("binlog_row_image must be set to 'FULL', currently %s", binlogRowImage)
 	}
 	binlogRowMetadata := string(row[3].AsString())
 	if binlogRowMetadata != "FULL" {
-		return fmt.Errorf("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+		return fmt.Errorf("binlog_row_metadata must be set to 'FULL', currently %s", binlogRowMetadata)
 	}
 	if checkRowValueOptions {
 		binlogRowValueOptions := string(row[4].AsString())
 		if binlogRowValueOptions != "" {
-			return fmt.Errorf("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
+			return fmt.Errorf("binlog_row_value_options must be disabled, currently %s", binlogRowValueOptions)
 		}
 	}
 
@@ -184,28 +183,27 @@ func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger, requireRow
 
 	binlogFormat := string(row[0].AsString())
 	if binlogFormat != "ROW" {
-		return fmt.Errorf("binlog_format must be set to 'ROW', currently " + binlogFormat)
+		return fmt.Errorf("binlog_format must be set to 'ROW', currently %s", binlogFormat)
 	}
 
 	binlogRowImage := string(row[1].AsString())
 	if binlogRowImage != "FULL" {
-		return fmt.Errorf("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+		return fmt.Errorf("binlog_row_image must be set to 'FULL', currently %s", binlogRowImage)
 	}
 
 	if checkBinlogRowMetadata {
 		binlogRowMetadata := string(row[2].AsString())
 		if binlogRowMetadata != "FULL" {
 			// only strictly required for column exclusion support, but let's enforce it for consistency
-			return fmt.Errorf("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
+			return fmt.Errorf("binlog_row_metadata must be set to 'FULL', currently %s", binlogRowMetadata)
 		}
 	}
 
 	if checkBinlogExpiry {
 		binlogExpireLogsSeconds := row[3].AsUint64()
 		if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
-			return fmt.Errorf(
-				"binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently " +
-					strconv.FormatUint(binlogExpireLogsSeconds, 10))
+			return fmt.Errorf("binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently %d",
+				binlogExpireLogsSeconds)
 		}
 	}
 
@@ -216,22 +214,25 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
 	// check RDS/Aurora binlog retention setting
 	if rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
-		if mErr, ok := errors.AsType[*mysql.MyError](err); ok && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
+		mErr, isMySQLError := errors.AsType[*mysql.MyError](err)
+		if isMySQLError &&
+			(mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
 			// Table doesn't exist, which means this is not RDS/Aurora
 			logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
 				slog.Any("error", err))
 			return nil
 		}
-		return fmt.Errorf("failed to check RDS/Aurora binlog retention hours: " + err.Error())
+		return fmt.Errorf("failed to check RDS/Aurora binlog retention hours: %w", err)
 	} else if len(rs.Values) > 0 {
 		binlogRetentionHoursStr := string(rs.Values[0][0].AsString())
 		if binlogRetentionHoursStr == "" {
 			return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
 		}
 		if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
-			return fmt.Errorf("failed to parse RDS/Aurora setting 'binlog retention hours': " + err.Error())
+			return fmt.Errorf("failed to parse RDS/Aurora setting 'binlog retention hours': %w", err)
 		} else if binlogRetentionHours < 24 {
-			return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently " + binlogRetentionHoursStr)
+			return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently %s",
+				binlogRetentionHoursStr)
 		}
 	} else {
 		logger.Warn("binlog retention hours returned nothing, skipping Aurora/RDS binlog retention check")

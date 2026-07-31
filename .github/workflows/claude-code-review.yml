@@ -36,7 +36,7 @@ jobs:
           # so pass github_token only there; internal PRs keep the App token flow.
           github_token: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && github.token || '' }}
           claude_args: |
-            --model claude-opus-4-6
+            --model opus
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'

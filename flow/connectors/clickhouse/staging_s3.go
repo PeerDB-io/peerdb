@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -211,7 +211,26 @@ func (s *s3StagingStore) Validate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	return objectstore.NewS3StagingValidator(s3Client, s.bucket, s.prefix)(ctx)
+
+	key := strings.TrimPrefix(s.prefix+"/"+stagingCheckObjectPrefix+uuid.NewString(), "/")
+	body := strings.NewReader(time.Now().Format(time.RFC3339))
+
+	if _, err := s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   body,
+	}); err != nil {
+		return fmt.Errorf("failed to write to bucket: %w", err)
+	}
+
+	if _, err := s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}); err != nil {
+		return fmt.Errorf("failed to delete from bucket: %w", err)
+	}
+
+	return nil
 }
 
 func (s *s3StagingStore) BucketPath() string {
