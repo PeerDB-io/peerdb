@@ -847,7 +847,6 @@ func (c *MySqlConnector) PullRecords(
 					c.logger.Error(e.Error())
 					return e
 				}
-				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				fetchedBytes.Add(int64(len(event.RawData)))
 				totalFetchedBytes.Add(int64(len(event.RawData)))
 				inTx = true
