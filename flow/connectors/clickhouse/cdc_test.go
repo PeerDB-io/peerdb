@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 func TestExtractSingleQuotedStrings(t *testing.T) {
@@ -108,8 +108,8 @@ func TestCreateRawTableHasTTL(t *testing.T) {
 
 			ctx := t.Context()
 			conn, err := NewClickHouseConnector(ctx, nil, &protos.ClickhouseConfig{
-				Host:       internal.ClickHouseTestHost(),
-				Port:       internal.ClickHouseTestPort(),
+				Host:       testutil.ClickHouseTestHost(),
+				Port:       testutil.ClickHouseTestPort(),
 				Database:   "default",
 				DisableTls: true,
 			})

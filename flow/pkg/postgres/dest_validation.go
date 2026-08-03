@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // ColumnSchema holds the PostgreSQL type information for a single column,

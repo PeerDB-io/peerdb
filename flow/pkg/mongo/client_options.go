@@ -19,16 +19,16 @@ const (
 )
 
 type ClientConfig struct {
+	CreateTlsConfigFunc  func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
+	Dialer               options.ContextDialer
 	Uri                  string
 	Username             string
 	Password             string
 	ReadPreference       string
-	DisableTls           bool
-	SkipCertVerification bool
 	RootCa               string
 	TlsHost              string
-	CreateTlsConfigFunc  func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
-	Dialer               options.ContextDialer
+	DisableTls           bool
+	SkipCertVerification bool
 }
 
 func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {

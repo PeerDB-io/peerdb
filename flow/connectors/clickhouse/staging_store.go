@@ -7,6 +7,11 @@ import (
 
 const stagingFormat = "Avro"
 
+// stagingCheckObjectPrefix is the basename used for temporary objects written
+// during a staging-bucket smoke test. Kept short and unambiguous so it's easy
+// to spot in bucket listings if a test object is ever leaked.
+const stagingCheckObjectPrefix = "_peerdb_check_"
+
 // StagingStore abstracts cloud storage used for staging Avro files.
 // Files are written by PeerDB and read by ClickHouse via table functions
 // (s3(), url(), etc.).

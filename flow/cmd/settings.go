@@ -47,7 +47,8 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		filteredSettings := make([]*protos.DynamicSetting, 0)
 		for _, setting := range settings {
 			if setting.TargetForSetting == protos.DynconfTarget_ALL ||
-				setting.TargetForSetting == protos.DynconfTarget_CLICKHOUSE {
+				setting.TargetForSetting == protos.DynconfTarget_CLICKHOUSE ||
+				setting.TargetForSetting == protos.DynconfTarget_POSTGRES {
 				filteredSettings = append(filteredSettings, setting)
 			}
 		}

@@ -52,14 +52,6 @@ func loadRootCAFromEnv(envVar string) *string {
 	return &s
 }
 
-func ClickHouseTestHost() string {
-	return GetEnvString("CI_CLICKHOUSE_HOST", "localhost")
-}
-
-func ClickHouseTestPort() uint32 {
-	return uint32(getEnvUint[uint16]("CI_CLICKHOUSE_NATIVE_PORT", 9000))
-}
-
 func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	return &protos.PostgresConfig{
 		Host:       GetEnvString("PG_HOST", "localhost"),

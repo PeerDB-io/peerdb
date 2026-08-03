@@ -37,7 +37,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		},
 	}
 
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	conn, err := connectWithRetry(ctx, "catalog", internal.GetCatalogConnectionPoolFromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -65,7 +65,9 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		clientOptions.Interceptors = append(clientOptions.Interceptors, tracingInterceptor)
 	}
 
-	c, err := setupTemporalClient(ctx, clientOptions)
+	c, err := connectWithRetry(ctx, "temporal", func(ctx context.Context) (client.Client, error) {
+		return setupTemporalClient(ctx, clientOptions)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
