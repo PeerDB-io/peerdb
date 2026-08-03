@@ -244,6 +244,8 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 }
 
 func TestAlterTableTypes(t *testing.T) {
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
 	// addColumnFieldDescription parses `ALTER TABLE t ADD COLUMN c <colDef>`
 	// and builds the same FieldDescription processAlterTableQuery emits.
 	addColumnFieldDescription := func(t *testing.T, colDef string) *protos.FieldDescription {
@@ -258,7 +260,7 @@ func TestAlterTableTypes(t *testing.T) {
 		require.Len(t, alter.Specs[0].NewColumns, 1)
 		col := alter.Specs[0].NewColumns[0]
 		require.NotNil(t, col.Tp)
-		fd, err := fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+		fd, err := c.fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
 		require.NoError(t, err)
 		return fd
 	}
@@ -478,6 +480,8 @@ func TestAlterTableTypes(t *testing.T) {
 }
 
 func TestAlterTableAddColumnDefault(t *testing.T) {
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
 	// want is nil for a column with no default, and for one whose default we decline to translate
 	for _, tc := range []struct {
 		name   string
@@ -528,7 +532,7 @@ func TestAlterTableAddColumnDefault(t *testing.T) {
 			require.Len(t, stmts, 1)
 			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
 
-			fd, err := fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+			fd, err := c.fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, fd.DefaultExpr)
 		})
@@ -539,6 +543,7 @@ func TestAlterTableAddColumnDefault(t *testing.T) {
 // gives as the default no longer describes a value the destination column can hold.
 func TestAlterTableAddColumnDefaultEnumSetWithoutRowMetadata(t *testing.T) {
 	lit := func(s string) *string { return &s }
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
 
 	for _, tc := range []struct {
 		name        string
@@ -557,7 +562,7 @@ func TestAlterTableAddColumnDefaultEnumSetWithoutRowMetadata(t *testing.T) {
 			require.Len(t, stmts, 1)
 			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
 
-			fd, err := fieldDescriptionFromMysqlColumn(col, tc.rowMetadata, shared.InternalVersion_Latest)
+			fd, err := c.fieldDescriptionFromMysqlColumn(col, tc.rowMetadata, shared.InternalVersion_Latest)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, fd.DefaultExpr)
 		})

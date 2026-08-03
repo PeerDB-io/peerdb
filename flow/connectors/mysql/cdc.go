@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -54,8 +53,6 @@ const (
 const mariadbPartialRowDataEvent replication.EventType = 172
 
 const clockOffsetTTL = time.Hour
-
-var warnedDdlDefaultTypes sync.Map
 
 // getMySQLClockOffset returns the cached difference between the source server
 // clock and this process's clock.
@@ -1170,7 +1167,7 @@ func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
 
 // defaultExprFromMysqlColumnOption renders a MySQL column DEFAULT as a SQL literal that
 // destinations can splice into DDL verbatim.
-func defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
+func (c *MySqlConnector) defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
 	negate := false
 	if unary, ok := expr.(*ast.UnaryOperationExpr); ok {
 		switch unary.Op {
@@ -1209,8 +1206,8 @@ func defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
 		return "", false
 	default:
 		typeName := fmt.Sprintf("%T", v)
-		if _, loaded := warnedDdlDefaultTypes.LoadOrStore(typeName, struct{}{}); !loaded {
-			slog.Warn("unexpected MySQL column default datum type; omitting default",
+		if _, loaded := c.warnedDdlDefaultTypes.LoadOrStore(typeName, struct{}{}); !loaded {
+			c.logger.Warn("unexpected MySQL column default datum type; omitting default",
 				slog.String("type", typeName))
 		}
 		return "", false
@@ -1222,7 +1219,7 @@ func defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
 	return literal, true
 }
 
-func fieldDescriptionFromMysqlColumn(
+func (c *MySqlConnector) fieldDescriptionFromMysqlColumn(
 	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) (*protos.FieldDescription, error) {
 	if col.Tp == nil {
@@ -1244,7 +1241,7 @@ func fieldDescriptionFromMysqlColumn(
 			// Servers without binlog row metadata carry enums and sets as their ordinal or
 			// bitmask, so the member name MySQL states as the default would not convert.
 			if option.Expr != nil && qkind != types.QValueKindUint16Enum && qkind != types.QValueKindUint64Set {
-				if literal, ok := defaultExprFromMysqlColumnOption(option.Expr); ok {
+				if literal, ok := c.defaultExprFromMysqlColumnOption(option.Expr); ok {
 					defaultExpr = &literal
 				}
 			}
@@ -1324,7 +1321,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
-				fd, err := fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
+				fd, err := c.fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
 				if err != nil {
 					return err
 				}
