@@ -517,3 +517,211 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 		})
 	}
 }
+
+func Test_FilterSchemaColumnsByDestination(t *testing.T) {
+	makeSchema := func(colNames ...string) *protos.TableSchema {
+		columns := make([]*protos.FieldDescription, 0, len(colNames))
+		for _, name := range colNames {
+			columns = append(columns, &protos.FieldDescription{
+				Name: name,
+				Type: string(types.QValueKindString),
+			})
+		}
+		return &protos.TableSchema{
+			TableIdentifier:   "public.tbl",
+			PrimaryKeyColumns: []string{"id"},
+			NullableEnabled:   true,
+			TableOid:          42,
+			Columns:           columns,
+		}
+	}
+	destColumns := func(colNames ...string) map[string]struct{} {
+		set := make(map[string]struct{}, len(colNames))
+		for _, name := range colNames {
+			set[name] = struct{}{}
+		}
+		return set
+	}
+	columnNames := func(schema *protos.TableSchema) []string {
+		names := make([]string, 0, len(schema.Columns))
+		for _, col := range schema.Columns {
+			names = append(names, col.Name)
+		}
+		return names
+	}
+
+	tests := []struct {
+		name            string
+		schema          *protos.TableSchema
+		tableMapping    *protos.TableMapping
+		actualDestCols  map[string]struct{}
+		expectedKept    []string
+		expectedRemoved []string
+	}{
+		{
+			name:            "single column dropped without rename",
+			schema:          makeSchema("id", "c1", "val"),
+			actualDestCols:  destColumns("id", "c1"),
+			expectedKept:    []string{"id", "c1"},
+			expectedRemoved: []string{"val"},
+		},
+		{
+			name:   "renamed column dropped returns source name",
+			schema: makeSchema("id", "val"),
+			tableMapping: &protos.TableMapping{
+				DestinationTableIdentifier: "tbl_dst",
+				Columns: []*protos.ColumnSetting{
+					{SourceName: "val", DestinationName: "val_dst"},
+				},
+			},
+			actualDestCols:  destColumns("id"),
+			expectedKept:    []string{"id"},
+			expectedRemoved: []string{"val"},
+		},
+		{
+			name:   "renamed column present on destination is kept",
+			schema: makeSchema("id", "val"),
+			tableMapping: &protos.TableMapping{
+				DestinationTableIdentifier: "tbl_dst",
+				Columns: []*protos.ColumnSetting{
+					{SourceName: "val", DestinationName: "val_dst"},
+				},
+			},
+			actualDestCols:  destColumns("id", "val_dst"),
+			expectedKept:    []string{"id", "val"},
+			expectedRemoved: nil,
+		},
+		{
+			name:   "empty destination name falls back to source name",
+			schema: makeSchema("id", "val"),
+			tableMapping: &protos.TableMapping{
+				DestinationTableIdentifier: "tbl_dst",
+				Columns: []*protos.ColumnSetting{
+					{SourceName: "val", DestinationName: ""},
+				},
+			},
+			actualDestCols:  destColumns("id"),
+			expectedKept:    []string{"id"},
+			expectedRemoved: []string{"val"},
+		},
+		{
+			name:            "multiple columns dropped",
+			schema:          makeSchema("id", "c1", "val1", "val2"),
+			actualDestCols:  destColumns("id", "c1"),
+			expectedKept:    []string{"id", "c1"},
+			expectedRemoved: []string{"val1", "val2"},
+		},
+		{
+			name:            "nothing dropped returns empty removed list",
+			schema:          makeSchema("id", "c1", "val"),
+			actualDestCols:  destColumns("id", "c1", "val"),
+			expectedKept:    []string{"id", "c1", "val"},
+			expectedRemoved: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			filtered, removed := filterSchemaColumnsByDestination(tc.schema, tc.tableMapping, tc.actualDestCols)
+			require.Equal(t, tc.expectedKept, columnNames(filtered))
+			require.Equal(t, tc.expectedRemoved, removed)
+		})
+	}
+}
+
+func Test_FilterSchemaColumnsByDestination_PreservesSchemaMetadata(t *testing.T) {
+	schema := &protos.TableSchema{
+		TableIdentifier:       "public.tbl",
+		PrimaryKeyColumns:     []string{"id"},
+		IsReplicaIdentityFull: true,
+		System:                protos.TypeSystem_PG,
+		NullableEnabled:       true,
+		TableOid:              42,
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "val", Type: string(types.QValueKindString)},
+		},
+	}
+
+	filtered, removed := filterSchemaColumnsByDestination(schema, nil, map[string]struct{}{"id": {}})
+	require.Equal(t, []string{"val"}, removed)
+	require.Equal(t, schema.TableIdentifier, filtered.TableIdentifier)
+	require.Equal(t, schema.PrimaryKeyColumns, filtered.PrimaryKeyColumns)
+	require.Equal(t, schema.IsReplicaIdentityFull, filtered.IsReplicaIdentityFull)
+	require.Equal(t, schema.System, filtered.System)
+	require.Equal(t, schema.NullableEnabled, filtered.NullableEnabled)
+	require.Equal(t, schema.TableOid, filtered.TableOid)
+}
+
+func Test_RebuildQueryWithDestinationColumns(t *testing.T) {
+	const dstTableName = "tbl_dst"
+
+	newGenerator := func(schema *protos.TableSchema, tableMappings []*protos.TableMapping) *NormalizeQueryGenerator {
+		return NewNormalizeQueryGenerator(
+			dstTableName,
+			map[string]*protos.TableSchema{dstTableName: schema},
+			tableMappings,
+			5, // endBatchID
+			2, // lastNormBatchID
+			false,
+			false,
+			map[string]string{},
+			"raw_tbl",
+			nil,
+			false,
+			"",
+			0,
+			nil,
+		)
+	}
+	schema := &protos.TableSchema{
+		TableIdentifier:   "public.tbl",
+		PrimaryKeyColumns: []string{"id"},
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "c1", Type: string(types.QValueKindInt32)},
+			{Name: "dropped_col", Type: string(types.QValueKindString)},
+		},
+	}
+
+	t.Run("dropped column removed from rebuilt query", func(t *testing.T) {
+		gen := newGenerator(schema, nil)
+		query, removed, err := rebuildQueryWithDestinationColumns(t.Context(), gen, map[string]struct{}{
+			"id": {}, "c1": {},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []string{"dropped_col"}, removed)
+		require.Contains(t, query, "`id`")
+		require.Contains(t, query, "`c1`")
+		require.NotContains(t, query, "dropped_col")
+
+		// the generator itself must not be mutated: retries build from a copy
+		require.Empty(t, gen.Query)
+		require.Len(t, gen.tableNameSchemaMapping[dstTableName].Columns, 3)
+	})
+
+	t.Run("renamed column returns source name and drops destination name", func(t *testing.T) {
+		gen := newGenerator(schema, []*protos.TableMapping{{
+			SourceTableIdentifier:      "public.tbl",
+			DestinationTableIdentifier: dstTableName,
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "dropped_col", DestinationName: "dropped_col_dst"},
+			},
+		}})
+		query, removed, err := rebuildQueryWithDestinationColumns(t.Context(), gen, map[string]struct{}{
+			"id": {}, "c1": {},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []string{"dropped_col"}, removed)
+		require.NotContains(t, query, "dropped_col")
+		require.NotContains(t, query, "dropped_col_dst")
+	})
+
+	t.Run("all columns present errors instead of rebuilding", func(t *testing.T) {
+		gen := newGenerator(schema, nil)
+		_, _, err := rebuildQueryWithDestinationColumns(t.Context(), gen, map[string]struct{}{
+			"id": {}, "c1": {}, "dropped_col": {},
+		})
+		require.ErrorContains(t, err, "no user columns were absent from destination table")
+	})
+}

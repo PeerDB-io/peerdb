@@ -186,11 +186,12 @@ type SyncResponse struct {
 }
 
 type NormalizeResponse struct {
-	// Non-nil when columns that were dropped from the destination were auto-removed from the in-memory schema.
-	// The caller should persist these updated schemas to the catalog.
-	UpdatedSchemaMapping map[string]*protos.TableSchema
-	StartBatchID         int64
-	EndBatchID           int64
+	// Keyed by destination table name; values are SOURCE column names that were auto-removed
+	// during normalize because the user dropped the corresponding destination columns.
+	// The caller should remove these columns from the catalog schemas.
+	RemovedColumnsMapping map[string][]string
+	StartBatchID          int64
+	EndBatchID            int64
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
