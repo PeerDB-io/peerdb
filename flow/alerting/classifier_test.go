@@ -516,6 +516,36 @@ func TestPostgresInvalidEnumValueOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresCheckConstraintViolationOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.CheckViolation,
+		Message:  `new row for relation "products" violates check constraint "product_kind_constraint"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
+	assert.Equal(t, ErrorNotifyConstraintViolation, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.CheckViolation,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UniqueViolation,
+		Message:  `duplicate key value violates unique constraint "products_pkey"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
+	assert.Equal(t, ErrorNotifyConstraintViolation, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UniqueViolation,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
