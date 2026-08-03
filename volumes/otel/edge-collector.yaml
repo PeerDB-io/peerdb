@@ -1,0 +1,67 @@
+# Local simulation of the per-service `edge-collector` pod from the
+# "ClickPipes Log Delivery Architecture" proposal (DBI-903).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 192
+    spike_limit_mib: 64
+
+  filter/customer_relevant:
+    error_mode: ignore
+    logs:
+      log_record:
+        - attributes["logAudience"] == nil or attributes["logAudience"] != "user"
+
+  # Simplify: propagate only the attributes a customer should see.
+  transform/simplify:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - keep_keys(log.attributes, ["logAudience", "flowName", "compose.service"])
+
+  batch: {}
+
+exporters:
+  # Stand-in for the customer-controlled OTLP sink.
+  debug:
+    verbosity: detailed
+
+  # ClickPipes tenant service sink (default)
+  clickhouse:
+    endpoint: ${env:EDGE_COLLECTOR_CH_ENDPOINT}
+    database: ${env:EDGE_COLLECTOR_CH_DATABASE}
+    username: ${env:EDGE_COLLECTOR_CH_USERNAME}
+    password: ${env:EDGE_COLLECTOR_CH_PASSWORD}
+    logs_table_name: otel_logs
+    create_schema: true
+    ttl: 72h
+    timeout: 10s
+    sending_queue:
+      enabled: true
+      queue_size: 1024
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: #[memory_limiter, filter/customer_relevant, transform/simplify, batch]
+         - memory_limiter
+         #- filter/customer_relevant
+         #- transform/simplify
+         #- batch
+      exporters: [debug, clickhouse]

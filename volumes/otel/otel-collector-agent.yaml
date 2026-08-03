@@ -1,0 +1,114 @@
+# Local simulation of the `clickpipes-otel-collector-agent` DaemonSet *logs*
+# pipeline from the "ClickPipes Log Delivery Architecture" proposal (DBI-903).
+#
+# k8s production concept              -> docker-compose simulation
+# ---------------------------------------------------------------------------
+# /var/log/pods/<ns>_<pod>_<uid>/...  -> /var/lib/docker/containers/<id>/<id>-json.log
+# containerd log line format          -> docker json-file log line format
+# k8s namespace identity (tenant)     -> com.docker.compose.project/service labels,
+#                                        embedded per log line by the `logging`
+#                                        options on the flow services in
+#                                        docker-compose-dev.yml
+# edge-collector Service DNS name     -> compose service DNS on the shared
+#                                        peerdb network (edge-collector:4317)
+#
+# See volumes/otel/README.md for details.
+
+receivers:
+  filelog/docker:
+    # Tails every container on the host; records that do not carry the compose
+    # identity labels (i.e. anything that is not a peerdb flow service) are
+    # dropped by filter/only_flow_services below.
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    # Stateless simulation: no checkpoint storage, ship new lines only.
+    start_at: end
+    operators:
+      # docker json-file line: {"log": "...", "stream": "...", "time": "...", "attrs": {...}}
+      - type: json_parser
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: 2006-01-02T15:04:05.999999999Z07:00
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 192
+    spike_limit_mib: 64
+
+  transform/compose_identity:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(log.attributes["compose.project"], log.attributes["attrs"]["com.docker.compose.project"])
+          - set(log.attributes["compose.service"], log.attributes["attrs"]["com.docker.compose.service"])
+
+  # Tenant identity gate: the local analog of the DaemonSet keeping only
+  # `clickpipes-svc-<serviceID>` namespaces. Anything that is not a ClickPipe monitored
+  # is dropped here.
+  filter/only_flow_services:
+    error_mode: ignore
+    logs:
+      log_record:
+        - attributes["compose.service"] == nil or not (IsMatch(attributes["compose.service"], "^flow-") or IsMatch(attributes["compose.service"], "^peerdb"))
+
+  # Parse the slog JSON that flow services write to stdout
+  transform/parse_slog:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(log.cache, ParseJSON(log.attributes["log"]))
+          - set(log.body, log.cache["msg"])
+          - set(log.severity_text, log.cache["level"])
+          - set(log.attributes["logAudience"], "user") # Hardcoded on initial stage
+          - set(log.attributes["flowName"], log.cache["flowName"])
+          - set(log.attributes["deploymentUID"], log.cache["deploymentUID"])
+          - set(log.attributes["log.record.original"], log.cache)
+
+  # Drop the raw docker transport fields before sending over the wire.
+  transform/cleanup:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - delete_key(log.attributes, "attrs")
+          - delete_key(log.attributes, "log")
+          - delete_key(log.attributes, "time")
+          - delete_key(log.attributes, "stream")
+
+  batch: {}
+
+exporters:
+  # Funel-in to edge-collector
+  otlp/edge-collector:
+    endpoint: edge-collector:4317
+    tls:
+      # TODO: TLS
+      insecure: true
+    sending_queue:
+      enabled: true
+      queue_size: 512
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 60s
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog/docker]
+      processors:
+        - memory_limiter
+        - transform/compose_identity
+        - filter/only_flow_services
+        - transform/parse_slog
+        - transform/cleanup
+      #  - batch # Disabled for local debugging as we need to see events as soon as they come
+      exporters: [otlp/edge-collector]

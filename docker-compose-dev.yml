@@ -33,6 +33,14 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_PASSWORD: postgres
   PEERDB_CATALOG_DATABASE: postgres
 
+# Embed compose identity labels into each json log line so the ancillary
+# otel-collector-agent (log delivery simulation, see volumes/otel/README.md)
+# can identify flow-service records — the local analog of the k8s namespace.
+x-flow-logging: &flow-logging
+  driver: json-file
+  options:
+    labels: com.docker.compose.project,com.docker.compose.service
+
 x-flow-worker-env: &flow-worker-env
   # For Temporal Cloud, this will look like:
   # <yournamespace>.<id>.tmprl.cloud:7233
@@ -168,6 +176,7 @@ services:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
       PEERDB_API_REQUEST_LOGGING_ENABLED: true
       PEERDB_SWITCHBOARD_ENABLED: true
+    logging: *flow-logging
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -185,6 +194,7 @@ services:
       - *flow-snapshot-worker-debug-port
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    logging: *flow-logging
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -207,6 +217,7 @@ services:
     #   - SYS_PTRACE         # Required for Delve
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
+    logging: *flow-logging
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
