@@ -226,6 +226,9 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		} else if quorum {
 			settings["insert_quorum"] = "auto"
 			settings["insert_quorum_parallel"] = uint64(0)
+			// Explicitly pin the read side of the read-your-writes contract alongside the quorum
+			// writes so it stays paired with them regardless of the global default.
+			settings["select_sequential_consistency"] = uint64(1)
 		}
 	}
 	clientName, err := internal.PeerDBClickHouseClientName(ctx, env)
