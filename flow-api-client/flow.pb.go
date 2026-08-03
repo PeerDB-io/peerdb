@@ -2268,6 +2268,7 @@ type FieldDescription struct {
 	TypeModifier   int32                  `protobuf:"varint,3,opt,name=type_modifier,json=typeModifier,proto3" json:"type_modifier,omitempty"`
 	Nullable       bool                   `protobuf:"varint,4,opt,name=nullable,proto3" json:"nullable,omitempty"`
 	TypeSchemaName string                 `protobuf:"bytes,5,opt,name=type_schema_name,json=typeSchemaName,proto3" json:"type_schema_name,omitempty"`
+	DefaultExpr    *string                `protobuf:"bytes,6,opt,name=default_expr,json=defaultExpr,proto3,oneof" json:"default_expr,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2333,6 +2334,13 @@ func (x *FieldDescription) GetNullable() bool {
 func (x *FieldDescription) GetTypeSchemaName() string {
 	if x != nil {
 		return x.TypeSchemaName
+	}
+	return ""
+}
+
+func (x *FieldDescription) GetDefaultExpr() string {
+	if x != nil && x.DefaultExpr != nil {
+		return *x.DefaultExpr
 	}
 	return ""
 }
@@ -5792,13 +5800,15 @@ const file_flow_proto_rawDesc = "" +
 	"\x06system\x18\x04 \x01(\x0e2\x17.peerdb_flow.TypeSystemR\x06system\x12)\n" +
 	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\x127\n" +
 	"\acolumns\x18\x06 \x03(\v2\x1d.peerdb_flow.FieldDescriptionR\acolumns\x12\x1b\n" +
-	"\ttable_oid\x18\a \x01(\rR\btableOid\"\xa5\x01\n" +
+	"\ttable_oid\x18\a \x01(\rR\btableOid\"\xde\x01\n" +
 	"\x10FieldDescription\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12#\n" +
 	"\rtype_modifier\x18\x03 \x01(\x05R\ftypeModifier\x12\x1a\n" +
 	"\bnullable\x18\x04 \x01(\bR\bnullable\x12(\n" +
-	"\x10type_schema_name\x18\x05 \x01(\tR\x0etypeSchemaName\"\xe5\x02\n" +
+	"\x10type_schema_name\x18\x05 \x01(\tR\x0etypeSchemaName\x12&\n" +
+	"\fdefault_expr\x18\x06 \x01(\tH\x00R\vdefaultExpr\x88\x01\x01B\x0f\n" +
+	"\r_default_expr\"\xe5\x02\n" +
 	"\x1aSetupTableSchemaBatchInput\x12B\n" +
 	"\x03env\x18\x01 \x03(\v20.peerdb_flow.SetupTableSchemaBatchInput.EnvEntryR\x03env\x12\x1b\n" +
 	"\tflow_name\x18\x03 \x01(\tR\bflowName\x12/\n" +
@@ -6347,6 +6357,7 @@ func file_flow_proto_init() {
 	file_peers_proto_init()
 	file_flow_proto_msgTypes[5].OneofWrappers = []any{}
 	file_flow_proto_msgTypes[6].OneofWrappers = []any{}
+	file_flow_proto_msgTypes[22].OneofWrappers = []any{}
 	file_flow_proto_msgTypes[36].OneofWrappers = []any{
 		(*PartitionRange_IntRange)(nil),
 		(*PartitionRange_TimestampRange)(nil),
