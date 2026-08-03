@@ -2302,10 +2302,15 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
 		{"c_enum", enumType + " DEFAULT 'ok'", "'sad'"},
 		{"c_uuid", "UUID DEFAULT '00000000-0000-0000-0000-000000000001'", "'11111111-1111-1111-1111-111111111111'"},
 		{"c_jsonb", `JSONB DEFAULT '{"a": 1}'`, `'{"b": 2}'`},
-		// date and time literals; pg renders a timestamptz in UTC, which is the zone our connections run in
+		// Date and time values; non-volatile expressions are evaluated once into attmissingval.
 		{"c_date", "DATE DEFAULT '2020-01-02'", "'2021-02-03'"},
 		{"c_ts", "TIMESTAMP DEFAULT '2020-01-02 03:04:05.678'", "'2021-02-03 04:05:06.789'"},
 		{"c_tstz", "TIMESTAMPTZ DEFAULT '2020-01-02 03:04:05+02'", "'2021-02-03 04:05:06+03'"},
+		{"c_now", "TIMESTAMPTZ DEFAULT now()", "'2021-02-03 04:05:06+00'"},
+		{"c_expr", "INT DEFAULT (2 + 3)", "9"},
+		// The stored missing value remains 'old' even when the default for future rows changes.
+		{"c_changed", "TEXT DEFAULT 'old'", "'explicit changed'"},
+		{"c_dropped", "TEXT DEFAULT 'old'", "'explicit dropped'"},
 	}
 
 	adds := make([]string, len(cols))
@@ -2319,7 +2324,10 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
 	}
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("ALTER TABLE %s %s", srcFullName, strings.Join(adds, ", "))))
+		fmt.Sprintf(`BEGIN;
+			ALTER TABLE %s %s;
+			ALTER TABLE %s ALTER COLUMN c_changed SET DEFAULT 'current', ALTER COLUMN c_dropped DROP DEFAULT;
+		COMMIT`, srcFullName, strings.Join(adds, ", "), srcFullName)))
 
 	// Row 2 arrives through CDC carrying its own values, so the ordinary path is exercised alongside
 	// row 1's read-time default.
@@ -2360,12 +2368,9 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefaultUntranslated() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	cols := []pgAddColumnDefaultCase{
-		// Evaluating these on the destination would yield a different value per query, so they are
-		// declined rather than translated.
-		{"c_now", "TIMESTAMPTZ DEFAULT now()", "'2021-02-03 04:05:06+00'"},
+		// Volatile defaults produce a different physical value per source row, so there is no single
+		// destination default that could reproduce them.
 		{"c_serial", "SERIAL", "9"},
-		// Not a constant, pg hands over the whole expression.
-		{"c_expr", "INT DEFAULT (2 + 3)", "9"},
 		// Nullable columns already read back as NULL, so nothing needs to be emitted.
 		{"c_null", "INT DEFAULT NULL", "42"},
 		// Array and binary literals are spelled differently on the destination.
