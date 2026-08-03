@@ -193,6 +193,9 @@ var (
 	ErrorNotifyInvalidEnumValue = ErrorClass{
 		Class: "NOTIFY_INVALID_ENUM_VALUE", action: NotifyUser,
 	}
+	ErrorNotifyConstraintViolation = ErrorClass{
+		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
 	}
@@ -729,6 +732,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message, "invalid input value for enum") {
 				return ErrorNotifyInvalidEnumValue, pgErrorInfo
 			}
+
+		case pgerrcode.CheckViolation, pgerrcode.UniqueViolation:
+			return ErrorNotifyConstraintViolation, pgErrorInfo
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
