@@ -799,7 +799,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1194, // ER_CRASHED_ON_USAGE
 			1195, // ER_CRASHED_ON_REPAIR
 			1226, // ER_USER_LIMIT_REACHED
-			1827: // ER_PASSWORD_FORMAT
+			1827, // ER_PASSWORD_FORMAT
+			// The source rejects the handshake because the pipe connects without TLS while the server sets
+			// require_secure_transport=ON. https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_require_secure_transport
+			3159: // ER_SECURE_TRANSPORT_REQUIRED
 			return ErrorNotifyConnectivity, myErrorInfo
 		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
 			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read

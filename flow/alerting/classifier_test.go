@@ -1072,6 +1072,21 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLSecureTransportRequiredShouldBeConnectivity(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
+		State:   "HY000",
+		Message: "Connections using insecure transport are prohibited while --require_secure_transport=ON.",
+	}
+	err := exceptions.NewMySQLExecuteError(fmt.Errorf("handleAuthResult: %w", mysqlErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "3159",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
 		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch),
