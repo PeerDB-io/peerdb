@@ -1449,9 +1449,10 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 		return nil, nil
 	}
 
-	// attmissingval is an anyarray with one element. Converting through JSON extracts that element
-	// without having to parse PostgreSQL's array text format; ->> preserves an empty string while
-	// returning SQL NULL for a missing value of NULL.
+	// attmissingval holds the original default value materialized when the column was added, rather
+	// than its current default. It is an anyarray with one element; converting through JSON extracts
+	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
+	// string while returning SQL NULL for a missing value of NULL.
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
 		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END
 		FROM pg_catalog.pg_attribute a
