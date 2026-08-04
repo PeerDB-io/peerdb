@@ -1067,9 +1067,16 @@ func (c *MySqlConnector) PullRecords(
 					}
 
 					if recordCount == 0 {
+						if !inTx && len(req.RecordStream.SchemaDeltas) > 0 {
+							// Schema deltas only become durable once the batch ends, so end it here instead of
+							// checkpointing an offset that is already past the DDL that produced them.
+							c.logger.Info("[mysql] ending empty batch to apply pending schema deltas",
+								slog.Int("deltas", len(req.RecordStream.SchemaDeltas)))
+							return nil
+						}
 						// progress offset while no records read to avoid falling behind when all tables inactive
-						// do not checkpoint across an in-flight transaction or pending schema change
-						if updatedOffset != "" && !inTx && len(req.RecordStream.SchemaDeltas) == 0 {
+						// never checkpoint mid-transaction, updatedOffset can be a mid-group position in file/pos mode
+						if updatedOffset != "" && !inTx {
 							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
 							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
 								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
