@@ -1068,7 +1068,8 @@ func (c *MySqlConnector) PullRecords(
 
 					if recordCount == 0 {
 						// progress offset while no records read to avoid falling behind when all tables inactive
-						if updatedOffset != "" {
+						// do not checkpoint across an in-flight transaction or pending schema change
+						if updatedOffset != "" && !inTx && len(req.RecordStream.SchemaDeltas) == 0 {
 							c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
 							if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
 								c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
