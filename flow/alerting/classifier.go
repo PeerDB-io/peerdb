@@ -715,7 +715,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 		case pgerrcode.ReadOnlySQLTransaction:
-			//nolint:lll
 			// A server still in recovery forces every transaction read-only regardless of what the client asked for,
 			// https://github.com/postgres/postgres/blob/b4dfae2ffac25ea6caf116091b5ed15e140ddfc0/src/backend/access/transam/xact.c#L2164
 			// and the check runs before the command's own ownership check, so this is never a privilege problem:
