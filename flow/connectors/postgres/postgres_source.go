@@ -902,9 +902,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	slotMetricGauges.RestartToConfirmedMBGauge.Record(ctx, float64(slotInfo.RestartToConfirmedMb), attributeSet)
 	slotMetricGauges.ConfirmedToCurrentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToCurrentMb), attributeSet)
 
-	currentLSN, err := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
-	if err != nil {
-		logger.Warn("error parsing current LSN", slog.Any("error", err))
+	currentLSN, currentLSNErr := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
+	if currentLSNErr != nil {
+		logger.Warn("error parsing current LSN", slog.Any("error", currentLSNErr))
 	}
 	slotMetricGauges.CurrentWalLSNGauge.Record(ctx, int64(currentLSN), attributeSet)
 
@@ -922,14 +922,36 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(confirmedFlushLSN), attributeSet)
 
-	restartLSN, err := pglogrepl.ParseLSN(slotInfo.RestartLSN)
-	if err != nil {
-		logger.Warn("error parsing restart LSN", slog.Any("error", err))
+	restartLSN, restartLSNErr := pglogrepl.ParseLSN(slotInfo.RestartLSN)
+	if restartLSNErr != nil {
+		logger.Warn("error parsing restart LSN", slog.Any("error", restartLSNErr))
 	}
 	slotMetricGauges.RestartLSNGauge.Record(ctx, int64(restartLSN), attributeSet)
 
 	if slotInfo.SafeWalSize != nil {
 		slotMetricGauges.SafeWalSizeGauge.Record(ctx, *slotInfo.SafeWalSize, attributeSet)
+	}
+
+	var usedBytes *int64
+	if currentLSNErr != nil || restartLSNErr != nil {
+		logger.Warn("current or restart LSN couldn't be parsed, skipping used bytes metric",
+			slog.String("currentLSN", slotInfo.CurrentLSN), slog.String("restartLSN", slotInfo.RestartLSN))
+	} else if currentLSN < restartLSN {
+		logger.Warn("current LSN precedes restart LSN, skipping used bytes metric",
+			slog.String("currentLSN", slotInfo.CurrentLSN), slog.String("restartLSN", slotInfo.RestartLSN))
+	} else {
+		value := int64(currentLSN) - int64(restartLSN)
+		usedBytes = &value
+	}
+
+	if walRetention, err := getWalRetentionSettings(ctx, c.conn); err != nil {
+		logger.Warn("error reading WAL retention settings", slog.Any("error", err))
+	} else {
+		slotMetricGauges.LogSpace.Record(ctx, otel_metrics.LogSpaceInfo{
+			LimitBytes: walRetention.LimitBytes(),
+			SafeBytes:  slotInfo.SafeWalSize,
+			UsedBytes:  usedBytes,
+		}, attributeSet)
 	}
 
 	var activeValue int64
