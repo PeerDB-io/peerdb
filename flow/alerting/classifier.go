@@ -50,6 +50,12 @@ const (
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
 	// once we already know the error came from MySQL geometry parsing.
 	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
+
+	// http2ClientConnectionLost is raised by golang.org/x/net/http2 in ClientConn.closeForLostPing,
+	// which tears down the connection and aborts every in-flight request when a keepalive ping goes
+	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
+	// The error is created with errors.New, so there is no sentinel or type to match on.
+	http2ClientConnectionLost = "http2: client connection lost"
 )
 
 var (
@@ -1000,6 +1006,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			default:
 				return ErrorOther, gcsErrorInfo
 			}
+		}
+		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
+		// and is retried by dialing a new connection.
+		if strings.Contains(err.Error(), http2ClientConnectionLost) {
+			gcsErrorInfo.Code = "CONNECTION_LOST"
+			return ErrorRetryRecoverable, gcsErrorInfo
 		}
 		return ErrorOther, gcsErrorInfo
 	}

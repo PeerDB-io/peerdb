@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"strconv"
 	"syscall"
 	"testing"
@@ -1378,6 +1379,30 @@ func TestGCSTransientErrorsShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceGCS,
 		Code:   strconv.Itoa(503),
+	}, errInfo)
+}
+
+func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	key := "clickpipes-svc-ccb33053-eb59-403c-924f-a2374632f8f3/mirror_5b2e0f87__3057__4542__b092__5574e781ecb7/" +
+		"mirror_5b2e0f87__3057__4542__b092__5574e781ecb7/t7o0Jf93kvjVS8J6_23855.avro"
+	transportErr := &url.Error{
+		Op: "Post",
+		URL: "https://storage.googleapis.com/upload/storage/v1/b/maddle-unwaked-highroad/o?alt=json&name=" +
+			"clickpipes-svc-ccb33053-eb59-403c-924f-a2374632f8f3%2Fmirror_5b2e0f87__3057__4542__b092__5574e781ecb7%2F" +
+			"mirror_5b2e0f87__3057__4542__b092__5574e781ecb7%2Ft7o0Jf93kvjVS8J6_23855.avro" +
+			"&prettyPrint=false&projection=full&uploadType=multipart",
+		Err: errors.New("http2: client connection lost"),
+	}
+	err := exceptions.NewGCSError(fmt.Errorf("failed to finalize GCS upload for %s: %w", key, transportErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceGCS,
+		Code:   "CONNECTION_LOST",
 	}, errInfo)
 }
 
