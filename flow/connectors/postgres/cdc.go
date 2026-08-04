@@ -1515,15 +1515,15 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (
 		if !ok {
 			return "", false
 		}
-		return quoteDefaultLiteral(value)
+		return quoteDefaultLiteral(value), true
 
 	case types.QValueKindTimestamp:
-		return quoteDefaultLiteral(normalizePostgresMissingTimestamp(value))
+		return quoteDefaultLiteral(normalizePostgresMissingTimestamp(value)), true
 
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
 		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore, types.QValueKindINET,
 		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
-		return quoteDefaultLiteral(value)
+		return quoteDefaultLiteral(value), true
 
 	default:
 		// bytea, arrays, interval, time and the geo types all have a text form the destination reads
@@ -1539,14 +1539,14 @@ func normalizePostgresMissingTimestamp(value string) string {
 	return value
 }
 
-// quoteDefaultLiteral quotes value for splicing into ClickHouse DDL.
-func quoteDefaultLiteral(value string) (string, bool) {
-	// Decline backslashes because ClickHouse interprets them as escapes, unlike PostgreSQL with
-	// standard_conforming_strings enabled.
-	if strings.ContainsRune(value, '\\') {
-		return "", false
-	}
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true
+var clickHouseDefaultLiteralReplacer = strings.NewReplacer(
+	"\\", "\\\\",
+	"'", "''",
+)
+
+// quoteDefaultLiteral quotes and escapes value for splicing into ClickHouse DDL.
+func quoteDefaultLiteral(value string) string {
+	return "'" + clickHouseDefaultLiteralReplacer.Replace(value) + "'"
 }
 
 // getParentRelIDIfPartitioned checks if the relation ID is a child table

@@ -2298,6 +2298,10 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
 		{"c_text", "TEXT DEFAULT 'hello'", "'world'"},
 		{"c_text_empty", "TEXT DEFAULT ''", "'nonempty'"},
 		{"c_text_quote", "TEXT DEFAULT 'it''s'", "'x'"},
+		{"c_text_backslash_n", `TEXT DEFAULT $peerdb$\n$peerdb$`, "'set slash n'"},
+		{"c_text_backslash", `TEXT DEFAULT $peerdb$\$peerdb$`, "'set slash'"},
+		{"c_text_backslashes", `TEXT DEFAULT $peerdb$\\$peerdb$`, "'set backslashes'"},
+		{"c_text_mixed_escapes", `TEXT DEFAULT $peerdb$\n\\'$peerdb$`, "'set mixed escapes'"},
 		{"c_varchar", "VARCHAR(20) DEFAULT 'dflt'", "'set'"},
 		{"c_enum", enumType + " DEFAULT 'ok'", "'sad'"},
 		{"c_uuid", "UUID DEFAULT '00000000-0000-0000-0000-000000000001'", "'11111111-1111-1111-1111-111111111111'"},
@@ -2376,8 +2380,6 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefaultUntranslated() {
 		// Array and binary literals are spelled differently on the destination.
 		{"c_array", "INT[] DEFAULT '{1,2}'", "'{3,4}'"},
 		{"c_bytea", `BYTEA DEFAULT '\x0001'`, `'\x0203'`},
-		// Backslashes escape differently across dialects, so the default is declined.
-		{"c_backslash", `TEXT DEFAULT E'a\\b'`, "'plain'"},
 		// Translated, but ClickHouse cannot parse it; the column is then added without a default.
 		{"c_infinity", "TIMESTAMP DEFAULT 'infinity'", "'2021-02-03 04:05:06'"},
 	}

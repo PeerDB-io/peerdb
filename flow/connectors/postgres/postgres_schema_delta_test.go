@@ -283,10 +283,12 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		{name: "c_bool", colDef: "boolean DEFAULT true", qkind: types.QValueKindBoolean, want: "true"},
 		{name: "c_bool_false", colDef: "boolean DEFAULT false", qkind: types.QValueKindBoolean, want: "false"},
 
-		// strings, requoted with SQL doubling so the literal is dialect neutral
+		// strings, requoted with quote doubling and backslash escaping for the destination
 		{name: "c_text", colDef: "text DEFAULT 'hello'", qkind: types.QValueKindString, want: "'hello'"},
 		{name: "c_text_empty", colDef: "text DEFAULT ''", qkind: types.QValueKindString, want: "''"},
 		{name: "c_text_quote", colDef: "text DEFAULT 'it''s'", qkind: types.QValueKindString, want: "'it''s'"},
+		// Postgres stores the backslash raw; the destination literal escapes it.
+		{name: "c_backslash", colDef: `text DEFAULT E'a\\b'`, qkind: types.QValueKindString, want: `'a\\b'`},
 		{name: "c_varchar", colDef: "varchar(10) DEFAULT 'abc'", qkind: types.QValueKindString, want: "'abc'"},
 		{name: "c_char", colDef: "char(3) DEFAULT 'abc'", qkind: types.QValueKindString, want: "'abc'"},
 		{name: "c_enum", colDef: enumType + " DEFAULT 'ok'", qkind: types.QValueKindEnum, want: "'ok'"},
@@ -334,8 +336,6 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		{name: "c_interval", colDef: "interval DEFAULT '1 day'", qkind: types.QValueKindInterval},
 		{name: "c_time", colDef: "time DEFAULT '13:14:15'", qkind: types.QValueKindTime},
 		{name: "c_nan", colDef: "numeric DEFAULT 'NaN'", qkind: types.QValueKindNumeric},
-		// backslashes escape differently across dialects
-		{name: "c_backslash", colDef: `text DEFAULT E'a\\b'`, qkind: types.QValueKindString},
 	} {
 		s.t.Run(tc.name, func(t *testing.T) {
 			tableName := fmt.Sprintf("%s.added_column_catalog_info_%s", s.schema, tc.name)

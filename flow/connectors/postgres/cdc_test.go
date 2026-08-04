@@ -68,6 +68,13 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		{name: "text", value: "hello", qkind: types.QValueKindString, want: "'hello'"},
 		{name: "text empty", value: "", qkind: types.QValueKindString, want: "''"},
 		{name: "text with quote", value: "it's", qkind: types.QValueKindString, want: "'it''s'"},
+		{name: "text with backslash n", value: "\\n", qkind: types.QValueKindString, want: "'\\\\n'"},
+		{name: "text with backslash", value: "\\", qkind: types.QValueKindString, want: "'\\\\'"},
+		{name: "text with two backslashes", value: "\\\\", qkind: types.QValueKindString, want: "'\\\\\\\\'"},
+		{
+			name: "text with mixed escapes", value: "\\n\\\\'", qkind: types.QValueKindString,
+			want: "'\\\\n\\\\\\\\'''",
+		},
 		{name: "text with cast text", value: "a::b", qkind: types.QValueKindString, want: "'a::b'"},
 		{name: "qchar", value: "x", qkind: types.QValueKindQChar, want: "'x'"},
 		{name: "enum", value: "ok", qkind: types.QValueKindEnum, want: "'ok'"},
@@ -87,6 +94,8 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			name: "timestamptz", value: "2020-01-02T01:04:05+00:00",
 			qkind: types.QValueKindTimestampTZ, want: "'2020-01-02 01:04:05'",
 		},
+		{name: "text with backslash b", value: `a\b`, qkind: types.QValueKindString, want: "'a\\\\b'"},
+		{name: "text with newline", value: "a\nb", qkind: types.QValueKindString, want: "'a\nb'"},
 
 		// declined: types whose text form does not carry over
 		{name: "array", value: "[1,2]", qkind: types.QValueKindArrayInt32},
@@ -100,10 +109,6 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			name: "timestamptz non utc offset", value: "2020-01-02T01:04:05+02:00",
 			qkind: types.QValueKindTimestampTZ,
 		},
-		// backslashes are interpreted as escapes by ClickHouse
-		{name: "text with backslash", value: `a\b`, qkind: types.QValueKindString},
-		{name: "text with newline", value: "a\nb", qkind: types.QValueKindString, want: "'a\nb'"},
-
 		// declined: value of the wrong shape for the column
 		{name: "quoted bool", value: "'true'", qkind: types.QValueKindBoolean},
 		{name: "text for number", value: "abc", qkind: types.QValueKindInt32},
