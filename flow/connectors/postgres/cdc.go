@@ -1539,10 +1539,11 @@ func normalizePostgresMissingTimestamp(value string) string {
 	return value
 }
 
-// quoteDefaultLiteral quotes value for splicing into DDL, declining anything whose escaping is not
-// portable across dialects.
+// quoteDefaultLiteral quotes value for splicing into ClickHouse DDL.
 func quoteDefaultLiteral(value string) (string, bool) {
-	if strings.ContainsFunc(value, func(r rune) bool { return r == '\\' || r < ' ' }) {
+	// Decline backslashes because ClickHouse interprets them as escapes, unlike PostgreSQL with
+	// standard_conforming_strings enabled.
+	if strings.ContainsRune(value, '\\') {
 		return "", false
 	}
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true

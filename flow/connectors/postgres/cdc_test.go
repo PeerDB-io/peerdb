@@ -64,7 +64,7 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		{name: "bool true", value: "true", qkind: types.QValueKindBoolean, want: "true"},
 		{name: "bool false", value: "false", qkind: types.QValueKindBoolean, want: "false"},
 
-		// strings, requoted with SQL doubling so the literal is dialect neutral
+		// strings, requoted with SQL doubling for ClickHouse
 		{name: "text", value: "hello", qkind: types.QValueKindString, want: "'hello'"},
 		{name: "text empty", value: "", qkind: types.QValueKindString, want: "''"},
 		{name: "text with quote", value: "it's", qkind: types.QValueKindString, want: "'it''s'"},
@@ -100,9 +100,9 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			name: "timestamptz non utc offset", value: "2020-01-02T01:04:05+02:00",
 			qkind: types.QValueKindTimestampTZ,
 		},
-		// backslashes and control characters escape differently across dialects
+		// backslashes are interpreted as escapes by ClickHouse
 		{name: "text with backslash", value: `a\b`, qkind: types.QValueKindString},
-		{name: "text with newline", value: "a\nb", qkind: types.QValueKindString},
+		{name: "text with newline", value: "a\nb", qkind: types.QValueKindString, want: "'a\nb'"},
 
 		// declined: value of the wrong shape for the column
 		{name: "quoted bool", value: "'true'", qkind: types.QValueKindBoolean},
