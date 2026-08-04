@@ -437,9 +437,12 @@ func (c *PostgresConnector) GetSelectedColumns(
 	for rows.Next() {
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("error scanning column while getting selected columns: %w", err)
+			return nil, fmt.Errorf("error scanning column while getting selected columns for table %s: %w", sourceTable, err)
 		}
 		columns = append(columns, columnName)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error getting selected columns for table %s: %w", sourceTable, err)
 	}
 
 	return columns, nil
