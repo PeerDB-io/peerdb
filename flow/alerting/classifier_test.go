@@ -311,6 +311,47 @@ func TestPostgresCouldNotRenameSnapshotErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresCouldNotOpenSnapshotErrorShouldBeRecoverable(t *testing.T) {
+	for _, code := range []string{pgerrcode.UndefinedFile, pgerrcode.InternalError} {
+		t.Run(code, func(t *testing.T) {
+			// Simulate a transient logical decoding snapshot temp file creation failure
+			err := &exceptions.PostgresWalError{
+				Msg: &pgproto3.ErrorResponse{
+					Severity: "ERROR",
+					Code:     code,
+					Message:  `could not open file "pg_logical/snapshots/2-8B023150.snap.8007.tmp": No such file or directory`,
+					File:     "snapbuild.c",
+					Line:     1821,
+					Routine:  "SnapBuildSerialize",
+				},
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   code,
+			}, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestPostgresCouldNotRenameSnapshotErrorUnderUndefinedFileShouldBeRecoverable(t *testing.T) {
+	// The rename variant of the same failure, reported as a file access error instead of an internal error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.UndefinedFile,
+			Message:  `could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap": `,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedFile,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate shared invalidation message corruption error
 	err := &exceptions.PostgresWalError{
