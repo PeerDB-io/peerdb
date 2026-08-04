@@ -72,9 +72,11 @@ var (
 	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
 	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
-	PostgresNeonDonorWalLaggingRe    = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
-	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
-	MongoPoolClearedErrorRe          = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	// e.g. could not open file "pg_logical/snapshots/2-8B023150.snap.8007.tmp": No such file or directory
+	PostgresCouldNotOpenSnapshotRe = regexp.MustCompile(`could not open file ".*\.snap\..*\.tmp"`)
+	PostgresNeonDonorWalLaggingRe  = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
+	MySqlRdsBinlogFileNotFoundRe   = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe        = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -598,6 +600,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			//nolint:lll
+			// Transient failure creating or renaming a logical decoding snapshot temp file, recovers on retry.
+			// The serialize path opens the temp file with O_CREAT, so ENOENT means pg_logical/snapshots itself went away.
+			// https://github.com/postgres/postgres/blob/1416f304d2c9514fe65f112514accc9b653902ad/src/backend/replication/logical/snapbuild.c#L1814-L1821
+			if PostgresCouldNotOpenSnapshotRe.MatchString(pgErr.Message) ||
+				PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 		case pgerrcode.InternalError:
 			// Handle logical decoding error in ReorderBufferPreserveLastSpilledSnapshot routine
 			if strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding of aborted sub-transaction") &&
@@ -665,8 +676,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
-			// Transient failure renaming a logical decoding snapshot temp file, recovers on retry
-			if PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
+			// Same transient snapshot temp file failure as under UndefinedFile above, which some
+			// providers report as an internal error instead of a file access error.
+			if PostgresCouldNotOpenSnapshotRe.MatchString(pgErr.Message) ||
+				PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
