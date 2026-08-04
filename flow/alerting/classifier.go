@@ -1268,8 +1268,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// The source sends a heartbeat whenever the binlog has no unsent events, so silence across several
+	// heartbeat periods means the connection to the source is broken rather than merely idle, and the
+	// documented remedy is to reconnect: https://dev.mysql.com/worklog/task/?id=342
+	// Only the customer can act on the source server or on the network path in between.
 	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
-		return ErrorRetryRecoverable, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "CONNECTION_STALE",
 		}

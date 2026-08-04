@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
@@ -1587,4 +1588,33 @@ func TestMySQLUnsupportedCompressedColumnErrorShouldBeNotifyUser(t *testing.T) {
 			ErrorAttributeKeyTable: "mydb.mytable",
 		},
 	}, errInfo)
+}
+
+func TestMySQLStaleConnectionErrorShouldBeNotifyConnectivity(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLStaleConnectionError(3*time.Minute+943414*time.Nanosecond, time.Minute)
+	require.Equal(t, "MySQL connection is stale: no events received in 3m0.000943414s (heartbeat=1m0s)", err.Error())
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "CONNECTION_STALE",
+	}, errInfo, "Unexpected error info")
+}
+
+// The SyncFlow activity joins the pull error before returning it, so the wrapper must be traversed too.
+func TestMySQLStaleConnectionErrorJoinedShouldBeNotifyConnectivity(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewMySQLStaleConnectionError(3*time.Minute+735889*time.Nanosecond, time.Minute)
+	joined := errors.Join(fmt.Errorf("failed in pull records when: %w", err))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), joined)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "CONNECTION_STALE",
+	}, errInfo, "Unexpected error info")
 }
