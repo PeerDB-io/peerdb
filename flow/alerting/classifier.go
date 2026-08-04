@@ -705,6 +705,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
+			// Transient failure renaming the replication slot state file, recovers when replication restarts
+			// https://github.com/postgres/postgres/blob/1416f304d2c9514fe65f112514accc9b653902ad/src/backend/replication/slot.c#L2187
+			if pgErr.Routine == "SaveSlotToPath" && strings.Contains(pgErr.Message, "could not rename file") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// low-level Postgres memory management bug, single occurrence and fixed by retry
 			if pgErr.Routine == "GenerationFree" && strings.Contains(pgErr.Message, "could not find block containing chunk") {
 				return ErrorRetryRecoverable, pgErrorInfo
