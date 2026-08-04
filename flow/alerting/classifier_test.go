@@ -311,6 +311,37 @@ func TestPostgresCouldNotRenameSnapshotErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresCouldNotRenameSlotStateFileErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a transient replication slot state file rename failure, in both the
+	// upstream wording and the "rename file from" wording of patched managed builds
+	for name, message := range map[string]string{
+		"upstream": `could not rename file "pg_replslot/peerflow_slot_mirror_cc397dd6__c4f0__4d10__82ad__d68bcc8c4944/state.tmp" ` +
+			`to "pg_replslot/peerflow_slot_mirror_cc397dd6__c4f0__4d10__82ad__d68bcc8c4944/state": Success`,
+		"patched": `could not rename file from "pg_replslot/peerflow_slot_mirror_cc397dd6__c4f0__4d10__82ad__d68bcc8c4944/state.tmp" ` +
+			`to "pg_replslot/peerflow_slot_mirror_cc397dd6__c4f0__4d10__82ad__d68bcc8c4944/state": Success`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := &exceptions.PostgresWalError{
+				Msg: &pgproto3.ErrorResponse{
+					Severity: "ERROR",
+					Code:     pgerrcode.InternalError,
+					Message:  message,
+					File:     "slot.c",
+					Line:     2096,
+					Routine:  "SaveSlotToPath",
+				},
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(),
+				fmt.Errorf("failed in pull records when: %w", fmt.Errorf("Postgres WAL error: %w", err)))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   pgerrcode.InternalError,
+			}, errInfo, "Unexpected error info")
+		})
+	}
+}
+
 func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate shared invalidation message corruption error
 	err := &exceptions.PostgresWalError{

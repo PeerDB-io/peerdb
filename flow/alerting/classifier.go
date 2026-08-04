@@ -667,6 +667,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			// Transient failure renaming the replication slot state file, recovers when replication restarts
+			// https://github.com/postgres/postgres/blob/1416f304d2c9514fe65f112514accc9b653902ad/src/backend/replication/slot.c#L2187
+			if pgErr.Routine == "SaveSlotToPath" && strings.Contains(pgErr.Message, "could not rename file") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// Shared invalidation message corruption - usually transient, reconnect helps
 			// https://github.com/postgres/postgres/blob/e82e9aaa6a2942505c2c328426778787e4976ea6/src/backend/utils/cache/inval.c#L901
 			if strings.Contains(pgErr.Message, "unrecognized SI message ID:") {
