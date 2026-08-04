@@ -642,6 +642,35 @@ func TestPostgresCreatingSlotOnReader(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresAlterPublicationInReadOnlyTransactionShouldBeRecoverable(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ReadOnlySQLTransaction,
+		Message:  "cannot execute ALTER PUBLICATION in a read-only transaction",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to alter publication: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ReadOnlySQLTransaction,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresCopyFromInReadOnlyTransactionStaysOther(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.ReadOnlySQLTransaction,
+		Message:  "cannot execute COPY FROM in a read-only transaction",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to sync records: failed to copy records into destination table: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.ReadOnlySQLTransaction,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a stale file handle error
 	err := &exceptions.PostgresWalError{

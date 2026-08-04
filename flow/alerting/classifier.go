@@ -740,6 +740,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyAuroraFailover, pgErrorInfo
 			}
 
+		case pgerrcode.ReadOnlySQLTransaction:
+			// A server still in recovery forces every transaction read-only regardless of what the client asked for,
+			// https://github.com/postgres/postgres/blob/b4dfae2ffac25ea6caf116091b5ed15e140ddfc0/src/backend/access/transam/xact.c#L2164
+			// and the check runs before the command's own ownership check, so this is never a privilege problem:
+			// https://github.com/postgres/postgres/blob/b4dfae2ffac25ea6caf116091b5ed15e140ddfc0/src/backend/tcop/utility.c#L409
+			// A failover that leaves the endpoint on a not-yet-promoted node therefore rejects publication DDL
+			// until promotion completes, and the same statement then succeeds.
+			// Scoped to this message on purpose: we open read-only transactions ourselves for QRep reads,
+			// so a bare 25006 branch would hide a write wrongly issued inside one of those.
+			if strings.Contains(pgErr.Message, "cannot execute ALTER PUBLICATION in a read-only transaction") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			// Every other read-only statement keeps the labels the switch default would have given it
+			return ErrorOther, pgErrorInfo
+
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
