@@ -702,7 +702,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
-			if pgErr.Message == "logical decoding on standby requires \"wal_level\" >= \"logical\" on the primary" {
+			// the GUC names in this message are unquoted on PG16, quoted from PG17 on, and renamed to
+			// "effective_wal_level" on PG19, so only the prefix is stable across versions
+			// https://github.com/postgres/postgres/blob/REL_16_10/src/backend/replication/logical/logical.c#L140
+			// https://github.com/postgres/postgres/blob/REL_17_6/src/backend/replication/logical/logical.c#L143
+			if strings.Contains(pgErr.Message, "logical decoding on standby requires") {
 				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
 			}
 

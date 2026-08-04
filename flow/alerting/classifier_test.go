@@ -32,6 +32,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -599,6 +600,29 @@ func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.FeatureNotSupported,
 	}, errInfo)
+}
+
+func TestPostgresLogicalDecodingOnStandbyRequiresWalLevel(t *testing.T) {
+	for name, message := range map[string]string{
+		"pg16": "logical decoding on standby requires wal_level >= logical on the primary",
+		"pg17": `logical decoding on standby requires "wal_level" >= "logical" on the primary`,
+		"pg19": `logical decoding on standby requires "effective_wal_level" >= "logical" on the primary`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := &pgconn.PgError{
+				Severity: "ERROR",
+				Code:     pgerrcode.ObjectNotInPrerequisiteState,
+				Message:  message,
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(),
+				shared.WrapError("slot error", fmt.Errorf("[slot] error creating replication slot: %w", err)))
+			assert.Equal(t, ErrorNotifyReplicationStandbySetup, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   pgerrcode.ObjectNotInPrerequisiteState,
+			}, errInfo, "Unexpected error info")
+		})
+	}
 }
 
 func TestPostgresCreatingSlotOnReader(t *testing.T) {
