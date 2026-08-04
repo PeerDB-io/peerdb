@@ -267,3 +267,108 @@ func TestBuildPartitionByValidationQuery(t *testing.T) {
 		require.Equal(t, "SELECT (id % 2) FROM (SELECT CAST(NULL, 'Dynamic') AS `id`) LIMIT 0", query)
 	})
 }
+
+func TestCheckBucketGrantInValidatePeer(t *testing.T) {
+	ctx := t.Context()
+	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
+	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Close())
+	})
+	require.NoError(t, adminConn.Ping(ctx))
+
+	database := "pkgch_" + strings.ToLower(common.RandomString(8))
+	require.NoError(t, adminConn.Exec(ctx, "CREATE DATABASE "+QuoteIdentifier(database)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+QuoteIdentifier(database)))
+	})
+
+	// Create a test user to test grants with.
+	username := "testuser_" + common.RandomString(8)
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("CREATE USER %s IDENTIFIED BY 'testpassword';", username)))
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT CREATE TABLE, ALTER TABLE, DROP TABLE, INSERT, SELECT ON "+
+		"%s.* TO %s;", QuoteIdentifier(database), username)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP USER IF EXISTS "+username))
+	})
+
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{
+			Database: database,
+			Username: username,
+			Password: "testpassword",
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, conn.Close())
+	})
+	require.NoError(t, conn.Ping(ctx))
+
+	// Staging bucket access methods to test.
+	testCases := []struct {
+		storageAccessType string
+		fineScopedSyntax  bool
+	}{
+		{
+			storageAccessType: "S3",
+			fineScopedSyntax:  false,
+		},
+		{
+			storageAccessType: "URL",
+			fineScopedSyntax:  false,
+		},
+		{
+			storageAccessType: "S3",
+			fineScopedSyntax:  true,
+		},
+		{
+			storageAccessType: "URL",
+			fineScopedSyntax:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		// Expect an error
+		err = ValidateClickHousePeer(
+			t.Context(),
+			nopLogger{},
+			"clickhouse.cloud",
+			"something.clickhouse.cloud",
+			conn,
+			tc.storageAccessType,
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), fmt.Sprintf("failed to validate %s read grant", tc.storageAccessType))
+
+		// Grant the appropriate privilege, then verify there's no error.
+		if tc.fineScopedSyntax {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT READ ON %s TO %s", tc.storageAccessType, username)))
+		} else {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT %s ON *.* TO %s", tc.storageAccessType, username)))
+		}
+
+		err = ValidateClickHousePeer(
+			t.Context(),
+			nopLogger{},
+			"clickhouse.cloud",
+			"something.clickhouse.cloud",
+			conn,
+			tc.storageAccessType,
+		)
+		require.NoError(t, err)
+
+		// Drop the grant that was added earlier.
+		if tc.fineScopedSyntax {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("REVOKE READ ON %s FROM %s", tc.storageAccessType, username)))
+		} else {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("REVOKE %s ON *.* FROM %s", tc.storageAccessType, username)))
+		}
+	}
+}

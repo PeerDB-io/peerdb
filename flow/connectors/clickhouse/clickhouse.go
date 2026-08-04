@@ -77,8 +77,15 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
+	var stagingAccessMethod string
+	switch c.staging.(type) {
+	case *s3StagingStore:
+		stagingAccessMethod = "S3"
+	case *gcsStagingStore:
+		stagingAccessMethod = "URL"
+	}
 	if err := peerdb_clickhouse.ValidateClickHousePeer(
-		ctx, c.logger, allowedDomains, c.Config.Host, c.database,
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, stagingAccessMethod,
 	); err != nil {
 		return err
 	}
