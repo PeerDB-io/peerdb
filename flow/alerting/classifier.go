@@ -246,6 +246,12 @@ var (
 	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
 		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
 	}
+	// Aurora keeps logical replication slots on the writer only, so an in-flight failover makes the
+	// slot unusable until the new writer takes over
+	// https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Appendix.PostgreSQL.CommonDBATasks.pglogical.handle-slots.html
+	ErrorNotifyAuroraFailover = ErrorClass{
+		Class: "NOTIFY_AURORA_FAILOVER", action: NotifyUser,
+	}
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
@@ -711,7 +717,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			// Aurora failover: reader was promoted, slot can't be used on old RO node
 			if strings.Contains(pgErr.Message, "replication slots cannot be used on RO (Read Only) node") {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyAuroraFailover, pgErrorInfo
 			}
 
 		case pgerrcode.InvalidParameterValue:

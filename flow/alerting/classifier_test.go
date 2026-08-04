@@ -1265,15 +1265,15 @@ func TestYugabyteDBSnapshotExportDisabledShouldBeSnapshotExportDisabled(t *testi
 	}, errInfo)
 }
 
-func TestAuroraFailoverRONodeShouldBeRecoverable(t *testing.T) {
+func TestAuroraFailoverRONodeShouldBeAuroraFailover(t *testing.T) {
 	pgErr := &pgconn.PgError{
 		Severity: "ERROR",
 		Code:     pgerrcode.ObjectNotInPrerequisiteState,
 		Message:  "replication slots cannot be used on RO (Read Only) node",
 	}
-	err := fmt.Errorf("error starting replication at startLsn - 18598145761: %w", pgErr)
+	err := fmt.Errorf("error starting replication at startLsn - 327224340680633: %w", pgErr)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorNotifyAuroraFailover, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.ObjectNotInPrerequisiteState,
