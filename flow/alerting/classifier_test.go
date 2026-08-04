@@ -311,6 +311,23 @@ func TestPostgresCouldNotRenameSnapshotErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate shared invalidation message corruption error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "FATAL",
+			Code:     pgerrcode.InternalError,
+			Message:  "unrecognized SI message ID: -60",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresCouldNotRenameSlotStateFileErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a transient replication slot state file rename failure, in both the
 	// upstream wording and the "rename file from" wording of patched managed builds
@@ -340,23 +357,6 @@ func TestPostgresCouldNotRenameSlotStateFileErrorShouldBeRecoverable(t *testing.
 			}, errInfo, "Unexpected error info")
 		})
 	}
-}
-
-func TestPostgresUnrecognizedSIMessageIDErrorShouldBeRecoverable(t *testing.T) {
-	// Simulate shared invalidation message corruption error
-	err := &exceptions.PostgresWalError{
-		Msg: &pgproto3.ErrorResponse{
-			Severity: "FATAL",
-			Code:     pgerrcode.InternalError,
-			Message:  "unrecognized SI message ID: -60",
-		},
-	}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("ReceiveMessage failed: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   pgerrcode.InternalError,
-	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
