@@ -1521,8 +1521,17 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (
 	case types.QValueKindTimestamp:
 		return quoteDefaultLiteral(normalizePostgresMissingTimestamp(value)), true
 
+	case types.QValueKindHStore:
+		// attmissingval is extracted through to_json, which uses hstore_to_json rather than hstore_out.
+		// Re-marshal it so defaults use the same canonical representation as CDC hstore values.
+		value, err := geo.CanonicalizeHStoreJSON(value)
+		if err != nil {
+			return "", false
+		}
+		return quoteDefaultLiteral(value), true
+
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
-		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore, types.QValueKindINET,
+		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindINET,
 		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
 		return quoteDefaultLiteral(value), true
 

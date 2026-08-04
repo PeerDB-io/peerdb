@@ -83,7 +83,10 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			want: "'00000000-0000-0000-0000-000000000001'",
 		},
 		{name: "jsonb", value: `{"a": 1}`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
-		{name: "hstore", value: `{"a": "b"}`, qkind: types.QValueKindHStore, want: `'{"a": "b"}'`},
+		{
+			name: "hstore canonicalized", value: `{"z": "<&>", "a": null}`,
+			qkind: types.QValueKindHStore, want: `'{"a":null,"z":"\\u003c\\u0026\\u003e"}'`,
+		},
 		{name: "inet", value: "10.0.0.1", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
 		{name: "date", value: "2020-01-02", qkind: types.QValueKindDate, want: "'2020-01-02'"},
 		{
@@ -100,6 +103,7 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		// declined: types whose text form does not carry over
 		{name: "array", value: "[1,2]", qkind: types.QValueKindArrayInt32},
 		{name: "bytea", value: `\x0001`, qkind: types.QValueKindBytes},
+		{name: "hstore non-string value", value: `{"a": 1}`, qkind: types.QValueKindHStore},
 		{name: "interval", value: "1 day", qkind: types.QValueKindInterval},
 		{name: "time", value: "13:14:15", qkind: types.QValueKindTime},
 		{name: "point", value: "(1,2)", qkind: types.QValueKindPoint},
