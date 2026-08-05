@@ -1,0 +1,227 @@
+package conncockroachdb
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
+)
+
+func (c *CockroachDBConnector) GetTableSchema(
+	ctx context.Context,
+	env map[string]string,
+	version uint32,
+	system protos.TypeSystem,
+	tableMappings []*protos.TableMapping,
+) (map[string]*protos.TableSchema, error) {
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(map[string]*protos.TableSchema)
+
+	for _, tableMapping := range tableMappings {
+		parsedTable, err := common.ParseTableIdentifier(tableMapping.SourceTableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse table identifier: %w", err)
+		}
+
+		rows, err := c.conn.Query(ctx, `
+			SELECT
+				column_name,
+				data_type,
+				udt_name,
+				is_nullable,
+				numeric_precision,
+				numeric_scale
+			FROM information_schema.columns
+			WHERE table_schema = $1 AND table_name = $2
+			ORDER BY ordinal_position
+		`, parsedTable.Namespace, parsedTable.Table)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get schema for table %s: %w", parsedTable, err)
+		}
+
+		columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FieldDescription, error) {
+			var colName, dataType, udtName, isNullable string
+			var numericPrecision, numericScale *int32
+			if err := row.Scan(&colName, &dataType, &udtName, &isNullable, &numericPrecision, &numericScale); err != nil {
+				return nil, fmt.Errorf("failed to scan column info: %w", err)
+			}
+
+			qkind := crdbTypeToQValueKind(dataType, udtName)
+			colType := udtName
+			if system == protos.TypeSystem_Q {
+				colType = string(qkind)
+			}
+			// capture DECIMAL(p,s) so destinations pick a matching decimal type;
+			// -1 means unbounded (like Postgres atttypmod)
+			typeModifier := int32(-1)
+			if (qkind == types.QValueKindNumeric || qkind == types.QValueKindArrayNumeric) &&
+				numericPrecision != nil && numericScale != nil {
+				typeModifier = datatypes.MakeNumericTypmod(*numericPrecision, *numericScale)
+			}
+			return &protos.FieldDescription{
+				Name:         colName,
+				Type:         colType,
+				TypeModifier: typeModifier,
+				Nullable:     isNullable == "YES",
+			}, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to read schema for table %s: %w", parsedTable, err)
+		}
+
+		pkRows, err := c.conn.Query(ctx, `
+			SELECT column_name
+			FROM information_schema.key_column_usage
+			WHERE table_schema = $1 AND table_name = $2
+			AND constraint_name = (
+				SELECT constraint_name
+				FROM information_schema.table_constraints
+				WHERE table_schema = $1 AND table_name = $2
+				AND constraint_type = 'PRIMARY KEY'
+			)
+			ORDER BY ordinal_position
+		`, parsedTable.Namespace, parsedTable.Table)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get primary key for table %s: %w", parsedTable, err)
+		}
+		pkCols, err := pgx.CollectRows[string](pkRows, pgx.RowTo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read primary key for table %s: %w", parsedTable, err)
+		}
+
+		res[tableMapping.SourceTableIdentifier] = &protos.TableSchema{
+			TableIdentifier:       tableMapping.SourceTableIdentifier,
+			PrimaryKeyColumns:     pkCols,
+			IsReplicaIdentityFull: false,
+			System:                system,
+			NullableEnabled:       nullableEnabled,
+			Columns:               columns,
+		}
+	}
+
+	return res, nil
+}
+
+func (c *CockroachDBConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT table_schema, table_name
+		FROM information_schema.tables
+		WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'crdb_internal', 'pg_extension')
+		AND table_type = 'BASE TABLE'
+		ORDER BY table_schema, table_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all tables: %w", err)
+	}
+
+	tableNames, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var schema, table string
+		if err := row.Scan(&schema, &table); err != nil {
+			return "", fmt.Errorf("failed to scan table: %w", err)
+		}
+		return schema + "." + table, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read all tables: %w", err)
+	}
+
+	return &protos.AllTablesResponse{Tables: tableNames}, nil
+}
+
+func (c *CockroachDBConnector) GetColumns(
+	ctx context.Context,
+	version uint32,
+	schema string,
+	table string,
+) (*protos.TableColumnsResponse, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT column_name, data_type, is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = $1 AND table_name = $2
+		ORDER BY ordinal_position
+	`, schema, table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.ColumnsItem, error) {
+		var colName, dataType, isNullable string
+		if err := row.Scan(&colName, &dataType, &isNullable); err != nil {
+			return nil, fmt.Errorf("failed to scan column: %w", err)
+		}
+		return &protos.ColumnsItem{
+			Name: colName,
+			Type: dataType,
+		}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read columns: %w", err)
+	}
+
+	return &protos.TableColumnsResponse{Columns: columns}, nil
+}
+
+func (c *CockroachDBConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT schema_name
+		FROM information_schema.schemata
+		WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'crdb_internal', 'pg_extension')
+		ORDER BY schema_name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schemas: %w", err)
+	}
+
+	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read schemas: %w", err)
+	}
+
+	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
+}
+
+func (c *CockroachDBConnector) GetTablesInSchema(
+	ctx context.Context,
+	schema string,
+	cdcEnabled bool,
+) (*protos.SchemaTablesResponse, error) {
+	rows, err := c.conn.Query(ctx, `
+		SELECT table_name
+		FROM information_schema.tables
+		WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+		ORDER BY table_name
+	`, schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tables in schema: %w", err)
+	}
+
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableResponse, error) {
+		var table string
+		if err := row.Scan(&table); err != nil {
+			return nil, fmt.Errorf("failed to scan table: %w", err)
+		}
+		return &protos.TableResponse{
+			// bare table name: unlike GetAllTables, callers qualify it with the
+			// schema themselves
+			TableName: table,
+			// every CockroachDB table is mirrorable: tables without an explicit
+			// primary key get the hidden rowid one
+			CanMirror: true,
+		}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tables in schema: %w", err)
+	}
+
+	return &protos.SchemaTablesResponse{Tables: tables}, nil
+}
