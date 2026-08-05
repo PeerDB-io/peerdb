@@ -151,6 +151,10 @@ message CockroachDBConfig {
   bool disable_tls = 9;
   bool skip_cert_verification = 10;
   optional ClientTlsConfig client_tls = 11;
+  bool use_changefeeds = 12;
+  // changefeed reconnect tuning; defaults to 5 retries with a 500ms base delay
+  optional uint32 max_retries = 13;
+  optional uint32 retry_base_delay_ms = 14;
 }
 
 message EventHubConfig {
