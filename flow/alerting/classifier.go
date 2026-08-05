@@ -165,6 +165,9 @@ var (
 	ErrorNotifyMySQLCompressedColumnUnsupported = ErrorClass{
 		Class: "NOTIFY_MYSQL_COMPRESSED_COLUMN_UNSUPPORTED", action: NotifyUser,
 	}
+	ErrorNotifyMySQLSecureTransportRequired = ErrorClass{
+		Class: "NOTIFY_MYSQL_SECURE_TRANSPORT_REQUIRED", action: NotifyUser,
+	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
 	}
@@ -857,6 +860,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1226, // ER_USER_LIMIT_REACHED
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 3159: // ER_SECURE_TRANSPORT_REQUIRED
+			// The source rejects the handshake because the pipe connects without TLS while the server sets
+			// require_secure_transport=ON. https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_require_secure_transport
+			return ErrorNotifyMySQLSecureTransportRequired, myErrorInfo
 		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
 			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read
 			if strings.Contains(myErr.Message, "max_allowed_packet") {
