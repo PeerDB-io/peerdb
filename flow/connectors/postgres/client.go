@@ -404,8 +404,7 @@ func getSlotInfo(
 		return nil, fmt.Errorf("failed to read information for slots: %w", err)
 	}
 	defer rows.Close()
-	var slotInfoRows []*protos.SlotInfo
-	for rows.Next() {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotInfo, error) {
 		var slotName pgtype.Text
 		var redoLSN pgtype.Text
 		var restartLSN pgtype.Text
@@ -427,7 +426,7 @@ func getSlotInfo(
 		var spillCount *int64
 		var spillBytes *int64
 
-		err := rows.Scan(
+		err := row.Scan(
 			&slotName,
 			&redoLSN,
 			&restartLSN,
@@ -453,7 +452,7 @@ func getSlotInfo(
 			return nil, err
 		}
 
-		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
+		return &protos.SlotInfo{
 			SlotName:                 slotName.String,
 			RedoLSN:                  redoLSN.String,
 			RestartLSN:               restartLSN.String,
@@ -474,9 +473,8 @@ func getSlotInfo(
 			SpillTxns:                spillTxns,
 			SpillCount:               spillCount,
 			SpillBytes:               spillBytes,
-		})
-	}
-	return slotInfoRows, nil
+		}, nil
+	})
 }
 
 type walRetentionSettings struct {
