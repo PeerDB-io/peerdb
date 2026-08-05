@@ -132,10 +132,12 @@ func (h *FlowRequestHandler) ListPeers(
 		if peer.Type == protos.DBType_POSTGRES ||
 			peer.Type == protos.DBType_MYSQL ||
 			peer.Type == protos.DBType_MONGO ||
-			peer.Type == protos.DBType_BIGQUERY {
+			peer.Type == protos.DBType_BIGQUERY ||
+			peer.Type == protos.DBType_COCKROACHDB {
 			sourceItems = append(sourceItems, peer)
 		}
 		if peer.Type != protos.DBType_MYSQL &&
+			peer.Type != protos.DBType_COCKROACHDB &&
 			peer.Type != protos.DBType_MONGO && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}

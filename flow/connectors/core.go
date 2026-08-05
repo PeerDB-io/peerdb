@@ -812,8 +812,10 @@ var (
 
 	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 
-	_ ValidationConnector     = &conncockroachdb.CockroachDBConnector{}
-	_ GetVersionConnector     = &conncockroachdb.CockroachDBConnector{}
-	_ GetTableSchemaConnector = &conncockroachdb.CockroachDBConnector{}
-	_ GetSchemaConnector      = &conncockroachdb.CockroachDBConnector{}
+	_ ValidationConnector             = &conncockroachdb.CockroachDBConnector{}
+	_ GetVersionConnector             = &conncockroachdb.CockroachDBConnector{}
+	_ GetTableSchemaConnector         = &conncockroachdb.CockroachDBConnector{}
+	_ GetSchemaConnector              = &conncockroachdb.CockroachDBConnector{}
+	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
+	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
 )

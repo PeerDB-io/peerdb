@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,12 @@ type CockroachDBConnector struct {
 	connStr        string
 	metadataSchema string
 	crdbVersion    string
+	// set once the first changefeed session of this connector has released
+	// the snapshot history retention job
+	historyProtectionChecked atomic.Bool
+	// unix nanos of the last snapshot history protection extension fired by
+	// this connector, throttling per-partition extension attempts
+	historyExtendedAt atomic.Int64
 }
 
 func NewCockroachDBConnector(ctx context.Context, env map[string]string, config *protos.CockroachDBConfig) (*CockroachDBConnector, error) {
