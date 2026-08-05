@@ -29,15 +29,6 @@ import (
 // crdbSystemTimeRegex matches a CockroachDB HLC timestamp, e.g. 1712345678901234567.0000000001
 var crdbSystemTimeRegex = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
-// gcThresholdErrorSubstring appears when CREATE CHANGEFEED is given a cursor
-// older than the tables' gc.ttlseconds window: the MVCC history needed to
-// resume has been garbage collected and retrying can never succeed.
-const gcThresholdErrorSubstring = "must be after replica GC threshold"
-
-func isCursorTooOldError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), gcThresholdErrorSubstring)
-}
-
 // classifySnapshotReadError marks AS OF SYSTEM TIME reads whose timestamp has
 // fallen behind the replica GC threshold as non-retryable for Temporal: the
 // MVCC history at the snapshot timestamp is garbage collected, so retries can
@@ -309,14 +300,6 @@ func (c *CockroachDBConnector) PullQRepRecords(
 		slog.Int64("bytes", totalBytes),
 		slog.Int("channelLen", len(stream.Records)))
 	return totalRecords, totalBytes, nil
-}
-
-func (c *CockroachDBConnector) clusterLogicalTimestamp(ctx context.Context) (string, error) {
-	var systemTime string
-	if err := c.conn.QueryRow(ctx, "SELECT cluster_logical_timestamp()::text").Scan(&systemTime); err != nil {
-		return "", fmt.Errorf("failed to get cluster logical timestamp: %w", err)
-	}
-	return systemTime, nil
 }
 
 // snapshotSystemTime returns the HLC timestamp QRep queries read at via AS OF SYSTEM TIME,
