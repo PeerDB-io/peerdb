@@ -45,6 +45,7 @@ const (
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
+	MongoInvalidResumeToken              = "Invalid resume token"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -929,6 +930,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch mongoCmdErr.Code {
 		case 6: // HostUnreachable
 			return ErrorRetryRecoverable, mongoErrorInfo
+		case 9: // FailedToParse
+			if mongoCmdErr.HasErrorMessage(MongoInvalidResumeToken) {
+				return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
