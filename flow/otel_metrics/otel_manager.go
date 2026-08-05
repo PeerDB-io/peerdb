@@ -86,6 +86,8 @@ const (
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
+	CockroachDBResolvedLagGaugeName      = "cockroachdb_resolved_lag"
+	CockroachDBRecordsReceivedName       = "cockroachdb_records_received"
 	ColumnTypeChangesName                = "column_type_changes"
 	ParseSQLErrorsCounterName            = "parse_sql_errors"
 	OnlineSchemaMigrationsName           = "online_schema_migrations"
@@ -93,65 +95,67 @@ const (
 )
 
 type Metrics struct {
-	SlotLagGauge                     metric.Float64Gauge
-	CurrentBatchIdGauge              metric.Int64Gauge
-	LastNormalizedBatchIdGauge       metric.Int64Gauge
-	OpenConnectionsGauge             metric.Int64Gauge
-	OpenReplicationConnectionsGauge  metric.Int64Gauge
-	CommittedLSNGauge                metric.Int64Gauge
-	RestartLSNGauge                  metric.Int64Gauge
-	ConfirmedFlushLSNGauge           metric.Int64Gauge
-	SentLSNGauge                     metric.Int64Gauge
-	ReceivedCommitLSNGauge           metric.Int64Gauge
-	CurrentWalLSNGauge               metric.Int64Gauge
-	RestartToConfirmedMBGauge        metric.Float64Gauge
-	ConfirmedToCurrentMBGauge        metric.Float64Gauge
-	WalStatusGauge                   metric.Int64Gauge
-	SafeWalSizeGauge                 metric.Int64Gauge
-	LogSpace                         LogSpaceGauges
-	SlotActiveGauge                  metric.Int64Gauge
-	WalSenderStateGauge              metric.Int64Gauge
-	StatsResetGauge                  metric.Int64Gauge
-	SpillTxnsGauge                   metric.Int64Gauge
-	SpillCountGauge                  metric.Int64Gauge
-	SpillBytesGauge                  metric.Int64Gauge
-	LogicalDecodingWorkMemGauge      metric.Int64Gauge
-	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
-	AllFetchedBytesCounter           metric.Int64Counter
-	FetchedBytesCounter              metric.Int64Counter
-	SourceLagGauge                   metric.Int64Gauge
-	DestinationLagGauge              metric.Int64Gauge
-	E2ELagGauge                      metric.Int64Gauge
-	ServerSideCommitLagGauge         metric.Int64Gauge
-	NormalizeLagGauge                metric.Int64Gauge
-	ErrorEmittedGauge                metric.Int64Gauge
-	ErrorsEmittedCounter             metric.Int64Counter
-	WarningsEmittedGauge             metric.Int64Gauge
-	WarningEmittedCounter            metric.Int64Counter
-	RecordsSyncedGauge               metric.Int64Gauge
-	RecordsSyncedCounter             metric.Int64Counter
-	RecordsSyncedPerTableGauge       metric.Int64Gauge
-	RecordsSyncedPerTableCounter     metric.Int64Counter
-	SyncedTablesGauge                metric.Int64Gauge
-	InstanceStatusGauge              metric.Int64Gauge
-	MaintenanceStatusGauge           metric.Int64Gauge
-	FlowStatusGauge                  metric.Int64Gauge
-	DurationSinceLastFlowUpdateGauge metric.Int64Gauge
-	ActiveFlowsGauge                 metric.Int64Gauge
-	CPULimitsPerActiveFlowGauge      metric.Float64Gauge
-	MemoryLimitsPerActiveFlowGauge   metric.Float64Gauge
-	TotalCPULimitsGauge              metric.Float64Gauge
-	TotalMemoryLimitsGauge           metric.Float64Gauge
-	WorkloadTotalReplicasGauge       metric.Int64Gauge
-	LatestConsumedLogEventGauge      metric.Int64Gauge
-	LogRetentionGauge                metric.Float64Gauge
-	UnchangedToastValuesCounter      metric.Int64Counter
-	ServerWalEndLagGauge             metric.Int64Gauge
-	UsedMySQLCharsetsCounter         metric.Int64Counter
-	ColumnTypeChangesCounter         metric.Int64Counter
-	ParseSQLErrorsCounter            metric.Int64Counter
-	OnlineSchemaMigrationsCounter    metric.Int64Counter
-	UnsupportedBinlogEventCounter    metric.Int64Counter
+	SlotLagGauge                      metric.Float64Gauge
+	CurrentBatchIdGauge               metric.Int64Gauge
+	LastNormalizedBatchIdGauge        metric.Int64Gauge
+	OpenConnectionsGauge              metric.Int64Gauge
+	OpenReplicationConnectionsGauge   metric.Int64Gauge
+	CommittedLSNGauge                 metric.Int64Gauge
+	RestartLSNGauge                   metric.Int64Gauge
+	ConfirmedFlushLSNGauge            metric.Int64Gauge
+	SentLSNGauge                      metric.Int64Gauge
+	ReceivedCommitLSNGauge            metric.Int64Gauge
+	CurrentWalLSNGauge                metric.Int64Gauge
+	RestartToConfirmedMBGauge         metric.Float64Gauge
+	ConfirmedToCurrentMBGauge         metric.Float64Gauge
+	WalStatusGauge                    metric.Int64Gauge
+	SafeWalSizeGauge                  metric.Int64Gauge
+	LogSpace                          LogSpaceGauges
+	SlotActiveGauge                   metric.Int64Gauge
+	WalSenderStateGauge               metric.Int64Gauge
+	StatsResetGauge                   metric.Int64Gauge
+	SpillTxnsGauge                    metric.Int64Gauge
+	SpillCountGauge                   metric.Int64Gauge
+	SpillBytesGauge                   metric.Int64Gauge
+	LogicalDecodingWorkMemGauge       metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge   metric.Float64Gauge
+	AllFetchedBytesCounter            metric.Int64Counter
+	FetchedBytesCounter               metric.Int64Counter
+	SourceLagGauge                    metric.Int64Gauge
+	DestinationLagGauge               metric.Int64Gauge
+	E2ELagGauge                       metric.Int64Gauge
+	ServerSideCommitLagGauge          metric.Int64Gauge
+	NormalizeLagGauge                 metric.Int64Gauge
+	ErrorEmittedGauge                 metric.Int64Gauge
+	ErrorsEmittedCounter              metric.Int64Counter
+	WarningsEmittedGauge              metric.Int64Gauge
+	WarningEmittedCounter             metric.Int64Counter
+	RecordsSyncedGauge                metric.Int64Gauge
+	RecordsSyncedCounter              metric.Int64Counter
+	RecordsSyncedPerTableGauge        metric.Int64Gauge
+	RecordsSyncedPerTableCounter      metric.Int64Counter
+	SyncedTablesGauge                 metric.Int64Gauge
+	InstanceStatusGauge               metric.Int64Gauge
+	MaintenanceStatusGauge            metric.Int64Gauge
+	FlowStatusGauge                   metric.Int64Gauge
+	DurationSinceLastFlowUpdateGauge  metric.Int64Gauge
+	ActiveFlowsGauge                  metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge       metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge    metric.Float64Gauge
+	TotalCPULimitsGauge               metric.Float64Gauge
+	TotalMemoryLimitsGauge            metric.Float64Gauge
+	WorkloadTotalReplicasGauge        metric.Int64Gauge
+	LatestConsumedLogEventGauge       metric.Int64Gauge
+	LogRetentionGauge                 metric.Float64Gauge
+	UnchangedToastValuesCounter       metric.Int64Counter
+	ServerWalEndLagGauge              metric.Int64Gauge
+	UsedMySQLCharsetsCounter          metric.Int64Counter
+	ColumnTypeChangesCounter          metric.Int64Counter
+	ParseSQLErrorsCounter             metric.Int64Counter
+	OnlineSchemaMigrationsCounter     metric.Int64Counter
+	UnsupportedBinlogEventCounter     metric.Int64Counter
+	CockroachDBResolvedLagGauge       metric.Float64Gauge
+	CockroachDBRecordsReceivedCounter metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -633,6 +637,19 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UsedMySQLCharsetsName),
 		metric.WithDescription(
 			"Counter of used MySQL charsets, with `charset` label and `status` label indicating unsupported/transcoded/not_transcoded"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CockroachDBResolvedLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(CockroachDBResolvedLagGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("CockroachDB changefeed resolved timestamp lag in seconds behind wall clock"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CockroachDBRecordsReceivedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CockroachDBRecordsReceivedName),
+		metric.WithDescription("Counter of CockroachDB changefeed data records received on the CDC pull path"),
 	); err != nil {
 		return err
 	}

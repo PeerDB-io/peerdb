@@ -269,6 +269,23 @@ func TestQValueFromCrdbValue(t *testing.T) {
 			},
 		},
 		{
+			// pgx decodes text[] into []any with nil for NULL elements; those
+			// must become empty strings like on the changefeed path, not the
+			// fmt.Sprint rendering of nil
+			name:  "array string with null element",
+			field: field(types.QValueKindArrayString),
+			value: []any{"a", nil, "b"},
+			expected: types.QValueArrayString{
+				Val: []string{"a", "", "b"},
+			},
+		},
+		{
+			name:     "empty array string",
+			field:    field(types.QValueKindArrayString),
+			value:    []any{},
+			expected: types.QValueArrayString{Val: []string{}},
+		},
+		{
 			name:  "array numeric",
 			field: field(types.QValueKindArrayNumeric),
 			value: []any{pgtype.Numeric{Int: big.NewInt(5), Exp: 0, Valid: true}},

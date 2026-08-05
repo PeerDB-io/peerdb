@@ -412,6 +412,12 @@ func qvalueFromCrdbValue(
 		case []any:
 			strs := make([]string, 0, len(v))
 			for _, anyVal := range v {
+				if anyVal == nil {
+					// NULL array element: empty string, matching the changefeed
+					// path and ArrayCastElements' zero-value convention
+					strs = append(strs, "")
+					continue
+				}
 				strs = append(strs, convertToString(typeMap, 0, anyVal))
 			}
 			return types.QValueArrayString{Val: strs}, nil

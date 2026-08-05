@@ -20,9 +20,29 @@ func (c *CockroachDBConnector) GetTableSchema(
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
+	return c.getTableSchema(ctx, env, system, tableMappings, crdbHLC{})
+}
+
+// getTableSchema resolves table schemas, optionally AS OF SYSTEM TIME asOf
+// (zero reads the latest schema). The changefeed path passes a row's commit
+// timestamp so added columns are typed by the schema that produced the row,
+// not by whatever the schema has become since.
+func (c *CockroachDBConnector) getTableSchema(
+	ctx context.Context,
+	env map[string]string,
+	system protos.TypeSystem,
+	tableMappings []*protos.TableMapping,
+	asOf crdbHLC,
+) (map[string]*protos.TableSchema, error) {
 	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
+	}
+
+	// the rendered HLC is digits and a dot only, so the clause is injection safe
+	var aostClause string
+	if asOf != (crdbHLC{}) {
+		aostClause = " AS OF SYSTEM TIME '" + asOf.String() + "'"
 	}
 
 	res := make(map[string]*protos.TableSchema)
@@ -45,7 +65,7 @@ func (c *CockroachDBConnector) GetTableSchema(
 				c.is_nullable,
 				c.numeric_precision,
 				c.numeric_scale
-			FROM information_schema.columns c
+			FROM information_schema.columns c`+aostClause+`
 			WHERE c.table_schema = $1 AND c.table_name = $2
 			AND NOT EXISTS (
 				SELECT 1 FROM pg_catalog.pg_class pc
@@ -98,7 +118,7 @@ func (c *CockroachDBConnector) GetTableSchema(
 
 		pkRows, err := c.conn.Query(ctx, `
 			SELECT column_name
-			FROM information_schema.key_column_usage
+			FROM information_schema.key_column_usage`+aostClause+`
 			WHERE table_schema = $1 AND table_name = $2
 			AND constraint_name = (
 				SELECT constraint_name
