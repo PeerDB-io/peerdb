@@ -93,13 +93,14 @@ You can use Postgres’ ecosystem to manage your ETL —
 
 ## Status
 
-We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL and MongoDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors).
+We have expanded our connector ecosystem to support multiple source connectors beyond Postgres, including MySQL, MongoDB, and CockroachDB. You can check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors).
 
 | Connector | Direction (source/destination) | Status |
 | --- | --- | --- |
 | Postgres | Source | **Actively maintained** |
 | MySQL | Source | **Actively maintained** |
 | MongoDB | Source | **Actively maintained** |
+| CockroachDB | Source | **Actively maintained** |
 | BigQuery | Source | **Actively maintained** |
 | ClickHouse | Destination | **Actively maintained** |
 | ClickHouse Cloud | Destination | **Actively maintained** |

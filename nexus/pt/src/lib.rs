@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 
 use parser::ast_peerdb::PeerType;
-use peerdb_peers::DbType;
+use peerdb_peers::{CockroachDbConfig, DbType, PostgresConfig};
 
 pub mod flow_model;
 #[rustfmt::skip]
@@ -32,6 +32,27 @@ impl From<PeerType> for DbType {
             PeerType::PubSub => DbType::Pubsub,
             PeerType::Elasticsearch => DbType::Elasticsearch,
             PeerType::Clickhouse => DbType::Clickhouse,
+            PeerType::CockroachDB => DbType::Cockroachdb,
+        }
+    }
+}
+
+// CockroachDB is Postgres-wire-compatible, so peer queries are executed
+// through the Postgres query executor with an equivalent config.
+impl From<&CockroachDbConfig> for PostgresConfig {
+    fn from(config: &CockroachDbConfig) -> Self {
+        PostgresConfig {
+            host: config.host.clone(),
+            port: config.port,
+            user: config.user.clone(),
+            password: config.password.clone(),
+            database: config.database.clone(),
+            tls_host: config.tls_host.clone(),
+            metadata_schema: config.metadata_schema.clone(),
+            ssh_config: config.ssh_config.clone(),
+            root_ca: config.root_ca.clone(),
+            require_tls: config.require_tls,
+            ..Default::default()
         }
     }
 }
