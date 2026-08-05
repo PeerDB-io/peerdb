@@ -570,6 +570,40 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 	}
 }
 
+// This is the canonical test that source validation is wired up.
+// Specific validaton tests go as integration tests in connectors or flow/pkg.
+func (s APITestSuite) TestMirrorValidation_MissingSourceTable() {
+	tableNames := []string{"missing_src_create_a", "missing_src_create_b"}
+	tableNameMapping := make(map[string]string, len(tableNames))
+	for _, tn := range tableNames {
+		tableNameMapping[AttachSchema(s, tn)] = tn
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "missing_source_table_" + s.suffix,
+		TableNameMapping: tableNameMapping,
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	_, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+	require.Contains(s.t, st.Message(), "source tables do not exist")
+	for _, tn := range tableNames {
+		require.Contains(s.t, st.Message(), fmt.Sprintf("%s.%s", Schema(s), tn))
+	}
+
+	// creating the mirror has to refuse for the same reason
+	_, err = s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+	require.Contains(s.t, err.Error(), "source tables do not exist")
+	for _, tn := range tableNames {
+		require.Contains(s.t, err.Error(), fmt.Sprintf("%s.%s", Schema(s), tn))
+	}
+}
+
 func (s APITestSuite) TestPostgresDestinationValidation_MissingColumns() {
 	_, ok := s.source.(*PostgresSource)
 	if !ok {
@@ -1817,8 +1851,6 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
-// This is the canonical test that source validation is wired up.
-// Specific validaton tests go as integration tests in connectors or flow/pkg.
 func (s APITestSuite) TestResyncSourceTableMissing() {
 	tableNames := []string{"missing_src_a", "missing_src_b"}
 	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}
