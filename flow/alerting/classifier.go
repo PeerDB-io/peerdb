@@ -95,6 +95,7 @@ type ErrorSource string
 const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
+	ErrorSourceCockroachDB     ErrorSource = "cockroachdb"
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
@@ -321,13 +322,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if pgWalErr, ok := errors.AsType[*exceptions.PostgresWalError](err); ok {
 		pgErr = pgconn.ErrorResponseToPgError(pgWalErr.UnderlyingError())
 	}
+	// CockroachDB shares the Postgres wire protocol and SQLSTATE codes; the
+	// CockroachDB connector wraps its errors so they can be attributed to the
+	// right source while reusing the Postgres code classification below.
+	pgErrSource := ErrorSourcePostgres
+	if _, ok := errors.AsType[*exceptions.CockroachDBError](err); ok {
+		pgErrSource = ErrorSourceCockroachDB
+	}
 	var pgErrorInfo ErrorInfo
 	if pgErrFromErr, ok := errors.AsType[*pgconn.PgError](err); pgErr != nil || ok {
 		if pgErr == nil {
 			pgErr = pgErrFromErr
 		}
 		pgErrorInfo = ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   pgErr.Code,
 		}
 
@@ -571,7 +579,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNKNOWN",
 		}
 	}
