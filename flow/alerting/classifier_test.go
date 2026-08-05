@@ -992,6 +992,24 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLServerOfflineModeShouldBeConnectivity(t *testing.T) {
+	// Server rejects connections while an administrator has offline_mode enabled,
+	// e.g. during managed-provider maintenance or failover.
+	mysqlErr := &mysql.MyError{
+		Code:    3032, // ER_SERVER_OFFLINE_MODE
+		State:   "HY000",
+		Message: "The server is currently in offline mode",
+	}
+	err := fmt.Errorf("connection to source down: %w",
+		exceptions.NewMySQLExecuteError(fmt.Errorf("handleAuthResult: readAuthResult: %w", mysqlErr)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "3032",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	// Error 1236 caused by a binlog event larger than max_allowed_packet should be
 	// classified separately from generic binlog invalidation.

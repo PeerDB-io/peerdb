@@ -787,7 +787,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1194, // ER_CRASHED_ON_USAGE
 			1195, // ER_CRASHED_ON_REPAIR
 			1226, // ER_USER_LIMIT_REACHED
-			1827: // ER_PASSWORD_FORMAT
+			1827, // ER_PASSWORD_FORMAT
+			3032: // ER_SERVER_OFFLINE_MODE
 			return ErrorNotifyConnectivity, myErrorInfo
 		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
 			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read
