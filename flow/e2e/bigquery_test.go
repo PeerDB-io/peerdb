@@ -18,6 +18,9 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
+	// NOTE: `CI_PG_VERSION` is not longer used. All combinations run these tests now.
+	// If this is a problem, use `string.Contains(os.Getenv("CI_PG_VERSION"), "17")` to
+	// limit to one combination in CI.
 	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "17" {
 		t.Skip("Only running in PG17 to reduce flakiness from high concurrency")
 	}

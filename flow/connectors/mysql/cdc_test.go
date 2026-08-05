@@ -27,8 +27,42 @@ import (
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestCheckTableMapForCompressedColumns(t *testing.T) {
+	// id (normal), b (blob compressed, 140), v (varchar compressed, 141)
+	ev := &replication.TableMapEvent{
+		Schema:     []byte("db"),
+		Table:      []byte("t"),
+		ColumnType: []byte{0x03 /* MYSQL_TYPE_LONG */, mysqlColumnTypeVarcharCompressed, mysqlColumnTypeBlobCompressed},
+		ColumnName: [][]byte{[]byte("id"), []byte("v"), []byte("b")},
+	}
+
+	t.Run("reports all compressed columns regardless of exclusion", func(t *testing.T) {
+		err := checkTableMapForCompressedColumns(ev)
+		require.ErrorContains(t, err, "COMPRESSED")
+		var ccErr *exceptions.MySQLUnsupportedCompressedColumnError
+		require.ErrorAs(t, err, &ccErr)
+		require.Equal(t, []string{"v", "b"}, ccErr.Columns)
+	})
+
+	t.Run("no compressed columns yields no error", func(t *testing.T) {
+		normal := &replication.TableMapEvent{ColumnType: []byte{0x03}}
+		require.NoError(t, checkTableMapForCompressedColumns(normal))
+	})
+
+	t.Run("without column names the column is reported positionally", func(t *testing.T) {
+		noMeta := &replication.TableMapEvent{
+			Schema:     []byte("db"),
+			Table:      []byte("t"),
+			ColumnType: []byte{mysqlColumnTypeVarcharCompressed},
+		}
+		err := checkTableMapForCompressedColumns(noMeta)
+		require.ErrorContains(t, err, "column #0")
+	})
+}
 
 func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
 	t.Helper()
@@ -210,6 +244,8 @@ func TestParseSQLParsesTrailingNull(t *testing.T) {
 }
 
 func TestAlterTableTypes(t *testing.T) {
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
 	// addColumnFieldDescription parses `ALTER TABLE t ADD COLUMN c <colDef>`
 	// and builds the same FieldDescription processAlterTableQuery emits.
 	addColumnFieldDescription := func(t *testing.T, colDef string) *protos.FieldDescription {
@@ -224,7 +260,7 @@ func TestAlterTableTypes(t *testing.T) {
 		require.Len(t, alter.Specs[0].NewColumns, 1)
 		col := alter.Specs[0].NewColumns[0]
 		require.NotNil(t, col.Tp)
-		fd, err := fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+		fd, err := c.fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
 		require.NoError(t, err)
 		return fd
 	}
@@ -439,6 +475,96 @@ func TestAlterTableTypes(t *testing.T) {
 			require.Equal(t, want, addColumnFieldDescription(t, tc.colDef))
 
 			require.Equal(t, wantFieldDescription(false), addColumnFieldDescription(t, tc.colDef+" NOT NULL"))
+		})
+	}
+}
+
+func TestAlterTableAddColumnDefault(t *testing.T) {
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
+	// want is nil for a column with no default, and for one whose default we decline to translate
+	for _, tc := range []struct {
+		name   string
+		colDef string
+		want   *string
+	}{
+		// integers, including the unary sign wrapper the parser emits for signed literals
+		{name: "int", colDef: "INT DEFAULT 5", want: new("5")},
+		{name: "int negative", colDef: "INT DEFAULT -1", want: new("-1")},
+		{name: "int explicit positive", colDef: "INT DEFAULT +7", want: new("7")},
+		{name: "int not null", colDef: "INT NOT NULL DEFAULT 0", want: new("0")},
+		{name: "bigint unsigned max", colDef: "BIGINT UNSIGNED DEFAULT 18446744073709551615", want: new("18446744073709551615")},
+		// the magnitude exceeds int64, so it arrives as a uint64 datum behind the unary minus
+		{name: "bigint min", colDef: "BIGINT DEFAULT -9223372036854775808", want: new("-9223372036854775808")},
+		{name: "boolean true", colDef: "TINYINT(1) DEFAULT TRUE", want: new("1")},
+		{name: "boolean false", colDef: "TINYINT(1) DEFAULT FALSE", want: new("0")},
+
+		// scale is preserved: the parser hands these over as *types.MyDecimal
+		{name: "decimal", colDef: "DECIMAL(10,2) DEFAULT 1.50", want: new("1.50")},
+		{name: "double", colDef: "DOUBLE DEFAULT 3.14", want: new("3.14")},
+		{name: "double negative", colDef: "DOUBLE DEFAULT -3.14", want: new("-3.14")},
+		{name: "double exponent", colDef: "DOUBLE DEFAULT 1e5", want: new("100000")},
+
+		// strings, quoted with SQL doubling so the literal is dialect neutral
+		{name: "varchar", colDef: "VARCHAR(10) DEFAULT 'abc'", want: new("'abc'")},
+		{name: "varchar empty", colDef: "VARCHAR(10) DEFAULT ''", want: new("''")},
+		{name: "varchar with quote", colDef: "VARCHAR(10) DEFAULT 'it''s'", want: new("'it''s'")},
+		{name: "varchar with charset", colDef: "VARCHAR(10) CHARACTER SET utf8mb4 DEFAULT 'x'", want: new("'x'")},
+		{name: "date", colDef: "DATE DEFAULT '2020-01-01'", want: new("'2020-01-01'")},
+		{name: "enum", colDef: "ENUM('a','b') DEFAULT 'a'", want: new("'a'")},
+
+		// declined: no default at all, or one we refuse to translate
+		{name: "no default", colDef: "INT", want: nil},
+		{name: "null default", colDef: "INT DEFAULT NULL", want: nil},
+		{name: "current timestamp", colDef: "DATETIME DEFAULT CURRENT_TIMESTAMP", want: nil},
+		{name: "now", colDef: "DATETIME DEFAULT NOW()", want: nil},
+		{name: "current timestamp on update", colDef: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", want: nil},
+		{name: "function call", colDef: "CHAR(36) DEFAULT (UUID())", want: nil},
+		{name: "bit literal", colDef: "BIT(8) DEFAULT b'101'", want: nil},
+		// backslashes and control characters escape differently across dialects
+		{name: "string with backslash", colDef: `VARCHAR(10) DEFAULT 'a\\b'`, want: nil},
+		{name: "string with tab", colDef: `VARCHAR(10) DEFAULT 'a\tb'`, want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmts, warns, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+tc.colDef))
+			require.NoError(t, err)
+			require.Empty(t, warns)
+			require.Len(t, stmts, 1)
+			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+
+			fd, err := c.fieldDescriptionFromMysqlColumn(col, true, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, fd.DefaultExpr)
+		})
+	}
+}
+
+// Enums and sets become an ordinal or bitmask without row metadata, so the member name MySQL
+// gives as the default no longer describes a value the destination column can hold.
+func TestAlterTableAddColumnDefaultEnumSetWithoutRowMetadata(t *testing.T) {
+	lit := func(s string) *string { return &s }
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+
+	for _, tc := range []struct {
+		name        string
+		colDef      string
+		rowMetadata bool
+		want        *string
+	}{
+		{name: "enum with row metadata", colDef: "ENUM('a','b') DEFAULT 'b'", rowMetadata: true, want: lit("'b'")},
+		{name: "set with row metadata", colDef: "SET('x','y') DEFAULT 'x,y'", rowMetadata: true, want: lit("'x,y'")},
+		{name: "enum without row metadata", colDef: "ENUM('a','b') DEFAULT 'b'", want: nil},
+		{name: "set without row metadata", colDef: "SET('x','y') DEFAULT 'x,y'", want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stmts, _, err := parseSQL(parser.New(), []byte("ALTER TABLE t ADD COLUMN c "+tc.colDef))
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			col := stmts[0].(*ast.AlterTableStmt).Specs[0].NewColumns[0]
+
+			fd, err := c.fieldDescriptionFromMysqlColumn(col, tc.rowMetadata, shared.InternalVersion_Latest)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, fd.DefaultExpr)
 		})
 	}
 }

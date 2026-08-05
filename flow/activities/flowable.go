@@ -1373,6 +1373,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	slotMetricGauges.RestartToConfirmedMBGauge = a.OtelManager.Metrics.RestartToConfirmedMBGauge
 	slotMetricGauges.ConfirmedToCurrentMBGauge = a.OtelManager.Metrics.ConfirmedToCurrentMBGauge
 	slotMetricGauges.SafeWalSizeGauge = a.OtelManager.Metrics.SafeWalSizeGauge
+	slotMetricGauges.LogSpace = a.OtelManager.Metrics.LogSpace
 	slotMetricGauges.SlotActiveGauge = a.OtelManager.Metrics.SlotActiveGauge
 	slotMetricGauges.WalSenderStateGauge = a.OtelManager.Metrics.WalSenderStateGauge
 	slotMetricGauges.WalStatusGauge = a.OtelManager.Metrics.WalStatusGauge

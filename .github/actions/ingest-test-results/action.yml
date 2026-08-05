@@ -64,7 +64,7 @@ runs:
           "$O11Y_QUERY_ENDPOINT" \
           --data-binary @logs/normalized-test-results.ndjson \
           | tee upload.log
-        WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r)
+        WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r || true)
         if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then
             echo "No results uploaded. Query client logs:"
             cat upload.log

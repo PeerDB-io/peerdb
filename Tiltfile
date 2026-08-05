@@ -154,57 +154,64 @@ local_resource(
     'setup-postgres-peer',
     cmd='./local_provision_scripts/setup-postgres-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-postgres']
+    resource_deps=['flow-api', 'provision-postgres']
 )
 
 local_resource(
     'setup-postgres2-peer',
     cmd='./local_provision_scripts/setup-postgres2-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-postgres2'],
+    resource_deps=['flow-api', 'provision-postgres2'],
 )
 
 local_resource(
     'setup-clickhouse-peer',
     cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-clickhouse'],
+    resource_deps=['flow-api', 'provision-clickhouse'],
 )
 
 local_resource(
     'setup-clickhouse-cluster-peer',
     cmd='./local_provision_scripts/setup-clickhouse-cluster-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-clickhouse-cluster'],
+    resource_deps=['flow-api', 'provision-clickhouse-cluster'],
 )
 
 local_resource(
     'setup-mongodb-peer',
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mongodb'],
+    resource_deps=['flow-api', 'provision-mongodb'],
 )
 
 local_resource(
     'setup-mysql-gtid-peer',
     cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mysql-gtid'],
+    resource_deps=['flow-api', 'provision-mysql-gtid'],
 )
 
 local_resource(
     'setup-mysql-pos-peer',
     cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mysql-pos'],
+    resource_deps=['flow-api', 'provision-mysql-pos'],
 )
 
 local_resource(
     'setup-mariadb-peer',
     cmd='./local_provision_scripts/setup-mariadb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mariadb'],
+    resource_deps=['flow-api', 'provision-mariadb'],
 )
+
+# CI (tilt-flow.yml) exports the ancillary image pins as empty strings when
+# their workflow inputs are omitted, and compose interpolation lets a
+# set-but-empty process variable shadow the env_file fallbacks that
+# generate-test-environment.sh resolves into ancillary.env.
+for var in [k for k in os.environ.keys() if k.endswith('_IMAGE') and os.environ[k] == '']:
+    os.unsetenv(var)
 
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
@@ -276,6 +283,7 @@ dc_resource('dozzle', labels=['Monitoring'], links=[
 
 dc_resource('toxiproxy', labels=['Ancillary-TestInfra'], auto_init=False)
 dc_resource('openssh', labels=['Ancillary-TestInfra'], auto_init=False)
+dc_resource('otel-collector', labels=['Ancillary-TestInfra'], auto_init=False)
 
 # Cleanup
 
@@ -326,6 +334,18 @@ def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_ru
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
         allow_parallel=True,
+    )
+
+def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
+    overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
+    test_run_arg = (' -run %s' % test_run) if test_run else ''
+    local_resource(
+        'pkg_' + pkg,
+        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        labels=['Test'],
+        auto_init=False,
+        resource_deps=extra_deps,
+        # some tests are stateful so no parallel
     )
 
 # These are overrides to provide different MySQL flavors with the same test definitions.
@@ -404,3 +424,9 @@ connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name
 connector_test('mongo', ['provision-mongodb'])
 
 connector_test('clickhouse', ['provision-clickhouse'])
+
+# flow/pkg module tests
+
+pkg_test('mongo', ['provision-mongodb'])
+
+pkg_test('clickhouse', ['provision-clickhouse'])

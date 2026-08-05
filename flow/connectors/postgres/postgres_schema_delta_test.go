@@ -247,6 +247,132 @@ func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testin
 	require.Equal(t, expectedTableSchema, output[tableName])
 }
 
+// TestAddedColumnCatalogInfo pins down the value a live Postgres stores for rows that predate an
+// added column, and how much of it survives translation. want is empty for values we decline.
+func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
+	enumType := s.schema + ".mood"
+	_, err := s.connector.conn.Exec(s.t.Context(), "CREATE TYPE "+enumType+" AS ENUM ('sad','ok')")
+	require.NoError(s.t, err)
+
+	// the case name doubles as the column name
+	for _, tc := range []struct {
+		name         string
+		colDef       string
+		postAlter    string
+		qkind        types.QValueKind
+		want         string
+		wantNonEmpty bool
+		notNull      bool
+	}{
+		// Integer missing values are exposed directly in their text form.
+		{name: "c_int", colDef: "int DEFAULT 5", qkind: types.QValueKindInt32, want: "5"},
+		{name: "c_int_neg", colDef: "int DEFAULT -1", qkind: types.QValueKindInt32, want: "-1"},
+		{name: "c_int_zero", colDef: "int DEFAULT 0", qkind: types.QValueKindInt32, want: "0"},
+		{name: "c_int_nn", colDef: "int NOT NULL DEFAULT 7", qkind: types.QValueKindInt32, want: "7", notNull: true},
+		{name: "c_smallint", colDef: "smallint DEFAULT -32768", qkind: types.QValueKindInt16, want: "-32768"},
+		{
+			name: "c_bigint", colDef: "bigint DEFAULT 9223372036854775807", qkind: types.QValueKindInt64,
+			want: "9223372036854775807",
+		},
+
+		// PostgreSQL preserves the declared scale in the stored numeric value.
+		{name: "c_numeric", colDef: "numeric(10,2) DEFAULT 1.50", qkind: types.QValueKindNumeric, want: "1.50"},
+		{name: "c_float8", colDef: "double precision DEFAULT 2.5", qkind: types.QValueKindFloat64, want: "2.5"},
+		{name: "c_float4", colDef: "real DEFAULT -1.5", qkind: types.QValueKindFloat32, want: "-1.5"},
+
+		{name: "c_bool", colDef: "boolean DEFAULT true", qkind: types.QValueKindBoolean, want: "true"},
+		{name: "c_bool_false", colDef: "boolean DEFAULT false", qkind: types.QValueKindBoolean, want: "false"},
+
+		// strings, requoted with quote doubling and backslash escaping for the destination
+		{name: "c_text", colDef: "text DEFAULT 'hello'", qkind: types.QValueKindString, want: "'hello'"},
+		{name: "c_text_empty", colDef: "text DEFAULT ''", qkind: types.QValueKindString, want: "''"},
+		{name: "c_text_quote", colDef: "text DEFAULT 'it''s'", qkind: types.QValueKindString, want: "'it''s'"},
+		// Postgres stores the backslash raw; the destination literal escapes it.
+		{name: "c_backslash", colDef: `text DEFAULT E'a\\b'`, qkind: types.QValueKindString, want: `'a\\b'`},
+		{name: "c_varchar", colDef: "varchar(10) DEFAULT 'abc'", qkind: types.QValueKindString, want: "'abc'"},
+		{name: "c_char", colDef: "char(3) DEFAULT 'abc'", qkind: types.QValueKindString, want: "'abc'"},
+		{name: "c_enum", colDef: enumType + " DEFAULT 'ok'", qkind: types.QValueKindEnum, want: "'ok'"},
+		{
+			name: "c_uuid", colDef: "uuid DEFAULT '00000000-0000-0000-0000-000000000001'", qkind: types.QValueKindUUID,
+			want: "'00000000-0000-0000-0000-000000000001'",
+		},
+		{name: "c_jsonb", colDef: `jsonb DEFAULT '{"a": 1}'`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
+		{name: "c_inet", colDef: "inet DEFAULT '10.0.0.1'", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
+		{name: "c_date", colDef: "date DEFAULT '2020-01-02'", qkind: types.QValueKindDate, want: "'2020-01-02'"},
+		{
+			name: "c_ts", colDef: "timestamp DEFAULT '2020-01-02 03:04:05.678'", qkind: types.QValueKindTimestamp,
+			want: "'2020-01-02 03:04:05.678'",
+		},
+		// Our connections run with timezone=UTC, so PostgreSQL shifts the stored instant to UTC.
+		{
+			name: "c_tstz", colDef: "timestamptz DEFAULT '2020-01-02 03:04:05+02'", qkind: types.QValueKindTimestampTZ,
+			want: "'2020-01-02 01:04:05'",
+		},
+
+		// Non-volatile expressions are evaluated once and stored as the value for pre-existing rows.
+		{name: "c_now", colDef: "timestamptz DEFAULT now()", qkind: types.QValueKindTimestampTZ, wantNonEmpty: true},
+		{name: "c_expr", colDef: "int DEFAULT (2 + 3)", qkind: types.QValueKindInt32, want: "5"},
+		{name: "c_concat", colDef: "text DEFAULT 'a' || 'b'", qkind: types.QValueKindString, want: "'ab'"},
+		{
+			name: "c_changed", colDef: "text DEFAULT 'old'", postAlter: "SET DEFAULT 'current'",
+			qkind: types.QValueKindString, want: "'old'",
+		},
+		{
+			name: "c_dropped", colDef: "text DEFAULT 'old'", postAlter: "DROP DEFAULT",
+			qkind: types.QValueKindString, want: "'old'",
+		},
+
+		// No value is needed for NULL, while volatile/generated values require a physical rewrite and
+		// therefore cannot be represented by one destination default.
+		{name: "c_none", colDef: "int", qkind: types.QValueKindInt32},
+		{name: "c_null", colDef: "int DEFAULT NULL", qkind: types.QValueKindInt32},
+		{name: "c_serial", colDef: "serial", qkind: types.QValueKindInt32, notNull: true},
+		{name: "c_identity", colDef: "int GENERATED BY DEFAULT AS IDENTITY", qkind: types.QValueKindInt32, notNull: true},
+		{name: "c_generated", colDef: "int GENERATED ALWAYS AS (base * 2) STORED", qkind: types.QValueKindInt32},
+
+		// declined: a constant whose text form does not carry over
+		{name: "c_array", colDef: "int[] DEFAULT '{1,2}'", qkind: types.QValueKindArrayInt32},
+		{name: "c_bytea", colDef: `bytea DEFAULT '\x0001'`, qkind: types.QValueKindBytes},
+		{name: "c_interval", colDef: "interval DEFAULT '1 day'", qkind: types.QValueKindInterval},
+		{name: "c_time", colDef: "time DEFAULT '13:14:15'", qkind: types.QValueKindTime},
+		{name: "c_nan", colDef: "numeric DEFAULT 'NaN'", qkind: types.QValueKindNumeric},
+	} {
+		s.t.Run(tc.name, func(t *testing.T) {
+			tableName := fmt.Sprintf("%s.added_column_catalog_info_%s", s.schema, tc.name)
+			_, err := s.connector.conn.Exec(t.Context(), fmt.Sprintf("CREATE TABLE %s(base int)", tableName))
+			require.NoError(t, err)
+			_, err = s.connector.conn.Exec(t.Context(), fmt.Sprintf("INSERT INTO %s VALUES (2)", tableName))
+			require.NoError(t, err)
+			_, err = s.connector.conn.Exec(t.Context(),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, tc.name, tc.colDef))
+			require.NoError(t, err)
+			if tc.postAlter != "" {
+				_, err = s.connector.conn.Exec(t.Context(),
+					fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s %s", tableName, tc.name, tc.postAlter))
+				require.NoError(t, err)
+			}
+
+			var relID uint32
+			require.NoError(t, s.connector.conn.QueryRow(t.Context(), "SELECT $1::regclass::oid", tableName).Scan(&relID))
+
+			catalogInfo, err := s.connector.fetchAddedColumnCatalogInfo(t.Context(), relID, []string{tc.name})
+			require.NoError(t, err)
+			require.Len(t, catalogInfo, 1)
+			require.Equal(t, tc.notNull, catalogInfo[tc.name].notNull)
+
+			var literal string
+			if missingValue := catalogInfo[tc.name].missingValue; missingValue != nil {
+				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind)
+			}
+			if tc.wantNonEmpty {
+				require.NotEmpty(t, literal)
+			} else {
+				require.Equal(t, tc.want, literal)
+			}
+		})
+	}
+}
+
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite)
 }

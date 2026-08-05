@@ -121,6 +121,13 @@ func NewSourceTableMissingErrorInfo() *rpc.ErrorInfo {
 	}
 }
 
+func NewSourceValidationFailedErrorInfo() *rpc.ErrorInfo {
+	return &rpc.ErrorInfo{
+		Reason: common.ErrorInfoReasonSourceValidationFailed,
+		Domain: common.ErrorInfoDomain,
+	}
+}
+
 // NewSourceTableMissingPreconditionFailure builds the per-table breakdown detail
 // that accompanies the SOURCE_TABLE_MISSING ErrorInfo on FailedPrecondition.
 func NewSourceTableMissingPreconditionFailure(tables []common.QualifiedTable) protoadapt.MessageV1 {

@@ -1,4 +1,4 @@
-package objectstore
+package connclickhouse
 
 import (
 	"net/http"
@@ -9,26 +9,26 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
+
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 )
 
 // S3 Tests:
 
-func newFakeS3Client(t *testing.T, server *httptest.Server) *s3.Client {
-	t.Helper()
-	return s3.New(s3.Options{
-		Region:       "us-east-1",
-		BaseEndpoint: aws.String(server.URL),
-		UsePathStyle: true,
-		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
-		HTTPClient:   server.Client(),
-	})
+func newFakeS3Store(server *httptest.Server, bucket, prefix string) *s3StagingStore {
+	return &s3StagingStore{
+		creds: utils.NewStaticAWSCredentialsProvider(utils.AWSCredentials{
+			EndpointUrl: aws.String(server.URL),
+			AWS:         aws.Credentials{AccessKeyID: "test", SecretAccessKey: "test"},
+		}, "us-east-1", nil, ""),
+		bucket: bucket,
+		prefix: prefix,
+	}
 }
 
-func TestNewS3StagingValidator_HappyPath(t *testing.T) {
+func TestS3StagingStoreValidate_HappyPath(t *testing.T) {
 	var puts, deletes atomic.Int32
 	var putPath, deletePath atomic.Value
 
@@ -49,8 +49,7 @@ func TestNewS3StagingValidator_HappyPath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeS3Client(t, server)
-	err := NewS3StagingValidator(client, "my-bucket", "stage/1")(t.Context())
+	err := newFakeS3Store(server, "my-bucket", "stage/1").Validate(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int32(1), puts.Load(), "expected exactly one PUT")
 	require.Equal(t, int32(1), deletes.Load(), "expected exactly one DELETE")
@@ -64,7 +63,7 @@ func TestNewS3StagingValidator_HappyPath(t *testing.T) {
 	)
 }
 
-func TestNewS3StagingValidator_PutFailure(t *testing.T) {
+func TestS3StagingStoreValidate_PutFailure(t *testing.T) {
 	var puts, deletes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
@@ -77,14 +76,13 @@ func TestNewS3StagingValidator_PutFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeS3Client(t, server)
-	err := NewS3StagingValidator(client, "b", "p")(t.Context())
+	err := newFakeS3Store(server, "b", "p").Validate(t.Context())
 	require.ErrorContains(t, err, "failed to write to bucket")
 	require.Positive(t, puts.Load(), "PUT must have been attempted")
 	require.Equal(t, int32(0), deletes.Load(), "DELETE must not run when PUT fails")
 }
 
-func TestNewS3StagingValidator_DeleteFailure(t *testing.T) {
+func TestS3StagingStoreValidate_DeleteFailure(t *testing.T) {
 	var deletes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -97,13 +95,12 @@ func TestNewS3StagingValidator_DeleteFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeS3Client(t, server)
-	err := NewS3StagingValidator(client, "b", "p")(t.Context())
+	err := newFakeS3Store(server, "b", "p").Validate(t.Context())
 	require.ErrorContains(t, err, "failed to delete from bucket")
 	require.Positive(t, deletes.Load(), "DELETE must have been attempted")
 }
 
-func TestNewS3StagingValidator_EmptyPrefix(t *testing.T) {
+func TestS3StagingStoreValidate_EmptyPrefix(t *testing.T) {
 	var seenPath atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenPath.Store(r.URL.Path)
@@ -115,8 +112,7 @@ func TestNewS3StagingValidator_EmptyPrefix(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeS3Client(t, server)
-	require.NoError(t, NewS3StagingValidator(client, "bkt", "")(t.Context()))
+	require.NoError(t, newFakeS3Store(server, "bkt", "").Validate(t.Context()))
 
 	path, _ := seenPath.Load().(string)
 	require.True(t, strings.HasPrefix(path, "/bkt/"+stagingCheckObjectPrefix), "got %q", path)
@@ -125,7 +121,7 @@ func TestNewS3StagingValidator_EmptyPrefix(t *testing.T) {
 
 // GCS tests:
 
-func newFakeGCSClient(t *testing.T, server *httptest.Server) *storage.Client {
+func newFakeGCSStore(t *testing.T, server *httptest.Server, bucket, prefix string) *gcsStagingStore {
 	t.Helper()
 	// STORAGE_EMULATOR_HOST disables auth in the storage SDK and routes the
 	// JSON API to the test server.
@@ -138,10 +134,11 @@ func newFakeGCSClient(t *testing.T, server *httptest.Server) *storage.Client {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
-	return client
+
+	return &gcsStagingStore{client: client, bucket: bucket, prefix: prefix}
 }
 
-func TestNewGCSStagingValidator_HappyPath(t *testing.T) {
+func TestGCSStagingStoreValidate_HappyPath(t *testing.T) {
 	var uploads, deletes atomic.Int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -164,14 +161,13 @@ func TestNewGCSStagingValidator_HappyPath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeGCSClient(t, server)
-	err := NewGCSStagingValidator(client, "my-bucket", "stage/1")(t.Context())
+	err := newFakeGCSStore(t, server, "my-bucket", "stage/1").Validate(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int32(1), uploads.Load(), "expected exactly one upload")
 	require.Equal(t, int32(1), deletes.Load(), "expected exactly one delete")
 }
 
-func TestNewGCSStagingValidator_UploadFailure(t *testing.T) {
+func TestGCSStagingStoreValidate_UploadFailure(t *testing.T) {
 	var deletes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -188,13 +184,12 @@ func TestNewGCSStagingValidator_UploadFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeGCSClient(t, server)
-	err := NewGCSStagingValidator(client, "b", "p")(t.Context())
+	err := newFakeGCSStore(t, server, "b", "p").Validate(t.Context())
 	require.ErrorContains(t, err, "failed to finalize test object in GCS")
 	require.Equal(t, int32(0), deletes.Load(), "DELETE must not run when upload fails")
 }
 
-func TestNewGCSStagingValidator_DeleteFailure(t *testing.T) {
+func TestGCSStagingStoreValidate_DeleteFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/b/"):
@@ -211,7 +206,6 @@ func TestNewGCSStagingValidator_DeleteFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newFakeGCSClient(t, server)
-	err := NewGCSStagingValidator(client, "b", "p")(t.Context())
+	err := newFakeGCSStore(t, server, "b", "p").Validate(t.Context())
 	require.ErrorContains(t, err, "failed to delete test object from GCS")
 }

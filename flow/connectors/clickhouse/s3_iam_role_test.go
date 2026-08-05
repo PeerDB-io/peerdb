@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
@@ -43,8 +44,8 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 
 	conn, err := NewClickHouseConnector(ctx, nil,
 		&protos.ClickhouseConfig{
-			Host:       internal.ClickHouseTestHost(),
-			Port:       internal.ClickHouseTestPort(),
+			Host:       testutil.ClickHouseTestHost(),
+			Port:       testutil.ClickHouseTestPort(),
 			Database:   "default",
 			DisableTls: true,
 		})

@@ -77,9 +77,23 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
-	return peerdb_clickhouse.ValidateClickHousePeer(
-		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
-	)
+	var stagingAccessMethod string
+	switch c.staging.(type) {
+	case *s3StagingStore:
+		stagingAccessMethod = "S3"
+	case *gcsStagingStore:
+		stagingAccessMethod = "URL"
+	}
+	if err := peerdb_clickhouse.ValidateClickHousePeer(
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, stagingAccessMethod,
+	); err != nil {
+		return err
+	}
+
+	if err := c.staging.Validate(ctx); err != nil {
+		return fmt.Errorf("failed to validate staging bucket: %w", err)
+	}
+	return nil
 }
 
 // configureDirectoryTLS configures the tls.Config by loading certificate files

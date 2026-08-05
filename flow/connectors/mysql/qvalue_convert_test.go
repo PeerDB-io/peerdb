@@ -31,6 +31,19 @@ func TestQkindFromMysqlColumnTypeMariaDB(t *testing.T) {
 	}
 }
 
+func TestQkindFromMysqlColumnTypeCompressed(t *testing.T) {
+	for _, ct := range []string{
+		"varchar(100) /*M!100301 COMPRESSED*/",
+		"text /*M!100301 COMPRESSED*/",
+		"blob /*M!100301 COMPRESSED*/",
+	} {
+		t.Run(ct, func(t *testing.T) {
+			_, err := QkindFromMysqlColumnType(ct, true, shared.InternalVersion_Latest)
+			require.ErrorContains(t, err, "COMPRESSED")
+		})
+	}
+}
+
 func TestQkindFromMysqlType_Bit(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

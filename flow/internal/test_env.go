@@ -52,14 +52,6 @@ func loadRootCAFromEnv(envVar string) *string {
 	return &s
 }
 
-func ClickHouseTestHost() string {
-	return GetEnvString("CI_CLICKHOUSE_HOST", "localhost")
-}
-
-func ClickHouseTestPort() uint32 {
-	return uint32(getEnvUint[uint16]("CI_CLICKHOUSE_NATIVE_PORT", 9000))
-}
-
 func GetAncillaryPostgresConfigFromEnv() *protos.PostgresConfig {
 	return &protos.PostgresConfig{
 		Host:       GetEnvString("PG_HOST", "localhost"),
@@ -293,36 +285,4 @@ func RDSIAMAuthMySQLTestConnectionInfo(t *testing.T) RDSIAMAuthTestConnectionInf
 	require.NotEmpty(t, info.ProxyHost, "missing FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY env var")
 	require.NotEmpty(t, info.Username, "missing FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL env var")
 	return info
-}
-
-type MongoTestCredentials struct {
-	URI      string
-	Username string
-	Password string
-}
-
-func MongoAdminTestCredentials(t *testing.T) MongoTestCredentials {
-	t.Helper()
-	creds := MongoTestCredentials{
-		URI:      os.Getenv("CI_MONGO_ADMIN_URI"),
-		Username: os.Getenv("CI_MONGO_ADMIN_USERNAME"),
-		Password: os.Getenv("CI_MONGO_ADMIN_PASSWORD"),
-	}
-	require.NotEmpty(t, creds.URI, "missing CI_MONGO_ADMIN_URI env var")
-	require.NotEmpty(t, creds.Username, "missing CI_MONGO_ADMIN_USERNAME env var")
-	require.NotEmpty(t, creds.Password, "missing CI_MONGO_ADMIN_PASSWORD env var")
-	return creds
-}
-
-func MongoUserTestCredentials(t *testing.T) MongoTestCredentials {
-	t.Helper()
-	creds := MongoTestCredentials{
-		URI:      os.Getenv("CI_MONGO_URI"),
-		Username: os.Getenv("CI_MONGO_USERNAME"),
-		Password: os.Getenv("CI_MONGO_PASSWORD"),
-	}
-	require.NotEmpty(t, creds.URI, "missing CI_MONGO_URI env var")
-	require.NotEmpty(t, creds.Username, "missing CI_MONGO_USERNAME env var")
-	require.NotEmpty(t, creds.Password, "missing CI_MONGO_PASSWORD env var")
-	return creds
 }

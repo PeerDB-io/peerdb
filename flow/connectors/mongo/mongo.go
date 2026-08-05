@@ -102,7 +102,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
-	if sshTunnel != nil && sshTunnel.Client != nil {
+	if sshTunnel.IsActive() {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.DialContext)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
