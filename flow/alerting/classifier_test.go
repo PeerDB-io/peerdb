@@ -1072,7 +1072,7 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMySQLSecureTransportRequiredShouldBeConnectivity(t *testing.T) {
+func TestMySQLSecureTransportRequired(t *testing.T) {
 	mysqlErr := &mysql.MyError{
 		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
 		State:   "HY000",
@@ -1080,7 +1080,7 @@ func TestMySQLSecureTransportRequiredShouldBeConnectivity(t *testing.T) {
 	}
 	err := exceptions.NewMySQLExecuteError(fmt.Errorf("handleAuthResult: %w", mysqlErr))
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
-	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyMySQLSecureTransportRequired, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "3159",
