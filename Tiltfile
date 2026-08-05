@@ -154,56 +154,56 @@ local_resource(
     'setup-postgres-peer',
     cmd='./local_provision_scripts/setup-postgres-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-postgres']
+    resource_deps=['flow-api', 'provision-postgres']
 )
 
 local_resource(
     'setup-postgres2-peer',
     cmd='./local_provision_scripts/setup-postgres2-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-postgres2'],
+    resource_deps=['flow-api', 'provision-postgres2'],
 )
 
 local_resource(
     'setup-clickhouse-peer',
     cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-clickhouse'],
+    resource_deps=['flow-api', 'provision-clickhouse'],
 )
 
 local_resource(
     'setup-clickhouse-cluster-peer',
     cmd='./local_provision_scripts/setup-clickhouse-cluster-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-clickhouse-cluster'],
+    resource_deps=['flow-api', 'provision-clickhouse-cluster'],
 )
 
 local_resource(
     'setup-mongodb-peer',
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mongodb'],
+    resource_deps=['flow-api', 'provision-mongodb'],
 )
 
 local_resource(
     'setup-mysql-gtid-peer',
     cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mysql-gtid'],
+    resource_deps=['flow-api', 'provision-mysql-gtid'],
 )
 
 local_resource(
     'setup-mysql-pos-peer',
     cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mysql-pos'],
+    resource_deps=['flow-api', 'provision-mysql-pos'],
 )
 
 local_resource(
     'setup-mariadb-peer',
     cmd='./local_provision_scripts/setup-mariadb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-mariadb'],
+    resource_deps=['flow-api', 'provision-mariadb'],
 )
 
 # CI (tilt-flow.yml) exports the ancillary image pins as empty strings when
@@ -428,3 +428,5 @@ connector_test('clickhouse', ['provision-clickhouse'])
 # flow/pkg module tests
 
 pkg_test('mongo', ['provision-mongodb'])
+
+pkg_test('clickhouse', ['provision-clickhouse'])
