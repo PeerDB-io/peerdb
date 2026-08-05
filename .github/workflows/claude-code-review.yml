@@ -46,3 +46,9 @@ jobs:
       - name: Print Claude execution output
         if: always()
         run: cat /home/runner/work/_temp/claude-execution-output.json || echo "No execution output found"
+
+      - name: Fail if the review was skipped
+        if: steps.claude-review.outputs.skipped_due_to_workflow_validation_mismatch == 'true'
+        run: |
+          echo "::error::Claude review did not run: this PR modifies its own review workflow, so claude-code-action skipped the token exchange. This PR needs a manual review."
+          exit 1
