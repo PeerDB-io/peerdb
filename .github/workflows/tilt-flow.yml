@@ -209,6 +209,9 @@ jobs:
           # Empty = the event's default checkout; callers on pull_request_target
           # pass the PR head SHA here.
           ref: ${{ inputs.checkout_ref }}
+          # checkout refuses fork code under pull_request_target unless opted in;
+          # flow.yml's external-contributor environment gate is the human review.
+          allow-unsafe-pr-checkout: true
 
       # Combination id for test-results ingestion steps
       - name: Compute run identity
