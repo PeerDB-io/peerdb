@@ -739,6 +739,7 @@ var (
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connmongo.MongoConnector{}
+	_ QRepPullConnector = &conncockroachdb.CockroachDBConnector{}
 
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
@@ -811,6 +812,8 @@ var (
 
 	_ ReplicationMechanismInUseConnector = &connmysql.MySqlConnector{}
 
-	_ ValidationConnector = &conncockroachdb.CockroachDBConnector{}
-	_ GetVersionConnector = &conncockroachdb.CockroachDBConnector{}
+	_ ValidationConnector     = &conncockroachdb.CockroachDBConnector{}
+	_ GetVersionConnector     = &conncockroachdb.CockroachDBConnector{}
+	_ GetTableSchemaConnector = &conncockroachdb.CockroachDBConnector{}
+	_ GetSchemaConnector      = &conncockroachdb.CockroachDBConnector{}
 )
