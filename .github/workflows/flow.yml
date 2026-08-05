@@ -39,15 +39,15 @@ jobs:
         run: echo "Run approved for ${{ github.event_name }}."
 
   flow_test:
-    name: flow_test (pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, ch-${{ matrix.db-version.ch }})
+    name: flow_test (pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, ch-${{ matrix.db-version.ch }}, crdb-${{ matrix.db-version.crdb }})
     needs: [gate]
     strategy:
       fail-fast: false
       matrix:
         db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts'},
-          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable'},
-          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest'},
+          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts', crdb: 'lts'},
+          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable', crdb: 'stable'},
+          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest', crdb: 'latest'},
         ]
         # Per-version container settings.
         # Wrapped in a single-item list because matrix values must be arrays; it stays
@@ -64,6 +64,10 @@ jobs:
               lts: clickhouse/clickhouse-server:25.8.28.1
               stable: clickhouse/clickhouse-server:26.3.16.16
               latest: clickhouse/clickhouse-server:latest
+            cockroachdb:
+              lts: cockroachdb/cockroach:v25.4.14
+              stable: cockroachdb/cockroach:v26.2.5
+              latest: cockroachdb/cockroach:latest
     uses: ./.github/workflows/tilt-flow.yml
     with:
       # Empty matcher to run the whole test suite until test selection is routed through flow cases.
@@ -72,15 +76,16 @@ jobs:
       # otel-collector goes first: listing it turns on the flow services' OTel
       # export (ENABLE_OTEL_METRICS in tilt-flow.yml), and they panic on export
       # failure, so it must be up before they start.
-      ancillary_services: otel-collector postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb ${{ matrix.db-version.mysql }} mariadb toxiproxy openssh
+      ancillary_services: otel-collector postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb cockroachdb ${{ matrix.db-version.mysql }} mariadb toxiproxy openssh
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      run_label: pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}
+      run_label: pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}-crdb${{ matrix.db-version.crdb }}
       postgres_image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
       mysql_gtid_image: ${{ matrix.version-configs.mysql['mysql-gtid'] }}
       mysql_pos_image: ${{ matrix.version-configs.mysql['mysql-pos'] }}
       mariadb_image: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb] }}
       mongodb_image: mongo:${{ matrix.db-version.mongo }}
       clickhouse_image: ${{ matrix.version-configs.clickhouse[matrix.db-version.ch] }}
+      cockroachdb_image: ${{ matrix.version-configs.cockroachdb[matrix.db-version.crdb] }}
       # Point the tests at this combination's flavors; overrides what they load
       # from .env. The ports must match CI_MYSQL_GTID_PORT/CI_MYSQL_POS_PORT in
       # .env.example (the CI .env is seeded from it).
