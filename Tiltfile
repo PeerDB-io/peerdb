@@ -336,6 +336,18 @@ def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_ru
         allow_parallel=True,
     )
 
+def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
+    overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
+    test_run_arg = (' -run %s' % test_run) if test_run else ''
+    local_resource(
+        'pkg_' + pkg,
+        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        labels=['Test'],
+        auto_init=False,
+        resource_deps=extra_deps,
+        # some tests are stateful so no parallel
+    )
+
 # These are overrides to provide different MySQL flavors with the same test definitions.
 mysql_gtid_vars = {
     'CI_MYSQL_PORT': resolve_env('CI_MYSQL_GTID_PORT'),
@@ -412,3 +424,7 @@ connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name
 connector_test('mongo', ['provision-mongodb'])
 
 connector_test('clickhouse', ['provision-clickhouse'])
+
+# flow/pkg module tests
+
+pkg_test('mongo', ['provision-mongodb'])
