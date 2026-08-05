@@ -33,7 +33,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -1228,122 +1227,6 @@ func (s APITestSuite) TestScripts() {
 	}
 }
 
-func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
-	if _, ok := s.source.(*MongoSource); !ok {
-		s.t.Skip("only for MongoDB")
-	}
-
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	err := adminClient.Database(Schema(s)).CreateCollection(s.t.Context(), "t1")
-	require.NoError(s.t, err)
-
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "mongo_validation_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-
-	// test retention hours (< 24 hours) validation failure
-	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "replSetResizeOplog", Value: 1},
-		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
-	}).Err()
-	require.NoError(s.t, err)
-	res2, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.Nil(s.t, res2)
-	require.Error(s.t, err)
-	st, ok := status.FromError(err)
-	require.True(s.t, ok)
-	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Contains(s.t, st.Message(), "oplog retention must be set to >= 24 hours")
-
-	// test retention hours (>= 24 hours) validation success
-	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "replSetResizeOplog", Value: 1},
-		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours},
-	}).Err()
-	require.NoError(s.t, err)
-	res1, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, res1)
-}
-
-func (s APITestSuite) TestMongoDBUserRolesValidation() {
-	if _, ok := s.source.(*MongoSource); !ok {
-		s.t.Skip("only for MongoDB")
-	}
-
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	user := "test_role_validation_user"
-	pass := "test_role_validation_pass"
-	mongoConfig := s.source.GeneratePeer(s.t).GetMongoConfig()
-	mongoConfig.Username = user
-	mongoConfig.Password = pass
-	peer := &protos.Peer{
-		Name:   AddSuffix(s, "mongo"),
-		Type:   protos.DBType_MONGO,
-		Config: &protos.Peer_MongoConfig{MongoConfig: mongoConfig},
-	}
-
-	defer func() {
-		_ = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-			bson.E{Key: "dropUser", Value: user},
-		})
-	}()
-
-	// case 1: user without `readAnyDatabase` and `clusterMonitor` roles
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		{Key: "createUser", Value: user},
-		{Key: "pwd", Value: pass},
-		{Key: "roles", Value: bson.A{}},
-	}).Err())
-	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok := status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
-
-	// case 2: user with only `readAnyDatabase` role (missing `clusterMonitor`)
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase"}},
-	}).Err())
-	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok = status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: clusterMonitor")
-
-	// case 3: user with only `clusterMonitor` role (missing `readAnyDatabase`)
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "revokeRolesFromUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase"}},
-	}).Err())
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"clusterMonitor"}},
-	}).Err())
-	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok = status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
-
-	// case 4: user with both `readAnyDatabase` and `clusterMonitor` roles
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase", "clusterMonitor"}},
-	}).Err())
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
-}
-
 func (s APITestSuite) TestMySQLFlavorSwap() {
 	my, ok := s.source.(*MySqlSource)
 	if !ok {
@@ -1934,6 +1817,8 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
+// This is the canonical test that source validation is wired up.
+// Specific validaton tests go as integration tests in connectors or flow/pkg.
 func (s APITestSuite) TestResyncSourceTableMissing() {
 	tableNames := []string{"missing_src_a", "missing_src_b"}
 	qualifiedSourceTables := []string{AttachSchema(s, tableNames[0]), AttachSchema(s, tableNames[1])}

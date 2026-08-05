@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/stretchr/testify/require"
 )
 
 const timeZoneEnvKey = "TZ"
@@ -99,4 +101,36 @@ func ClickHouseTestPort() uint32 {
 		return 9000
 	}
 	return uint32(port)
+}
+
+type MongoTestCredentials struct {
+	URI      string
+	Username string
+	Password string
+}
+
+func MongoAdminTestCredentials(t *testing.T) MongoTestCredentials {
+	t.Helper()
+	creds := MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_ADMIN_URI"),
+		Username: os.Getenv("CI_MONGO_ADMIN_USERNAME"),
+		Password: os.Getenv("CI_MONGO_ADMIN_PASSWORD"),
+	}
+	require.NotEmpty(t, creds.URI, "missing CI_MONGO_ADMIN_URI env var")
+	require.NotEmpty(t, creds.Username, "missing CI_MONGO_ADMIN_USERNAME env var")
+	require.NotEmpty(t, creds.Password, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	return creds
+}
+
+func MongoUserTestCredentials(t *testing.T) MongoTestCredentials {
+	t.Helper()
+	creds := MongoTestCredentials{
+		URI:      os.Getenv("CI_MONGO_URI"),
+		Username: os.Getenv("CI_MONGO_USERNAME"),
+		Password: os.Getenv("CI_MONGO_PASSWORD"),
+	}
+	require.NotEmpty(t, creds.URI, "missing CI_MONGO_URI env var")
+	require.NotEmpty(t, creds.Username, "missing CI_MONGO_USERNAME env var")
+	require.NotEmpty(t, creds.Password, "missing CI_MONGO_PASSWORD env var")
+	return creds
 }
