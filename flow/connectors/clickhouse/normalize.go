@@ -460,6 +460,37 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	if len(destinationTableNames) == 0 {
+		rawRowCount, err := c.countRawRowsInBatchRange(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		if rawRowCount > 0 {
+			c.logger.Warn("[clickhouse-cdc] raw table has rows but no mapped destination tables; not advancing normalize cursor",
+				slog.Int64("lastNormBatchID", lastNormBatchID),
+				slog.Int64("endBatchID", endBatchID),
+				slog.Uint64("rawRowCount", rawRowCount))
+			return model.NormalizeResponse{}, fmt.Errorf(
+				"raw table has %d rows in batch range (%d, %d] but no destination tables to normalize",
+				rawRowCount, lastNormBatchID, endBatchID,
+			)
+		}
+
+		hasAvroStage, err := hasAvroStageInBatchRange(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+		if hasAvroStage {
+			c.logger.Warn("[clickhouse-cdc] non-empty avro stage exists but raw is empty for batch range; not advancing normalize cursor",
+				slog.Int64("lastNormBatchID", lastNormBatchID),
+				slog.Int64("endBatchID", endBatchID))
+			return model.NormalizeResponse{}, fmt.Errorf(
+				"non-empty avro stage exists for batch range (%d, %d] but raw table is empty",
+				lastNormBatchID, endBatchID,
+			)
+		}
+	}
+
 	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -668,6 +699,24 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	}
 
 	return tableNames, nil
+}
+
+func (c *ClickHouseConnector) countRawRowsInBatchRange(
+	ctx context.Context,
+	flowJobName string,
+	lastNormBatchID int64,
+	endBatchID int64,
+) (uint64, error) {
+	rawTbl := c.GetRawTableName(flowJobName)
+	q := fmt.Sprintf(
+		"SELECT count() FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), lastNormBatchID, endBatchID)
+
+	var count uint64
+	if err := c.queryRow(ctx, q).Scan(&count); err != nil {
+		return 0, fmt.Errorf("error while counting raw rows in batch range: %w", err)
+	}
+	return count, nil
 }
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(
