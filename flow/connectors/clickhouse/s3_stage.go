@@ -85,7 +85,7 @@ func hasAvroStageInBatchRange(
 			WHERE flow_job_name = $1
 			  AND sync_batch_id > $2
 			  AND sync_batch_id <= $3
-			  AND COALESCE((avro_file->>'NumRecords')::bigint, 0) > 0
+			  AND COALESCE((avro_file->>'numRecords')::bigint, 0) > 0
 		)`,
 		flowJobName, lastNormBatchID, endBatchID,
 	).Scan(&exists); err != nil {

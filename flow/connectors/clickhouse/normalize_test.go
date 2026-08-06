@@ -517,3 +517,61 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeEmptyDestinationGuard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		rawRowCount          uint64
+		hasNonEmptyAvroStage bool
+		lastNormBatchID      int64
+		endBatchID           int64
+		wantErr              string
+	}{
+		{
+			name:            "raw rows block cursor advance",
+			rawRowCount:     29,
+			lastNormBatchID: 11924,
+			endBatchID:      11925,
+			wantErr:         "raw table has 29 rows in batch range (11924, 11925] but no destination tables to normalize",
+		},
+		{
+			name:                 "non-empty avro stage blocks cursor advance",
+			hasNonEmptyAvroStage: true,
+			lastNormBatchID:      100,
+			endBatchID:           101,
+			wantErr:              "non-empty avro stage exists for batch range (100, 101] but raw table is empty",
+		},
+		{
+			name:            "truly empty batch allows cursor advance",
+			lastNormBatchID: 50,
+			endBatchID:      51,
+		},
+		{
+			name:            "raw rows take precedence over avro stage signal",
+			rawRowCount:     1,
+			hasNonEmptyAvroStage: true,
+			lastNormBatchID: 10,
+			endBatchID:      11,
+			wantErr:         "raw table has 1 rows in batch range (10, 11] but no destination tables to normalize",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := normalizeEmptyDestinationGuard(
+				tc.rawRowCount,
+				tc.hasNonEmptyAvroStage,
+				tc.lastNormBatchID,
+				tc.endBatchID,
+			)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
