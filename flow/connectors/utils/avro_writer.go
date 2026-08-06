@@ -132,6 +132,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}
 
 	uploader := transfermanager.New(s3svc, func(o *transfermanager.Options) {
+		// GCS's S3 interop doesn't support aws-chunked trailing CRC32 checksums
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		if partSize > 0 {
 			o.PartSizeBytes = partSize
 			// match the old feature/s3/manager cutoff: objects under one part
