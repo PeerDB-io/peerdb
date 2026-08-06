@@ -12,7 +12,7 @@ import (
 
 	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
@@ -114,16 +114,19 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		return fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
-	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
+	uploader := transfermanager.New(s3svc, func(o *transfermanager.Options) {
 		if partSize > 0 {
-			u.PartSize = partSize
+			o.PartSizeBytes = partSize
+			// match the old feature/s3/manager cutoff: objects under one part
+			// stay a single PutObject, keeping non-multipart ETags
+			o.MultipartUploadThreshold = partSize
 			if partSize > 256*1024*1024 {
-				u.Concurrency = 1
+				o.Concurrency = 1
 			}
 		}
 	})
 
-	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
+	if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   body,
