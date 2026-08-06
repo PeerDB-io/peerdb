@@ -1144,6 +1144,34 @@ func TestMongoCursorErrors(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoInvalidResumeTokenShouldNotifyChangeStreamHistoryLost(t *testing.T) {
+	// Name stays empty because DocumentDB sends no codeName
+	err := mongo.CommandError{
+		Code:    9,
+		Message: "Invalid resume token: {_data: '82F54892F8B8B8D4C53CCAEF364BB84E'}",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorNotifyChangeStreamHistoryLost, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "9",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    9,
+		Name:    "FailedToParse",
+		Message: "unknown operator: $notAnOperator",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "9",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMongoTLSInvalidServerCertSignatureShouldBeRecoverable(t *testing.T) {
 	de := driver.Error{
 		Labels: []string{driver.NetworkError},
@@ -1194,6 +1222,24 @@ func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "1105",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLServerOfflineModeShouldBeConnectivity(t *testing.T) {
+	// Server rejects connections while an administrator has offline_mode enabled,
+	// e.g. during managed-provider maintenance or failover.
+	mysqlErr := &mysql.MyError{
+		Code:    3032, // ER_SERVER_OFFLINE_MODE
+		State:   "HY000",
+		Message: "The server is currently in offline mode",
+	}
+	err := fmt.Errorf("connection to source down: %w",
+		exceptions.NewMySQLExecuteError(fmt.Errorf("handleAuthResult: readAuthResult: %w", mysqlErr)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "3032",
 	}, errInfo, "Unexpected error info")
 }
 
