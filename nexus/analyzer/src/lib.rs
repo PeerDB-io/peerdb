@@ -411,7 +411,11 @@ pub fn analyze_peerdb_stmt(statement: &PeerDBStatement) -> anyhow::Result<Option
             Select(select) => {
                 let mut raw_options = HashMap::with_capacity(select.with_options.len());
                 for option in &select.with_options {
-                    if let SqlOption::KeyValue { key, value: Expr::Value(vws) } = option {
+                    if let SqlOption::KeyValue {
+                        key,
+                        value: Expr::Value(vws),
+                    } = option
+                    {
                         raw_options.insert(key.value.as_str(), &vws.value);
                     }
                 }
@@ -1161,6 +1165,80 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             aws_auth: None,
             server_id: opts.get("server_id").and_then(|s| s.parse::<u32>().ok()),
         }),
+        DbType::Cockroachdb => {
+            let ssh_fields: Option<SshConfig> = match opts.get("ssh_config") {
+                Some(ssh_config) => {
+                    let ssh_config_str = ssh_config.to_string();
+                    if ssh_config_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&ssh_config_str)
+                            .context("failed to deserialize ssh_config")?
+                    }
+                }
+                None => None,
+            };
+
+            let client_tls: Option<ClientTlsConfig> = match opts.get("client_tls") {
+                Some(client_tls) => {
+                    let client_tls_str = client_tls.to_string();
+                    if client_tls_str.is_empty() {
+                        None
+                    } else {
+                        let parsed: ClientTlsConfig = serde_json::from_str(&client_tls_str)
+                            .context("failed to deserialize client_tls")?;
+                        // Mirror common::NewClientCertificate on the Go side: client
+                        // certificate auth requires both fields. A fully-empty value
+                        // means "not configured", and a half-filled one is a misconfig.
+                        match (parsed.certificate.is_empty(), parsed.private_key.is_empty()) {
+                            (true, true) => None,
+                            (false, false) => Some(parsed),
+                            _ => anyhow::bail!(
+                                "client_tls requires both certificate and private_key to be set"
+                            ),
+                        }
+                    }
+                }
+                None => None,
+            };
+
+            Config::CockroachdbConfig(pt::peerdb_peers::CockroachDbConfig {
+                host: opts.get("host").context("no host specified")?.to_string(),
+                port: opts
+                    .get("port")
+                    .context("no port specified")?
+                    .parse::<u32>()
+                    .context("unable to parse port as valid int")?,
+                user: opts
+                    .get("user")
+                    .context("no username specified")?
+                    .to_string(),
+                // insecure clusters authenticate root without a password
+                password: opts
+                    .get("password")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                database: opts
+                    .get("database")
+                    .context("no default database specified")?
+                    .to_string(),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                ssh_config: ssh_fields,
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                skip_cert_verification: opts
+                    .get("skip_cert_verification")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                client_tls,
+            })
+        }
         DbType::DbtypeUnknown => return Ok(None),
     }))
 }

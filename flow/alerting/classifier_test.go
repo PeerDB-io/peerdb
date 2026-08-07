@@ -52,6 +52,39 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestCockroachDBWrappedPgErrorShouldKeepCockroachDBSource(t *testing.T) {
+	t.Parallel()
+
+	// the CockroachDB connector tags every connection error so that Postgres
+	// SQLSTATE classification applies but the source stays cockroachdb
+	err := fmt.Errorf("failed to create changefeed: %w",
+		exceptions.NewCockroachDBError(&pgconn.PgError{
+			Code:    pgerrcode.UndefinedTable,
+			Message: `relation "public.events" does not exist`,
+		}))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceCockroachDB,
+		Code:   pgerrcode.UndefinedTable,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestUnwrappedPgErrorShouldKeepPostgresSource(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("query failed: %w", &pgconn.PgError{
+		Code:    pgerrcode.UndefinedTable,
+		Message: `relation "public.events" does not exist`,
+	})
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedTable,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 

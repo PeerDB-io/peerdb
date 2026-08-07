@@ -16,6 +16,7 @@ pub enum PeerType {
     PubSub,
     Elasticsearch,
     Clickhouse,
+    CockroachDB,
 }
 
 impl fmt::Display for PeerType {
@@ -33,6 +34,7 @@ impl fmt::Display for PeerType {
             PeerType::PubSub => write!(f, "PUBSUB"),
             PeerType::Elasticsearch => write!(f, "ELASTICSEARCH"),
             PeerType::Clickhouse => write!(f, "CLICKHOUSE"),
+            PeerType::CockroachDB => write!(f, "COCKROACHDB"),
         }
     }
 }
