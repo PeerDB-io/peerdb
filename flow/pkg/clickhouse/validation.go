@@ -137,38 +137,42 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 		chHost, strings.Join(allowedDomains, ","))
 }
 
-func validateBucketGrant(ctx context.Context, logger log.Logger, conn clickhouse.Conn, storageType string) error {
-	// First check under the new syntax, where the object to check is storageType.
+func validateStagingAccessGrant(ctx context.Context, logger log.Logger, conn clickhouse.Conn, accessMethod string) error {
+	if accessMethod != "S3" && accessMethod != "URL" {
+		return fmt.Errorf("unsupported ClickHouse staging access method %q", accessMethod)
+	}
+
+	// First check under the new syntax, where the object to check is accessMethod.
 	// Eg. CHECK GRANT READ on S3. This also passes for users holding the legacy
 	// GRANT S3 ON *.* style grant, so a definitive failure here is final.
 	var grantExists bool
-	if err := QueryRow(ctx, logger, conn, "CHECK GRANT READ ON "+storageType).Scan(&grantExists); err != nil {
+	if err := QueryRow(ctx, logger, conn, "CHECK GRANT READ ON "+accessMethod).Scan(&grantExists); err != nil {
 		// Do not return an error on syntax error; this could mean we're on a
 		// CH version that does not support this syntax.
 		var chException *clickhouse.Exception
 		if !errors.As(err, &chException) || chproto.Error(chException.Code) != chproto.ErrSyntaxError {
-			return fmt.Errorf("failed to validate %s read grant: %w", storageType, err)
+			return fmt.Errorf("failed to validate %s read grant: %w", accessMethod, err)
 		}
 		// NB: syntax error falls through to the next check.
 	} else if !grantExists {
 		return fmt.Errorf("failed to validate %s read grant: user lacks READ on %s (fix with GRANT READ ON %s)",
-			storageType, storageType, storageType)
+			accessMethod, accessMethod, accessMethod)
 	} else {
 		// grantExists and no error.
 		return nil
 	}
 	// Now check under the old syntax, where the object to check is *.*.
 	// Eg. CHECK GRANT S3 on *.*.
-	if err := QueryRow(ctx, logger, conn, fmt.Sprintf("CHECK GRANT %s ON *.*", storageType)).Scan(&grantExists); err != nil {
+	if err := QueryRow(ctx, logger, conn, fmt.Sprintf("CHECK GRANT %s ON *.*", accessMethod)).Scan(&grantExists); err != nil {
 		// Similarly, do not error on syntax errors; instead, just log that the check failed.
 		var chException *clickhouse.Exception
 		if !errors.As(err, &chException) || chproto.Error(chException.Code) != chproto.ErrSyntaxError {
-			return fmt.Errorf("failed to validate %s read grant: %w", storageType, err)
+			return fmt.Errorf("failed to validate %s read grant: %w", accessMethod, err)
 		}
 		logger.Warn("[clickhouse] CHECK GRANT not supported by this ClickHouse version, skipping grant validation")
 	} else if !grantExists {
 		return fmt.Errorf("failed to validate %s read grant: user lacks READ on %s (fix with GRANT %s on *.*)",
-			storageType, storageType, storageType)
+			accessMethod, accessMethod, accessMethod)
 	}
 	return nil
 }
@@ -251,7 +255,7 @@ func ValidateClickHousePeer(
 	}
 
 	// Validate that ClickHouse has access permissions to the staging access bucket.
-	if err := validateBucketGrant(ctx, logger, conn, stagingAccessMethod); err != nil {
+	if err := validateStagingAccessGrant(ctx, logger, conn, stagingAccessMethod); err != nil {
 		return err
 	}
 

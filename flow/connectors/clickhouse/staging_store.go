@@ -30,6 +30,10 @@ type StagingStore interface {
 	// Validate checks that the store is writable by putting and removing a test object.
 	Validate(ctx context.Context) error
 
+	// ClickHouseAccessMethod returns the access type ClickHouse uses to read staged files.
+	// This is S3 for direct S3 reads and URL for signed-URL reads.
+	ClickHouseAccessMethod() string
+
 	// BucketPath returns the full staging path (e.g. "s3://bucket/prefix") for logging.
 	BucketPath() string
 
