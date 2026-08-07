@@ -155,6 +155,11 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	// CockroachDB changefeed cannot resume (cursor past the GC threshold, or a
+	// watched table truncated/dropped); only the user can fix it, via resync
+	ErrorNotifyChangefeedInvalid = ErrorClass{
+		Class: "NOTIFY_CHANGEFEED_INVALID", action: NotifyUser,
+	}
 	ErrorNotifyBinlogEventExceededMaxAllowedPacket = ErrorClass{
 		Class: "NOTIFY_BINLOG_EVENT_EXCEEDED_MAX_ALLOWED_PACKET", action: NotifyUser,
 	}
@@ -371,6 +376,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourcePostgres,
 				Code:   "UNKNOWN",
 			}
+		}
+	}
+
+	if changefeedErr, ok := errors.AsType[*exceptions.CockroachChangefeedIrrecoverableError](err); ok {
+		return ErrorNotifyChangefeedInvalid, ErrorInfo{
+			Source: ErrorSourceCockroachDB,
+			Code:   changefeedErr.Code,
 		}
 	}
 

@@ -70,6 +70,29 @@ func TestCockroachDBWrappedPgErrorShouldKeepCockroachDBSource(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestCockroachChangefeedIrrecoverableErrorShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	// changefeed failures no retry can fix (cursor past the GC threshold,
+	// watched table truncated or dropped) notify the user that only a resync
+	// helps, mirroring the MySQL binlog-invalid handling
+	for _, code := range []string{"CURSOR_PAST_GC", "TABLE_TRUNCATED", "TABLE_DROPPED"} {
+		err := fmt.Errorf("PullRecords failed: %w",
+			exceptions.NewCockroachChangefeedIrrecoverableError(code,
+				fmt.Errorf("changefeed cannot resume: %w", exceptions.NewCockroachDBError(&pgconn.PgError{
+					Code:    pgerrcode.InternalError,
+					Message: "batch timestamp must be after replica GC threshold",
+				}))))
+		errorClass, errInfo := GetErrorClass(t.Context(), err)
+		assert.Equal(t, ErrorNotifyChangefeedInvalid, errorClass, "Unexpected error class for %s", code)
+		assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "Unexpected error action for %s", code)
+		assert.Equal(t, ErrorInfo{
+			Source: ErrorSourceCockroachDB,
+			Code:   code,
+		}, errInfo, "Unexpected error info for %s", code)
+	}
+}
+
 func TestUnwrappedPgErrorShouldKeepPostgresSource(t *testing.T) {
 	t.Parallel()
 

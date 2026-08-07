@@ -1237,6 +1237,14 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
                 client_tls,
+                use_changefeeds: opts
+                    .get("use_changefeeds")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                max_retries: opts.get("max_retries").and_then(|s| s.parse::<u32>().ok()),
+                retry_base_delay_ms: opts
+                    .get("retry_base_delay_ms")
+                    .and_then(|s| s.parse::<u32>().ok()),
             })
         }
         DbType::DbtypeUnknown => return Ok(None),
