@@ -5,6 +5,15 @@ DOCKER="docker"
 EXTRA_ARGS="--no-attach temporal --no-attach temporal-ui"
 PODMAN_ARGS=""
 
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --build-ui)
+            export UI_TARGET=runner
+            ;;
+    esac
+done
+
 if test -n "${USE_PODMAN:=}"
 then
    # 0 is found, checking for not found so we check for podman then
