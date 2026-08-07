@@ -51,14 +51,9 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
-	peerDBColumns := []string{versionColName}
+	softDeleteColName := defaultIsDeletedColName
 	if cfg.SoftDeleteColName != "" {
-		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
-	} else {
-		peerDBColumns = append(peerDBColumns, defaultIsDeletedColName)
-	}
-	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+		softDeleteColName = cfg.SoftDeleteColName
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
@@ -135,10 +130,18 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			continue
 		}
 
+		tablePeerDBColumns := []string{
+			versionColName,
+			resolveSoftDeleteColumnName(softDeleteColName, chTableColumnsMapping[dstTableName]),
+		}
+		if cfg.SyncedAtColName != "" {
+			tablePeerDBColumns = append(tablePeerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+		}
+
 		// for resync, we don't need to check the content or structure of the original tables;
 		// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
 		if err := c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping,
+			chTableColumnsMapping[dstTableName], tablePeerDBColumns, tableMapping,
 		); err != nil {
 			return err
 		}
