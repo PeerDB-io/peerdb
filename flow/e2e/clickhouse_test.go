@@ -2499,6 +2499,111 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Normalize_Schema_Correction_After_Partial_Failure() {
+	recoveredSrcTable := "test_normalize_schema_correction_partial_1"
+	recoveredSrcFullName := s.attachSchemaSuffix(recoveredSrcTable)
+	recoveredDstTable := "test_normalize_schema_correction_partial_dst_1"
+	failingSrcTable := "test_normalize_schema_correction_partial_2"
+	failingSrcFullName := s.attachSchemaSuffix(failingSrcTable)
+	failingDstTable := "test_normalize_schema_correction_partial_dst_2"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			"key" TEXT NOT NULL,
+			val TEXT NOT NULL
+		)
+	`, recoveredSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			"key" TEXT NOT NULL
+		)
+	`, failingSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, "key", val) VALUES (1, 'initial', 'initial')`, recoveredSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, "key") VALUES (1, 'initial')`, failingSrcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("normalize_schema_correction_partial"),
+		TableNameMapping: map[string]string{
+			recoveredSrcFullName: recoveredDstTable,
+			failingSrcFullName:   failingDstTable,
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	// A single worker guarantees that the recovered table advances before
+	// normalization reaches the failing table.
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE": "1"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(
+		env, s, "initial recovered table", recoveredSrcTable, recoveredDstTable, "id,\"key\",val",
+	)
+	EnvWaitForEqualTablesWithNames(
+		env, s, "initial failing table", failingSrcTable, failingDstTable, "id,\"key\"",
+	)
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	fakeFailingDstTable := failingDstTable + "_fake"
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s_shard` ON CLUSTER cicluster DROP COLUMN `val`", recoveredDstTable)))
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` ON CLUSTER cicluster DROP COLUMN `val`", recoveredDstTable)))
+	} else {
+		require.NoError(s.t, ch.Exec(s.t.Context(),
+			fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `val`", recoveredDstTable)))
+	}
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		fmt.Sprintf("RENAME TABLE `%s` TO `%s`%s", failingDstTable, fakeFailingDstTable, onCluster)))
+
+	// Put both updates in one CDC batch. The first table recovers the dropped column;
+	// normalization then fails because the second destination table is unavailable.
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "BEGIN"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s SET "key" = 'updated', val = 'updated'`, recoveredSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s SET "key" = 'updated'`, failingSrcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "COMMIT"))
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
+		errorCount, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
+		)
+		return err == nil && errorCount > 0
+	})
+	EnvWaitFor(s.t, env, time.Minute, "catalog correction persisted despite normalize error", func() bool {
+		schema, err := internal.LoadTableSchemaFromCatalog(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, recoveredDstTable,
+		)
+		if err != nil {
+			return false
+		}
+		return !slices.ContainsFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+			return col.Name == "val"
+		})
+	})
+
+	// Restore the renamed table so cleanup does not leave the fake table behind.
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		fmt.Sprintf("RENAME TABLE `%s` TO `%s`%s", fakeFailingDstTable, failingDstTable, onCluster)))
+	require.NoError(s.t, ch.Close())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
+}
+
 func (s ClickHouseSuite) Test_Geometric_Types() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
