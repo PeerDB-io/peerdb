@@ -560,7 +560,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	// wrap query generation logic in a function to ensure queriesCh always closes once
-	if err := func() error {
+	queryGenErr := func() error {
 		defer close(queriesCh)
 
 		for _, tbl := range destinationTableNames {
@@ -621,25 +621,25 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 		}
 		return nil
-	}(); err != nil {
-		return model.NormalizeResponse{}, err
-	}
+	}()
 
-	if err := group.Wait(); err != nil {
-		return model.NormalizeResponse{}, err
+	groupErr := group.Wait()
+	resp := model.NormalizeResponse{}
+	if len(removedColumnsMapping) > 0 {
+		resp.RemovedColumnsMapping = removedColumnsMapping
+	}
+	// Return schema corrections even when another table failed. A recovered table may
+	// already have advanced its per-table watermark and be skipped on the retry.
+	if err := errors.Join(queryGenErr, groupErr); err != nil {
+		return resp, err
 	}
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id",
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
-		return model.NormalizeResponse{}, err
+		return resp, err
 	}
-	resp := model.NormalizeResponse{
-		StartBatchID: lastNormBatchID + 1,
-		EndBatchID:   endBatchID,
-	}
-	if len(removedColumnsMapping) > 0 {
-		resp.RemovedColumnsMapping = removedColumnsMapping
-	}
+	resp.StartBatchID = lastNormBatchID + 1
+	resp.EndBatchID = endBatchID
 	return resp, nil
 }
 
@@ -836,6 +836,9 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
+	// Keep table dispatch deterministic. Note that query completion remains concurrent
+	// and nondeterministic when PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE > 1
+	slices.Sort(tableNames)
 	return tableNames, nil
 }
 

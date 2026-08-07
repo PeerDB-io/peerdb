@@ -748,6 +748,18 @@ func (a *FlowableActivity) startNormalize(
 			)
 			return res, nil
 		}()
+		// Persist schema corrections before handling the normalize error: a table may
+		// have succeeded and advanced its per-table watermark before another table failed.
+		if len(res.RemovedColumnsMapping) > 0 {
+			if applyErr := a.applyRemovedColumnsFromNormalize(
+				ctx, logger, config.FlowJobName, res.RemovedColumnsMapping, tableNameSchemaMapping,
+			); applyErr != nil {
+				return exceptions.NewNormalizationError(errors.Join(
+					fmt.Errorf("failed to persist normalize schema corrections: %w", applyErr),
+					err,
+				))
+			}
+		}
 		if err != nil {
 			return exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err))
 		}
@@ -758,9 +770,6 @@ func (a *FlowableActivity) startNormalize(
 		}
 
 		a.recordDeliveryLag(ctx, config.FlowJobName, res.StartBatchID, res.EndBatchID)
-		if len(res.RemovedColumnsMapping) > 0 {
-			a.applyRemovedColumnsFromNormalize(ctx, logger, config.FlowJobName, res.RemovedColumnsMapping, tableNameSchemaMapping)
-		}
 
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
@@ -777,13 +786,13 @@ func (a *FlowableActivity) applyRemovedColumnsFromNormalize(
 	flowJobName string,
 	removedColumnsMapping map[string][]string,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
-) {
+) error {
 	tableNames := make([]string, 0, len(removedColumnsMapping))
 	for name := range removedColumnsMapping {
 		tableNames = append(tableNames, name)
 	}
 	// Remove only the dropped columns from the schemas read within the transaction to prevent any race condition.
-	updateErr := internal.ReadModifyWriteTableSchemasToCatalog(
+	if updateErr := internal.ReadModifyWriteTableSchemasToCatalog(
 		ctx, a.CatalogPool, logger, flowJobName, tableNames,
 		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
 			result := make(map[string]*protos.TableSchema, len(schemas))
@@ -792,22 +801,21 @@ func (a *FlowableActivity) applyRemovedColumnsFromNormalize(
 			}
 			return result, nil
 		},
-	)
-	if updateErr != nil {
+	); updateErr != nil {
 		logger.Error("failed to persist auto-removed destination columns to catalog",
 			slog.Any("error", updateErr))
+		return updateErr
 	}
 
 	for name, removed := range removedColumnsMapping {
 		if schema, ok := tableNameSchemaMapping[name]; ok {
 			tableNameSchemaMapping[name] = removeColumnsFromSchema(schema, removed)
 		}
-		if updateErr == nil {
-			a.Alerter.LogFlowWarning(ctx, flowJobName,
-				fmt.Errorf("destination column(s) were dropped from table %s and automatically removed "+
-					"from the mirror schema; future syncs will omit those columns", name))
-		}
+		a.Alerter.LogFlowWarning(ctx, flowJobName,
+			fmt.Errorf("destination column(s) %s were dropped from table %s and automatically removed "+
+				"from the mirror schema; future syncs will omit those columns", removed, name))
 	}
+	return nil
 }
 
 func removeColumnsFromSchema(schema *protos.TableSchema, columns []string) *protos.TableSchema {
