@@ -227,6 +227,24 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)
 	}
+	if config.Replicated {
+		// On a multi-replica ReplicatedMergeTree cluster, normalize populates the raw table and then
+		// immediately reads it back via INSERT ... SELECT. Those two statements may run on different
+		// connections/replicas (e.g. behind a load-balanced host), so the read can hit a replica that
+		// has not yet replicated the just-written parts. select_sequential_consistency (set above) only
+		// guarantees visibility of quorum-inserted blocks, so without quorum writes it enforces nothing
+		// and normalize silently drops rows it marks as processed. Writing with quorum closes the race:
+		// insert_quorum_parallel=0 is required for sequential-consistency reads to be honored.
+		if quorum, err := internal.PeerDBClickHouseEnableReplicatedQuorum(ctx, env); err != nil {
+			return nil, fmt.Errorf("failed to load replicated quorum config: %w", err)
+		} else if quorum {
+			settings["insert_quorum"] = "auto"
+			settings["insert_quorum_parallel"] = uint64(0)
+			// Explicitly pin the read side of the read-your-writes contract alongside the quorum
+			// writes so it stays paired with them regardless of the global default.
+			settings["select_sequential_consistency"] = uint64(1)
+		}
+	}
 	clientName, err := internal.PeerDBClickHouseClientName(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load ClickHouse client name: %w", err)

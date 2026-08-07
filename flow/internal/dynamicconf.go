@@ -306,6 +306,17 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_ENABLE_REPLICATED_QUORUM",
+		Description: "On Replicated ClickHouse clusters, write raw/normalize inserts with quorum " +
+			"(insert_quorum=auto, insert_quorum_parallel=0) so that select_sequential_consistency reads " +
+			"see them regardless of which replica serves the read. Prevents normalize silently dropping " +
+			"rows when the read hits a replica that has not yet replicated the just-written raw parts.",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING",
 		Description:      "Map unbounded numerics in Postgres to String in ClickHouse to preserve precision and scale",
 		DefaultValue:     "false",
@@ -792,6 +803,10 @@ func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string
 
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
+}
+
+func PeerDBClickHouseEnableReplicatedQuorum(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_REPLICATED_QUORUM")
 }
 
 func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]string) (bool, error) {
