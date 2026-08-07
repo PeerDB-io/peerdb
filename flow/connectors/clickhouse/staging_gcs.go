@@ -142,6 +142,10 @@ func (g *gcsStagingStore) Validate(ctx context.Context) error {
 	return nil
 }
 
+func (g *gcsStagingStore) ClickHouseAccessMethod() string {
+	return "URL"
+}
+
 func (g *gcsStagingStore) BucketPath() string {
 	return g.fullPath
 }

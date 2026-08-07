@@ -119,6 +119,23 @@ func TestS3StagingStoreValidate_EmptyPrefix(t *testing.T) {
 	require.NotContains(t, path, "//"+stagingCheckObjectPrefix, "must not produce double slash")
 }
 
+func TestStagingStoreClickHouseAccessMethod(t *testing.T) {
+	tests := []struct {
+		name   string
+		store  StagingStore
+		method string
+	}{
+		{name: "S3 uses direct S3 reads", store: &s3StagingStore{}, method: "S3"},
+		{name: "GCS uses signed URL reads", store: &gcsStagingStore{}, method: "URL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.method, tt.store.ClickHouseAccessMethod())
+		})
+	}
+}
+
 // GCS tests:
 
 func newFakeGCSStore(t *testing.T, server *httptest.Server, bucket, prefix string) *gcsStagingStore {
