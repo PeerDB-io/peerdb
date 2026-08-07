@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -757,6 +758,9 @@ func (a *FlowableActivity) startNormalize(
 		}
 
 		a.recordDeliveryLag(ctx, config.FlowJobName, res.StartBatchID, res.EndBatchID)
+		if len(res.RemovedColumnsMapping) > 0 {
+			a.applyRemovedColumnsFromNormalize(ctx, logger, config.FlowJobName, res.RemovedColumnsMapping, tableNameSchemaMapping)
+		}
 
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
@@ -764,6 +768,66 @@ func (a *FlowableActivity) startNormalize(
 		if res.EndBatchID >= batchID {
 			return nil
 		}
+	}
+}
+
+func (a *FlowableActivity) applyRemovedColumnsFromNormalize(
+	ctx context.Context,
+	logger log.Logger,
+	flowJobName string,
+	removedColumnsMapping map[string][]string,
+	tableNameSchemaMapping map[string]*protos.TableSchema,
+) {
+	tableNames := make([]string, 0, len(removedColumnsMapping))
+	for name := range removedColumnsMapping {
+		tableNames = append(tableNames, name)
+	}
+	// Remove only the dropped columns from the schemas read within the transaction to prevent any race condition.
+	updateErr := internal.ReadModifyWriteTableSchemasToCatalog(
+		ctx, a.CatalogPool, logger, flowJobName, tableNames,
+		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+			result := make(map[string]*protos.TableSchema, len(schemas))
+			for name, schema := range schemas {
+				result[name] = removeColumnsFromSchema(schema, removedColumnsMapping[name])
+			}
+			return result, nil
+		},
+	)
+	if updateErr != nil {
+		logger.Error("failed to persist auto-removed destination columns to catalog",
+			slog.Any("error", updateErr))
+	}
+
+	for name, removed := range removedColumnsMapping {
+		if schema, ok := tableNameSchemaMapping[name]; ok {
+			tableNameSchemaMapping[name] = removeColumnsFromSchema(schema, removed)
+		}
+		if updateErr == nil {
+			a.Alerter.LogFlowWarning(ctx, flowJobName,
+				fmt.Errorf("destination column(s) were dropped from table %s and automatically removed "+
+					"from the mirror schema; future syncs will omit those columns", name))
+		}
+	}
+}
+
+func removeColumnsFromSchema(schema *protos.TableSchema, columns []string) *protos.TableSchema {
+	if len(columns) == 0 {
+		return schema
+	}
+	filteredCols := make([]*protos.FieldDescription, 0, len(schema.Columns))
+	for _, col := range schema.Columns {
+		if !slices.Contains(columns, col.Name) {
+			filteredCols = append(filteredCols, col)
+		}
+	}
+	return &protos.TableSchema{
+		TableIdentifier:       schema.TableIdentifier,
+		PrimaryKeyColumns:     schema.PrimaryKeyColumns,
+		IsReplicaIdentityFull: schema.IsReplicaIdentityFull,
+		System:                schema.System,
+		NullableEnabled:       schema.NullableEnabled,
+		TableOid:              schema.TableOid,
+		Columns:               filteredCols,
 	}
 }
 
