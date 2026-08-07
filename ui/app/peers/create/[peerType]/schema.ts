@@ -135,6 +135,32 @@ export const pgSchema = z.object({
     .optional(),
   sshConfig: sshSchema,
 });
+
+export const crdbSchema = z.object({
+  host: z.string().min(1, 'Host is required').max(255),
+  port: z.int().min(1).max(65535),
+  database: z.string().min(1, 'Database is required').max(100),
+  user: z.string().min(1, 'User is required').max(64),
+  password: z.string().max(100),
+  disableTls: z.boolean().optional(),
+  skipCertVerification: z.boolean().optional(),
+  rootCa: z
+    .string()
+    .optional()
+    .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string().optional(),
+  clientTls: z
+    .object({
+      certificate: z
+        .string({ error: () => 'Client certificate must be a string' })
+        .min(1, 'Client certificate must be non-empty'),
+      privateKey: z
+        .string({ error: () => 'Client private key must be a string' })
+        .min(1, 'Client private key must be non-empty'),
+    })
+    .optional(),
+});
+
 export const mySchema = z.object({
   host: z
     .string({
