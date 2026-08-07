@@ -438,6 +438,7 @@ const (
 	DBType_PUBSUB         DBType = 10
 	DBType_EVENTHUBS      DBType = 11
 	DBType_ELASTICSEARCH  DBType = 12
+	DBType_COCKROACHDB    DBType = 13
 	DBType_DBTYPE_UNKNOWN DBType = -1
 )
 
@@ -456,6 +457,7 @@ var (
 		10: "PUBSUB",
 		11: "EVENTHUBS",
 		12: "ELASTICSEARCH",
+		13: "COCKROACHDB",
 		-1: "DBTYPE_UNKNOWN",
 	}
 	DBType_value = map[string]int32{
@@ -471,6 +473,7 @@ var (
 		"PUBSUB":         10,
 		"EVENTHUBS":      11,
 		"ELASTICSEARCH":  12,
+		"COCKROACHDB":    13,
 		"DBTYPE_UNKNOWN": -1,
 	}
 )
@@ -520,6 +523,9 @@ const (
 	// only Mongo
 	DatabaseVariant_MONGODB_ATLAS  DatabaseVariant = 9
 	DatabaseVariant_AWS_DOCUMENTDB DatabaseVariant = 10
+	// CockroachDB variants
+	DatabaseVariant_COCKROACHDB_CLOUD      DatabaseVariant = 11
+	DatabaseVariant_COCKROACHDB_SERVERLESS DatabaseVariant = 12
 )
 
 // Enum value maps for DatabaseVariant.
@@ -535,18 +541,22 @@ var (
 		8:  "SUPABASE",
 		9:  "MONGODB_ATLAS",
 		10: "AWS_DOCUMENTDB",
+		11: "COCKROACHDB_CLOUD",
+		12: "COCKROACHDB_SERVERLESS",
 	}
 	DatabaseVariant_value = map[string]int32{
-		"VARIANT_UNKNOWN":  0,
-		"AWS_RDS":          2,
-		"AWS_AURORA":       3,
-		"GOOGLE_CLOUD_SQL": 4,
-		"AZURE_DATABASE":   5,
-		"NEON":             6,
-		"PLANETSCALE":      7,
-		"SUPABASE":         8,
-		"MONGODB_ATLAS":    9,
-		"AWS_DOCUMENTDB":   10,
+		"VARIANT_UNKNOWN":        0,
+		"AWS_RDS":                2,
+		"AWS_AURORA":             3,
+		"GOOGLE_CLOUD_SQL":       4,
+		"AZURE_DATABASE":         5,
+		"NEON":                   6,
+		"PLANETSCALE":            7,
+		"SUPABASE":               8,
+		"MONGODB_ATLAS":          9,
+		"AWS_DOCUMENTDB":         10,
+		"COCKROACHDB_CLOUD":      11,
+		"COCKROACHDB_SERVERLESS": 12,
 	}
 )
 
@@ -1583,6 +1593,130 @@ func (x *PostgresConfig) GetClientTls() *ClientTlsConfig {
 	return nil
 }
 
+type CockroachDBConfig struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Host                 string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Port                 uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	User                 string                 `protobuf:"bytes,3,opt,name=user,proto3" json:"user,omitempty"`
+	Password             string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
+	Database             string                 `protobuf:"bytes,5,opt,name=database,proto3" json:"database,omitempty"`
+	TlsHost              string                 `protobuf:"bytes,6,opt,name=tls_host,json=tlsHost,proto3" json:"tls_host,omitempty"`
+	SshConfig            *SSHConfig             `protobuf:"bytes,7,opt,name=ssh_config,json=sshConfig,proto3,oneof" json:"ssh_config,omitempty"`
+	RootCa               *string                `protobuf:"bytes,8,opt,name=root_ca,json=rootCa,proto3,oneof" json:"root_ca,omitempty"`
+	DisableTls           bool                   `protobuf:"varint,9,opt,name=disable_tls,json=disableTls,proto3" json:"disable_tls,omitempty"`
+	SkipCertVerification bool                   `protobuf:"varint,10,opt,name=skip_cert_verification,json=skipCertVerification,proto3" json:"skip_cert_verification,omitempty"`
+	ClientTls            *ClientTlsConfig       `protobuf:"bytes,11,opt,name=client_tls,json=clientTls,proto3,oneof" json:"client_tls,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *CockroachDBConfig) Reset() {
+	*x = CockroachDBConfig{}
+	mi := &file_peers_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CockroachDBConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CockroachDBConfig) ProtoMessage() {}
+
+func (x *CockroachDBConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_peers_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CockroachDBConfig.ProtoReflect.Descriptor instead.
+func (*CockroachDBConfig) Descriptor() ([]byte, []int) {
+	return file_peers_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CockroachDBConfig) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *CockroachDBConfig) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetTlsHost() string {
+	if x != nil {
+		return x.TlsHost
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetSshConfig() *SSHConfig {
+	if x != nil {
+		return x.SshConfig
+	}
+	return nil
+}
+
+func (x *CockroachDBConfig) GetRootCa() string {
+	if x != nil && x.RootCa != nil {
+		return *x.RootCa
+	}
+	return ""
+}
+
+func (x *CockroachDBConfig) GetDisableTls() bool {
+	if x != nil {
+		return x.DisableTls
+	}
+	return false
+}
+
+func (x *CockroachDBConfig) GetSkipCertVerification() bool {
+	if x != nil {
+		return x.SkipCertVerification
+	}
+	return false
+}
+
+func (x *CockroachDBConfig) GetClientTls() *ClientTlsConfig {
+	if x != nil {
+		return x.ClientTls
+	}
+	return nil
+}
+
 type EventHubConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -1600,7 +1734,7 @@ type EventHubConfig struct {
 
 func (x *EventHubConfig) Reset() {
 	*x = EventHubConfig{}
-	mi := &file_peers_proto_msgTypes[11]
+	mi := &file_peers_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1746,7 @@ func (x *EventHubConfig) String() string {
 func (*EventHubConfig) ProtoMessage() {}
 
 func (x *EventHubConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[11]
+	mi := &file_peers_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1759,7 @@ func (x *EventHubConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventHubConfig.ProtoReflect.Descriptor instead.
 func (*EventHubConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{11}
+	return file_peers_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *EventHubConfig) GetNamespace() string {
@@ -1681,7 +1815,7 @@ type EventHubGroupConfig struct {
 
 func (x *EventHubGroupConfig) Reset() {
 	*x = EventHubGroupConfig{}
-	mi := &file_peers_proto_msgTypes[12]
+	mi := &file_peers_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1693,7 +1827,7 @@ func (x *EventHubGroupConfig) String() string {
 func (*EventHubGroupConfig) ProtoMessage() {}
 
 func (x *EventHubGroupConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[12]
+	mi := &file_peers_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1706,7 +1840,7 @@ func (x *EventHubGroupConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventHubGroupConfig.ProtoReflect.Descriptor instead.
 func (*EventHubGroupConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{12}
+	return file_peers_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EventHubGroupConfig) GetEventhubs() map[string]*EventHubConfig {
@@ -1740,7 +1874,7 @@ type S3Config struct {
 
 func (x *S3Config) Reset() {
 	*x = S3Config{}
-	mi := &file_peers_proto_msgTypes[13]
+	mi := &file_peers_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1752,7 +1886,7 @@ func (x *S3Config) String() string {
 func (*S3Config) ProtoMessage() {}
 
 func (x *S3Config) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[13]
+	mi := &file_peers_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1765,7 +1899,7 @@ func (x *S3Config) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use S3Config.ProtoReflect.Descriptor instead.
 func (*S3Config) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{13}
+	return file_peers_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *S3Config) GetUrl() string {
@@ -1860,7 +1994,7 @@ type ClickhouseConfig struct {
 
 func (x *ClickhouseConfig) Reset() {
 	*x = ClickhouseConfig{}
-	mi := &file_peers_proto_msgTypes[14]
+	mi := &file_peers_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1872,7 +2006,7 @@ func (x *ClickhouseConfig) String() string {
 func (*ClickhouseConfig) ProtoMessage() {}
 
 func (x *ClickhouseConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[14]
+	mi := &file_peers_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1885,7 +2019,7 @@ func (x *ClickhouseConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClickhouseConfig.ProtoReflect.Descriptor instead.
 func (*ClickhouseConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{14}
+	return file_peers_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ClickhouseConfig) GetHost() string {
@@ -2034,7 +2168,7 @@ type SqlServerConfig struct {
 
 func (x *SqlServerConfig) Reset() {
 	*x = SqlServerConfig{}
-	mi := &file_peers_proto_msgTypes[15]
+	mi := &file_peers_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +2180,7 @@ func (x *SqlServerConfig) String() string {
 func (*SqlServerConfig) ProtoMessage() {}
 
 func (x *SqlServerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[15]
+	mi := &file_peers_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,7 +2193,7 @@ func (x *SqlServerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SqlServerConfig.ProtoReflect.Descriptor instead.
 func (*SqlServerConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{15}
+	return file_peers_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SqlServerConfig) GetServer() string {
@@ -2122,7 +2256,7 @@ type MySqlConfig struct {
 
 func (x *MySqlConfig) Reset() {
 	*x = MySqlConfig{}
-	mi := &file_peers_proto_msgTypes[16]
+	mi := &file_peers_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2134,7 +2268,7 @@ func (x *MySqlConfig) String() string {
 func (*MySqlConfig) ProtoMessage() {}
 
 func (x *MySqlConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[16]
+	mi := &file_peers_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2147,7 +2281,7 @@ func (x *MySqlConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MySqlConfig.ProtoReflect.Descriptor instead.
 func (*MySqlConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{16}
+	return file_peers_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MySqlConfig) GetHost() string {
@@ -2287,7 +2421,7 @@ type KafkaConfig struct {
 
 func (x *KafkaConfig) Reset() {
 	*x = KafkaConfig{}
-	mi := &file_peers_proto_msgTypes[17]
+	mi := &file_peers_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2299,7 +2433,7 @@ func (x *KafkaConfig) String() string {
 func (*KafkaConfig) ProtoMessage() {}
 
 func (x *KafkaConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[17]
+	mi := &file_peers_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2312,7 +2446,7 @@ func (x *KafkaConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KafkaConfig.ProtoReflect.Descriptor instead.
 func (*KafkaConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{17}
+	return file_peers_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *KafkaConfig) GetServers() []string {
@@ -2399,7 +2533,7 @@ type ElasticsearchConfig struct {
 
 func (x *ElasticsearchConfig) Reset() {
 	*x = ElasticsearchConfig{}
-	mi := &file_peers_proto_msgTypes[18]
+	mi := &file_peers_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2411,7 +2545,7 @@ func (x *ElasticsearchConfig) String() string {
 func (*ElasticsearchConfig) ProtoMessage() {}
 
 func (x *ElasticsearchConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[18]
+	mi := &file_peers_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2424,7 +2558,7 @@ func (x *ElasticsearchConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ElasticsearchConfig.ProtoReflect.Descriptor instead.
 func (*ElasticsearchConfig) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{18}
+	return file_peers_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ElasticsearchConfig) GetAddresses() []string {
@@ -2480,6 +2614,7 @@ type Peer struct {
 	//	*Peer_PubsubConfig
 	//	*Peer_ElasticsearchConfig
 	//	*Peer_MysqlConfig
+	//	*Peer_CockroachdbConfig
 	Config        isPeer_Config `protobuf_oneof:"config"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2487,7 +2622,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_peers_proto_msgTypes[19]
+	mi := &file_peers_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2499,7 +2634,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_peers_proto_msgTypes[19]
+	mi := &file_peers_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2512,7 +2647,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_peers_proto_rawDescGZIP(), []int{19}
+	return file_peers_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Peer) GetName() string {
@@ -2644,6 +2779,15 @@ func (x *Peer) GetMysqlConfig() *MySqlConfig {
 	return nil
 }
 
+func (x *Peer) GetCockroachdbConfig() *CockroachDBConfig {
+	if x != nil {
+		if x, ok := x.Config.(*Peer_CockroachdbConfig); ok {
+			return x.CockroachdbConfig
+		}
+	}
+	return nil
+}
+
 type isPeer_Config interface {
 	isPeer_Config()
 }
@@ -2696,6 +2840,10 @@ type Peer_MysqlConfig struct {
 	MysqlConfig *MySqlConfig `protobuf:"bytes,15,opt,name=mysql_config,json=mysqlConfig,proto3,oneof"`
 }
 
+type Peer_CockroachdbConfig struct {
+	CockroachdbConfig *CockroachDBConfig `protobuf:"bytes,16,opt,name=cockroachdb_config,json=cockroachdbConfig,proto3,oneof"`
+}
+
 func (*Peer_SnowflakeConfig) isPeer_Config() {}
 
 func (*Peer_BigqueryConfig) isPeer_Config() {}
@@ -2719,6 +2867,8 @@ func (*Peer_PubsubConfig) isPeer_Config() {}
 func (*Peer_ElasticsearchConfig) isPeer_Config() {}
 
 func (*Peer_MysqlConfig) isPeer_Config() {}
+
+func (*Peer_CockroachdbConfig) isPeer_Config() {}
 
 var file_peers_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
@@ -2857,6 +3007,26 @@ const file_peers_proto_rawDesc = "" +
 	"\b_root_caB\v\n" +
 	"\t_aws_authB\x0e\n" +
 	"\f_disable_tlsB\r\n" +
+	"\v_client_tls\"\xcf\x03\n" +
+	"\x11CockroachDBConfig\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\x12\x12\n" +
+	"\x04user\x18\x03 \x01(\tR\x04user\x12!\n" +
+	"\bpassword\x18\x04 \x01(\tB\x05\x90\xfa\x91?\x01R\bpassword\x12\x1a\n" +
+	"\bdatabase\x18\x05 \x01(\tR\bdatabase\x12\x19\n" +
+	"\btls_host\x18\x06 \x01(\tR\atlsHost\x12;\n" +
+	"\n" +
+	"ssh_config\x18\a \x01(\v2\x17.peerdb_peers.SSHConfigH\x00R\tsshConfig\x88\x01\x01\x12#\n" +
+	"\aroot_ca\x18\b \x01(\tB\x05\x90\xfa\x91?\x01H\x01R\x06rootCa\x88\x01\x01\x12\x1f\n" +
+	"\vdisable_tls\x18\t \x01(\bR\n" +
+	"disableTls\x124\n" +
+	"\x16skip_cert_verification\x18\n" +
+	" \x01(\bR\x14skipCertVerification\x12A\n" +
+	"\n" +
+	"client_tls\x18\v \x01(\v2\x1d.peerdb_peers.ClientTlsConfigH\x02R\tclientTls\x88\x01\x01B\r\n" +
+	"\v_ssh_configB\n" +
+	"\n" +
+	"\b_root_caB\r\n" +
 	"\v_client_tls\"\x85\x02\n" +
 	"\x0eEventHubConfig\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12%\n" +
@@ -2981,7 +3151,7 @@ const file_peers_proto_rawDesc = "" +
 	"\t_usernameB\v\n" +
 	"\t_passwordB\n" +
 	"\n" +
-	"\b_api_key\"\xb2\a\n" +
+	"\b_api_key\"\x84\b\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12(\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x14.peerdb_peers.DBTypeR\x04type\x12J\n" +
@@ -2997,7 +3167,8 @@ const file_peers_proto_rawDesc = "" +
 	"\fkafka_config\x18\f \x01(\v2\x19.peerdb_peers.KafkaConfigH\x00R\vkafkaConfig\x12A\n" +
 	"\rpubsub_config\x18\r \x01(\v2\x1a.peerdb_peers.PubSubConfigH\x00R\fpubsubConfig\x12V\n" +
 	"\x14elasticsearch_config\x18\x0e \x01(\v2!.peerdb_peers.ElasticsearchConfigH\x00R\x13elasticsearchConfig\x12>\n" +
-	"\fmysql_config\x18\x0f \x01(\v2\x19.peerdb_peers.MySqlConfigH\x00R\vmysqlConfigB\b\n" +
+	"\fmysql_config\x18\x0f \x01(\v2\x19.peerdb_peers.MySqlConfigH\x00R\vmysqlConfig\x12P\n" +
+	"\x12cockroachdb_config\x18\x10 \x01(\v2\x1f.peerdb_peers.CockroachDBConfigH\x00R\x11cockroachdbConfigB\b\n" +
 	"\x06config*\x81\x01\n" +
 	"\x0eReadPreference\x12\x16\n" +
 	"\x12PREFERENCE_UNKNOWN\x10\x00\x12\v\n" +
@@ -3037,7 +3208,7 @@ const file_peers_proto_rawDesc = "" +
 	"\x04NONE\x10\x01\x12\t\n" +
 	"\x05BASIC\x10\x02\x12\n" +
 	"\n" +
-	"\x06APIKEY\x10\x03*\xc6\x01\n" +
+	"\x06APIKEY\x10\x03*\xd7\x01\n" +
 	"\x06DBType\x12\f\n" +
 	"\bBIGQUERY\x10\x00\x12\r\n" +
 	"\tSNOWFLAKE\x10\x01\x12\t\n" +
@@ -3053,8 +3224,9 @@ const file_peers_proto_rawDesc = "" +
 	"\x06PUBSUB\x10\n" +
 	"\x12\r\n" +
 	"\tEVENTHUBS\x10\v\x12\x11\n" +
-	"\rELASTICSEARCH\x10\f\x12\x1b\n" +
-	"\x0eDBTYPE_UNKNOWN\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01*\xbd\x01\n" +
+	"\rELASTICSEARCH\x10\f\x12\x0f\n" +
+	"\vCOCKROACHDB\x10\r\x12\x1b\n" +
+	"\x0eDBTYPE_UNKNOWN\x10\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01*\xf0\x01\n" +
 	"\x0fDatabaseVariant\x12\x13\n" +
 	"\x0fVARIANT_UNKNOWN\x10\x00\x12\v\n" +
 	"\aAWS_RDS\x10\x02\x12\x0e\n" +
@@ -3067,7 +3239,9 @@ const file_peers_proto_rawDesc = "" +
 	"\bSUPABASE\x10\b\x12\x11\n" +
 	"\rMONGODB_ATLAS\x10\t\x12\x12\n" +
 	"\x0eAWS_DOCUMENTDB\x10\n" +
-	":L\n" +
+	"\x12\x15\n" +
+	"\x11COCKROACHDB_CLOUD\x10\v\x12\x1a\n" +
+	"\x16COCKROACHDB_SERVERLESS\x10\f:L\n" +
 	"\x0fpeerdb_redacted\x12\x1d.google.protobuf.FieldOptions\x18\xa2\x9f\xf2\a \x01(\bR\x0epeerdbRedacted\x88\x01\x01B|\n" +
 	"\x10com.peerdb_peersB\n" +
 	"PeersProtoP\x01Z\x10generated/protos\xa2\x02\x03PXX\xaa\x02\vPeerdbPeers\xca\x02\vPeerdbPeers\xe2\x02\x17PeerdbPeers\\GPBMetadata\xea\x02\vPeerdbPeersb\x06proto3"
@@ -3085,7 +3259,7 @@ func file_peers_proto_rawDescGZIP() []byte {
 }
 
 var file_peers_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_peers_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_peers_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_peers_proto_goTypes = []any{
 	(ReadPreference)(0),                    // 0: peerdb_peers.ReadPreference
 	(AwsIAMAuthConfigType)(0),              // 1: peerdb_peers.AwsIAMAuthConfigType
@@ -3108,17 +3282,18 @@ var file_peers_proto_goTypes = []any{
 	(*AwsAuthenticationConfig)(nil),        // 18: peerdb_peers.AwsAuthenticationConfig
 	(*ClientTlsConfig)(nil),                // 19: peerdb_peers.ClientTlsConfig
 	(*PostgresConfig)(nil),                 // 20: peerdb_peers.PostgresConfig
-	(*EventHubConfig)(nil),                 // 21: peerdb_peers.EventHubConfig
-	(*EventHubGroupConfig)(nil),            // 22: peerdb_peers.EventHubGroupConfig
-	(*S3Config)(nil),                       // 23: peerdb_peers.S3Config
-	(*ClickhouseConfig)(nil),               // 24: peerdb_peers.ClickhouseConfig
-	(*SqlServerConfig)(nil),                // 25: peerdb_peers.SqlServerConfig
-	(*MySqlConfig)(nil),                    // 26: peerdb_peers.MySqlConfig
-	(*KafkaConfig)(nil),                    // 27: peerdb_peers.KafkaConfig
-	(*ElasticsearchConfig)(nil),            // 28: peerdb_peers.ElasticsearchConfig
-	(*Peer)(nil),                           // 29: peerdb_peers.Peer
-	nil,                                    // 30: peerdb_peers.EventHubGroupConfig.EventhubsEntry
-	(*descriptorpb.FieldOptions)(nil),      // 31: google.protobuf.FieldOptions
+	(*CockroachDBConfig)(nil),              // 21: peerdb_peers.CockroachDBConfig
+	(*EventHubConfig)(nil),                 // 22: peerdb_peers.EventHubConfig
+	(*EventHubGroupConfig)(nil),            // 23: peerdb_peers.EventHubGroupConfig
+	(*S3Config)(nil),                       // 24: peerdb_peers.S3Config
+	(*ClickhouseConfig)(nil),               // 25: peerdb_peers.ClickhouseConfig
+	(*SqlServerConfig)(nil),                // 26: peerdb_peers.SqlServerConfig
+	(*MySqlConfig)(nil),                    // 27: peerdb_peers.MySqlConfig
+	(*KafkaConfig)(nil),                    // 28: peerdb_peers.KafkaConfig
+	(*ElasticsearchConfig)(nil),            // 29: peerdb_peers.ElasticsearchConfig
+	(*Peer)(nil),                           // 30: peerdb_peers.Peer
+	nil,                                    // 31: peerdb_peers.EventHubGroupConfig.EventhubsEntry
+	(*descriptorpb.FieldOptions)(nil),      // 32: google.protobuf.FieldOptions
 }
 var file_peers_proto_depIdxs = []int32{
 	12, // 0: peerdb_peers.PubSubConfig.service_account:type_name -> peerdb_peers.GcpServiceAccount
@@ -3131,35 +3306,38 @@ var file_peers_proto_depIdxs = []int32{
 	2,  // 7: peerdb_peers.PostgresConfig.auth_type:type_name -> peerdb_peers.PostgresAuthType
 	18, // 8: peerdb_peers.PostgresConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
 	19, // 9: peerdb_peers.PostgresConfig.client_tls:type_name -> peerdb_peers.ClientTlsConfig
-	30, // 10: peerdb_peers.EventHubGroupConfig.eventhubs:type_name -> peerdb_peers.EventHubGroupConfig.EventhubsEntry
-	3,  // 11: peerdb_peers.S3Config.codec:type_name -> peerdb_peers.AvroCodec
-	23, // 12: peerdb_peers.ClickhouseConfig.s3:type_name -> peerdb_peers.S3Config
-	4,  // 13: peerdb_peers.MySqlConfig.flavor:type_name -> peerdb_peers.MySqlFlavor
-	10, // 14: peerdb_peers.MySqlConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
-	5,  // 15: peerdb_peers.MySqlConfig.replication_mechanism:type_name -> peerdb_peers.MySqlReplicationMechanism
-	6,  // 16: peerdb_peers.MySqlConfig.auth_type:type_name -> peerdb_peers.MySqlAuthType
-	18, // 17: peerdb_peers.MySqlConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
-	7,  // 18: peerdb_peers.ElasticsearchConfig.auth_type:type_name -> peerdb_peers.ElasticsearchAuthType
-	8,  // 19: peerdb_peers.Peer.type:type_name -> peerdb_peers.DBType
-	11, // 20: peerdb_peers.Peer.snowflake_config:type_name -> peerdb_peers.SnowflakeConfig
-	13, // 21: peerdb_peers.Peer.bigquery_config:type_name -> peerdb_peers.BigqueryConfig
-	15, // 22: peerdb_peers.Peer.mongo_config:type_name -> peerdb_peers.MongoConfig
-	20, // 23: peerdb_peers.Peer.postgres_config:type_name -> peerdb_peers.PostgresConfig
-	23, // 24: peerdb_peers.Peer.s3_config:type_name -> peerdb_peers.S3Config
-	25, // 25: peerdb_peers.Peer.sqlserver_config:type_name -> peerdb_peers.SqlServerConfig
-	22, // 26: peerdb_peers.Peer.eventhub_group_config:type_name -> peerdb_peers.EventHubGroupConfig
-	24, // 27: peerdb_peers.Peer.clickhouse_config:type_name -> peerdb_peers.ClickhouseConfig
-	27, // 28: peerdb_peers.Peer.kafka_config:type_name -> peerdb_peers.KafkaConfig
-	14, // 29: peerdb_peers.Peer.pubsub_config:type_name -> peerdb_peers.PubSubConfig
-	28, // 30: peerdb_peers.Peer.elasticsearch_config:type_name -> peerdb_peers.ElasticsearchConfig
-	26, // 31: peerdb_peers.Peer.mysql_config:type_name -> peerdb_peers.MySqlConfig
-	21, // 32: peerdb_peers.EventHubGroupConfig.EventhubsEntry.value:type_name -> peerdb_peers.EventHubConfig
-	31, // 33: peerdb_peers.peerdb_redacted:extendee -> google.protobuf.FieldOptions
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	33, // [33:34] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	10, // 10: peerdb_peers.CockroachDBConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
+	19, // 11: peerdb_peers.CockroachDBConfig.client_tls:type_name -> peerdb_peers.ClientTlsConfig
+	31, // 12: peerdb_peers.EventHubGroupConfig.eventhubs:type_name -> peerdb_peers.EventHubGroupConfig.EventhubsEntry
+	3,  // 13: peerdb_peers.S3Config.codec:type_name -> peerdb_peers.AvroCodec
+	24, // 14: peerdb_peers.ClickhouseConfig.s3:type_name -> peerdb_peers.S3Config
+	4,  // 15: peerdb_peers.MySqlConfig.flavor:type_name -> peerdb_peers.MySqlFlavor
+	10, // 16: peerdb_peers.MySqlConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
+	5,  // 17: peerdb_peers.MySqlConfig.replication_mechanism:type_name -> peerdb_peers.MySqlReplicationMechanism
+	6,  // 18: peerdb_peers.MySqlConfig.auth_type:type_name -> peerdb_peers.MySqlAuthType
+	18, // 19: peerdb_peers.MySqlConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
+	7,  // 20: peerdb_peers.ElasticsearchConfig.auth_type:type_name -> peerdb_peers.ElasticsearchAuthType
+	8,  // 21: peerdb_peers.Peer.type:type_name -> peerdb_peers.DBType
+	11, // 22: peerdb_peers.Peer.snowflake_config:type_name -> peerdb_peers.SnowflakeConfig
+	13, // 23: peerdb_peers.Peer.bigquery_config:type_name -> peerdb_peers.BigqueryConfig
+	15, // 24: peerdb_peers.Peer.mongo_config:type_name -> peerdb_peers.MongoConfig
+	20, // 25: peerdb_peers.Peer.postgres_config:type_name -> peerdb_peers.PostgresConfig
+	24, // 26: peerdb_peers.Peer.s3_config:type_name -> peerdb_peers.S3Config
+	26, // 27: peerdb_peers.Peer.sqlserver_config:type_name -> peerdb_peers.SqlServerConfig
+	23, // 28: peerdb_peers.Peer.eventhub_group_config:type_name -> peerdb_peers.EventHubGroupConfig
+	25, // 29: peerdb_peers.Peer.clickhouse_config:type_name -> peerdb_peers.ClickhouseConfig
+	28, // 30: peerdb_peers.Peer.kafka_config:type_name -> peerdb_peers.KafkaConfig
+	14, // 31: peerdb_peers.Peer.pubsub_config:type_name -> peerdb_peers.PubSubConfig
+	29, // 32: peerdb_peers.Peer.elasticsearch_config:type_name -> peerdb_peers.ElasticsearchConfig
+	27, // 33: peerdb_peers.Peer.mysql_config:type_name -> peerdb_peers.MySqlConfig
+	21, // 34: peerdb_peers.Peer.cockroachdb_config:type_name -> peerdb_peers.CockroachDBConfig
+	22, // 35: peerdb_peers.EventHubGroupConfig.EventhubsEntry.value:type_name -> peerdb_peers.EventHubConfig
+	32, // 36: peerdb_peers.peerdb_redacted:extendee -> google.protobuf.FieldOptions
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	36, // [36:37] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_peers_proto_init() }
@@ -3175,12 +3353,13 @@ func file_peers_proto_init() {
 		(*AwsAuthenticationConfig_Role)(nil),
 	}
 	file_peers_proto_msgTypes[10].OneofWrappers = []any{}
-	file_peers_proto_msgTypes[13].OneofWrappers = []any{}
+	file_peers_proto_msgTypes[11].OneofWrappers = []any{}
 	file_peers_proto_msgTypes[14].OneofWrappers = []any{}
-	file_peers_proto_msgTypes[16].OneofWrappers = []any{}
+	file_peers_proto_msgTypes[15].OneofWrappers = []any{}
 	file_peers_proto_msgTypes[17].OneofWrappers = []any{}
 	file_peers_proto_msgTypes[18].OneofWrappers = []any{}
-	file_peers_proto_msgTypes[19].OneofWrappers = []any{
+	file_peers_proto_msgTypes[19].OneofWrappers = []any{}
+	file_peers_proto_msgTypes[20].OneofWrappers = []any{
 		(*Peer_SnowflakeConfig)(nil),
 		(*Peer_BigqueryConfig)(nil),
 		(*Peer_MongoConfig)(nil),
@@ -3193,6 +3372,7 @@ func file_peers_proto_init() {
 		(*Peer_PubsubConfig)(nil),
 		(*Peer_ElasticsearchConfig)(nil),
 		(*Peer_MysqlConfig)(nil),
+		(*Peer_CockroachdbConfig)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -3200,7 +3380,7 @@ func file_peers_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_peers_proto_rawDesc), len(file_peers_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 1,
 			NumServices:   0,
 		},
