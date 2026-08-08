@@ -109,7 +109,6 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		exportHistory(ctx, t, c, wfID, firstRunID, "running_sync_finish")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
-
 }
 
 func setCatalogEnvDefaults(t *testing.T) {
