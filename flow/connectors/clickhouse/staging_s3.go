@@ -238,6 +238,10 @@ func (s *s3StagingStore) Validate(ctx context.Context) error {
 	return nil
 }
 
+func (s *s3StagingStore) ClickHouseAccessMethod() string {
+	return "S3"
+}
+
 func (s *s3StagingStore) BucketPath() string {
 	return s.fullPath
 }
