@@ -87,7 +87,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 // This is typically used when a Kubernetes Secret is mounted as a volume.
 //
 // Client certificates are loaded via GetClientCertificate so that every TLS
-// handshake re-reads the files from disk, matically picking up rotated
+// handshake re-reads the files from disk, automatically picking up rotated
 // certificates (e.g. renewed by cert-manager) without requiring a reconnect.
 func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 	certPath := filepath.Join(dir, "tls.crt")
