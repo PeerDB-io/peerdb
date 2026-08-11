@@ -311,7 +311,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 			"(insert_quorum=auto, insert_quorum_parallel=0) so that select_sequential_consistency reads " +
 			"see them regardless of which replica serves the read. Prevents normalize silently dropping " +
 			"rows when the read hits a replica that has not yet replicated the just-written raw parts.",
-		DefaultValue:     "true",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
