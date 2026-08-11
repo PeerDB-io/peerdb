@@ -87,7 +87,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 // This is typically used when a Kubernetes Secret is mounted as a volume.
 //
 // Client certificates are loaded via GetClientCertificate so that every TLS
-// handshake re-reads the files from disk, automatically picking up rotated
+// handshake re-reads the files from disk, matically picking up rotated
 // certificates (e.g. renewed by cert-manager) without requiring a reconnect.
 func configureDirectoryTLS(tlsConfig *tls.Config, dir string) error {
 	certPath := filepath.Join(dir, "tls.crt")
@@ -224,6 +224,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		if quorum, err := internal.PeerDBClickHouseEnableReplicatedQuorum(ctx, env); err != nil {
 			return nil, fmt.Errorf("failed to load replicated quorum config: %w", err)
 		} else if quorum {
+			// Supported by ClickHouse 22.9+
 			settings["insert_quorum"] = "auto"
 			settings["insert_quorum_parallel"] = uint64(0)
 			// Explicitly pin the read side of the read-your-writes contract alongside the quorum
