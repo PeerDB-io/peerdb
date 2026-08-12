@@ -469,14 +469,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED",
-		Description:      "Enables automatic detection of a default partition key from primary key for MySQL initial load",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
 		Name:             "PEERDB_OFFLOAD_PARTITION_RANGES",
 		Description:      "Encrypt QRep partition ranges and offload them to the catalog instead of passing them through Temporal",
 		DefaultValue:     "true",
@@ -919,10 +911,6 @@ func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]st
 
 func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
-}
-
-func PeerDBMySQLDefaultPartitionKeyEnabled(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED")
 }
 
 func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (bool, error) {
