@@ -441,11 +441,12 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 	}
 
 	tests := []struct {
-		chVersion   *chproto.Version
-		name        string
-		contains    []string
-		notContains []string
-		isResync    bool
+		chVersion        *chproto.Version
+		name             string
+		contains         []string
+		notContains      []string
+		isResync         bool
+		softDeleteColumn string
 	}{
 		{
 			name:      "basic non-resync 'create table if not exists' test",
@@ -484,6 +485,45 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 			contains:    []string{"CREATE OR REPLACE TABLE `tbl`"},
 			notContains: []string{"max_table_size_to_drop"},
 		},
+		{
+			name:             "deleteOnMerge on recent CH version enables automatic cleanup merges",
+			chVersion:        &chproto.Version{Major: 25, Minor: 8, Patch: 0},
+			softDeleteColumn: "_peerdb_is_deleted",
+			contains: []string{
+				"ENGINE = ReplacingMergeTree(`_peerdb_version`, `_peerdb_is_deleted`)",
+				"allow_experimental_replacing_merge_with_cleanup=1",
+				"enable_replacing_merge_with_cleanup_for_min_age_to_force_merge=1",
+				"min_age_to_force_merge_on_partition_only=1",
+				"min_age_to_force_merge_seconds=86400",
+			},
+		},
+		{
+			name:             "deleteOnMerge on CH version predating automatic cleanup only sets cleanup flag",
+			chVersion:        &chproto.Version{Major: 24, Minor: 1, Patch: 0},
+			softDeleteColumn: "_peerdb_is_deleted",
+			contains: []string{
+				"ENGINE = ReplacingMergeTree(`_peerdb_version`, `_peerdb_is_deleted`)",
+				"allow_experimental_replacing_merge_with_cleanup=1",
+			},
+			notContains: []string{
+				"enable_replacing_merge_with_cleanup_for_min_age_to_force_merge",
+				"min_age_to_force_merge_on_partition_only",
+				"min_age_to_force_merge_seconds",
+			},
+		},
+		{
+			name:      "deleteOnMerge disabled never sets cleanup settings",
+			chVersion: &chproto.Version{Major: 25, Minor: 8, Patch: 0},
+			contains: []string{
+				"ENGINE = ReplacingMergeTree(`_peerdb_version`)",
+			},
+			notContains: []string{
+				"allow_experimental_replacing_merge_with_cleanup",
+				"enable_replacing_merge_with_cleanup_for_min_age_to_force_merge",
+				"min_age_to_force_merge_on_partition_only",
+				"min_age_to_force_merge_seconds",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -494,14 +534,18 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 				chVersion: tc.chVersion,
 			}
 			config := &protos.SetupNormalizedTableBatchInput{
-				Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+				Env: map[string]string{
+					"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN":              "false",
+					"PEERDB_CLICKHOUSE_REPLACING_MERGE_CLEANUP_MIN_AGE_HOURS": "24",
+				},
 				TableMappings: []*protos.TableMapping{
 					{
 						SourceTableIdentifier:      tableIdentifier,
 						DestinationTableIdentifier: tableIdentifier,
 					},
 				},
-				IsResync: tc.isResync,
+				IsResync:          tc.isResync,
+				SoftDeleteColName: tc.softDeleteColumn,
 			}
 
 			result, err := c.generateCreateTableSQLForNormalizedTable(ctx, config, tableIdentifier, tableSchema, tc.chVersion, nil)
