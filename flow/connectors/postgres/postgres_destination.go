@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -299,10 +300,49 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
+	c.cleanupOldRawBatches(ctx, req.Env, rawTableIdentifier, req.SyncBatchID)
+
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
+}
+
+func (c *PostgresConnector) cleanupOldRawBatches(
+	ctx context.Context,
+	env map[string]string,
+	rawTableIdentifier string,
+	normalizeBatchID int64,
+) {
+	threshold, err := internal.PeerDBPostgresRawBatchCleanupThreshold(ctx, env)
+	if err != nil {
+		c.logger.Warn("failed to read raw batch cleanup threshold setting", slog.Any("error", err))
+		return
+	}
+	if threshold <= 0 {
+		return
+	}
+
+	cutoffBatchID := normalizeBatchID - threshold
+	if cutoffBatchID <= 0 {
+		return
+	}
+
+	result, err := c.conn.Exec(ctx,
+		fmt.Sprintf("DELETE FROM %s.%s WHERE _peerdb_batch_id < $1", c.metadataSchema, rawTableIdentifier),
+		cutoffBatchID,
+	)
+	if err != nil {
+		c.logger.Warn("failed to clean up old raw table batches",
+			slog.Any("error", err),
+			slog.Int64("cutoffBatchID", cutoffBatchID),
+		)
+		return
+	}
+	c.logger.Info("cleaned up old raw table batches",
+		slog.Int64("cutoffBatchID", cutoffBatchID),
+		slog.Int64("rowsDeleted", result.RowsAffected()),
+	)
 }
 
 type batchEntry struct {

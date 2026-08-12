@@ -15,16 +15,15 @@ type CustomDataType struct {
 	Delim byte // non-zero for array types
 }
 
-// GetCustomDataTypes fetches all user-defined types from the PostgreSQL catalog.
+// GetCustomDataTypes fetches all types from the PostgreSQL catalog.
+// pg_catalog stays included: pgtype's map does not know every built-in (regclass, pg_lsn, oidvector, ...) and OIDToName falls back here.
 func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
 	rows, err := conn.Query(ctx, `
 		SELECT t.oid, t.typname, coalesce(at.typtype, t.typtype), coalesce(at.typdelim, 0::"char")
 		FROM pg_catalog.pg_type t
-		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
 		LEFT JOIN pg_catalog.pg_type at ON at.typarray = t.oid
 		WHERE t.typrelid = 0 OR c.relkind = 'c'
-		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)

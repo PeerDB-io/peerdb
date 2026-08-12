@@ -38,6 +38,9 @@ x-flow-worker-env: &flow-worker-env
   # <yournamespace>.<id>.tmprl.cloud:7233
   TEMPORAL_HOST_PORT: temporal:7233
   PEERDB_TEMPORAL_NAMESPACE: default
+  # Auto-create topics for Kafka/PubSub test mirrors (the legacy CI set this on
+  # the host-run worker); only queue mirrors read it.
+  PEERDB_QUEUE_FORCE_TOPIC_CREATION: true
   # For the below 2 cert and key variables,
   # paste as base64 encoded strings.
   TEMPORAL_CLIENT_CERT:
@@ -56,11 +59,21 @@ x-flow-worker-env: &flow-worker-env
   # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
   PPROF_PORT: "6060"
+  # OpenTelemetry metrics export.
+  # Opt-in locally — start the otel-collector resource BEFORE enabling.
+  # CI enables it by listing otel-collector first among the
+  # ancillary services (tilt-flow.yml).
+  ENABLE_OTEL_METRICS: ${ENABLE_OTEL_METRICS:-false}
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-http://host.docker.internal:4317}
+  OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
+  PEERDB_OTEL_METRICS_NAMESPACE: ${PEERDB_OTEL_METRICS_NAMESPACE:-peerdb_ci_tests.}
+  PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: ${PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST:-__ALL__}
+  PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: ${PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE:-true}
 
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
+    image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     command: -c config_file=/etc/postgresql.conf
     ports:
       - *peerdb-catalog-port
@@ -131,7 +144,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.51.1@sha256:6d2fbeba176c9f6f93cd3b352742cd21a25b3e2f467b276aacbb9b5b2bfde00f
+    image: temporalio/ui:2.52.1@sha256:b839b5c798770896c78058db1647d325a19b3acef7fa1fbd9a23fabb1dd7feb2
     ports:
       - *temporal-ui-port
 

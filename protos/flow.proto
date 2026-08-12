@@ -254,6 +254,7 @@ message FieldDescription {
   int32 type_modifier = 3;
   bool nullable = 4;
   string type_schema_name = 5;
+  optional string default_expr = 6;
 }
 
 message SetupTableSchemaBatchInput {

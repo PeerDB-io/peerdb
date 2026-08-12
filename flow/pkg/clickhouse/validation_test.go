@@ -2,10 +2,16 @@ package clickhouse
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 type nopLogger struct{}
@@ -15,50 +21,74 @@ func (nopLogger) Info(string, ...any)  {}
 func (nopLogger) Warn(string, ...any)  {}
 func (nopLogger) Error(string, ...any) {}
 
-type tableRow struct {
-	name      string
-	engine    string
-	totalRows uint64
-}
-
-type mockRows struct {
-	driver.Rows
-	rows  []tableRow
-	index int
-}
-
-func (m *mockRows) Next() bool {
-	return m.index < len(m.rows)
-}
-
-func (m *mockRows) Scan(dest ...any) error {
-	row := m.rows[m.index]
-	m.index++
-	*dest[0].(*string) = row.name
-	*dest[1].(*string) = row.engine
-	*dest[2].(*uint64) = row.totalRows
-	return nil
-}
-
-func (m *mockRows) Close() error { return nil }
-func (m *mockRows) Err() error   { return nil }
-
-type mockConn struct {
-	driver.Conn
-	rows *mockRows
-}
-
-func (m *mockConn) Query(_ context.Context, _ string, _ ...any) (driver.Rows, error) {
-	return m.rows, nil
+func init() {
+	testutil.LoadEnv()
 }
 
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
+	ctx := t.Context()
+	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
+	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Close())
+	})
+	require.NoError(t, adminConn.Ping(ctx))
+
+	database := "pkgch_" + strings.ToLower(common.RandomString(8))
+	require.NoError(t, adminConn.Exec(ctx, "CREATE DATABASE "+QuoteIdentifier(database)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+QuoteIdentifier(database)))
+	})
+
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: database},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, conn.Close())
+	})
+	require.NoError(t, conn.Ping(ctx))
+
+	const (
+		emptyTable       = "empty_table"
+		nonEmptyTable    = "nonempty_table"
+		mvSourceTable    = "materialized_view_source"
+		mvTargetTable    = "materialized_view_target"
+		view             = "test_view"
+		materializedView = "test_materialized_view"
+	)
+
+	for _, statement := range []string{
+		fmt.Sprintf("CREATE TABLE %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id",
+			QuoteIdentifier(emptyTable)),
+		fmt.Sprintf("CREATE TABLE %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id",
+			QuoteIdentifier(nonEmptyTable)),
+		fmt.Sprintf("CREATE TABLE %s (id UInt64) ENGINE = MergeTree ORDER BY id",
+			QuoteIdentifier(mvSourceTable)),
+		fmt.Sprintf("CREATE TABLE %s (id UInt64) ENGINE = MergeTree ORDER BY id",
+			QuoteIdentifier(mvTargetTable)),
+		fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s",
+			QuoteIdentifier(view), QuoteIdentifier(emptyTable)),
+		fmt.Sprintf("CREATE MATERIALIZED VIEW %s TO %s AS SELECT id FROM %s",
+			QuoteIdentifier(materializedView), QuoteIdentifier(mvTargetTable), QuoteIdentifier(mvSourceTable)),
+		fmt.Sprintf("INSERT INTO %s VALUES (1)", QuoteIdentifier(nonEmptyTable)),
+	} {
+		require.NoError(t, conn.Exec(ctx, statement))
+	}
+
+	tablesAcrossChunks := make([]string, 200, 201)
+	for i := range tablesAcrossChunks {
+		tablesAcrossChunks[i] = fmt.Sprintf("missing_table_%d", i)
+	}
+	tablesAcrossChunks = append(tablesAcrossChunks, nonEmptyTable)
+
 	tests := []struct {
 		name                   string
 		wantErr                string
-		host                   string
-		allowedDomains         string
-		rows                   []tableRow
 		tables                 []string
 		initialSnapshotEnabled bool
 		checkForCloudSMT       bool
@@ -66,65 +96,84 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 	}{
 		{
 			name:    "view rejected",
-			rows:    []tableRow{{name: "test_view", engine: "View", totalRows: 0}},
-			tables:  []string{"test_view"},
+			tables:  []string{view},
 			wantErr: "destination table can not be a view",
 		},
 		{
 			name:    "materialized view rejected",
-			rows:    []tableRow{{name: "test_mv", engine: "MaterializedView", totalRows: 0}},
-			tables:  []string{"test_mv"},
+			tables:  []string{materializedView},
 			wantErr: "destination table can not be a view",
 		},
 		{
 			name:                   "non-empty table with snapshot rejected",
-			rows:                   []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 100}},
-			tables:                 []string{"test_table"},
+			tables:                 []string{nonEmptyTable},
 			initialSnapshotEnabled: true,
-			wantErr:                "table test_table exists and is not empty",
+			wantErr:                fmt.Sprintf("table %s exists and is not empty", nonEmptyTable),
 		},
 		{
 			name:                   "non-empty table allowed when allowNonEmpty",
-			rows:                   []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 100}},
-			tables:                 []string{"test_table"},
+			tables:                 []string{nonEmptyTable},
 			initialSnapshotEnabled: true,
 			allowNonEmpty:          true,
 		},
 		{
-			name:   "acceptable engine passes",
-			rows:   []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
-			tables: []string{"test_table"},
+			name:   "non-empty table allowed without snapshot",
+			tables: []string{nonEmptyTable},
 		},
 		{
-			name:             "shared engine passes cloud SMT check",
-			rows:             []tableRow{{name: "test_table", engine: "SharedReplacingMergeTree", totalRows: 0}},
-			tables:           []string{"test_table"},
-			checkForCloudSMT: true,
+			name:                   "empty acceptable table passes",
+			tables:                 []string{emptyTable},
+			initialSnapshotEnabled: true,
 		},
 		{
 			name:             "non-shared engine fails cloud SMT check",
-			rows:             []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
-			tables:           []string{"test_table"},
+			tables:           []string{emptyTable},
 			checkForCloudSMT: true,
-			wantErr:          "table test_table exists and does not use SharedMergeTree engine",
+			wantErr:          fmt.Sprintf("table %s exists and does not use SharedMergeTree engine", emptyTable),
+		},
+		{
+			name:                   "tables are checked across query chunks",
+			tables:                 tablesAcrossChunks,
+			initialSnapshotEnabled: true,
+			wantErr:                fmt.Sprintf("table %s exists and is not empty", nonEmptyTable),
 		},
 		{
 			name:   "empty table list passes",
 			tables: nil,
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckIfTablesEmptyAndEngine(
+				t.Context(), nopLogger{}, conn,
+				tt.tables, tt.initialSnapshotEnabled, tt.checkForCloudSMT, tt.allowNonEmpty,
+			)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateClickHouseHost(t *testing.T) {
+	tests := []struct {
+		name           string
+		host           string
+		allowedDomains string
+		wantErr        string
+	}{
 		{
 			name:           "host matches allowed domain",
 			host:           "myservice.clickhouse.cloud",
 			allowedDomains: "clickhouse.cloud",
-			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
-			tables:         []string{"test_table"},
 		},
 		{
 			name:           "host matches one of multiple allowed domains",
 			host:           "myservice.example.com",
 			allowedDomains: "clickhouse.cloud,example.com",
-			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
-			tables:         []string{"test_table"},
 		},
 		{
 			name:           "host does not match allowed domain",
@@ -136,24 +185,12 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 			name:           "empty allowed domains permits any host",
 			host:           "anything.example.com",
 			allowedDomains: "",
-			rows:           []tableRow{{name: "test_table", engine: "ReplacingMergeTree", totalRows: 0}},
-			tables:         []string{"test_table"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.host != "" || tt.allowedDomains != "" {
-				if err := ValidateClickHouseHost(context.Background(), tt.host, tt.allowedDomains); err != nil {
-					require.ErrorContains(t, err, tt.wantErr)
-					return
-				}
-			}
-			conn := &mockConn{rows: &mockRows{rows: tt.rows}}
-			err := CheckIfTablesEmptyAndEngine(
-				context.Background(), nopLogger{}, conn,
-				tt.tables, tt.initialSnapshotEnabled, tt.checkForCloudSMT, tt.allowNonEmpty,
-			)
+			err := ValidateClickHouseHost(t.Context(), tt.host, tt.allowedDomains)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 			} else {
@@ -229,4 +266,109 @@ func TestBuildPartitionByValidationQuery(t *testing.T) {
 		query := buildPartitionByValidationQuery("id % 2", []string{"id", "secret"}, []string{"secret"})
 		require.Equal(t, "SELECT (id % 2) FROM (SELECT CAST(NULL, 'Dynamic') AS `id`) LIMIT 0", query)
 	})
+}
+
+func TestCheckBucketGrantInValidatePeer(t *testing.T) {
+	ctx := t.Context()
+	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
+	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Close())
+	})
+	require.NoError(t, adminConn.Ping(ctx))
+
+	database := "pkgch_" + strings.ToLower(common.RandomString(8))
+	require.NoError(t, adminConn.Exec(ctx, "CREATE DATABASE "+QuoteIdentifier(database)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+QuoteIdentifier(database)))
+	})
+
+	// Create a test user to test grants with.
+	username := "testuser_" + common.RandomString(8)
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("CREATE USER %s IDENTIFIED BY 'testpassword';", username)))
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT CREATE TABLE, ALTER TABLE, DROP TABLE, INSERT, SELECT ON "+
+		"%s.* TO %s;", QuoteIdentifier(database), username)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP USER IF EXISTS "+username))
+	})
+
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{
+			Database: database,
+			Username: username,
+			Password: "testpassword",
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, conn.Close())
+	})
+	require.NoError(t, conn.Ping(ctx))
+
+	// Staging bucket access methods to test.
+	testCases := []struct {
+		storageAccessType string
+		fineScopedSyntax  bool
+	}{
+		{
+			storageAccessType: "S3",
+			fineScopedSyntax:  false,
+		},
+		{
+			storageAccessType: "URL",
+			fineScopedSyntax:  false,
+		},
+		{
+			storageAccessType: "S3",
+			fineScopedSyntax:  true,
+		},
+		{
+			storageAccessType: "URL",
+			fineScopedSyntax:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		// Expect an error
+		err = ValidateClickHousePeer(
+			t.Context(),
+			nopLogger{},
+			"clickhouse.cloud",
+			"something.clickhouse.cloud",
+			conn,
+			tc.storageAccessType,
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), fmt.Sprintf("failed to validate %s read grant", tc.storageAccessType))
+
+		// Grant the appropriate privilege, then verify there's no error.
+		if tc.fineScopedSyntax {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT READ ON %s TO %s", tc.storageAccessType, username)))
+		} else {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("GRANT %s ON *.* TO %s", tc.storageAccessType, username)))
+		}
+
+		err = ValidateClickHousePeer(
+			t.Context(),
+			nopLogger{},
+			"clickhouse.cloud",
+			"something.clickhouse.cloud",
+			conn,
+			tc.storageAccessType,
+		)
+		require.NoError(t, err)
+
+		// Drop the grant that was added earlier.
+		if tc.fineScopedSyntax {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("REVOKE READ ON %s FROM %s", tc.storageAccessType, username)))
+		} else {
+			require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf("REVOKE %s ON *.* FROM %s", tc.storageAccessType, username)))
+		}
+	}
 }

@@ -16,9 +16,6 @@ import (
 // with TLS certificates loaded from a directory (simulating a volume-mounted K8s Secret).
 func TestClickHouseTLSDirectory(t *testing.T) {
 	portStr := os.Getenv("PEERDB_CLICKHOUSE_TLS_PORT")
-	if portStr == "" {
-		t.Skip("PEERDB_CLICKHOUSE_TLS_PORT not set, skipping TLS test")
-	}
 	port, err := strconv.ParseUint(portStr, 10, 32)
 	require.NoError(t, err, "invalid PEERDB_CLICKHOUSE_TLS_PORT value: %s", portStr)
 

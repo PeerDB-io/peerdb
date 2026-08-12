@@ -24,10 +24,20 @@ func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
 	return pgConfig.RequireTls || (pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
 }
 
-func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
-	// strip path and query params that may be present in the host
-	host, _, _ := strings.Cut(pgConfig.Host, "/")
+// SanitizePGHost strips pasted connection-string junk (path/query suffixes,
+// whitespace, IPv6 brackets) from a stored host, yielding a bare hostname or IP.
+func SanitizePGHost(host string) string {
+	host = strings.TrimSpace(host)
+	host, _, _ = strings.Cut(host, "/")
 	host, _, _ = strings.Cut(host, "?")
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return host
+}
+
+func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
+	host := SanitizePGHost(pgConfig.Host)
 
 	u := &url.URL{
 		Scheme: "postgres",

@@ -74,6 +74,27 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 	}
 }
 
+func TestSanitizePGHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected string
+	}{
+		{name: "plain hostname", host: "db.example.com", expected: "db.example.com"},
+		{name: "bracketed ipv6", host: "[2001:db8::1]", expected: "2001:db8::1"},
+		{name: "path junk", host: "some-host.azure.neon.tech/results", expected: "some-host.azure.neon.tech"},
+		{name: "query junk", host: "some-host.azure.neon.tech?sslmode=require", expected: "some-host.azure.neon.tech"},
+		{name: "surrounding whitespace", host: " db.example.com ", expected: "db.example.com"},
+		{name: "empty", host: "", expected: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, SanitizePGHost(tt.host))
+		})
+	}
+}
+
 func TestGetPGConnectionString(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -128,18 +149,6 @@ func TestGetPGConnectionString(t *testing.T) {
 			name: "host with path and query params",
 			config: &protos.PostgresConfig{
 				Host:       "some-host.azure.neon.tech/results?sslmode=require&channel_binding=require",
-				Port:       5432,
-				Database:   "testdb",
-				User:       "testuser",
-				Password:   "password",
-				RequireTls: false,
-			},
-			expectedHost: "some-host.azure.neon.tech",
-		},
-		{
-			name: "host with query params only",
-			config: &protos.PostgresConfig{
-				Host:       "some-host.azure.neon.tech?sslmode=require&channel_binding=require",
 				Port:       5432,
 				Database:   "testdb",
 				User:       "testuser",

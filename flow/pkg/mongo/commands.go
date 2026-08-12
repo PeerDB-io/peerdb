@@ -26,8 +26,8 @@ type StorageEngine struct {
 
 type ServerStatus struct {
 	StorageEngine   StorageEngine   `bson:"storageEngine"`
-	OplogTruncation OplogTruncation `bson:"oplogTruncation"`
 	Host            string          `bson:"host"`
+	OplogTruncation OplogTruncation `bson:"oplogTruncation"`
 }
 
 func GetServerStatus(ctx context.Context, client *mongo.Client) (ServerStatus, error) {

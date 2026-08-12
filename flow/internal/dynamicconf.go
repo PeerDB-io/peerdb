@@ -510,6 +510,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MYSQL_SKIP_GTID_SET",
+		Description: "GTID set merged into MySQL CDC checkpoint at stream start, skipping those transactions, " +
+			"which can cause data loss. Set per mirror to recover from purged binlogs, using missing set reported by error 1236",
+		DefaultValue:     "",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES",
 		Description: "Comma-separated list of MongoDB change stream operation types to exclude from CDC " +
 			"(allowed values: insert, update, replace, delete)",
@@ -517,6 +526,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
+		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
+			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
 }
 
@@ -681,6 +699,10 @@ func PeerDBMySQLBinlogStalenessSeconds(ctx context.Context, env map[string]strin
 		return 0, err
 	}
 	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBMySQLSkipGTIDSet(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_MYSQL_SKIP_GTID_SET")
 }
 
 func PeerDBNormalizeBufferHours(ctx context.Context, env map[string]string) (int64, error) {
@@ -923,4 +945,8 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 		}
 	}
 	return ops, nil
+}
+
+func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
 }

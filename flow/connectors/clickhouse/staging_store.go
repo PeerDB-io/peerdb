@@ -7,6 +7,11 @@ import (
 
 const stagingFormat = "Avro"
 
+// stagingCheckObjectPrefix is the basename used for temporary objects written
+// during a staging-bucket smoke test. Kept short and unambiguous so it's easy
+// to spot in bucket listings if a test object is ever leaked.
+const stagingCheckObjectPrefix = "_peerdb_check_"
+
 // StagingStore abstracts cloud storage used for staging Avro files.
 // Files are written by PeerDB and read by ClickHouse via table functions
 // (s3(), url(), etc.).
@@ -24,6 +29,10 @@ type StagingStore interface {
 
 	// Validate checks that the store is writable by putting and removing a test object.
 	Validate(ctx context.Context) error
+
+	// ClickHouseAccessMethod returns the access type ClickHouse uses to read staged files.
+	// This is S3 for direct S3 reads and URL for signed-URL reads.
+	ClickHouseAccessMethod() string
 
 	// BucketPath returns the full staging path (e.g. "s3://bucket/prefix") for logging.
 	BucketPath() string

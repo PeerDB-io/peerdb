@@ -15,8 +15,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -96,7 +96,7 @@ func GetTestDatabase(suffix string) string {
 func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	t.Helper()
 
-	admin := internal.MongoAdminTestCredentials(t)
+	admin := testutil.MongoAdminTestCredentials(t)
 	adminClient, err := mongo.Connect(options.Client().
 		ApplyURI(admin.URI).
 		SetAppName("Mongo admin client").
@@ -108,7 +108,7 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 		}))
 	require.NoError(t, err, "failed to setup mongo admin client")
 
-	user := internal.MongoUserTestCredentials(t)
+	user := testutil.MongoUserTestCredentials(t)
 
 	mongoConfig := &protos.MongoConfig{
 		Uri:        user.URI,

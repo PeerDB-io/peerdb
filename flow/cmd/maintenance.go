@@ -56,7 +56,9 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 	}
-	tc, err := setupTemporalClient(ctx, clientOptions)
+	tc, err := connectWithRetry(ctx, "temporal", func(ctx context.Context) (client.Client, error) {
+		return setupTemporalClient(ctx, clientOptions)
+	})
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
@@ -234,7 +236,7 @@ func constructFlowClient(ctx context.Context, args *MaintenanceCLIParams) (proto
 }
 
 func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanceResult) error {
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := connectWithRetry(ctx, "catalog", internal.GetCatalogConnectionPoolFromEnv)
 	if err != nil {
 		return err
 	}
@@ -248,7 +250,7 @@ func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanc
 }
 
 func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, error) {
-	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := connectWithRetry(ctx, "catalog", internal.GetCatalogConnectionPoolFromEnv)
 	if err != nil {
 		return nil, err
 	}

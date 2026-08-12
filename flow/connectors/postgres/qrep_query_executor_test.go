@@ -223,7 +223,7 @@ func TestSupportedDataTypes(t *testing.T) {
 	require.Equal(t, expectedNumeric, actualNumeric, "expected 123.456")
 
 	actualTz := record[10].Value().(time.Time)
-	require.Equal(t, savedTime.Truncate(time.Second).Local(), actualTz.Truncate(time.Second))
+	require.WithinDuration(t, savedTime.Truncate(time.Second), actualTz.Truncate(time.Second), 0)
 
 	actualTz2 := record[11].Value().(time.Duration)
 	expectedDuration := time.Duration(savedTime.Hour())*time.Hour +

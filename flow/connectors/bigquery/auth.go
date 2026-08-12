@@ -50,12 +50,6 @@ type workloadIdentityDeploymentConfig struct {
 	clusterName          string
 }
 
-type workloadIdentityConfigSource struct {
-	lookupEnv              func(string) (string, bool)
-	projectID              func(context.Context) (string, error)
-	instanceAttributeValue func(context.Context, string) (string, error)
-}
-
 type externalAccountCredentials struct {
 	Type                           string                          `json:"type"`
 	Audience                       string                          `json:"audience"`
@@ -126,11 +120,7 @@ func newBigQueryCredentialConfig(
 		return nil, fmt.Errorf("BigQuery project ID must be set in the peer when workload identity is selected")
 	}
 
-	deploymentConfig, err := resolveWorkloadIdentityDeploymentConfig(ctx, workloadIdentityConfigSource{
-		lookupEnv:              os.LookupEnv,
-		projectID:              metadata.ProjectIDWithContext,
-		instanceAttributeValue: metadata.InstanceAttributeValueWithContext,
-	})
+	deploymentConfig, err := resolveWorkloadIdentityDeploymentConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -145,18 +135,15 @@ func newBigQueryCredentialConfig(
 	}, nil
 }
 
-func resolveWorkloadIdentityDeploymentConfig(
-	ctx context.Context,
-	source workloadIdentityConfigSource,
-) (*workloadIdentityDeploymentConfig, error) {
-	targetServiceAccount := envValue(source.lookupEnv, workloadIdentityServiceAccountEnv)
+func resolveWorkloadIdentityDeploymentConfig(ctx context.Context) (*workloadIdentityDeploymentConfig, error) {
+	targetServiceAccount := envValue(workloadIdentityServiceAccountEnv)
 	if targetServiceAccount == "" {
 		return nil, fmt.Errorf(
 			"BigQuery workload identity requires deployment environment variable %s",
 			workloadIdentityServiceAccountEnv,
 		)
 	}
-	tokenFile := envValue(source.lookupEnv, workloadIdentityTokenFileEnv)
+	tokenFile := envValue(workloadIdentityTokenFileEnv)
 	if tokenFile == "" {
 		return nil, fmt.Errorf(
 			"BigQuery workload identity requires deployment environment variable %s",
@@ -166,31 +153,24 @@ func resolveWorkloadIdentityDeploymentConfig(
 
 	projectID, err := envOrMetadata(
 		ctx,
-		source.lookupEnv,
 		workloadIdentityProjectIDEnv,
-		source.projectID,
+		"project/project-id",
 	)
 	if err != nil {
 		return nil, err
 	}
 	clusterLocation, err := envOrMetadata(
 		ctx,
-		source.lookupEnv,
 		workloadIdentityClusterLocationEnv,
-		func(ctx context.Context) (string, error) {
-			return source.instanceAttributeValue(ctx, "cluster-location")
-		},
+		"instance/attributes/cluster-location",
 	)
 	if err != nil {
 		return nil, err
 	}
 	clusterName, err := envOrMetadata(
 		ctx,
-		source.lookupEnv,
 		workloadIdentityClusterNameEnv,
-		func(ctx context.Context) (string, error) {
-			return source.instanceAttributeValue(ctx, "cluster-name")
-		},
+		"instance/attributes/cluster-name",
 	)
 	if err != nil {
 		return nil, err
@@ -205,21 +185,20 @@ func resolveWorkloadIdentityDeploymentConfig(
 	}, nil
 }
 
-func envValue(lookupEnv func(string) (string, bool), name string) string {
-	value, _ := lookupEnv(name)
+func envValue(name string) string {
+	value, _ := os.LookupEnv(name)
 	return strings.TrimSpace(value)
 }
 
 func envOrMetadata(
 	ctx context.Context,
-	lookupEnv func(string) (string, bool),
 	envName string,
-	metadataValue func(context.Context) (string, error),
+	metadataPath string,
 ) (string, error) {
-	if value := envValue(lookupEnv, envName); value != "" {
+	if value := envValue(envName); value != "" {
 		return value, nil
 	}
-	value, err := metadataValue(ctx)
+	value, err := metadata.GetWithContext(ctx, metadataPath)
 	if err != nil {
 		return "", fmt.Errorf(
 			"BigQuery workload identity requires %s or the corresponding GKE metadata: %w",

@@ -2,9 +2,7 @@ package connbigquery
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,25 +236,27 @@ func TestWorkloadIdentityCredentialsReloadProjectedToken(t *testing.T) {
 }
 
 func TestResolveWorkloadIdentityDeploymentConfig(t *testing.T) {
-	environment := map[string]string{
-		workloadIdentityServiceAccountEnv: "tenant@tenant-project.iam.gserviceaccount.com",
-		workloadIdentityTokenFileEnv:      "/token",
+	t.Setenv(workloadIdentityServiceAccountEnv, "tenant@tenant-project.iam.gserviceaccount.com")
+	t.Setenv(workloadIdentityTokenFileEnv, "/token")
+	t.Setenv(workloadIdentityProjectIDEnv, "")
+	t.Setenv(workloadIdentityClusterLocationEnv, "")
+	t.Setenv(workloadIdentityClusterNameEnv, "")
+
+	metadataValues := map[string]string{
+		"/computeMetadata/v1/project/project-id":                   "metadata-project",
+		"/computeMetadata/v1/instance/attributes/cluster-location": "metadata-location",
+		"/computeMetadata/v1/instance/attributes/cluster-name":     "metadata-cluster",
 	}
-	config, err := resolveWorkloadIdentityDeploymentConfig(t.Context(), workloadIdentityConfigSource{
-		lookupEnv: func(name string) (string, bool) {
-			value, ok := environment[name]
-			return value, ok
-		},
-		projectID: func(context.Context) (string, error) {
-			return "metadata-project", nil
-		},
-		instanceAttributeValue: func(_ context.Context, name string) (string, error) {
-			return map[string]string{
-				"cluster-location": "metadata-location",
-				"cluster-name":     "metadata-cluster",
-			}[name], nil
-		},
-	})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "Google", request.Header.Get("Metadata-Flavor"))
+		value, ok := metadataValues[request.URL.Path]
+		require.True(t, ok, "unexpected metadata path %s", request.URL.Path)
+		_, _ = response.Write([]byte(value))
+	}))
+	defer server.Close()
+	t.Setenv("GCE_METADATA_HOST", strings.TrimPrefix(server.URL, "http://"))
+
+	config, err := resolveWorkloadIdentityDeploymentConfig(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "metadata-project", config.projectID)
 	require.Equal(t, "metadata-location", config.clusterLocation)
@@ -291,18 +292,20 @@ func TestResolveWorkloadIdentityDeploymentConfigMissing(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := resolveWorkloadIdentityDeploymentConfig(t.Context(), workloadIdentityConfigSource{
-				lookupEnv: func(name string) (string, bool) {
-					value, ok := test.environment[name]
-					return value, ok
-				},
-				projectID: func(context.Context) (string, error) {
-					return "", errors.New("metadata unavailable")
-				},
-				instanceAttributeValue: func(context.Context, string) (string, error) {
-					return "", errors.New("metadata unavailable")
-				},
-			})
+			for _, name := range []string{
+				workloadIdentityServiceAccountEnv,
+				workloadIdentityTokenFileEnv,
+				workloadIdentityProjectIDEnv,
+				workloadIdentityClusterLocationEnv,
+				workloadIdentityClusterNameEnv,
+			} {
+				t.Setenv(name, test.environment[name])
+			}
+			server := httptest.NewServer(http.NotFoundHandler())
+			defer server.Close()
+			t.Setenv("GCE_METADATA_HOST", strings.TrimPrefix(server.URL, "http://"))
+
+			_, err := resolveWorkloadIdentityDeploymentConfig(t.Context())
 			require.ErrorContains(t, err, test.wantError)
 		})
 	}

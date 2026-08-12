@@ -668,6 +668,13 @@ impl NexusBackend {
                             peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
+                    // CockroachDB is Postgres-wire-compatible
+                    Some(Config::CockroachdbConfig(c)) => {
+                        let executor =
+                            peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), &c.into())
+                                .await?;
+                        Arc::new(executor)
+                    }
                     #[cfg(feature = "snowflake")]
                     Some(Config::SnowflakeConfig(c)) => {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
@@ -727,7 +734,7 @@ impl NexusBackend {
                                 "MySQL support not compiled in".into(),
                             ));
                         }
-                        Some(Config::PostgresConfig(_)) => {
+                        Some(Config::PostgresConfig(_)) | Some(Config::CockroachdbConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
                                     format!("unable to get peer executor: {err:?}").into(),

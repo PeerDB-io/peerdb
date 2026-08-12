@@ -19,18 +19,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@12531344451323133b0493233c759991ac61da12 # v1
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           allowed_bots: 'renovate'
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
-            --model claude-opus-4-6
+            --model opus
             --allowed-tools "Bash(gh:*),Bash(git fetch:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),WebFetch,WebSearch"
           prompt: |
             Review PR ${{ github.repository }}#${{ github.event.pull_request.number }}.
@@ -43,3 +43,9 @@ jobs:
       - name: Print Claude execution output
         if: always()
         run: cat /home/runner/work/_temp/claude-execution-output.json || echo "No execution output found"
+
+      - name: Fail if the review was skipped
+        if: steps.claude-review.outputs.skipped_due_to_workflow_validation_mismatch == 'true'
+        run: |
+          echo "::error::Claude review did not run: this PR modifies its own review workflow, so claude-code-action skipped the token exchange. Review the upstream release notes for the bumped dependencies by hand before merging."
+          exit 1

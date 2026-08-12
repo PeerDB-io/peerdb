@@ -12,6 +12,7 @@ const (
 	ErrorInfoReasonMirror                 = "MIRROR"
 	ErrorInfoReasonSourceTableMissing     = "SOURCE_TABLE_MISSING"
 	ErrorInfoReasonTablesNotInPublication = "TABLES_NOT_IN_PUBLICATION"
+	ErrorInfoReasonSourceValidationFailed = "SOURCE_VALIDATION_FAILED"
 
 	ErrorMetadataOffendingField = "offendingField"
 	ErrorMetadataPublication    = "publication"
@@ -34,8 +35,8 @@ func (e *SourceTablesMissingError) Error() string {
 }
 
 type TablesNotInPublicationError struct {
-	Tables      []QualifiedTable
 	Publication string
+	Tables      []QualifiedTable
 }
 
 func NewTablesNotInPublicationError(publication string, tables []QualifiedTable) *TablesNotInPublicationError {

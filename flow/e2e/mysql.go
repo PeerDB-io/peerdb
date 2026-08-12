@@ -3,11 +3,16 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	// Used by wait.ForSQL testcontainers probe
+	_ "github.com/go-mysql-org/go-mysql/driver"
+	"github.com/moby/moby/api/types/network"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -99,7 +104,9 @@ func SetupMySQLTestContainerSource(
 		Env:          env,
 		Cmd:          cmd,
 		ExposedPorts: []string{"3306/tcp"},
-		WaitingFor:   wait.ForListeningPort("3306/tcp").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForSQL("3306/tcp", "mysql", func(host string, port network.Port) string {
+			return url.UserPassword("root", rootPassword).String() + "@" + net.JoinHostPort(host, port.Port()) + "/"
+		}).WithStartupTimeout(3 * time.Minute),
 	}
 
 	ctr, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{
