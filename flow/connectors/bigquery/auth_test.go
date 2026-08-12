@@ -16,6 +16,7 @@ import (
 
 	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -248,9 +249,9 @@ func TestResolveWorkloadIdentityDeploymentConfig(t *testing.T) {
 		"/computeMetadata/v1/instance/attributes/cluster-name":     "metadata-cluster",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "Google", request.Header.Get("Metadata-Flavor"))
+		assert.Equal(t, "Google", request.Header.Get("Metadata-Flavor"))
 		value, ok := metadataValues[request.URL.Path]
-		require.True(t, ok, "unexpected metadata path %s", request.URL.Path)
+		assert.True(t, ok, "unexpected metadata path %s", request.URL.Path)
 		_, _ = response.Write([]byte(value))
 	}))
 	defer server.Close()
