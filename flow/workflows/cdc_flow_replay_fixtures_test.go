@@ -30,10 +30,6 @@ import (
 // The replay test TestCDCFlowWorkflowReplay re-executes the workflow code
 // against these recorded histories and checks for the same command sequence.
 //
-// To generate fixture, start the catalog and run the following command:
-//
-//	PEERDB_GENERATE_REPLAY_FIXTURES=1 go test -count=1 -timeout 10m -run TestGenerateCDCFlowReplayFixtures ./workflows/
-//
 // Note that fake activity implementations are registered under production names
 // to generate history. This is sufficient because replay never re-executes
 // activities, it validates only the command sequence the workflow  code issues.
@@ -41,7 +37,16 @@ import (
 //
 // IMPORTANT: fixtures must be generated from the workflow code that is currently
 // deployed, never from the branch under test. Otherwise, replay compares new code
-// against history that new code generates and trivially passes.
+// against history that new code generates and trivially passes. To regenerate
+// fixtures:
+//  1. Check out the commit corresponding to the version currently deployed in production.
+//  2. Make the desired changes to this file only (e.g. add or modify scenarios)
+//  3. Start the catalog:
+//     docker compose -f docker-compose-dev.yml up -d catalog
+//  4. Regenerate fixtures:
+//     PEERDB_GENERATE_REPLAY_FIXTURES=1 go test -count=1 -timeout 10m -run TestGenerateCDCFlowReplayFixtures ./workflows/
+//  5. Check out the development branch.
+//  6. Commit the fixture changes (TestCDCFlowWorkflowReplay should pass).
 func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 	if os.Getenv("PEERDB_GENERATE_REPLAY_FIXTURES") != "1" {
 		t.Skip("set PEERDB_GENERATE_REPLAY_FIXTURES=1 to regenerate replay fixtures")
@@ -50,7 +55,6 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
-	setCatalogEnvDefaults(t)
 	ensureFlowsTable(ctx, t)
 
 	devServer := startDevServer(ctx, t)
@@ -109,21 +113,6 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		exportHistory(ctx, t, c, wfID, firstRunID, "running_sync_finish")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
-}
-
-func setCatalogEnvDefaults(t *testing.T) {
-	t.Helper()
-	for key, val := range map[string]string{
-		"PEERDB_CATALOG_HOST":     "localhost",
-		"PEERDB_CATALOG_PORT":     "9901",
-		"PEERDB_CATALOG_USER":     "postgres",
-		"PEERDB_CATALOG_PASSWORD": "postgres",
-		"PEERDB_CATALOG_DATABASE": "postgres",
-	} {
-		if os.Getenv(key) == "" {
-			t.Setenv(key, val)
-		}
-	}
 }
 
 func ensureFlowsTable(ctx context.Context, t *testing.T) {
