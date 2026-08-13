@@ -298,6 +298,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING",
+		Description: "Enables parallel_view_processing setting on clickhouse, pushing to attached materialized views " +
+			"concurrently during inserts",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE",
 		Description:      "Divide tables in batch into N insert selects. Helps distribute load to multiple nodes",
 		DefaultValue:     "0",
@@ -788,6 +797,10 @@ func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]str
 
 func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS")
+}
+
+func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING")
 }
 
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {

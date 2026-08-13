@@ -217,6 +217,11 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
 	}
+	if parallelViewProcessing, err := internal.PeerDBClickHouseParallelViewProcessing(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load parallel_view_processing config: %w", err)
+	} else if parallelViewProcessing {
+		settings["parallel_view_processing"] = uint64(1)
+	}
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)
 	}
