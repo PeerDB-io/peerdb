@@ -458,6 +458,7 @@ func (c *MongoConnector) PullRecords(
 		return nil
 	}
 
+	var lastEventGaugesRecordedAt time.Time
 	for recordCount < req.MaxBatchSize {
 		if ok := changeStream.Next(timeoutCtx); !ok {
 			err := changeStream.Err()
@@ -513,9 +514,14 @@ func (c *MongoConnector) PullRecords(
 			commitTime = changeEvent.WallTime.UTC()
 		}
 		commitTimeNanos := commitTime.UnixNano()
-		otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
-		otelManager.Metrics.SourceLagGauge.Record(ctx,
-			time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Milliseconds())
+
+		if time.Since(lastEventGaugesRecordedAt) >= time.Second {
+			// recording gauges per event is wasteful on CPU given this is on the hot path
+			otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, clusterTime.Unix())
+			otelManager.Metrics.SourceLagGauge.Record(ctx,
+				time.Now().UTC().Add(mongoClockOffset).Sub(commitTime).Milliseconds())
+			lastEventGaugesRecordedAt = time.Now()
+		}
 
 		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name

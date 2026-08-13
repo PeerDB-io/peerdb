@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -152,30 +153,55 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 	return metric.WithAttributeSet(attribute.NewSet(attributes...))
 }
 
+// contextAttributesCache memoize buildContextualAttributes for the last seen context.
+// This avoids rebuilding the contextual attributes with the same context, which is
+// expensive in the hot path. The attrs rebuild when different context is seen.
+type contextAttributesCache struct {
+	last atomic.Pointer[contextAttributesCacheEntry]
+}
+
+type contextAttributesCacheEntry struct {
+	//nolint:containedctx // the context is a cache key compared by identity, not a stored dependency
+	ctx   context.Context
+	attrs metric.MeasurementOption
+}
+
+func (c *contextAttributesCache) forContext(ctx context.Context) metric.MeasurementOption {
+	if cached := c.last.Load(); cached != nil && cached.ctx == ctx {
+		return cached.attrs
+	}
+	attrs := buildContextualAttributes(ctx)
+	c.last.Store(&contextAttributesCacheEntry{ctx: ctx, attrs: attrs})
+	return attrs
+}
+
 type ContextAwareInt64SyncGauge struct {
 	metric.Int64Gauge
+	attrsCache contextAttributesCache
 }
 
 func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	newOptions := append([]metric.RecordOption{buildContextualAttributes(ctx)}, options...)
+	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
 	a.Int64Gauge.Record(ctx, value, newOptions...)
 }
 
 type ContextAwareFloat64SyncGauge struct {
 	metric.Float64Gauge
+	attrsCache contextAttributesCache
 }
 
 func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	newOptions := append([]metric.RecordOption{buildContextualAttributes(ctx)}, options...)
+	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
 	a.Float64Gauge.Record(ctx, value, newOptions...)
 }
 
 type ContextAwareInt64Counter struct {
 	metric.Int64Counter
+	attrsCache contextAttributesCache
 }
 
 func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
-	newOptions := append([]metric.AddOption{buildContextualAttributes(ctx)}, options...)
+	newOptions := append([]metric.AddOption{a.attrsCache.forContext(ctx)}, options...)
 	a.Int64Counter.Add(ctx, value, newOptions...)
 }
 
