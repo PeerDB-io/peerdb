@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -153,11 +152,11 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 	return metric.WithAttributeSet(attribute.NewSet(attributes...))
 }
 
-// contextAttributesCache memoize buildContextualAttributes for the last seen context.
-// This avoids rebuilding the contextual attributes with the same context, which is
-// expensive in the hot path. The attrs rebuild when different context is seen.
+// contextAttributesCache memoize buildContextualAttributes, which is expensive in the
+// hot path. Since gauges are singletons shared across mirrors, cache entries are keyed
+// by flow name (when exists) to so they don't evict each other across mirrors.
 type contextAttributesCache struct {
-	last atomic.Pointer[contextAttributesCacheEntry]
+	entries sync.Map
 }
 
 type contextAttributesCacheEntry struct {
@@ -167,11 +166,17 @@ type contextAttributesCacheEntry struct {
 }
 
 func (c *contextAttributesCache) forContext(ctx context.Context) metric.MeasurementOption {
-	if cached := c.last.Load(); cached != nil && cached.ctx == ctx {
-		return cached.attrs
+	var flowName string
+	if flowMetadata := internal.GetFlowMetadata(ctx); flowMetadata != nil {
+		flowName = flowMetadata.FlowName
+	}
+	if cached, ok := c.entries.Load(flowName); ok {
+		if entry := cached.(*contextAttributesCacheEntry); entry.ctx == ctx {
+			return entry.attrs
+		}
 	}
 	attrs := buildContextualAttributes(ctx)
-	c.last.Store(&contextAttributesCacheEntry{ctx: ctx, attrs: attrs})
+	c.entries.Store(flowName, &contextAttributesCacheEntry{ctx: ctx, attrs: attrs})
 	return attrs
 }
 
