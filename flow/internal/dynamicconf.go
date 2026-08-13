@@ -298,8 +298,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING",
-		Description:      "Enables parallel_view_processing setting on clickhouse, pushing to attached materialized views concurrently during inserts",
+		Name: "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING",
+		Description: "Enables parallel_view_processing setting on clickhouse, pushing to attached materialized views " +
+			"concurrently during inserts",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
