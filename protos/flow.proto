@@ -49,6 +49,15 @@ message SetupInput {
   string peer_name = 3;
 }
 
+enum BigqueryCdcMode {
+  BIGQUERY_CDC_MODE_APPENDS = 0;
+  BIGQUERY_CDC_MODE_CHANGES = 1;
+}
+
+message BigqueryCdcConfig {
+  BigqueryCdcMode cdc_mode = 1;
+}
+
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
 // When adding fields here, add them to FlowConnectionConfigsCore too
 message FlowConnectionConfigs {
@@ -97,6 +106,11 @@ message FlowConnectionConfigs {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  // connector-specific mirror config, mirroring Peer's per-connector config oneof
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -149,6 +163,10 @@ message FlowConnectionConfigsCore {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
 }
 
 message RenameTableOption {

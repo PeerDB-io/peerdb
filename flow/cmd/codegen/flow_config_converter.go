@@ -29,12 +29,14 @@ func FlowConnectionConfigsToCore(api *protos.FlowConnectionConfigs, tableMapping
 		return nil
 	}
 
-	return &protos.FlowConnectionConfigsCore{
+	core := &protos.FlowConnectionConfigsCore{
 {{range .Fields}}		{{.GoName}}: api.{{.GoName}},
 {{end}}
 		TableMappings: api.TableMappings, // TODO: remove
 		// TableMappingsVersion: tableMappingsVersion, // TODO: uncomment
 	}
+{{.ToCoreOneofSwitches}}
+	return core
 }
 
 // FlowConnectionConfigsCoreToAPI converts internal FlowConnectionConfigsCore to API FlowConnectionConfigs
@@ -46,11 +48,13 @@ func FlowConnectionConfigsCoreToAPI(
 		return nil
 	}
 
-	return &protos.FlowConnectionConfigs{
+	api := &protos.FlowConnectionConfigs{
 {{range .Fields}}		{{.GoName}}: core.{{.GoName}},
 {{end}}
 		TableMappings: tableMappings, // TODO: remove
 	}
+{{.ToAPIOneofSwitches}}
+	return api
 }
 `
 
@@ -59,7 +63,9 @@ type Field struct {
 }
 
 type ConverterTemplateData struct {
-	Fields []Field
+	Fields              []Field
+	ToCoreOneofSwitches string
+	ToAPIOneofSwitches  string
 }
 
 func generateFlowConfigConverter() error {
@@ -81,14 +87,41 @@ func generateFlowConfigConverter() error {
 		return fmt.Errorf("proto equality verification failed: %w", err)
 	}
 
-	// Convert to Field structs for template
+	apiOneofVariants, coreOneofVariants := extractOneofVariants(node)
+	if err := compareOneofVariants(apiOneofVariants, coreOneofVariants); err != nil {
+		return fmt.Errorf("oneof equality verification failed: %w", err)
+	}
+
+	// oneof fields can't be copied with a plain `Core.X = api.X` (the two
+	// structs' oneof interfaces are distinct, message-scoped types even for
+	// the same wire field) - they're rendered as type switches instead, and
+	// excluded from the straight-copy field list below.
+	oneofFieldNames := make(map[string]bool, len(apiOneofVariants))
+	oneofFieldOrder := make([]string, 0, len(apiOneofVariants))
+	for fieldName := range apiOneofVariants {
+		oneofFieldNames[fieldName] = true
+		oneofFieldOrder = append(oneofFieldOrder, fieldName)
+	}
+	sort.Strings(oneofFieldOrder)
+
 	fields := make([]Field, 0, len(apiFields))
 	for _, fieldName := range apiFields {
+		if oneofFieldNames[fieldName] {
+			continue
+		}
 		fields = append(fields, Field{GoName: fieldName})
 	}
 
 	if len(fields) == 0 {
 		return fmt.Errorf("no fields found in FlowConnectionConfigs")
+	}
+
+	var toCoreSwitches, toAPISwitches strings.Builder
+	for _, oneofField := range oneofFieldOrder {
+		variants := append([]string(nil), apiOneofVariants[oneofField]...)
+		sort.Strings(variants)
+		toCoreSwitches.WriteString(buildOneofSwitch("api", "core", oneofField, variants, "FlowConnectionConfigs", "FlowConnectionConfigsCore"))
+		toAPISwitches.WriteString(buildOneofSwitch("core", "api", oneofField, variants, "FlowConnectionConfigsCore", "FlowConnectionConfigs"))
 	}
 
 	// Generate the conversion functions
@@ -98,7 +131,11 @@ func generateFlowConfigConverter() error {
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ConverterTemplateData{Fields: fields}); err != nil {
+	if err := tmpl.Execute(&buf, ConverterTemplateData{
+		Fields:              fields,
+		ToCoreOneofSwitches: toCoreSwitches.String(),
+		ToAPIOneofSwitches:  toAPISwitches.String(),
+	}); err != nil {
 		return fmt.Errorf("failed to execute template: %w", err)
 	}
 
@@ -113,8 +150,26 @@ func generateFlowConfigConverter() error {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	log.Printf("Generated %s with %d fields\n", outputPath, len(fields))
+	log.Printf("Generated %s with %d fields and %d oneof field(s)\n", outputPath, len(fields), len(oneofFieldOrder))
 	return nil
+}
+
+// buildOneofSwitch renders a type switch that copies a single oneof field
+// from fromVar (of type fromType) to toVar (of type toType), one case per
+// variant. Returns "" if the oneof has no variants.
+func buildOneofSwitch(fromVar, toVar, oneofField string, variants []string, fromType, toType string) string {
+	if len(variants) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n\tswitch cfg := %s.%s.(type) {\n", fromVar, oneofField)
+	for _, variant := range variants {
+		fmt.Fprintf(&b, "\tcase *protos.%s_%s:\n", fromType, variant)
+		fmt.Fprintf(&b, "\t\t%s.%s = &protos.%s_%s{%s: cfg.%s}\n", toVar, oneofField, toType, variant, variant, variant)
+	}
+	b.WriteString("\t}\n")
+	return b.String()
 }
 
 func extractAndCompareFields(node *ast.File) ([]string, []string, error) {
@@ -206,4 +261,83 @@ func extractAndCompareFields(node *ast.File) ([]string, []string, error) {
 
 	log.Println("FlowConnectionConfigs are equal")
 	return apiFields, coreFields, nil
+}
+
+// extractOneofVariants maps each oneof field's Go name (e.g. SourceConnectorConfig)
+// to its variant suffixes (e.g. BigqueryCdcConfig), separately for
+// FlowConnectionConfigs and FlowConnectionConfigsCore. It reads the marker
+// methods protoc-gen-go emits for each variant wrapper, e.g.:
+//
+//	func (*FlowConnectionConfigs_BigqueryCdcConfig) isFlowConnectionConfigs_SourceConnectorConfig() {}
+func extractOneofVariants(node *ast.File) (map[string][]string, map[string][]string) {
+	const apiMarkerPrefix = "isFlowConnectionConfigs_"
+	const coreMarkerPrefix = "isFlowConnectionConfigsCore_"
+	const apiWrapperPrefix = "FlowConnectionConfigs_"
+	const coreWrapperPrefix = "FlowConnectionConfigsCore_"
+
+	apiVariants := make(map[string][]string)
+	coreVariants := make(map[string][]string)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		funcDecl, ok := n.(*ast.FuncDecl)
+		if !ok || funcDecl.Recv == nil || len(funcDecl.Recv.List) != 1 {
+			return true
+		}
+		starExpr, ok := funcDecl.Recv.List[0].Type.(*ast.StarExpr)
+		if !ok {
+			return true
+		}
+		wrapperIdent, ok := starExpr.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		name := funcDecl.Name.Name
+		switch {
+		case strings.HasPrefix(name, coreMarkerPrefix):
+			oneofField := strings.TrimPrefix(name, coreMarkerPrefix)
+			variant := strings.TrimPrefix(wrapperIdent.Name, coreWrapperPrefix)
+			coreVariants[oneofField] = append(coreVariants[oneofField], variant)
+		case strings.HasPrefix(name, apiMarkerPrefix):
+			oneofField := strings.TrimPrefix(name, apiMarkerPrefix)
+			variant := strings.TrimPrefix(wrapperIdent.Name, apiWrapperPrefix)
+			apiVariants[oneofField] = append(apiVariants[oneofField], variant)
+		}
+		return true
+	})
+
+	return apiVariants, coreVariants
+}
+
+func compareOneofVariants(api, core map[string][]string) error {
+	if len(api) != len(core) {
+		return fmt.Errorf("FlowConnectionConfigs and FlowConnectionConfigsCore have different oneof fields: api=%v core=%v",
+			sortedKeys(api), sortedKeys(core))
+	}
+
+	for oneofField, apiVariants := range api {
+		coreVariants, ok := core[oneofField]
+		if !ok {
+			return fmt.Errorf("oneof field %s is missing from FlowConnectionConfigsCore", oneofField)
+		}
+
+		sortedAPI := append([]string(nil), apiVariants...)
+		sortedCore := append([]string(nil), coreVariants...)
+		sort.Strings(sortedAPI)
+		sort.Strings(sortedCore)
+		if !reflect.DeepEqual(sortedAPI, sortedCore) {
+			return fmt.Errorf("oneof field %s has different variants: api=%v core=%v", oneofField, sortedAPI, sortedCore)
+		}
+	}
+
+	return nil
+}
+
+func sortedKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
