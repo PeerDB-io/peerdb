@@ -314,13 +314,6 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 	return types.NewQRecordSchema(fields), nil
 }
 
-func (c *BigQueryConnector) EnsurePullability(
-	ctx context.Context,
-	req *protos.EnsurePullabilityBatchInput,
-) (*protos.EnsurePullabilityBatchOutput, error) {
-	return nil, nil
-}
-
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
@@ -536,18 +529,6 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	c.logger.Info("GCS cleanup completed after export",
 		slog.Int("deletedObjects", deletedCount))
 
-	return nil
-}
-
-func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
-	return nil
-}
-
-func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
-	return nil
-}
-
-func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 

@@ -1,10 +1,15 @@
 package connbigquery
 
 import (
+	"math/big"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -298,4 +303,124 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestQValueFromBigQueryValue(t *testing.T) {
+	qfield := func(bqType bigquery.FieldType, repeated bool, precision, scale int16) types.QField {
+		return BigQueryFieldToQField(&bigquery.FieldSchema{
+			Type: bqType, Repeated: repeated, Precision: int64(precision), Scale: int64(scale),
+		})
+	}
+
+	t.Run("null returns a kind-tagged QValueNull", func(t *testing.T) {
+		f := qfield(bigquery.IntegerFieldType, false, 0, 0)
+		v, err := qvalueFromBigQueryValue(f, nil)
+		require.NoError(t, err)
+		assert.Equal(t, types.QValueNull(types.QValueKindInt64), v)
+	})
+
+	t.Run("scalar types", func(t *testing.T) {
+		ts := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+		tests := []struct {
+			name     string
+			field    types.QField
+			value    bigquery.Value
+			expected types.QValue
+		}{
+			{"bool", qfield(bigquery.BooleanFieldType, false, 0, 0), true, types.QValueBoolean{Val: true}},
+			{"int64", qfield(bigquery.IntegerFieldType, false, 0, 0), int64(42), types.QValueInt64{Val: 42}},
+			{"float64", qfield(bigquery.FloatFieldType, false, 0, 0), 3.14, types.QValueFloat64{Val: 3.14}},
+			{"bytes", qfield(bigquery.BytesFieldType, false, 0, 0), []byte("hi"), types.QValueBytes{Val: []byte("hi")}},
+			{"string", qfield(bigquery.StringFieldType, false, 0, 0), "hello", types.QValueString{Val: "hello"}},
+			{"json", qfield(bigquery.JSONFieldType, false, 0, 0), `{"a":1}`, types.QValueJSON{Val: `{"a":1}`}},
+			{
+				"geography",
+				qfield(bigquery.GeographyFieldType, false, 0, 0),
+				"POINT(1 1)",
+				types.QValueGeography{Val: "POINT(1 1)"},
+			},
+			{"timestamp", qfield(bigquery.TimestampFieldType, false, 0, 0), ts, types.QValueTimestamp{Val: ts}},
+			{
+				"datetime carried as UTC timestamp",
+				qfield(bigquery.DateTimeFieldType, false, 0, 0),
+				civil.DateTimeOf(ts),
+				types.QValueTimestamp{Val: ts},
+			},
+			{
+				"date",
+				qfield(bigquery.DateFieldType, false, 0, 0),
+				civil.Date{Year: 2026, Month: 8, Day: 14},
+				types.QValueDate{Val: time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)},
+			},
+			{
+				"time",
+				qfield(bigquery.TimeFieldType, false, 0, 0),
+				civil.Time{Hour: 1, Minute: 2, Second: 3, Nanosecond: 4000},
+				types.QValueTime{Val: time.Hour + 2*time.Minute + 3*time.Second + 4000*time.Nanosecond},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				v, err := qvalueFromBigQueryValue(tt.field, tt.value)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, v)
+			})
+		}
+	})
+
+	t.Run("numeric converts *big.Rat honoring field scale", func(t *testing.T) {
+		f := qfield(bigquery.NumericFieldType, false, 10, 2)
+		v, err := qvalueFromBigQueryValue(f, big.NewRat(1, 4)) // 0.25
+		require.NoError(t, err)
+		numeric, ok := v.(types.QValueNumeric)
+		require.True(t, ok)
+		assert.True(t, decimal.NewFromFloat(0.25).Equal(numeric.Val))
+		assert.Equal(t, int16(10), numeric.Precision)
+		assert.Equal(t, int16(2), numeric.Scale)
+	})
+
+	t.Run("repeated columns", func(t *testing.T) {
+		t.Run("array string", func(t *testing.T) {
+			f := qfield(bigquery.StringFieldType, true, 0, 0)
+			v, err := qvalueFromBigQueryValue(f, []bigquery.Value{"a", "b"})
+			require.NoError(t, err)
+			assert.Equal(t, types.QValueArrayString{Val: []string{"a", "b"}}, v)
+		})
+
+		t.Run("array int64", func(t *testing.T) {
+			f := qfield(bigquery.IntegerFieldType, true, 0, 0)
+			v, err := qvalueFromBigQueryValue(f, []bigquery.Value{int64(1), int64(2)})
+			require.NoError(t, err)
+			assert.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2}}, v)
+		})
+
+		t.Run("array numeric", func(t *testing.T) {
+			f := qfield(bigquery.NumericFieldType, true, 10, 2)
+			v, err := qvalueFromBigQueryValue(f, []bigquery.Value{big.NewRat(1, 2)})
+			require.NoError(t, err)
+			arr, ok := v.(types.QValueArrayNumeric)
+			require.True(t, ok)
+			require.Len(t, arr.Val, 1)
+			assert.True(t, decimal.NewFromFloat(0.5).Equal(arr.Val[0]))
+		})
+
+		t.Run("element type mismatch errors", func(t *testing.T) {
+			f := qfield(bigquery.IntegerFieldType, true, 0, 0)
+			_, err := qvalueFromBigQueryValue(f, []bigquery.Value{"not-an-int"})
+			require.Error(t, err)
+		})
+
+		t.Run("non-slice value for repeated column errors", func(t *testing.T) {
+			f := qfield(bigquery.IntegerFieldType, true, 0, 0)
+			_, err := qvalueFromBigQueryValue(f, int64(1))
+			require.Error(t, err)
+		})
+	})
+
+	t.Run("unsupported Go value type errors instead of silently misconverting", func(t *testing.T) {
+		f := qfield(bigquery.IntegerFieldType, false, 0, 0)
+		// e.g. a RECORD column's nested []bigquery.Value landing on a non-array qfield.
+		_, err := qvalueFromBigQueryValue(f, []bigquery.Value{int64(1)})
+		require.Error(t, err)
+	})
 }
