@@ -95,8 +95,9 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		case protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS:
 			if rejectKeylessReplacingMergeTree(hasPK, tableMapping.Engine) {
 				return fmt.Errorf("table %s has no primary key configured on BigQuery and the destination engine "+
-					"is ReplacingMergeTree (the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses "+
-					"the table on writes, so a PK-less table must use an explicit CH_ENGINE_MERGE_TREE engine instead",
+					"is a ReplacingMergeTree variant (the plain form is the default); ORDER BY tuple() on a keyless "+
+					"ReplacingMergeTree collapses the table on writes, so a PK-less table must use an explicit "+
+					"CH_ENGINE_MERGE_TREE engine instead",
 					dstDatasetTable.string())
 			}
 		}
@@ -117,8 +118,13 @@ func tableHasPrimaryKey(metadata *bigquery.TableMetadata) bool {
 // rejected: ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table
 // on writes (errors on ClickHouse 25.12+, silently loses data before), so a
 // table with no PK to key off of must use an explicit MergeTree engine instead.
+// The replicated variant shares the same collapsing behavior (it's the same
+// dedup engine, just wrapped for replication - see the ClickHouse connector's
+// own normalize.go, which groups the two under one switch case) so it's
+// rejected too.
 func rejectKeylessReplacingMergeTree(hasPK bool, engine protos.TableEngine) bool {
-	return !hasPK && engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+	return !hasPK && (engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
+		engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE)
 }
 
 // tableHasChangeHistoryEnabled checks the enable_change_history table option via
