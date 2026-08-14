@@ -39,8 +39,9 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 10, 0, 0, 0, time.FixedZone("UTC-5", -5*60*60)), // == 2026-08-14 15:00:00 UTC
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET',\n\t\t\tcompression='GZIP',\n\t\t\t" +
-				"overwrite=true\n\t\t) AS\n\t\tSELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 15:00:00 UTC')",
+			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
+				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+				"SELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 15:00:00 UTC')",
 		},
 		{
 			name:                  "no fractional seconds are dropped from the literal",
@@ -49,8 +50,9 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC),
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET',\n\t\t\tcompression='GZIP',\n\t\t\t" +
-				"overwrite=true\n\t\t) AS\n\t\tSELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 00:00:00 UTC')",
+			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
+				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+				"SELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 00:00:00 UTC')",
 		},
 		{
 			name:    "JSON, Geography, and DateTime columns are cast for Parquet export",
@@ -64,8 +66,9 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET',\n\t\t\tcompression='GZIP',\n\t\t\t" +
-				"overwrite=true\n\t\t) AS\n\t\tSELECT `plain`, TO_JSON_STRING(`payload`) AS `payload`, ST_AsText(`geo`) AS `geo`, " +
+			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
+				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+				"SELECT `plain`, TO_JSON_STRING(`payload`) AS `payload`, ST_AsText(`geo`) AS `geo`, " +
 				"CAST(`ts` AS TIMESTAMP) AS `ts` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:00:00 UTC')",
 		},
 	}
