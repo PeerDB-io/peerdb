@@ -2,8 +2,12 @@ package connbigquery
 
 import (
 	"fmt"
+	"math/big"
+	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -208,4 +212,140 @@ func BigQueryFieldToQField(bqField *bigquery.FieldSchema) types.QField {
 		Scale:     int16(bqField.Scale),
 		Nullable:  !bqField.Required,
 	}
+}
+
+// qvalueFromBigQueryValue converts one column of a query result row (e.g. from
+// APPENDS()/CHANGES()) into the QValue variant matching qfield.Type, as computed by
+// BigQueryFieldToQField from the same result schema. The Go SDK hands back an
+// already-typed value per BigQuery type (see cloud.google.com/go/bigquery's
+// convertBasicType): string, []byte, int64, float64, bool, time.Time (TIMESTAMP),
+// civil.Date (DATE), civil.Time (TIME), civil.DateTime (DATETIME), *big.Rat
+// (NUMERIC/BIGNUMERIC), or []bigquery.Value for a REPEATED column.
+//
+// RECORD/STRUCT columns aren't supported: their Go value is also []bigquery.Value,
+// which doesn't match any non-array qfield.Type, so they fail here with a clear
+// error rather than being silently misread.
+func qvalueFromBigQueryValue(qfield types.QField, value bigquery.Value) (types.QValue, error) {
+	if value == nil {
+		return types.QValueNull(qfield.Type), nil
+	}
+
+	switch qfield.Type {
+	case types.QValueKindArrayString, types.QValueKindArrayInt64, types.QValueKindArrayFloat64,
+		types.QValueKindArrayBoolean, types.QValueKindArrayTimestamp, types.QValueKindArrayDate,
+		types.QValueKindArrayNumeric:
+		values, ok := value.([]bigquery.Value)
+		if !ok {
+			return nil, fmt.Errorf("expected []bigquery.Value for repeated column %s, got %T", qfield.Name, value)
+		}
+		return qvalueArrayFromBigQueryValues(qfield, values)
+	}
+
+	switch v := value.(type) {
+	case bool:
+		return types.QValueBoolean{Val: v}, nil
+	case int64:
+		return types.QValueInt64{Val: v}, nil
+	case float64:
+		return types.QValueFloat64{Val: v}, nil
+	case []byte:
+		return types.QValueBytes{Val: v}, nil
+	case string:
+		switch qfield.Type {
+		case types.QValueKindJSON:
+			return types.QValueJSON{Val: v}, nil
+		case types.QValueKindGeography:
+			return types.QValueGeography{Val: v}, nil
+		default:
+			return types.QValueString{Val: v}, nil
+		}
+	case time.Time:
+		return types.QValueTimestamp{Val: v}, nil
+	case civil.Date:
+		return types.QValueDate{Val: v.In(time.UTC)}, nil
+	case civil.DateTime:
+		// BigQuery DATETIME is timezone-unaware; BigQueryTypeToQValueKind maps it
+		// to QValueKindTimestamp (same as TIMESTAMP -- see the snapshot-export
+		// path's CAST(... AS TIMESTAMP) treatment for the same reasoning), so it's
+		// carried as a UTC time.Time here too.
+		return types.QValueTimestamp{Val: v.In(time.UTC)}, nil
+	case civil.Time:
+		return types.QValueTime{Val: civilTimeToDuration(v)}, nil
+	case *big.Rat:
+		return types.QValueNumeric{
+			Val:       decimal.NewFromBigRat(v, int32(qfield.Scale)),
+			Precision: qfield.Precision,
+			Scale:     qfield.Scale,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported BigQuery value type %T for column %s", value, qfield.Name)
+	}
+}
+
+// qvalueArrayFromBigQueryValues converts a REPEATED column's value, which the Go
+// SDK returns as []bigquery.Value with one already-typed element per the field's
+// base (non-repeated) type.
+func qvalueArrayFromBigQueryValues(qfield types.QField, values []bigquery.Value) (types.QValue, error) {
+	switch qfield.Type {
+	case types.QValueKindArrayString:
+		arr, err := castBigQueryArray[string](qfield, values)
+		return types.QValueArrayString{Val: arr}, err
+	case types.QValueKindArrayInt64:
+		arr, err := castBigQueryArray[int64](qfield, values)
+		return types.QValueArrayInt64{Val: arr}, err
+	case types.QValueKindArrayFloat64:
+		arr, err := castBigQueryArray[float64](qfield, values)
+		return types.QValueArrayFloat64{Val: arr}, err
+	case types.QValueKindArrayBoolean:
+		arr, err := castBigQueryArray[bool](qfield, values)
+		return types.QValueArrayBoolean{Val: arr}, err
+	case types.QValueKindArrayTimestamp:
+		arr, err := castBigQueryArray[time.Time](qfield, values)
+		return types.QValueArrayTimestamp{Val: arr}, err
+	case types.QValueKindArrayDate:
+		dates, err := castBigQueryArray[civil.Date](qfield, values)
+		if err != nil {
+			return nil, err
+		}
+		arr := make([]time.Time, len(dates))
+		for i, d := range dates {
+			arr[i] = d.In(time.UTC)
+		}
+		return types.QValueArrayDate{Val: arr}, nil
+	case types.QValueKindArrayNumeric:
+		rats, err := castBigQueryArray[*big.Rat](qfield, values)
+		if err != nil {
+			return nil, err
+		}
+		arr := make([]decimal.Decimal, len(rats))
+		for i, r := range rats {
+			arr[i] = decimal.NewFromBigRat(r, int32(qfield.Scale))
+		}
+		return types.QValueArrayNumeric{Val: arr, Precision: qfield.Precision, Scale: qfield.Scale}, nil
+	default:
+		return nil, fmt.Errorf("unsupported repeated BigQuery column type for %s: %s", qfield.Name, qfield.Type)
+	}
+}
+
+// castBigQueryArray asserts every element of a REPEATED column's values to T,
+// mirroring the analogous helper in the cockroachdb connector's qvalue_convert.go.
+func castBigQueryArray[T any](qfield types.QField, values []bigquery.Value) ([]T, error) {
+	arr := make([]T, len(values))
+	for i, v := range values {
+		t, ok := v.(T)
+		if !ok {
+			return nil, fmt.Errorf("array column %s: element %d has unexpected type %T", qfield.Name, i, v)
+		}
+		arr[i] = t
+	}
+	return arr, nil
+}
+
+// civilTimeToDuration converts a civil.Time (BigQuery TIME) into the time.Duration
+// since midnight that types.QValueTime expects.
+func civilTimeToDuration(t civil.Time) time.Duration {
+	return time.Duration(t.Hour)*time.Hour +
+		time.Duration(t.Minute)*time.Minute +
+		time.Duration(t.Second)*time.Second +
+		time.Duration(t.Nanosecond)*time.Nanosecond
 }
