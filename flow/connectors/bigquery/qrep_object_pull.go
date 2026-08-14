@@ -343,15 +343,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
 
 	// snapshotTime (T) anchors every table's export below via FOR SYSTEM_TIME AS OF, so all
-	// tables are read as of the same consistent point in time. It's queried from BigQuery's
-	// own clock rather than local wall-clock so it lines up with BigQuery's time-travel
-	// semantics.
-	//
-	// Known limitation: T must stay within BigQuery's time-travel window (7 days by default)
-	// for the entire snapshot duration across all tables, or later tables' exports will fail.
-	// Not addressed here -- no retry/adjustment logic; a snapshot that runs long enough to
-	// walk outside the window needs a shorter export or a larger table-level time-travel
-	// setting.
+	// tables are read as of the same consistent point in time.
 	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
@@ -364,9 +356,6 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
 }
 
-// exportTablesAsOf runs EXPORT DATA for every table in tableMappings, each read as of
-// snapshotTime, writing Parquet to stagingPath. Shared by ExportTxSnapshot (pure
-// snapshot-only flows) and SetupReplication (initial load for flows that continue into CDC).
 func (c *BigQueryConnector) exportTablesAsOf(
 	ctx context.Context,
 	flowName string,
@@ -450,9 +439,7 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	return buildBigQueryExportSQL(dsTable, metadata.Schema, snapshotStagingPath, sourceTableIdentifier, snapshotTime), nil
 }
 
-// buildBigQueryExportSQL builds the EXPORT DATA SQL string given an already-resolved schema, so
-// it can be unit tested without a live BigQuery client. See bigQueryExportQueryStatement, which
-// resolves the schema and delegates here.
+// buildBigQueryExportSQL builds the EXPORT DATA SQL string
 func buildBigQueryExportSQL(
 	dsTable datasetTable,
 	schema bigquery.Schema,
@@ -480,8 +467,6 @@ func buildBigQueryExportSQL(
 	}
 
 	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
-	// BigQuery's TIMESTAMP literal format; matches the precision/format validated against a
-	// live instance (see the FOR SYSTEM_TIME AS OF syntax docs referenced above).
 	snapshotLiteral := snapshotTime.UTC().Format("2006-01-02 15:04:05.999999")
 
 	return fmt.Sprintf(`EXPORT DATA OPTIONS(
@@ -576,10 +561,7 @@ func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 // MySQL/Postgres, BigQuery's initial load can't query the live table at pull time - QRep
 // pulls read pre-exported Parquet from GCS - so when the mirror wants an initial load
 // (req.DoInitialSnapshot), this also runs that export as of the same T, the same way
-// ExportTxSnapshot does for pure snapshot-only flows. It returns a zero-value
-// model.SetupReplicationResult (no slot/snapshot name), matching MySQL: cloneTablesWithSlot
-// falls back to the mirror's configured SnapshotStagingPath when no override is given, which
-// is exactly where this export writes.
+// ExportTxSnapshot does for pure snapshot-only flows.
 func (c *BigQueryConnector) SetupReplication(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
