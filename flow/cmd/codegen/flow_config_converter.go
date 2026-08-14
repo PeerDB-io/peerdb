@@ -63,9 +63,9 @@ type Field struct {
 }
 
 type ConverterTemplateData struct {
-	Fields              []Field
 	ToCoreOneofSwitches string
 	ToAPIOneofSwitches  string
+	Fields              []Field
 }
 
 func generateFlowConfigConverter() error {
