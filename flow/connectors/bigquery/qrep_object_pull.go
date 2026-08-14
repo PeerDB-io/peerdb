@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
@@ -341,9 +342,26 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	runSnapshotStagingPath := basePath.JoinPath(activityInfo.WorkflowExecution.RunID).String()
 	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
 
+	// snapshotTime (T) anchors every table's export below via FOR SYSTEM_TIME AS OF, so all
+	// tables are read as of the same consistent point in time. It's queried from BigQuery's
+	// own clock rather than local wall-clock so it lines up with BigQuery's time-travel
+	// semantics. When the mirror continues into CDC, T also becomes the initial poll
+	// checkpoint (see below) so a later PullRecords resumes from exactly where this snapshot
+	// left off.
+	//
+	// Known limitation: T must stay within BigQuery's time-travel window (7 days by default)
+	// for the entire snapshot duration across all tables, or later tables' exports will fail.
+	// Not addressed here -- no retry/adjustment logic; a snapshot that runs long enough to
+	// walk outside the window needs a shorter export or a larger table-level time-travel
+	// setting.
+	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
+	}
+
 	jobs := make(map[string]*bigquery.Job)
 	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath)
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath, snapshotTime)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
@@ -375,7 +393,41 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
 
+	// Persist T as the initial CDC checkpoint only when this mirror will keep polling for
+	// changes after the snapshot. Pure-snapshot flows (InitialSnapshotOnly) have no CDC
+	// follow-up, so there's nothing to resume and no checkpoint should be written.
+	//
+	// This is done here, in ExportTxSnapshot, rather than in SetupReplication (as
+	// CDCPullConnectorCore's other implementations do for their equivalent offsets): for
+	// BigQuery, SetupReplication and ExportTxSnapshot are called from disjoint branches of
+	// SnapshotFlowWorkflow depending on InitialSnapshotOnly, so T (captured above, specific to
+	// this export) is never in scope inside SetupReplication. See the workflow branching in
+	// flow/workflows/snapshot_flow.go: SetupReplication runs only when InitialSnapshotOnly is
+	// false, i.e. exactly when ExportTxSnapshot does *not* run.
+	if !cfg.InitialSnapshotOnly {
+		checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
+		if err := c.SetLastOffset(ctx, flowName, checkpoint); err != nil {
+			return nil, nil, fmt.Errorf("failed to persist snapshot checkpoint: %w", err)
+		}
+	}
+
 	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
+}
+
+// currentBigQueryTimestamp queries BigQuery's own clock (rather than local wall-clock) so the
+// returned timestamp is consistent with BigQuery's FOR SYSTEM_TIME AS OF time-travel semantics.
+func (c *BigQueryConnector) currentBigQueryTimestamp(ctx context.Context) (time.Time, error) {
+	it, err := c.client.Query("SELECT CURRENT_TIMESTAMP() AS ts").Read(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to query current BigQuery timestamp: %w", err)
+	}
+	var row struct {
+		Ts time.Time `bigquery:"ts"`
+	}
+	if err := it.Next(&row); err != nil {
+		return time.Time{}, fmt.Errorf("failed to read current BigQuery timestamp: %w", err)
+	}
+	return row.Ts, nil
 }
 
 // bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
@@ -386,6 +438,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	ctx context.Context,
 	sourceTableIdentifier, snapshotStagingPath string,
+	snapshotTime time.Time,
 ) (string, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
@@ -398,8 +451,20 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTableIdentifier, err)
 	}
 
-	columnSelects := make([]string, 0, len(metadata.Schema))
-	for _, field := range metadata.Schema {
+	return buildBigQueryExportSQL(dsTable, metadata.Schema, snapshotStagingPath, sourceTableIdentifier, snapshotTime), nil
+}
+
+// buildBigQueryExportSQL builds the EXPORT DATA SQL string given an already-resolved schema, so
+// it can be unit tested without a live BigQuery client. See bigQueryExportQueryStatement, which
+// resolves the schema and delegates here.
+func buildBigQueryExportSQL(
+	dsTable datasetTable,
+	schema bigquery.Schema,
+	snapshotStagingPath, sourceTableIdentifier string,
+	snapshotTime time.Time,
+) string {
+	columnSelects := make([]string, 0, len(schema))
+	for _, field := range schema {
 		quotedName := quotedIdentifier(field.Name)
 		columnSelect := quotedName
 		switch field.Type {
@@ -419,20 +484,22 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	}
 
 	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
+	// BigQuery's TIMESTAMP literal format; matches the precision/format validated against a
+	// live instance (see the FOR SYSTEM_TIME AS OF syntax docs referenced above).
+	snapshotLiteral := snapshotTime.UTC().Format("2006-01-02 15:04:05.999999")
 
-	exportSQL := fmt.Sprintf(`EXPORT DATA OPTIONS(
+	return fmt.Sprintf(`EXPORT DATA OPTIONS(
 			uri='%s',
 			format='PARQUET',
 			compression='GZIP',
 			overwrite=true
 		) AS
-		SELECT %s FROM %s`,
+		SELECT %s FROM %s FOR SYSTEM_TIME AS OF TIMESTAMP('%s UTC')`,
 		uri,
 		strings.Join(columnSelects, ", "),
 		dsTable.stringQuoted(),
+		snapshotLiteral,
 	)
-
-	return exportSQL, nil
 }
 
 func (c *BigQueryConnector) FinishExport(v any) error {
