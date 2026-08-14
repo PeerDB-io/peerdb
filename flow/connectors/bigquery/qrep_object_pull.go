@@ -345,9 +345,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	// snapshotTime (T) anchors every table's export below via FOR SYSTEM_TIME AS OF, so all
 	// tables are read as of the same consistent point in time. It's queried from BigQuery's
 	// own clock rather than local wall-clock so it lines up with BigQuery's time-travel
-	// semantics. When the mirror continues into CDC, T also becomes the initial poll
-	// checkpoint (see below) so a later PullRecords resumes from exactly where this snapshot
-	// left off.
+	// semantics.
 	//
 	// Known limitation: T must stay within BigQuery's time-travel window (7 days by default)
 	// for the entire snapshot duration across all tables, or later tables' exports will fail.
@@ -359,11 +357,28 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
 	}
 
-	jobs := make(map[string]*bigquery.Job)
-	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath, snapshotTime)
+	if err := c.exportTablesAsOf(ctx, flowName, cfg.TableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
+		return nil, nil, err
+	}
+
+	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
+}
+
+// exportTablesAsOf runs EXPORT DATA for every table in tableMappings, each read as of
+// snapshotTime, writing Parquet to stagingPath. Shared by ExportTxSnapshot (pure
+// snapshot-only flows) and SetupReplication (initial load for flows that continue into CDC).
+func (c *BigQueryConnector) exportTablesAsOf(
+	ctx context.Context,
+	flowName string,
+	tableMappings []*protos.TableMapping,
+	stagingPath string,
+	snapshotTime time.Time,
+) error {
+	jobs := make(map[string]*bigquery.Job, len(tableMappings))
+	for _, tm := range tableMappings {
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, stagingPath, snapshotTime)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
+			return fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 
 		q := c.client.Query(exportSQL)
@@ -379,39 +394,20 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 				}
 			}
 
-			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
+			return fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 		jobs[tm.SourceTableIdentifier] = job
 	}
 	for sourceTableIdentifier, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
-			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
+			return fmt.Errorf("error waiting for export job to complete: %w", err)
 		} else if err := status.Err(); err != nil {
-			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
+			return fmt.Errorf("export job completed with error: %w", err)
 		}
 
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
-
-	// Persist T as the initial CDC checkpoint only when this mirror will keep polling for
-	// changes after the snapshot. Pure-snapshot flows (InitialSnapshotOnly) have no CDC
-	// follow-up, so there's nothing to resume and no checkpoint should be written.
-	//
-	// This is done here, in ExportTxSnapshot, rather than in SetupReplication (as
-	// CDCPullConnectorCore's other implementations do for their equivalent offsets): for
-	// BigQuery, SetupReplication and ExportTxSnapshot are called from disjoint branches of
-	// SnapshotFlowWorkflow depending on InitialSnapshotOnly, so T (captured above, specific to
-	// this export) is never in scope inside SetupReplication. See the workflow branching in
-	// flow/workflows/snapshot_flow.go: SetupReplication runs only when InitialSnapshotOnly is
-	// false, i.e. exactly when ExportTxSnapshot does *not* run.
-	if !cfg.InitialSnapshotOnly {
-		checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
-		if err := c.SetLastOffset(ctx, flowName, checkpoint); err != nil {
-			return nil, nil, fmt.Errorf("failed to persist snapshot checkpoint: %w", err)
-		}
-	}
-
-	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
+	return nil
 }
 
 // currentBigQueryTimestamp queries BigQuery's own clock (rather than local wall-clock) so the
@@ -574,9 +570,42 @@ func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
+// SetupReplication is BigQuery's equivalent of capturing a starting replication position
+// (like MySQL's GTID/file-position capture): it has no replication slot to open, so it just
+// captures a BigQuery-clock timestamp T and persists it as the initial CDC checkpoint. Unlike
+// MySQL/Postgres, BigQuery's initial load can't query the live table at pull time - QRep
+// pulls read pre-exported Parquet from GCS - so when the mirror wants an initial load
+// (req.DoInitialSnapshot), this also runs that export as of the same T, the same way
+// ExportTxSnapshot does for pure snapshot-only flows. It returns a zero-value
+// model.SetupReplicationResult (no slot/snapshot name), matching MySQL: cloneTablesWithSlot
+// falls back to the mirror's configured SnapshotStagingPath when no override is given, which
+// is exactly where this export writes.
 func (c *BigQueryConnector) SetupReplication(
-	context.Context, shared.CatalogPool,
-	*protos.SetupReplicationInput,
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
+	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
+	}
+
+	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+	}
+
+	if req.DoInitialSnapshot {
+		_ = c.LogFlowInfo(ctx, req.FlowJobName, "Starting initial-load BigQuery export to GCS staging bucket")
+		if err := c.exportTablesAsOf(ctx, req.FlowJobName, cfg.TableMappings, cfg.SnapshotStagingPath, snapshotTime); err != nil {
+			return model.SetupReplicationResult{}, err
+		}
+	}
+
+	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
+	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+	}
+
 	return model.SetupReplicationResult{}, nil
 }
