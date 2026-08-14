@@ -102,7 +102,7 @@ message FlowConnectionConfigs {
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
 // It still needs to be a proto because Temporal
 // When adding fields here, add them to FlowConnectionConfigs too
-// Equivalence with FlowConnectionConfigs is enforced during codegen
+// Equivalence with FlowConnectionConfigs is enforced by flow/proto_conversions tests
 message FlowConnectionConfigsCore {
   reserved 2,3,17;
   string flow_job_name = 1;

@@ -11,10 +11,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -44,7 +44,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			req.ConnectionConfigs.Version = internalVersion
 		}
 	}
-	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
 

@@ -670,7 +670,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	// now test weird names with rename based resync
@@ -689,7 +689,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
@@ -2986,7 +2986,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
-	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
@@ -3053,7 +3053,7 @@ func (s ClickHouseSuite) Test_Schema_Change_After_Resync_Cluster() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
-	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	flowConnConfig.Resync = true
@@ -4010,7 +4010,7 @@ func (s ClickHouseSuite) Test_Offload_Partition_Ranges() {
 	RequireEnvCanceled(s.t, env)
 
 	// dropping the mirror should delete metadata_qrep_offloaded_partition_ranges entries for this mirror
-	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	dropEnv := ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, dropEnv, 3*time.Minute)
 
 	var remainingRanges int64

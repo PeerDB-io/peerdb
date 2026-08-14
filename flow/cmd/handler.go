@@ -22,10 +22,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -204,7 +204,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	// Use idempotent validation that skips mirror existence check
-	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
 		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
@@ -329,7 +329,7 @@ func (h *FlowRequestHandler) dropFlow(
 	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   true,
 		SkipSourceDrop:        true,
 	}); err != nil {
@@ -387,7 +387,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   skipDestinationDrop,
 		// NOTE: Resync is false here during snapshot-only resync
 	})
@@ -698,7 +698,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	} else {
 		config.Version = internalVersion
 	}
-	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
+	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
 	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
