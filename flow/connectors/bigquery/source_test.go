@@ -80,8 +80,14 @@ func TestRejectKeylessReplacingMergeTree(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "no PK, replicated ReplacingMergeTree - allowed (only the plain RMT default is restricted)",
+			name:   "no PK, replicated ReplacingMergeTree - reject (same collapsing dedup engine, just replicated)",
 			hasPK:  false,
+			engine: protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
+			want:   true,
+		},
+		{
+			name:   "has PK, replicated ReplacingMergeTree - allowed",
+			hasPK:  true,
 			engine: protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
 			want:   false,
 		},
