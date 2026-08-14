@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -66,6 +66,20 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	cdcMode := cfg.GetBigqueryCdcConfig().GetCdcMode()
+
+	var changeHistoryByTable map[bqvalidate.DatasetTable]bool
+	if cdcMode == protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES {
+		allDstDatasetTables := make([]bqvalidate.DatasetTable, 0, len(dstDatasetTables))
+		for _, dstDatasetTable := range dstDatasetTables {
+			allDstDatasetTables = append(allDstDatasetTables,
+				bqvalidate.DatasetTable{Dataset: dstDatasetTable.dataset, Table: dstDatasetTable.table})
+		}
+		changeHistoryByTable, err = bqvalidate.TablesHaveChangeHistoryEnabled(ctx, c.client, c.projectID, allDstDatasetTables)
+		if err != nil {
+			return fmt.Errorf("failed to check enable_change_history option: %w", exceptions.NewBigQueryError(err))
+		}
+	}
+
 	for _, tableMapping := range cfg.TableMappings {
 		dstDatasetTable := dstDatasetTables[tableMapping.SourceTableIdentifier]
 		table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
@@ -74,30 +88,30 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.SourceTableIdentifier, err)
 		}
 		hasPK := tableHasPrimaryKey(metadata)
+		destinationHasOrderingKey := hasPK || tableHasOrderingKey(tableMapping)
 
 		switch cdcMode {
 		case protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES:
-			if !hasPK {
+			if !destinationHasOrderingKey {
 				return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
-					"CHANGES mode requires a real (NOT ENFORCED) PK constraint on the source table",
+					"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
+					"or an explicit ordering key configured via column settings on the table mapping",
 					dstDatasetTable.string())
 			}
-			hasChangeHistory, err := c.tableHasChangeHistoryEnabled(ctx, dstDatasetTable)
-			if err != nil {
-				return fmt.Errorf("failed to check enable_change_history option for table %s: %w",
-					dstDatasetTable.string(), exceptions.NewBigQueryError(err))
-			}
-			if !hasChangeHistory {
+			key := bqvalidate.DatasetTable{Dataset: dstDatasetTable.dataset, Table: dstDatasetTable.table}
+			if !changeHistoryByTable[key] {
 				return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
 					"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
 					dstDatasetTable.string())
 			}
 		case protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS:
-			if rejectKeylessReplacingMergeTree(hasPK, tableMapping.Engine) {
-				return fmt.Errorf("table %s has no primary key configured on BigQuery and the destination engine "+
-					"is a ReplacingMergeTree variant (the plain form is the default); ORDER BY tuple() on a keyless "+
-					"ReplacingMergeTree collapses the table on writes, so a PK-less table must use an explicit "+
-					"CH_ENGINE_MERGE_TREE engine instead",
+			if (tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
+				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE) && !destinationHasOrderingKey {
+				return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+
+					"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
+					"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
+					"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
+					"configured",
 					dstDatasetTable.string())
 			}
 		}
@@ -114,47 +128,13 @@ func tableHasPrimaryKey(metadata *bigquery.TableMetadata) bool {
 		len(metadata.TableConstraints.PrimaryKey.Columns) > 0
 }
 
-// rejectKeylessReplacingMergeTree decides whether a keyless-table mirror must be
-// rejected: ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table
-// on writes (errors on ClickHouse 25.12+, silently loses data before), so a
-// table with no PK to key off of must use an explicit MergeTree engine instead.
-// The replicated variant shares the same collapsing behavior (it's the same
-// dedup engine, just wrapped for replication - see the ClickHouse connector's
-// own normalize.go, which groups the two under one switch case) so it's
-// rejected too.
-func rejectKeylessReplacingMergeTree(hasPK bool, engine protos.TableEngine) bool {
-	return !hasPK && (engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
-		engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE)
-}
-
-// tableHasChangeHistoryEnabled checks the enable_change_history table option via
-// INFORMATION_SCHEMA.TABLE_OPTIONS. This option is not exposed as a typed field
-// on bigquery.TableMetadata, and PeerDB never sets it — only checks it.
-func (c *BigQueryConnector) tableHasChangeHistoryEnabled(ctx context.Context, dstDatasetTable datasetTable) (bool, error) {
-	q := c.client.Query(fmt.Sprintf(
-		"SELECT option_value FROM `%s`.INFORMATION_SCHEMA.TABLE_OPTIONS "+
-			"WHERE table_name = @table_name AND option_name = 'enable_change_history'",
-		dstDatasetTable.dataset))
-	q.Parameters = []bigquery.QueryParameter{{Name: "table_name", Value: dstDatasetTable.table}}
-	q.DefaultProjectID = c.projectID
-	q.DefaultDatasetID = dstDatasetTable.dataset
-
-	it, err := q.Read(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	var row []bigquery.Value
-	if err := it.Next(&row); err != nil {
-		if errors.Is(err, iterator.Done) {
-			return false, nil
+// tableHasOrderingKey reports whether the user configured an explicit ordering
+// key on the table mapping (column ordering > 0) as a PK substitute.
+func tableHasOrderingKey(tableMapping *protos.TableMapping) bool {
+	for _, col := range tableMapping.Columns {
+		if col.Ordering > 0 {
+			return true
 		}
-		return false, err
 	}
-	if len(row) == 0 {
-		return false, nil
-	}
-
-	optionValue, ok := row[0].(string)
-	return ok && strings.EqualFold(optionValue, "true"), nil
+	return false
 }
