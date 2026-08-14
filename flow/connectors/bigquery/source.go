@@ -17,10 +17,6 @@ import (
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	if !cfg.InitialSnapshotOnly || !cfg.DoInitialSnapshot {
-		return fmt.Errorf("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
-	}
-
 	var missingTables []common.QualifiedTable
 	dstDatasetTables := make(map[string]datasetTable, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
