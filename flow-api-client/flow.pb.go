@@ -1087,7 +1087,7 @@ func (x *FlowConnectionConfigs) GetSkipValidation() bool {
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
 // It still needs to be a proto because Temporal
 // When adding fields here, add them to FlowConnectionConfigs too
-// Equivalence with FlowConnectionConfigs is enforced during codegen
+// Equivalence with FlowConnectionConfigs is enforced by flow/proto_conversions tests
 type FlowConnectionConfigsCore struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	FlowJobName string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
