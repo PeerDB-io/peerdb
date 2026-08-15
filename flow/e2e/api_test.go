@@ -29,10 +29,10 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
-	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -3066,7 +3066,7 @@ func (s APITestSuite) TestDropMissing() {
 		Destination:      s.ch.Peer().Name,
 	}
 	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
-	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg))
 	require.NoError(s.t, err)
 
 	var sourcePeerID, destPeerID int32
