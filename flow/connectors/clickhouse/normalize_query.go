@@ -246,25 +246,24 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
-			case "JSON", "Nullable(JSON)":
-				stringType := strings.Replace(clickHouseType, "JSON", "String", 1)
-
-				fmt.Fprintf(&projection,
-					"JSONExtract(_peerdb_data, %s, '%s')::%s AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
-					stringType,
-					clickHouseType,
-					peerdb_clickhouse.QuoteIdentifier(dstColName),
-				)
-				if t.enablePrimaryUpdate {
-					fmt.Fprintf(&projectionUpdate,
-						"JSONExtract(_peerdb_match_data, %s, '%s')::%s AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						stringType,
-						clickHouseType,
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
+		case "JSON", "Nullable(JSON)":
+			// delete records (and legitimately null values) are missing the key entirely, which
+			// JSONExtract(..., 'String') resolves to '' rather than NULL; casting '' to JSON throws,
+			// so extract as Nullable(String) and substitute an empty object for the non-nullable case.
+			buildJSONExpr := func(rawDataCol string) string {
+				extractExpr := fmt.Sprintf("JSONExtract(%s, %s, 'Nullable(String)')",
+					rawDataCol, peerdb_clickhouse.QuoteLiteral(colName))
+				if clickHouseType == "JSON" {
+					return fmt.Sprintf("ifNull(%s, '{}')::JSON", extractExpr)
 				}
+				return extractExpr + "::" + clickHouseType
+			}
+			fmt.Fprintf(&projection, "%s AS %s,",
+				buildJSONExpr("_peerdb_data"), peerdb_clickhouse.QuoteIdentifier(dstColName))
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate, "%s AS %s,",
+					buildJSONExpr("_peerdb_match_data"), peerdb_clickhouse.QuoteIdentifier(dstColName))
+			}
 
 		default:
 			projLen := projection.Len()
