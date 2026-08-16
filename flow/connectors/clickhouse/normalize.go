@@ -464,6 +464,32 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	if len(destinationTableNames) == 0 {
+		rawRowCount, err := c.countRawRowsInBatchRange(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+
+		hasAvroStage, err := hasAvroStageInBatchRange(ctx, req.FlowJobName, lastNormBatchID, endBatchID)
+		if err != nil {
+			return model.NormalizeResponse{}, err
+		}
+
+		if guardErr := normalizeEmptyDestinationGuard(rawRowCount, hasAvroStage, lastNormBatchID, endBatchID); guardErr != nil {
+			if rawRowCount > 0 {
+				c.logger.Warn("[clickhouse-cdc] raw table has rows but no mapped destination tables; not advancing normalize cursor",
+					slog.Int64("lastNormBatchID", lastNormBatchID),
+					slog.Int64("endBatchID", endBatchID),
+					slog.Uint64("rawRowCount", rawRowCount))
+			} else {
+				c.logger.Warn("[clickhouse-cdc] non-empty avro stage exists but raw is empty for batch range; not advancing normalize cursor",
+					slog.Int64("lastNormBatchID", lastNormBatchID),
+					slog.Int64("endBatchID", endBatchID))
+			}
+			return model.NormalizeResponse{}, guardErr
+		}
+	}
+
 	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -672,6 +698,47 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	}
 
 	return tableNames, nil
+}
+
+// normalizeEmptyDestinationGuard returns an error when normalize must not advance
+// the cursor because staged or raw data exists but no destination tables were found.
+func normalizeEmptyDestinationGuard(
+	rawRowCount uint64,
+	hasNonEmptyAvroStage bool,
+	lastNormBatchID int64,
+	endBatchID int64,
+) error {
+	if rawRowCount > 0 {
+		return fmt.Errorf(
+			"raw table has %d rows in batch range (%d, %d] but no destination tables to normalize",
+			rawRowCount, lastNormBatchID, endBatchID,
+		)
+	}
+	if hasNonEmptyAvroStage {
+		return fmt.Errorf(
+			"non-empty avro stage exists for batch range (%d, %d] but raw table is empty",
+			lastNormBatchID, endBatchID,
+		)
+	}
+	return nil
+}
+
+func (c *ClickHouseConnector) countRawRowsInBatchRange(
+	ctx context.Context,
+	flowJobName string,
+	lastNormBatchID int64,
+	endBatchID int64,
+) (uint64, error) {
+	rawTbl := c.GetRawTableName(flowJobName)
+	q := fmt.Sprintf(
+		"SELECT count() FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), lastNormBatchID, endBatchID)
+
+	var count uint64
+	if err := c.queryRow(ctx, q).Scan(&count); err != nil {
+		return 0, fmt.Errorf("error while counting raw rows in batch range: %w", err)
+	}
+	return count, nil
 }
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(
