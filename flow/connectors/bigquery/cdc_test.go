@@ -14,24 +14,26 @@ import (
 
 func TestPollWindow(t *testing.T) {
 	checkpoint := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const safetyLag = time.Minute
+	const maxQueryWindow = 24 * time.Hour
 
-	t.Run("caps at queryWindow past checkpoint when now is far ahead", func(t *testing.T) {
-		now := checkpoint.Add(queryWindow * 10)
-		upper, ok := pollWindow(checkpoint, now)
+	t.Run("caps at maxQueryWindow past checkpoint when now is far ahead", func(t *testing.T) {
+		now := checkpoint.Add(maxQueryWindow * 10)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		require.True(t, ok)
-		assert.True(t, upper.Equal(checkpoint.Add(queryWindow)))
+		assert.True(t, upper.Equal(checkpoint.Add(maxQueryWindow)))
 	})
 
 	t.Run("caps at safetyLag behind now when now is close", func(t *testing.T) {
 		now := checkpoint.Add(time.Hour)
-		upper, ok := pollWindow(checkpoint, now)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		require.True(t, ok)
 		assert.True(t, upper.Equal(now.Add(-safetyLag)))
 	})
 
 	t.Run("nothing new to scan when safety lag hasn't cleared", func(t *testing.T) {
 		now := checkpoint.Add(safetyLag / 2)
-		upper, ok := pollWindow(checkpoint, now)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		assert.False(t, ok)
 		// upper is still reported (as now-safetyLag), just not usable, since it
 		// doesn't move past checkpoint.
@@ -41,7 +43,7 @@ func TestPollWindow(t *testing.T) {
 
 	t.Run("exactly at the boundary is not ok (upper must strictly move past checkpoint)", func(t *testing.T) {
 		now := checkpoint.Add(safetyLag)
-		upper, ok := pollWindow(checkpoint, now)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		assert.False(t, ok)
 		assert.True(t, upper.Equal(checkpoint))
 	})
