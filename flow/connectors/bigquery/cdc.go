@@ -85,21 +85,8 @@ func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout tim
 	return nil
 }
 
-// PullRecords polls every mapped table over one window, (checkpoint, upper], and
-// pushes the resulting records onto the stream. The mirror's cdc_mode
-// (BigqueryCdcConfig.CdcMode, read once per call -- mode is a per-mirror setting,
-// shared by every table in this poll cycle, not a per-table one) picks which of
-// APPENDS() or CHANGES() every table in this poll uses: APPENDS() emits plain
-// InsertRecords, CHANGES() additionally pairs up delete+insert rows that represent
-// one logical UPDATE into UpdateRecords (see pullTableChanges).
-//
-// Known open item, deliberately not resolved here (see the series plan): whether
-// APPENDS()'s/CHANGES()'s window bounds are inclusive/exclusive on either end is
-// undocumented, and empirically verifying it against a live BigQuery instance is out
-// of reach in this sandboxed dev environment (no chunk in this series has run a real
-// query yet). This uses (checkpoint, upper] as the straightforward reading for both
-// functions; if that turns out wrong, a lower-bound nudge (e.g. +1us on checkpoint)
-// is the likely fix, applied uniformly since both share pollWindow's window math.
+// PullRecords polls every mapped table over one window, [checkpoint, upper), and
+// pushes the resulting records onto the stream.
 func (c *BigQueryConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -195,7 +182,7 @@ func (c *BigQueryConnector) PullRecords(
 }
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
-// source table over (start, end], converting and pushing each row via addRecord.
+// source table over [start, end), converting and pushing each row via addRecord.
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -332,7 +319,7 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 //
 //	ORDER BY _CHANGE_TIMESTAMP, _CHANGE_IS_FOR_UPDATE DESC, <pk columns>
 //
-// for one source table over (start, end], pairs up delete+insert rows that CHANGES()
+// for one source table over [start, end), pairs up delete+insert rows that CHANGES()
 // represents as one logical UPDATE (see pairBigQueryChanges), and pushes the
 // resulting Insert/Update/DeleteRecords via addRecord.
 //
