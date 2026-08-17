@@ -208,12 +208,14 @@ func (c *BigQueryConnector) PullRecords(
 		}
 	}
 
+	// The window advances regardless of whether it contained changes.
+	req.RecordStream.UpdateLatestCheckpointText(
+		upper.Format(time.RFC3339Nano),
+	)
+
 	if recordCount == 0 {
 		req.RecordStream.SignalAsEmpty()
 	}
-	// The window advances past what was scanned regardless of whether it
-	// contained changes, so the next poll doesn't re-scan it.
-	req.RecordStream.UpdateLatestCheckpointText(upper.Format(time.RFC3339Nano))
 
 	trace.SpanFromContext(ctx).SetAttributes(attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)))
 	c.logger.Info("[bigquery] PullRecords polled window",
