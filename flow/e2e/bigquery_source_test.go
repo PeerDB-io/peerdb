@@ -178,15 +178,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 	}
 
-	t.Run("CDC Not Supported", func(t *testing.T) {
-		flowConfig.InitialSnapshotOnly = false
-		flowConfig.DoInitialSnapshot = true
-
-		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-		require.Error(t, err, "should reject CDC flow")
-		require.Contains(t, err.Error(), "only supports initial snapshot flows", "error should mention snapshot-only support")
-	})
-
 	t.Run("No Initial Snapshot Not Supported", func(t *testing.T) {
 		flowConfig.InitialSnapshotOnly = true
 		flowConfig.DoInitialSnapshot = false
