@@ -561,7 +561,12 @@ func (c *BigQueryConnector) SetupReplication(
 		}
 	}
 
-	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
+	// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc),
+	// but the snapshot export's FOR SYSTEM_TIME AS OF snapshotTime already includes rows
+	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
+	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
+	// keeps CDC's first window from re-pulling what the snapshot already captured.
+	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)}
 	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
 	}
