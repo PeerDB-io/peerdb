@@ -24,23 +24,9 @@ import (
 )
 
 const (
-	// safetyLag keeps a poll window's upper bound behind BigQuery's own clock.
-	// APPENDS()/CHANGES() consistency for writes in the last few seconds is
-	// undocumented, so staying safetyLag behind now() avoids querying right up to
-	// the instant of now() and risking rows that land just after the window closes.
-	// Hardcoded per the series' "Decisions locked in" -- not made configurable
-	// unless a customer actually needs it tuned.
-	safetyLag = 1 * time.Minute
-	// queryWindow caps how much time a single poll can cover, bounding one
-	// BigQuery job's row-scan cost even if a mirror falls far behind. Hardcoded,
-	// same rationale as safetyLag.
-	queryWindow = 24 * time.Hour
-
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
-	// the record. _CHANGE_IS_FOR_UPDATE is CHANGES()-only: it marks whether a
-	// delete/insert row is one half of an update pair rather than a standalone
-	// change.
+	// the record.
 	bigQueryChangeTypeColumn        = "_CHANGE_TYPE"
 	bigQueryChangeTimestampColumn   = "_CHANGE_TIMESTAMP"
 	bigQueryChangeIsForUpdateColumn = "_CHANGE_IS_FOR_UPDATE"
@@ -51,18 +37,12 @@ const (
 )
 
 // SetupReplConn is a no-op for BigQuery. c.client is a single long-lived connection
-// pool created once in NewBigQueryConnector and reused for every query -- unlike
-// Postgres, which re-derives a fresh RDS IAM token here per activity attempt,
-// BigQuery credential refresh is handled transparently underneath by
-// auth.Credentials, so there's no per-activity resource to (re)establish.
 func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
 	return nil
 }
 
 // UpdateReplStateLastOffset persists the checkpoint once a batch has been confirmed
-// synced to the destination. Thin wrapper over SetLastOffset, same shape as
-// MySQL's: the flow name travels via context rather than a parameter, per
-// CDCPullConnectorCore.UpdateReplStateLastOffset's signature.
+// synced to the destination.
 func (c *BigQueryConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
 	flowName := ctx.Value(shared.FlowNameKey).(string)
 	return c.SetLastOffset(ctx, flowName, lastOffset)
@@ -70,21 +50,12 @@ func (c *BigQueryConnector) UpdateReplStateLastOffset(ctx context.Context, lastO
 
 // PullFlowCleanup is a no-op. BigQuery has no server-side replication resource
 // analogous to a Postgres replication slot/publication for this method to drop.
-// The persisted CDC checkpoint itself (the metadata_last_sync_state row keyed by
-// job name, backed by the embedded PostgresMetadata) is already cleaned up
-// centrally by FlowableActivity.RemoveFlowDetailsFromCatalog (which calls
-// connmetadata.SyncFlowCleanupInTx) regardless of source connector type, so
-// there's nothing left here for BigQuery specifically to do.
 func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
 // EnsurePullability is a no-op. ValidateMirrorSource (source.go), run at
-// mirror-creation time, already confirms every mapped table exists and, for CDC
-// mirrors, satisfies its mode's requirements (a real PK constraint plus
-// enable_change_history for CHANGES; a safe destination engine choice when no PK
-// is present for APPENDS). There's nothing left for BigQuery to check at this
-// later setup_flow stage that creation-time validation didn't already gate.
+// mirror-creation time.
 func (c *BigQueryConnector) EnsurePullability(
 	context.Context, *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
@@ -92,28 +63,18 @@ func (c *BigQueryConnector) EnsurePullability(
 }
 
 // pollWindow computes the upper bound of the next APPENDS()/CHANGES() poll window
-// given the last-scanned checkpoint and BigQuery's current clock (now). upper is
-// capped at queryWindow past checkpoint (bounding one poll's row-scan cost) and at
-// safetyLag behind now (see safetyLag's doc comment). ok is false when upper
-// doesn't move past checkpoint -- e.g. the safety lag hasn't cleared yet -- meaning
-// there's nothing new to scan this cycle.
-func pollWindow(checkpoint, now time.Time) (time.Time, bool) {
-	upper := checkpoint.Add(queryWindow)
+// given the last-scanned checkpoint and BigQuery's current clock (now).
+func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
+	upper := checkpoint.Add(maxQueryWindow)
 	if safe := now.Add(-safetyLag); safe.Before(upper) {
 		upper = safe
 	}
 	return upper, upper.After(checkpoint)
 }
 
-// waitForNextPoll self-paces PullRecords. SyncFlow's outer loop
-// (flow/activities/flowable.go) calls PullRecords back-to-back with no pacing of
-// its own -- every other CDC connector blocks on a live stream instead of polling,
-// so the loop never needed one. Without this, BigQuery would issue a fresh, billed
-// query every loop iteration instead of respecting IdleTimeout.
+// waitForNextPoll self-paces PullRecords, park it until
+// time since the last poll hasn't crossed idleTimeout
 func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout time.Duration) error {
-	// time.Since(zero-value lastPollAt) clamps to the max representable Duration,
-	// which is always >= idleTimeout, so the first-ever call naturally polls
-	// immediately without a separate IsZero check.
 	if wait := idleTimeout - time.Since(c.lastPollAt); wait > 0 {
 		select {
 		case <-time.After(wait):
@@ -164,7 +125,16 @@ func (c *BigQueryConnector) PullRecords(
 		return fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
 	}
 
-	upper, ok := pollWindow(checkpoint, now)
+	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
+	}
+	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
+	}
+
+	upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 	if !ok {
 		// Nothing new to scan yet (e.g. the safety lag hasn't cleared). Don't
 		// advance the checkpoint: nothing was scanned to protect from a re-scan,
@@ -371,7 +341,7 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 // with the insert that immediately follows it needs one row of lookahead, and reading
 // the whole result into a slice is the simplest correct way to get that (see
 // pairBigQueryChanges' doc comment for why it's structured as a pure function over a
-// slice). Poll windows are capped at queryWindow, so this is bounded, not unbounded,
+// slice). Poll windows are capped at maxQueryWindow, so this is bounded, not unbounded,
 // per-table memory.
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
