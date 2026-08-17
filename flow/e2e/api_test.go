@@ -2685,6 +2685,20 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 	require.Equal(s.t, int64(2), initialLoadRowsSynced)
 
+	// exclusion params keep table mappings while dropping history
+	leanStatusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		IncludeFlowInfo:       true,
+		ExcludeBatches:        true,
+		ExcludeSnapshotStatus: true,
+	})
+	require.NoError(s.t, err)
+	leanCdcStatus := leanStatusResponse.GetCdcStatus()
+	require.NotNil(s.t, leanCdcStatus)
+	require.Nil(s.t, leanCdcStatus.SnapshotStatus)
+	require.Empty(s.t, leanCdcStatus.CdcBatches)
+	require.Len(s.t, leanCdcStatus.Config.TableMappings, 2)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,

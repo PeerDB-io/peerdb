@@ -178,12 +178,16 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		return nil, err
 	}
 
-	initialLoadResponse, apiErr := h.InitialLoadSummary(ctx, &protos.InitialLoadSummaryRequest{
-		ParentMirrorName: req.FlowJobName,
-	})
-	if apiErr != nil {
-		slog.ErrorContext(ctx, "unable to query clone table summary", slog.Any("error", apiErr))
-		return nil, apiErr
+	var snapshotStatus *protos.SnapshotStatus
+	if !req.ExcludeSnapshotStatus {
+		initialLoadResponse, apiErr := h.InitialLoadSummary(ctx, &protos.InitialLoadSummaryRequest{
+			ParentMirrorName: req.FlowJobName,
+		})
+		if apiErr != nil {
+			slog.ErrorContext(ctx, "unable to query clone table summary", slog.Any("error", apiErr))
+			return nil, apiErr
+		}
+		snapshotStatus = &protos.SnapshotStatus{Clones: initialLoadResponse.TableSummaries}
 	}
 
 	var cdcBatches []*protos.CDCBatch
@@ -206,11 +210,9 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		Config:          config,
 		SourceType:      srcType,
 		DestinationType: dstType,
-		SnapshotStatus: &protos.SnapshotStatus{
-			Clones: initialLoadResponse.TableSummaries,
-		},
-		CdcBatches: cdcBatches,
-		RowsSynced: rowsSynced,
+		SnapshotStatus:  snapshotStatus,
+		CdcBatches:      cdcBatches,
+		RowsSynced:      rowsSynced,
 	}, nil
 }
 
