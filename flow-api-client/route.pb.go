@@ -1752,12 +1752,13 @@ func (x *CreatePeerResponse) GetMessage() string {
 }
 
 type MirrorStatusRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	FlowJobName     string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
-	IncludeFlowInfo bool                   `protobuf:"varint,2,opt,name=include_flow_info,json=includeFlowInfo,proto3" json:"include_flow_info,omitempty"`
-	ExcludeBatches  bool                   `protobuf:"varint,3,opt,name=exclude_batches,json=excludeBatches,proto3" json:"exclude_batches,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	FlowJobName           string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	IncludeFlowInfo       bool                   `protobuf:"varint,2,opt,name=include_flow_info,json=includeFlowInfo,proto3" json:"include_flow_info,omitempty"`
+	ExcludeBatches        bool                   `protobuf:"varint,3,opt,name=exclude_batches,json=excludeBatches,proto3" json:"exclude_batches,omitempty"`
+	ExcludeSnapshotStatus bool                   `protobuf:"varint,4,opt,name=exclude_snapshot_status,json=excludeSnapshotStatus,proto3" json:"exclude_snapshot_status,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *MirrorStatusRequest) Reset() {
@@ -1807,6 +1808,13 @@ func (x *MirrorStatusRequest) GetIncludeFlowInfo() bool {
 func (x *MirrorStatusRequest) GetExcludeBatches() bool {
 	if x != nil {
 		return x.ExcludeBatches
+	}
+	return false
+}
+
+func (x *MirrorStatusRequest) GetExcludeSnapshotStatus() bool {
+	if x != nil {
+		return x.ExcludeSnapshotStatus
 	}
 	return false
 }
@@ -6568,11 +6576,12 @@ const file_route_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"f\n" +
 	"\x12CreatePeerResponse\x126\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1e.peerdb_route.CreatePeerStatusR\x06status\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x8e\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xc6\x01\n" +
 	"\x13MirrorStatusRequest\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12*\n" +
 	"\x11include_flow_info\x18\x02 \x01(\bR\x0fincludeFlowInfo\x12'\n" +
-	"\x0fexclude_batches\x18\x03 \x01(\bR\x0eexcludeBatches\"\xf3\x01\n" +
+	"\x0fexclude_batches\x18\x03 \x01(\bR\x0eexcludeBatches\x126\n" +
+	"\x17exclude_snapshot_status\x18\x04 \x01(\bR\x15excludeSnapshotStatus\"\xf3\x01\n" +
 	"\x0fPartitionStatus\x12!\n" +
 	"\fpartition_id\x18\x01 \x01(\tR\vpartitionId\x129\n" +
 	"\n" +
