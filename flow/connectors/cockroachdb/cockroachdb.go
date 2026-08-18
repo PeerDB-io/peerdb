@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -27,6 +28,20 @@ type CockroachDBConnector struct {
 	config      *protos.CockroachDBConfig
 	connStr     string
 	crdbVersion string
+	// set once the first changefeed session of this connector has released
+	// the snapshot history retention job. Never reset: a connector instance
+	// lives inside a single SyncFlow activity execution (flowable.go creates
+	// it once and calls PullRecords in a loop until the activity ends), so
+	// every session it runs resumes from the same flow's stored cursor
+	// lineage, which only advances. A genuinely new cursor requires a new
+	// SetupReplication (mirror create or resync), and that only happens
+	// after the running CDC flow, its SyncFlow activity and therefore this
+	// instance are torn down; the fresh instance starts with the flag false.
+	// PullFlowCleanup releases the job independently as the backstop.
+	historyProtectionChecked atomic.Bool
+	// unix nanos of the last snapshot history protection extension fired by
+	// this connector, throttling per-partition extension attempts
+	historyExtendedAt atomic.Int64
 }
 
 func NewCockroachDBConnector(ctx context.Context, env map[string]string, config *protos.CockroachDBConfig) (*CockroachDBConnector, error) {

@@ -155,6 +155,11 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	// CockroachDB changefeed cannot resume (cursor past the GC threshold, or a
+	// watched table truncated/dropped); only the user can fix it, via resync
+	ErrorNotifyChangefeedInvalid = ErrorClass{
+		Class: "NOTIFY_CHANGEFEED_INVALID", action: NotifyUser,
+	}
 	ErrorNotifyBinlogEventExceededMaxAllowedPacket = ErrorClass{
 		Class: "NOTIFY_BINLOG_EVENT_EXCEEDED_MAX_ALLOWED_PACKET", action: NotifyUser,
 	}
@@ -368,9 +373,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return errorClass, pgErrorInfo
 			}
 			return errorClass, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   "UNKNOWN",
 			}
+		}
+	}
+
+	if changefeedErr, ok := errors.AsType[*exceptions.CockroachChangefeedIrrecoverableError](err); ok {
+		return ErrorNotifyChangefeedInvalid, ErrorInfo{
+			Source: ErrorSourceCockroachDB,
+			Code:   changefeedErr.Code,
 		}
 	}
 
@@ -399,56 +411,56 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "TABLE_DOES_NOT_EXIST",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.ReplicaIdentityNothingError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "REPLICA_IDENTITY_NOTHING",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.TablesNotInPublicationError](err); ok {
 		return ErrorNotifyTablesNotInPublication, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "TABLES_NOT_IN_PUBLICATION",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.MissingPrimaryKeyError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "MISSING_PRIMARY_KEY",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.PostgresLogicalMessageProcessingError](err); ok {
 		return ErrorNotifyPostgresLogicalMessageProcessing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "LOGICAL_MESSAGE_PROCESSING_ERROR",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.PublicationMissingError](err); ok {
 		return ErrorNotifyPublicationMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "irrecoverable_publication_missing",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.SlotMissingError](err); ok {
 		return ErrorNotifyReplicationSlotMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "irrecoverable_slot_missing",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.ReplStateDesyncError](err); ok {
 		return ErrorOther, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "desync",
 		}
 	}
@@ -550,17 +562,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
 			return ErrorNotifyConnectivity, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		}
@@ -1374,7 +1386,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if postgresPrimaryKeyModifiedError, ok := errors.AsType[*exceptions.PrimaryKeyModifiedError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
@@ -1385,7 +1397,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if postgresReplicaIdentityIndexError, ok := errors.AsType[*exceptions.ReplicaIdentityIndexError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,
