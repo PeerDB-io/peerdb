@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -208,13 +209,7 @@ func (c *BigQueryConnector) pullTableAppends(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	q := c.client.Query(buildPullQuery("APPENDS", dsTable.stringQuoted(), nameAndExclude.Exclude, ""))
-	q.Parameters = []bigquery.QueryParameter{
-		{Name: "start", Value: start},
-		{Name: "end", Value: end},
-	}
-
-	it, err := q.Read(ctx)
+	it, err := c.runPullQuery(ctx, "APPENDS", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude, "", start, end)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
 	}
@@ -313,6 +308,83 @@ func exceptClause(exclude map[string]struct{}) string {
 	return fmt.Sprintf(" EXCEPT (%s)", strings.Join(quoted, ", "))
 }
 
+// runPullQuery runs the APPENDS()/CHANGES() query for sourceTableIdentifier.
+func (c *BigQueryConnector) runPullQuery(
+	ctx context.Context, fn string, dsTable string, sourceTableIdentifier string,
+	exclude map[string]struct{}, orderBy string, start, end time.Time,
+) (*bigquery.RowIterator, error) {
+	effective := c.effectiveExclude(sourceTableIdentifier, exclude)
+	for {
+		q := c.client.Query(buildPullQuery(fn, dsTable, effective, orderBy))
+		q.Parameters = []bigquery.QueryParameter{
+			{Name: "start", Value: start},
+			{Name: "end", Value: end},
+		}
+
+		it, err := q.Read(ctx)
+		if err == nil {
+			return it, nil
+		}
+
+		// retry if the query failed due to a missing column in the EXCEPT clause
+		// BigQuery reports only one missing column per error,
+		// so this loop may run multiple times if multiple columns are missing.
+		missing := missingExceptColumns(err, effective)
+		if len(missing) == 0 {
+			return nil, err
+		}
+		dropped := c.droppedExcludeColumns[sourceTableIdentifier]
+		if dropped == nil {
+			dropped = make(map[string]struct{}, len(missing))
+			c.droppedExcludeColumns[sourceTableIdentifier] = dropped
+		}
+		next := make(map[string]struct{}, len(effective))
+		for col := range effective {
+			if _, gone := missing[col]; gone {
+				dropped[col] = struct{}{}
+				c.logger.Warn("[bigquery] excluded column no longer exists on source table, dropping from EXCEPT clause",
+					slog.String("table", sourceTableIdentifier), slog.String("column", col))
+				continue
+			}
+			next[col] = struct{}{}
+		}
+		effective = next
+	}
+}
+
+// effectiveExclude returns exclude minus any columns already known (from a prior
+// runPullQuery retry) to no longer exist on sourceTableIdentifier.
+func (c *BigQueryConnector) effectiveExclude(sourceTableIdentifier string, exclude map[string]struct{}) map[string]struct{} {
+	dropped := c.droppedExcludeColumns[sourceTableIdentifier]
+	if len(dropped) == 0 {
+		return exclude
+	}
+	effective := make(map[string]struct{}, len(exclude))
+	for col := range exclude {
+		if _, isDropped := dropped[col]; !isDropped {
+			effective[col] = struct{}{}
+		}
+	}
+	return effective
+}
+
+// missingExceptColumns scans a BigQuery "SELECT * EXCEPT" invalid-query error for any
+// of candidates' names, returning the ones that appear.
+func missingExceptColumns(err error, candidates map[string]struct{}) map[string]struct{} {
+	// error text verified on a live BQ instance
+	apiErr, ok := errors.AsType[*googleapi.Error](err)
+	if !ok || apiErr.Code != 400 || !strings.Contains(apiErr.Message, "in SELECT * EXCEPT list does not exist") {
+		return nil
+	}
+	missing := make(map[string]struct{})
+	for col := range candidates {
+		if strings.Contains(apiErr.Message, col) {
+			missing[col] = struct{}{}
+		}
+	}
+	return missing
+}
+
 func bigQueryRowToRecordItems(
 	schema bigquery.Schema, qfields []types.QField, row []bigquery.Value,
 ) (model.RecordItems, error) {
@@ -376,15 +448,10 @@ func (c *BigQueryConnector) pullTableChanges(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	q := c.client.Query(buildPullQuery(
-		"CHANGES", dsTable.stringQuoted(), nameAndExclude.Exclude, quotedIdentifier(bigQueryChangeTimestampColumn),
-	))
-	q.Parameters = []bigquery.QueryParameter{
-		{Name: "start", Value: start},
-		{Name: "end", Value: end},
-	}
-
-	it, err := q.Read(ctx)
+	it, err := c.runPullQuery(
+		ctx, "CHANGES", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude,
+		quotedIdentifier(bigQueryChangeTimestampColumn), start, end,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
 	}
