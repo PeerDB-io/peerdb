@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -206,7 +208,7 @@ func (c *BigQueryConnector) pullTableAppends(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	q := c.client.Query(fmt.Sprintf("SELECT * FROM APPENDS(TABLE %s, @start, @end)", dsTable.stringQuoted()))
+	q := c.client.Query(buildPullQuery("APPENDS", dsTable.stringQuoted(), nameAndExclude.Exclude, ""))
 	q.Parameters = []bigquery.QueryParameter{
 		{Name: "start", Value: start},
 		{Name: "end", Value: end},
@@ -248,7 +250,7 @@ func (c *BigQueryConnector) pullTableAppends(
 			}
 		}
 
-		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row, nameAndExclude.Exclude)
+		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
@@ -287,15 +289,36 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 	bigQueryChangeIsForUpdateColumn: {},
 }
 
+// buildPullQuery renders "SELECT * [EXCEPT (...)] FROM fn(TABLE dsTable, @start, @end)
+// [ORDER BY orderBy]" for the APPENDS()/CHANGES() table-valued functions.
+func buildPullQuery(fn string, dsTable string, exclude map[string]struct{}, orderBy string) string {
+	q := fmt.Sprintf("SELECT *%s FROM %s(TABLE %s, @start, @end)", exceptClause(exclude), fn, dsTable)
+	if orderBy != "" {
+		q += " ORDER BY " + orderBy
+	}
+	return q
+}
+
+// exceptClause renders a "SELECT * EXCEPT (...)" suffix for the given excluded
+// column names, or "" if there are none.
+func exceptClause(exclude map[string]struct{}) string {
+	if len(exclude) == 0 {
+		return ""
+	}
+	names := slices.Sorted(maps.Keys(exclude))
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = quotedIdentifier(name)
+	}
+	return fmt.Sprintf(" EXCEPT (%s)", strings.Join(quoted, ", "))
+}
+
 func bigQueryRowToRecordItems(
-	schema bigquery.Schema, qfields []types.QField, row []bigquery.Value, exclude map[string]struct{},
+	schema bigquery.Schema, qfields []types.QField, row []bigquery.Value,
 ) (model.RecordItems, error) {
 	items := model.NewRecordItems(len(row))
 	for i, field := range schema {
 		if _, isPseudo := bigQueryChangePseudoColumns[field.Name]; isPseudo {
-			continue
-		}
-		if _, excluded := exclude[field.Name]; excluded {
 			continue
 		}
 
@@ -353,9 +376,8 @@ func (c *BigQueryConnector) pullTableChanges(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	q := c.client.Query(fmt.Sprintf(
-		"SELECT * FROM CHANGES(TABLE %s, @start, @end) ORDER BY %s",
-		dsTable.stringQuoted(), quotedIdentifier(bigQueryChangeTimestampColumn),
+	q := c.client.Query(buildPullQuery(
+		"CHANGES", dsTable.stringQuoted(), nameAndExclude.Exclude, quotedIdentifier(bigQueryChangeTimestampColumn),
 	))
 	q.Parameters = []bigquery.QueryParameter{
 		{Name: "start", Value: start},
@@ -410,7 +432,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			}
 		}
 
-		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row, nameAndExclude.Exclude)
+		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
