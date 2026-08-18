@@ -27,6 +27,17 @@ import (
 
 const additionalTablesCDCFlowPrefix = "additional-cdc-flow"
 
+type nextRun int
+
+const (
+	// nextRunNone is terminal: propagate the error (or nil).
+	nextRunNone nextRun = iota
+	// nextRunCDC continues-as-new into CDCFlowWorkflow(cfg, state).
+	nextRunCDC
+	// nextRunDrop continues-as-new into DropFlowWorkflow(state.DropFlowInput).
+	nextRunDrop
+)
+
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.NewString()
@@ -97,7 +108,7 @@ func processCDCFlowConfigUpdate(
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
-) error {
+) (nextRun, error) {
 	flowConfigUpdate := state.FlowConfigUpdate
 
 	// Capture old values for logging before updates are applied
@@ -149,23 +160,31 @@ func processCDCFlowConfigUpdate(
 		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 
 		if tablesAreAdded {
-			if err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+			next, err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
+			if err != nil {
 				logger.Error("failed to process additional tables", slog.Any("error", err))
-				return err
+				return nextRunNone, err
+			}
+			if next != nextRunNone {
+				return next, nil
 			}
 		}
 
 		if tablesAreRemoved {
-			if err := processTableRemovals(ctx, logger, cfg, state); err != nil {
+			next, err := processTableRemovals(ctx, logger, cfg, state)
+			if err != nil {
 				logger.Error("failed to process removed tables", slog.Any("error", err))
-				return err
+				return nextRunNone, err
+			}
+			if next != nextRunNone {
+				return next, nil
 			}
 		}
 	}
 
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
-	return nil
+	return nextRunNone, nil
 }
 
 func handleFlowSignalStateChange(
@@ -236,11 +255,11 @@ func processTableAdditions(
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
-) error {
+) (nextRun, error) {
 	flowConfigUpdate := state.FlowConfigUpdate
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
-		return nil
+		return nextRunNone, nil
 	}
 	checkDestinationOverlap := !getClickHouseInitialLoadAllowNonEmptyTables(ctx, logger, cfg.Env)
 	if internal.AdditionalTablesHasOverlap(
@@ -248,7 +267,7 @@ func processTableAdditions(
 	) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
-		return nil
+		return nextRunNone, nil
 	}
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
@@ -330,22 +349,22 @@ func processTableAdditions(
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
 			}
-			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
-			return err
+			return nextRunNone, err
 		}
 		if addTablesFlowErr != nil {
 			logger.Error("failed to execute child CDCFlow for additional tables", slog.Any("error", addTablesFlowErr))
-			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", addTablesFlowErr)
+			return nextRunNone, fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", addTablesFlowErr)
 		}
 	}
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 
 	logger.Info("additional tables added to sync flow")
-	return nil
+	return nextRunNone, nil
 }
 
 func processTableRemovals(
@@ -353,7 +372,7 @@ func processTableRemovals(
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
-) error {
+) (nextRun, error) {
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
 	removeTablesSelector := workflow.NewNamedSelector(ctx, "RemoveTables")
 	removeTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -446,19 +465,19 @@ func processTableRemovals(
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
 			}
-			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
-			return err
+			return nextRunNone, err
 		}
 		if removeTablesFlowErr != nil {
 			logger.Error("failed to execute child CDCFlow for additional tables", slog.Any("error", removeTablesFlowErr))
-			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", removeTablesFlowErr)
+			return nextRunNone, fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", removeTablesFlowErr)
 		}
 	}
 
-	return nil
+	return nextRunNone, nil
 }
 
 func addCdcPropertiesSignalListener(
@@ -486,14 +505,14 @@ func addCdcPropertiesSignalListener(
 	})
 }
 
-func parkPausedMirror(
+func handlePaused(
 	ctx workflow.Context,
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 	flowSignalChan model.TypedReceiveChannel[model.CDCFlowSignal],
 	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
-) (*CDCFlowWorkflowResult, error) {
+) (nextRun, error) {
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 	selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -539,16 +558,19 @@ func parkPausedMirror(
 		}
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return state, err
+			return nextRunNone, err
 		}
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return nextRunDrop, nil
 		}
 
 		if state.FlowConfigUpdate != nil {
-			if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+			next, err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch)
+			// maintain existing behavior where a terminate/resync that interrupts a table
+			// addition/removal also marks the mirror FAILED before dropping
+			if err != nil || next == nextRunDrop {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-				return state, err
+				return next, err
 			}
 			logger.Info("wiping flow state after state update processing")
 			// processing a config update always resumes the mirror
@@ -559,7 +581,7 @@ func parkPausedMirror(
 
 	logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+	return nextRunCDC, nil
 }
 
 func fetchMetadata(
@@ -611,17 +633,17 @@ func fetchMetadata(
 	return ctx, nil
 }
 
-// startSetupAndSnapshot always runs SetupFlow unconditionally before SnapshotFlow because in the
-// case of resync, destination names are created in SetupFlow with "_resync" suffix.
-// Instead of tracking whether previous setup matches current mapping, we rely on
-// idempotency of SetupFlow for safety/simplicity.
+// startSetupAndSnapshot always runs SetupFlow unconditionally before SnapshotFlow
+// because in the case of resync, destination names are created in SetupFlow with
+// "_resync" suffix. Instead of tracking whether previous setup matches current mapping,
+// we rely on idempotency of SetupFlow for safety/simplicity.
 func startSetupAndSnapshot(
 	ctx workflow.Context,
 	logger log.Logger,
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
-) (*CDCFlowWorkflowResult, error) {
+) (nextRun, error) {
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 	originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
@@ -702,15 +724,15 @@ func startSetupAndSnapshot(
 	for setupFlowOutput == nil {
 		setupSnapshotSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return nil, err
+			return nextRunNone, err
 		}
 		if setupFlowError != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-			return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
+			return nextRunNone, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 		}
 	}
 
@@ -746,15 +768,15 @@ func startSetupAndSnapshot(
 	for !snapshotDone {
 		setupSnapshotSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return nil, err
+			return nextRunNone, err
 		}
 		if snapshotError != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-			return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
+			return nextRunNone, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 		}
 	}
 
@@ -807,15 +829,15 @@ func startSetupAndSnapshot(
 		for !renameTablesDone {
 			setupSnapshotSelector.Select(ctx)
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return nextRunDrop, nil
 			}
 			if err := ctx.Err(); err != nil {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return nil, err
+				return nextRunNone, err
 			}
 			if renameTablesError != nil {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-				return state, renameTablesError
+				return nextRunNone, renameTablesError
 			}
 		}
 	}
@@ -828,7 +850,8 @@ func startSetupAndSnapshot(
 		logger.Info("executed setup flow and snapshot flow, start running")
 		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 	}
-	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+
+	return nextRunCDC, nil
 }
 
 func startCDC(
@@ -838,7 +861,7 @@ func startCDC(
 	state *cdc_state.CDCFlowWorkflowState,
 	flowSignalChan model.TypedReceiveChannel[model.CDCFlowSignal],
 	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
-) (*CDCFlowWorkflowResult, error) {
+) (nextRun, error) {
 	var finished bool
 	var finishedError bool
 	syncCtx, cancelSync := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -937,7 +960,7 @@ func startCDC(
 		if err := ctx.Err(); err != nil {
 			logger.Info("mirror canceled", slog.Any("error", err))
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return state, err
+			return nextRunNone, err
 		}
 
 		if ShouldWorkflowContinueAsNew(ctx) {
@@ -956,7 +979,7 @@ func startCDC(
 			if err := ctx.Err(); err != nil {
 				logger.Info("mirror canceled", slog.Any("error", err))
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return nil, err
+				return nextRunNone, err
 			}
 
 			if finishedError {
@@ -966,9 +989,9 @@ func startCDC(
 			}
 
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				return nextRunDrop, nil
 			}
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+			return nextRunCDC, nil
 		}
 	}
 }
@@ -1004,18 +1027,33 @@ func CDCFlowWorkflow(
 		return state, nil
 	}
 
-	// park mirror that are being paused
+	var next nextRun
+	var nextErr error
+	continueAsNewCtx := ctx
 	if state.ActiveSignal == model.PauseSignal {
-		return parkPausedMirror(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+		next, nextErr = handlePaused(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+	} else {
+		enrichedCtx, err := fetchMetadata(ctx, logger, cfg, state)
+		if err != nil {
+			return state, err
+		}
+		continueAsNewCtx = enrichedCtx
+		if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
+			next, nextErr = startSetupAndSnapshot(enrichedCtx, logger, cfg, state, flowSignalStateChangeChan)
+		} else {
+			next, nextErr = startCDC(enrichedCtx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+		}
 	}
 
-	ctxWithMetadata, err := fetchMetadata(ctx, logger, cfg, state)
-	if err != nil {
-		return state, err
+	switch next {
+	case nextRunCDC:
+		return state, workflow.NewContinueAsNewError(continueAsNewCtx, CDCFlowWorkflow, cfg, state)
+	case nextRunDrop:
+		if state.DropFlowInput == nil {
+			return state, errors.New("internal: drop transition without DropFlowInput")
+		}
+		return state, workflow.NewContinueAsNewError(continueAsNewCtx, DropFlowWorkflow, state.DropFlowInput)
+	default:
+		return state, nextErr
 	}
-
-	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
-		return startSetupAndSnapshot(ctxWithMetadata, logger, cfg, state, flowSignalStateChangeChan)
-	}
-	return startCDC(ctxWithMetadata, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
 }
