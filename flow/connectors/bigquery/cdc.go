@@ -149,8 +149,8 @@ func (c *BigQueryConnector) PullRecords(
 	}
 
 	// Sequential per table, not concurrent, within this poll cycle -- bounds
-	// BigQuery job/slot usage (see the series' "Decisions locked in"). Sorted so
-	// polls process tables in a deterministic order (map iteration isn't).
+	// BigQuery job/slot usage (see https://docs.cloud.google.com/bigquery/docs/slots).
+	// Sorted so polls process tables in a deterministic order.
 	sourceTables := make([]string, 0, len(req.TableNameMapping))
 	for sourceTableIdentifier := range req.TableNameMapping {
 		sourceTables = append(sourceTables, sourceTableIdentifier)
@@ -194,8 +194,7 @@ func (c *BigQueryConnector) PullRecords(
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
 // source table over [start, end), converting and pushing each row via addRecord.
-// Returns the approximate byte size of the RecordItems actually forwarded (see
-// recordItemsApproxBytes), for FetchedBytesCounter.
+// Returns the approximate byte size of the RecordItems actually forwarded
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -219,10 +218,6 @@ func (c *BigQueryConnector) pullTableAppends(
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
 	}
 
-	// it.Schema is only guaranteed populated after the first Next() call (the Go
-	// SDK may run the query via a fast path that defers schema resolution until
-	// the first page is fetched), so qfields/changeCols are built lazily off the
-	// first row rather than right after Read().
 	var qfields []types.QField
 	var changeCols bigQueryChangeColumns
 	var bytesForwarded int64
@@ -235,6 +230,7 @@ func (c *BigQueryConnector) pullTableAppends(
 			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
 		}
 
+		// it.Schema is only guaranteed populated after the first Next() call
 		if qfields == nil {
 			qfields = make([]types.QField, len(it.Schema))
 			for i, field := range it.Schema {
@@ -275,13 +271,7 @@ func (c *BigQueryConnector) pullTableAppends(
 	}
 }
 
-// recordItemsApproxBytes estimates the wire/storage size of one converted row --
-// post-exclude, post-pairing -- as its JSON encoding's length. This is what
-// PullRecords sums into FetchedBytesCounter: an approximation of what's actually
-// forwarded to the destination, not of what BigQuery scanned to answer the query
-// (those two can differ substantially -- see bigQueryRowToRecordItems' column
-// filtering, and CHANGES()'s scan cost being a function of the underlying change-log
-// storage rather than of the result set size).
+// recordItemsApproxBytes estimates the storage size of one converted row
 func recordItemsApproxBytes(items model.RecordItems) (int64, error) {
 	b, err := items.MarshalJSON()
 	if err != nil {
@@ -298,11 +288,6 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 	bigQueryChangeIsForUpdateColumn: {},
 }
 
-// bigQueryRowToRecordItems converts one query-result row's non-pseudo, non-excluded
-// columns into RecordItems. Shared between APPENDS()'s and CHANGES()'s row
-// processing -- the underlying per-value conversion (qvalueFromBigQueryValue) is
-// mode-agnostic, only which columns to skip differs, and that's handled once here via
-// bigQueryChangePseudoColumns.
 func bigQueryRowToRecordItems(
 	schema bigquery.Schema, qfields []types.QField, row []bigquery.Value, exclude map[string]struct{},
 ) (model.RecordItems, error) {
@@ -324,10 +309,6 @@ func bigQueryRowToRecordItems(
 	return items, nil
 }
 
-// bigQueryChangeColumns locates APPENDS()'/CHANGES()'s pseudo-columns within a query
-// result schema by index, once per query, so per-row processing doesn't need to
-// compare column names on every row. -1 means the column wasn't found (e.g.
-// isForUpdate is always -1 for APPENDS(), which doesn't have it).
 type bigQueryChangeColumns struct {
 	changeType      int
 	changeTimestamp int
@@ -352,7 +333,7 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 // pullTableChanges runs
 // SELECT * FROM CHANGES(TABLE <table>, @start, @end)
 //
-//	ORDER BY _CHANGE_TIMESTAMP, _CHANGE_IS_FOR_UPDATE DESC, <pk columns>
+//	ORDER BY _CHANGE_TIMESTAMP, <pk columns>, _CHANGE_IS_FOR_UPDATE DESC
 //
 // for one source table over [start, end), pairs up delete+insert rows that CHANGES()
 // represents as one logical UPDATE (see pairBigQueryChanges), and pushes the
@@ -396,12 +377,11 @@ func (c *BigQueryConnector) pullTableChanges(
 	pkColumns := metadata.TableConstraints.PrimaryKey.Columns
 
 	orderBy := make([]string, 0, len(pkColumns)+2)
-	orderBy = append(orderBy,
-		quotedIdentifier(bigQueryChangeTimestampColumn),
-		quotedIdentifier(bigQueryChangeIsForUpdateColumn)+" DESC")
+	orderBy = append(orderBy, quotedIdentifier(bigQueryChangeTimestampColumn))
 	for _, col := range pkColumns {
 		orderBy = append(orderBy, quotedIdentifier(col))
 	}
+	orderBy = append(orderBy, quotedIdentifier(bigQueryChangeIsForUpdateColumn)+" DESC")
 
 	q := c.client.Query(fmt.Sprintf(
 		"SELECT * FROM CHANGES(TABLE %s, @start, @end) ORDER BY %s",
@@ -431,6 +411,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
 		}
 
+		// it.Schema is only guaranteed populated after the first Next() call
 		if qfields == nil {
 			qfields = make([]types.QField, len(it.Schema))
 			for i, field := range it.Schema {
@@ -518,11 +499,6 @@ func (c *BigQueryConnector) emitBigQueryChange(
 			NewItems:             newItems,
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: nameAndExclude.Name,
-			// UnchangedToastColumns is a Postgres TOAST concept (partial binlog/WAL
-			// row images) that BigQuery has no analogue for -- CHANGES() always
-			// returns full rows. Left nil/unset, the same convention MySQL's cdc.go
-			// follows when the binlog didn't skip any columns for a given row,
-			// even though MySQL has no TOAST either.
 		}); err != nil {
 			return 0, err
 		}
@@ -566,10 +542,6 @@ func (c *BigQueryConnector) emitBigQueryChange(
 	}
 }
 
-// bigQueryChangeRow holds one CHANGES() result row's pairing-relevant pseudo-columns.
-// Deliberately decoupled from bigquery.Schema and the row's full column data so
-// pairBigQueryChanges below can be exercised as a pure function over plain data,
-// without a live BigQuery client or iterator.
 type bigQueryChangeRow struct {
 	changeTime  time.Time
 	changeType  string
