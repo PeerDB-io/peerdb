@@ -94,7 +94,6 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 	schema := bigquery.Schema{
 		{Name: "id", Type: bigquery.IntegerFieldType},
 		{Name: "name", Type: bigquery.StringFieldType},
-		{Name: "excluded_col", Type: bigquery.StringFieldType},
 		{Name: bigQueryChangeTypeColumn, Type: bigquery.StringFieldType},
 		{Name: bigQueryChangeTimestampColumn, Type: bigquery.TimestampFieldType},
 		{Name: bigQueryChangeIsForUpdateColumn, Type: bigquery.BooleanFieldType},
@@ -104,16 +103,36 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 		qfields[i] = BigQueryFieldToQField(f)
 	}
 	row := []bigquery.Value{
-		int64(1), "alice", "secret", bigQueryChangeTypeInsert, time.Now(), true,
+		int64(1), "alice", bigQueryChangeTypeInsert, time.Now(), true,
 	}
 
-	items, err := bigQueryRowToRecordItems(schema, qfields, row, map[string]struct{}{"excluded_col": {}})
+	items, err := bigQueryRowToRecordItems(schema, qfields, row)
 	require.NoError(t, err)
 	assert.Equal(t, types.QValueInt64{Val: 1}, items.GetColumnValue("id"))
 	assert.Equal(t, types.QValueString{Val: "alice"}, items.GetColumnValue("name"))
-	assert.Nil(t, items.GetColumnValue("excluded_col"))
 	assert.Nil(t, items.GetColumnValue(bigQueryChangeTypeColumn))
 	assert.Nil(t, items.GetColumnValue(bigQueryChangeTimestampColumn))
 	assert.Nil(t, items.GetColumnValue(bigQueryChangeIsForUpdateColumn))
 	assert.Len(t, items.ColToVal, 2)
+}
+
+func TestExceptClause(t *testing.T) {
+	assert.Equal(t, "", exceptClause(nil))
+	assert.Equal(t, "", exceptClause(map[string]struct{}{}))
+	assert.Equal(t, " EXCEPT (`a`, `b`)", exceptClause(map[string]struct{}{"b": {}, "a": {}}))
+}
+
+func TestBuildPullQuery(t *testing.T) {
+	assert.Equal(t,
+		"SELECT * FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
+		buildPullQuery("APPENDS", "`ds`.`tbl`", nil, ""),
+	)
+	assert.Equal(t,
+		"SELECT * EXCEPT (`secret`) FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
+		buildPullQuery("APPENDS", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, ""),
+	)
+	assert.Equal(t,
+		"SELECT * EXCEPT (`secret`) FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
+		buildPullQuery("CHANGES", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, "`_CHANGE_TIMESTAMP`"),
+	)
 }
