@@ -154,6 +154,14 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 	}
 }
 
+// numericRoundingScale fallback to default scale if precision and scale are not set.
+func numericRoundingScale(qfield types.QField) int16 {
+	if qfield.Precision == 0 && qfield.Scale == 0 {
+		return datatypes.PeerDBBigQueryScale
+	}
+	return qfield.Scale
+}
+
 func fieldNormalizedTypeName(field *bigquery.FieldSchema) string {
 	typeName := createTableCompatibleTypeName(field.Type)
 
@@ -214,17 +222,6 @@ func BigQueryFieldToQField(bqField *bigquery.FieldSchema) types.QField {
 	}
 }
 
-// qvalueFromBigQueryValue converts one column of a query result row (e.g. from
-// APPENDS()/CHANGES()) into the QValue variant matching qfield.Type, as computed by
-// BigQueryFieldToQField from the same result schema. The Go SDK hands back an
-// already-typed value per BigQuery type (see cloud.google.com/go/bigquery's
-// convertBasicType): string, []byte, int64, float64, bool, time.Time (TIMESTAMP),
-// civil.Date (DATE), civil.Time (TIME), civil.DateTime (DATETIME), *big.Rat
-// (NUMERIC/BIGNUMERIC), or []bigquery.Value for a REPEATED column.
-//
-// RECORD/STRUCT columns aren't supported: their Go value is also []bigquery.Value,
-// which doesn't match any non-array qfield.Type, so they fail here with a clear
-// error rather than being silently misread.
 func qvalueFromBigQueryValue(qfield types.QField, value bigquery.Value) (types.QValue, error) {
 	if value == nil {
 		return types.QValueNull(qfield.Type), nil
@@ -273,7 +270,7 @@ func qvalueFromBigQueryValue(qfield types.QField, value bigquery.Value) (types.Q
 		return types.QValueTime{Val: civilTimeToDuration(v)}, nil
 	case *big.Rat:
 		return types.QValueNumeric{
-			Val:       decimal.NewFromBigRat(v, int32(qfield.Scale)),
+			Val:       decimal.NewFromBigRat(v, int32(numericRoundingScale(qfield))),
 			Precision: qfield.Precision,
 			Scale:     qfield.Scale,
 		}, nil
@@ -282,9 +279,6 @@ func qvalueFromBigQueryValue(qfield types.QField, value bigquery.Value) (types.Q
 	}
 }
 
-// qvalueArrayFromBigQueryValues converts a REPEATED column's value, which the Go
-// SDK returns as []bigquery.Value with one already-typed element per the field's
-// base (non-repeated) type.
 func qvalueArrayFromBigQueryValues(qfield types.QField, values []bigquery.Value) (types.QValue, error) {
 	switch qfield.Type {
 	case types.QValueKindArrayString:
@@ -319,7 +313,7 @@ func qvalueArrayFromBigQueryValues(qfield types.QField, values []bigquery.Value)
 		}
 		arr := make([]decimal.Decimal, len(rats))
 		for i, r := range rats {
-			arr[i] = decimal.NewFromBigRat(r, int32(qfield.Scale))
+			arr[i] = decimal.NewFromBigRat(r, int32(numericRoundingScale(qfield)))
 		}
 		return types.QValueArrayNumeric{Val: arr, Precision: qfield.Precision, Scale: qfield.Scale}, nil
 	default:

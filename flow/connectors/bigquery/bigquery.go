@@ -52,10 +52,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 }
 
 type BigQueryConnector struct {
-	// lastPollAt is the wall-clock time PullRecords last actually queried
-	// BigQuery. It's a plain field, not mutex-guarded, because SyncFlow's outer
-	// loop (flow/activities/flowable.go) calls PullRecords sequentially, never
-	// concurrently, for a given connector instance. See cdc.go's waitForNextPoll.
+	// lastPollAt is the wall-clock time PullRecords last actually queried BigQuery.
 	lastPollAt time.Time
 	// droppedExcludeColumns remembers, per source table, excluded columns that
 	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
