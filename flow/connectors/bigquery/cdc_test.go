@@ -128,23 +128,29 @@ func TestExceptClause(t *testing.T) {
 func TestMissingExceptColumns(t *testing.T) {
 	candidates := map[string]struct{}{"secret_column": {}, "large_payload": {}, "id": {}}
 
-	// Actual shape of the error BigQuery returns for SELECT * EXCEPT (col) when col
-	// doesn't exist on the source table (reproduced against a live BigQuery table).
 	err := &googleapi.Error{
 		Code:    400,
 		Message: "Column secret_column in SELECT * EXCEPT list does not exist at [1:18]",
 	}
 	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingExceptColumns(err, candidates))
-
-	// Wrapped errors are still matched via errors.AsType.
 	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingExceptColumns(fmt.Errorf("query failed: %w", err), candidates))
 
 	assert.Empty(t, missingExceptColumns(errors.New("some unrelated failure"), candidates))
-	// Code 404, not the EXCEPT-column error shape.
 	assert.Empty(t, missingExceptColumns(&googleapi.Error{Code: 404, Message: "secret_column"}, candidates))
-	// Code 400 but a different invalidQuery error that happens to mention a candidate's
-	// name -- must not be mistaken for the EXCEPT-column error.
 	assert.Empty(t, missingExceptColumns(&googleapi.Error{Code: 400, Message: "Unrecognized name: secret_column"}, candidates))
+
+	// Excluding both "id" and "user_id": losing user_id must not also flag "id".
+	idCandidates := map[string]struct{}{"id": {}, "user_id": {}}
+	userIDErr := &googleapi.Error{
+		Code:    400,
+		Message: "Column user_id in SELECT * EXCEPT list does not exist at [1:18]",
+	}
+	assert.Equal(t, map[string]struct{}{"user_id": {}}, missingExceptColumns(userIDErr, idCandidates))
+
+	// A column literally named after a word in the error's fixed boilerplate must
+	// not be flagged by some other column's error.
+	boilerplateCandidates := map[string]struct{}{"at": {}, "list": {}}
+	assert.Empty(t, missingExceptColumns(err, boilerplateCandidates))
 }
 
 func TestEffectiveExclude(t *testing.T) {

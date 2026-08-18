@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -308,7 +309,10 @@ func exceptClause(exclude map[string]struct{}) string {
 	return fmt.Sprintf(" EXCEPT (%s)", strings.Join(quoted, ", "))
 }
 
-// runPullQuery runs the APPENDS()/CHANGES() query for sourceTableIdentifier.
+// runPullQuery runs the APPENDS()/CHANGES() query for sourceTableIdentifier,
+// retrying with a shrunk EXCEPT clause if BigQuery rejects a column that no longer
+// exists on the source table (BigQuery reports one such column per error, so this
+// may loop more than once).
 func (c *BigQueryConnector) runPullQuery(
 	ctx context.Context, fn string, dsTable string, sourceTableIdentifier string,
 	exclude map[string]struct{}, orderBy string, start, end time.Time,
@@ -326,9 +330,6 @@ func (c *BigQueryConnector) runPullQuery(
 			return it, nil
 		}
 
-		// retry if the query failed due to a missing column in the EXCEPT clause
-		// BigQuery reports only one missing column per error,
-		// so this loop may run multiple times if multiple columns are missing.
 		missing := missingExceptColumns(err, effective)
 		if len(missing) == 0 {
 			return nil, err
@@ -368,21 +369,27 @@ func (c *BigQueryConnector) effectiveExclude(sourceTableIdentifier string, exclu
 	return effective
 }
 
-// missingExceptColumns scans a BigQuery "SELECT * EXCEPT" invalid-query error for any
-// of candidates' names, returning the ones that appear.
+// Matches BigQuery's invalid-query error for a "SELECT * EXCEPT (col)" column that
+// doesn't exist on the source, e.g. "Column foo in SELECT * EXCEPT list does not
+// exist at [1:18]" (verified against a live table).
+var bqMissingExceptColRe = regexp.MustCompile(`Column (\S+) in SELECT \* EXCEPT list does not exist`)
+
+// missingExceptColumns returns the column named in err's EXCEPT-clause error, as a
+// single-element set, if it's one of candidates. Returns nil otherwise.
 func missingExceptColumns(err error, candidates map[string]struct{}) map[string]struct{} {
-	// error text verified on a live BQ instance
 	apiErr, ok := errors.AsType[*googleapi.Error](err)
-	if !ok || apiErr.Code != 400 || !strings.Contains(apiErr.Message, "in SELECT * EXCEPT list does not exist") {
+	if !ok || apiErr.Code != 400 {
 		return nil
 	}
-	missing := make(map[string]struct{})
-	for col := range candidates {
-		if strings.Contains(apiErr.Message, col) {
-			missing[col] = struct{}{}
-		}
+	match := bqMissingExceptColRe.FindStringSubmatch(apiErr.Message)
+	if match == nil {
+		return nil
 	}
-	return missing
+	col := match[1]
+	if _, isCandidate := candidates[col]; !isCandidate {
+		return nil
+	}
+	return map[string]struct{}{col: {}}
 }
 
 func bigQueryRowToRecordItems(
