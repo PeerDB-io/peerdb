@@ -486,110 +486,92 @@ func addCdcPropertiesSignalListener(
 	})
 }
 
-func CDCFlowWorkflow(
+func parkPausedMirror(
 	ctx workflow.Context,
+	logger log.Logger,
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
+	flowSignalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
 ) (*CDCFlowWorkflowResult, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("invalid connection configs")
-	}
-
-	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
-	if state == nil {
-		state = cdc_state.NewCDCFlowWorkflowState(ctx, logger, cfg)
-	}
-
-	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
-	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
-	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
-		return *state, nil
-	}); err != nil {
-		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
-	}
-	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
-		// no longer used, handler kept to avoid nondeterminism
-		return state.CurrentFlowStatus, nil
-	})
-
-	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
-		return state, nil
-	}
-
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
-
-	if state.ActiveSignal == model.PauseSignal {
-		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
-		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
-			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
-		})
-		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
-			switch val.RequestedFlowState {
-			case protos.FlowStatus_STATUS_TERMINATING:
-				state.ActiveSignal = model.TerminateSignal
-				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           dropCfg.FlowJobName,
-					FlowConnectionConfigs: dropCfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-				}
-			case protos.FlowStatus_STATUS_RESYNC:
-				state.ActiveSignal = model.ResyncSignal
-				cfg.Resync = true
-				cfg.DoInitialSnapshot = true
-				// Update State with snapshot parameters
-				overrideSnapshotParametersInState(val, state)
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           resyncCfg.FlowJobName,
-					FlowConnectionConfigs: resyncCfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-					Resync:                true,
-				}
+	selector := workflow.NewNamedSelector(ctx, "PauseLoop")
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
+		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
+	})
+	flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
+		switch val.RequestedFlowState {
+		case protos.FlowStatus_STATUS_TERMINATING:
+			state.ActiveSignal = model.TerminateSignal
+			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
 			}
-		})
-		addCdcPropertiesSignalListener(ctx, logger, selector, state)
-		startTime := workflow.Now(ctx)
-		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
-
-		for state.ActiveSignal == model.PauseSignal {
-			// only place we block on receive, so signal processing is immediate
-			for state.ActiveSignal == model.PauseSignal && state.FlowConfigUpdate == nil && ctx.Err() == nil {
-				logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
-				selector.Select(ctx)
-			}
-			if err := ctx.Err(); err != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return state, err
-			}
-			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
-			}
-
-			if state.FlowConfigUpdate != nil {
-				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
-					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-					return state, err
-				}
-				logger.Info("wiping flow state after state update processing")
-				// finished processing, wipe it
-				state.FlowConfigUpdate = nil
-				state.ActiveSignal = model.NoopSignal
+		case protos.FlowStatus_STATUS_RESYNC:
+			state.ActiveSignal = model.ResyncSignal
+			cfg.Resync = true
+			cfg.DoInitialSnapshot = true
+			// Update State with snapshot parameters
+			overrideSnapshotParametersInState(val, state)
+			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           resyncCfg.FlowJobName,
+				FlowConnectionConfigs: resyncCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+				Resync:                true,
 			}
 		}
+	})
+	addCdcPropertiesSignalListener(ctx, logger, selector, state)
+	startTime := workflow.Now(ctx)
+	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
 
-		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
-		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+	for state.ActiveSignal == model.PauseSignal {
+		// only place we block on receive, so signal processing is immediate
+		for state.ActiveSignal == model.PauseSignal && state.FlowConfigUpdate == nil && ctx.Err() == nil {
+			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
+			selector.Select(ctx)
+		}
+		if err := ctx.Err(); err != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return state, err
+		}
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+		}
+
+		if state.FlowConfigUpdate != nil {
+			if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+				return state, err
+			}
+			logger.Info("wiping flow state after state update processing")
+			// processing a config update always resumes the mirror
+			state.FlowConfigUpdate = nil
+			state.ActiveSignal = model.NoopSignal
+		}
 	}
 
-	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+	logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
+	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
+	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+}
+
+func fetchMetadata(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+) (workflow.Context, error) {
 	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
 	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
+	// TODO: no longer needed, remove with versioning
 	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    2 * time.Minute,
@@ -601,13 +583,13 @@ func CDCFlowWorkflow(
 		state.SyncFlowOptions.SrcTableIdNameMapping,
 		state.SyncFlowOptions.TableMappings,
 	).Get(migrateCtx, nil); err != nil {
-		return state, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
+		return ctx, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
 	}
 
 	for {
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return state, err
+			return ctx, err
 		}
 
 		var err error
@@ -626,219 +608,237 @@ func CDCFlowWorkflow(
 			break
 		}
 	}
+	return ctx, nil
+}
 
-	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
-	// because Resync modifies TableMappings before Setup and also before Snapshot
-	// for safety, rely on the idempotency of SetupFlow instead
-	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
-	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
-		originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
-		for _, tableMapping := range cfg.TableMappings {
-			originalTableMappings = append(originalTableMappings, proto.CloneOf(tableMapping))
-		}
-		// if resync is true, alter the table name schema mapping to temporarily add
-		// a suffix to the table names.
-		if cfg.Resync {
-			for _, mapping := range state.SyncFlowOptions.TableMappings {
-				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					mapping.DestinationTableIdentifier += "_resync"
-				}
-			}
-			// because we have renamed the tables.
-			cfg.TableMappings = state.SyncFlowOptions.TableMappings
-		}
-
-		// start the SetupFlow workflow as a child workflow, and wait for it to complete
-		// it should return the table schema for the source peer
-		setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
-
-		setupSnapshotSelector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
-		setupSnapshotSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalStateChangeChan.AddToSelector(setupSnapshotSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
-			switch val.RequestedFlowState {
-			case protos.FlowStatus_STATUS_PAUSED:
-				logger.Warn("pause requested during setup, ignoring")
-			case protos.FlowStatus_STATUS_TERMINATING:
-				state.ActiveSignal = model.TerminateSignal
-				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           dropCfg.FlowJobName,
-					FlowConnectionConfigs: dropCfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-				}
-			case protos.FlowStatus_STATUS_RESYNC:
-				state.ActiveSignal = model.ResyncSignal
-				cfg.Resync = true
-				cfg.DoInitialSnapshot = true
-				cfg.TableMappings = originalTableMappings
-				// this is the only place where we can have a resync during a resync
-				// so we need to NOT sync the tableMappings to catalog to preserve original names
-
-				// We still override the snapshot parameters (when resync with updated values)
-				internal.ApplySnapshotConfigOverrides(cfg, val.GetFlowConfigUpdate().GetCdcFlowConfigUpdate())
-				uploadConfigToCatalog(ctx, cfg)
-
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-					Resync:                true,
-				}
-			}
-		})
-
-		childSetupFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:          setupFlowID,
-			ParentClosePolicy:   enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			WorkflowTaskTimeout: GetSetupFlowWorkflowTaskTimeout(ctx),
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-			TypedSearchAttributes: mirrorNameSearch,
-			WaitForCancellation:   true,
-		}
-		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
-		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
-
-		var setupFlowOutput *protos.SetupFlowOutput
-		var setupFlowError error
-		setupSnapshotSelector.AddFuture(setupFlowFuture, func(f workflow.Future) {
-			setupFlowError = f.Get(setupFlowCtx, &setupFlowOutput)
-		})
-
-		for setupFlowOutput == nil {
-			setupSnapshotSelector.Select(ctx)
-			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
-			}
-			if err := ctx.Err(); err != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return nil, err
-			}
-			if setupFlowError != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
+// startSetupAndSnapshot always runs SetupFlow unconditionally before SnapshotFlow because in the
+// case of resync, destination names are created in SetupFlow with "_resync" suffix.
+// Instead of tracking whether previous setup matches current mapping, we rely on
+// idempotency of SetupFlow for safety/simplicity.
+func startSetupAndSnapshot(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
+) (*CDCFlowWorkflowResult, error) {
+	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
+	originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
+	for _, tableMapping := range cfg.TableMappings {
+		originalTableMappings = append(originalTableMappings, proto.CloneOf(tableMapping))
+	}
+	// if resync is true, alter the table name schema mapping to temporarily add
+	// a suffix to the table names.
+	if cfg.Resync {
+		for _, mapping := range state.SyncFlowOptions.TableMappings {
+			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+				mapping.DestinationTableIdentifier += "_resync"
 			}
 		}
-
-		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
-		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
-
-		// next part of the setup is to snapshot-initial-copy and setup replication slots.
-		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
-
-		taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
-		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:            snapshotFlowID,
-			ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy:           &temporal.RetryPolicy{MaximumAttempts: 1},
-			TaskQueue:             taskQueue,
-			TypedSearchAttributes: mirrorNameSearch,
-			WaitForCancellation:   true,
-		}
-
-		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
-		// now snapshot parameters are also part of the state, but until we finish snapshot they wouldn't be modifiable.
-		// so we can use the same cfg for snapshot flow, and then rely on being state being saved to catalog
-		// during any operation that triggers another snapshot (INCLUDING add tables).
-		// this could fail for very weird Temporal resets
-		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
-		var snapshotDone bool
-		var snapshotError error
-		setupSnapshotSelector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
-			snapshotError = f.Get(snapshotFlowCtx, nil)
-			snapshotDone = true
-		})
-
-		for !snapshotDone {
-			setupSnapshotSelector.Select(ctx)
-			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
-			}
-			if err := ctx.Err(); err != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return nil, err
-			}
-			if snapshotError != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
-			}
-		}
-
-		if cfg.Resync {
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
-			renameOpts := &protos.RenameTablesInput{
-				FlowJobName:       cfg.FlowJobName,
-				PeerName:          cfg.DestinationName,
-				SyncedAtColName:   cfg.SyncedAtColName,
-				SoftDeleteColName: cfg.SoftDeleteColName,
-			}
-
-			for _, mapping := range state.SyncFlowOptions.TableMappings {
-				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					oldName := mapping.DestinationTableIdentifier
-					newName := strings.TrimSuffix(oldName, "_resync")
-					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: oldName,
-						NewName:     newName,
-					})
-					mapping.DestinationTableIdentifier = newName
-				} else {
-					renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
-						CurrentName: mapping.DestinationTableIdentifier,
-						NewName:     mapping.DestinationTableIdentifier,
-					})
-				}
-			}
-
-			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 12 * time.Hour,
-				HeartbeatTimeout:    time.Minute,
-				RetryPolicy: &temporal.RetryPolicy{
-					InitialInterval: 1 * time.Minute,
-				},
-			})
-			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
-			var renameTablesDone bool
-			var renameTablesError error
-			setupSnapshotSelector.AddFuture(renameTablesFuture, func(f workflow.Future) {
-				renameTablesDone = true
-				if err := f.Get(renameTablesCtx, nil); err != nil {
-					renameTablesError = fmt.Errorf("failed to execute rename tables activity: %w", err)
-					logger.Error("failed to execute rename tables activity", slog.Any("error", err))
-				} else {
-					logger.Info("rename tables activity completed successfully")
-				}
-			})
-			for !renameTablesDone {
-				setupSnapshotSelector.Select(ctx)
-				if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
-				}
-				if err := ctx.Err(); err != nil {
-					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-					return nil, err
-				}
-				if renameTablesError != nil {
-					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-					return state, renameTablesError
-				}
-			}
-		}
-
-		// if initial_copy_only is opted for, we end the flow here.
-		if cfg.InitialSnapshotOnly {
-			logger.Info("initial snapshot only, ending flow")
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_COMPLETED)
-		} else {
-			logger.Info("executed setup flow and snapshot flow, start running")
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-		}
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		// because we have renamed the tables.
+		cfg.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
+	setupSnapshotSelector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
+	setupSnapshotSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	flowSignalStateChangeChan.AddToSelector(setupSnapshotSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
+		switch val.RequestedFlowState {
+		case protos.FlowStatus_STATUS_PAUSED:
+			logger.Warn("pause requested during setup, ignoring")
+		case protos.FlowStatus_STATUS_TERMINATING:
+			state.ActiveSignal = model.TerminateSignal
+			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+			}
+		case protos.FlowStatus_STATUS_RESYNC:
+			state.ActiveSignal = model.ResyncSignal
+			cfg.Resync = true
+			cfg.DoInitialSnapshot = true
+			cfg.TableMappings = originalTableMappings
+			// this is the only place where we can have a resync during a resync
+			// so we need to NOT sync the tableMappings to catalog to preserve original names
+
+			// We still override the snapshot parameters (when resync with updated values)
+			internal.ApplySnapshotConfigOverrides(cfg, val.GetFlowConfigUpdate().GetCdcFlowConfigUpdate())
+			uploadConfigToCatalog(ctx, cfg)
+
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           cfg.FlowJobName,
+				FlowConnectionConfigs: cfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+				Resync:                true,
+			}
+		}
+	})
+
+	// start the SetupFlow workflow as a child workflow, and wait for it to complete
+	// it should return the table schema for the source peer
+	setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
+	childSetupFlowOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:          setupFlowID,
+		ParentClosePolicy:   enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		WorkflowTaskTimeout: GetSetupFlowWorkflowTaskTimeout(ctx),
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 20,
+		},
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
+	}
+	setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
+	setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
+
+	var setupFlowOutput *protos.SetupFlowOutput
+	var setupFlowError error
+	setupSnapshotSelector.AddFuture(setupFlowFuture, func(f workflow.Future) {
+		setupFlowError = f.Get(setupFlowCtx, &setupFlowOutput)
+	})
+
+	for setupFlowOutput == nil {
+		setupSnapshotSelector.Select(ctx)
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+		}
+		if err := ctx.Err(); err != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return nil, err
+		}
+		if setupFlowError != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+			return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
+		}
+	}
+
+	state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
+	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
+
+	// next part of the setup is to snapshot-initial-copy and setup replication slots.
+	snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
+
+	taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+	childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:            snapshotFlowID,
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy:           &temporal.RetryPolicy{MaximumAttempts: 1},
+		TaskQueue:             taskQueue,
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
+	}
+
+	snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
+	// now snapshot parameters are also part of the state, but until we finish snapshot they wouldn't be modifiable.
+	// so we can use the same cfg for snapshot flow, and then rely on state being saved to catalog
+	// during any operation that triggers another snapshot (INCLUDING add tables).
+	// this could fail for very weird Temporal resets
+	snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+	var snapshotDone bool
+	var snapshotError error
+	setupSnapshotSelector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
+		snapshotError = f.Get(snapshotFlowCtx, nil)
+		snapshotDone = true
+	})
+
+	for !snapshotDone {
+		setupSnapshotSelector.Select(ctx)
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+		}
+		if err := ctx.Err(); err != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return nil, err
+		}
+		if snapshotError != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+			return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
+		}
+	}
+
+	// in the case of resync, run RenameTables to perform an atomic swap
+	if cfg.Resync {
+		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
+		renameOpts := &protos.RenameTablesInput{
+			FlowJobName:       cfg.FlowJobName,
+			PeerName:          cfg.DestinationName,
+			SyncedAtColName:   cfg.SyncedAtColName,
+			SoftDeleteColName: cfg.SoftDeleteColName,
+		}
+
+		for _, mapping := range state.SyncFlowOptions.TableMappings {
+			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+				oldName := mapping.DestinationTableIdentifier
+				newName := strings.TrimSuffix(oldName, "_resync")
+				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
+					CurrentName: oldName,
+					NewName:     newName,
+				})
+				mapping.DestinationTableIdentifier = newName
+			} else {
+				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
+					CurrentName: mapping.DestinationTableIdentifier,
+					NewName:     mapping.DestinationTableIdentifier,
+				})
+			}
+		}
+
+		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 12 * time.Hour,
+			HeartbeatTimeout:    time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
+		})
+		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		var renameTablesDone bool
+		var renameTablesError error
+		setupSnapshotSelector.AddFuture(renameTablesFuture, func(f workflow.Future) {
+			renameTablesDone = true
+			if err := f.Get(renameTablesCtx, nil); err != nil {
+				renameTablesError = fmt.Errorf("failed to execute rename tables activity: %w", err)
+				logger.Error("failed to execute rename tables activity", slog.Any("error", err))
+			} else {
+				logger.Info("rename tables activity completed successfully")
+			}
+		})
+		for !renameTablesDone {
+			setupSnapshotSelector.Select(ctx)
+			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+			}
+			if err := ctx.Err(); err != nil {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+				return nil, err
+			}
+			if renameTablesError != nil {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+				return state, renameTablesError
+			}
+		}
+	}
+
+	// if initial_copy_only is opted for, we end the flow here.
+	if cfg.InitialSnapshotOnly {
+		logger.Info("initial snapshot only, ending flow")
+		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_COMPLETED)
+	} else {
+		logger.Info("executed setup flow and snapshot flow, start running")
+		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
+	}
+	return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+}
+
+func startCDC(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	flowSignalChan model.TypedReceiveChannel[model.CDCFlowSignal],
+	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
+) (*CDCFlowWorkflowResult, error) {
 	var finished bool
 	var finishedError bool
 	syncCtx, cancelSync := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -971,4 +971,51 @@ func CDCFlowWorkflow(
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}
+}
+
+func CDCFlowWorkflow(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+) (*CDCFlowWorkflowResult, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("invalid connection configs")
+	}
+
+	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	if state == nil {
+		state = cdc_state.NewCDCFlowWorkflowState(ctx, logger, cfg)
+	}
+
+	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
+	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (cdc_state.CDCFlowWorkflowState, error) {
+		return *state, nil
+	}); err != nil {
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
+	}
+	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
+		// no longer used, handler kept to avoid nondeterminism
+		return state.CurrentFlowStatus, nil
+	})
+
+	// completion from a snapshot-only mirror, we are done
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
+		return state, nil
+	}
+
+	// park mirror that are being paused
+	if state.ActiveSignal == model.PauseSignal {
+		return parkPausedMirror(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+	}
+
+	ctxWithMetadata, err := fetchMetadata(ctx, logger, cfg, state)
+	if err != nil {
+		return state, err
+	}
+
+	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
+		return startSetupAndSnapshot(ctxWithMetadata, logger, cfg, state, flowSignalStateChangeChan)
+	}
+	return startCDC(ctxWithMetadata, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
 }
