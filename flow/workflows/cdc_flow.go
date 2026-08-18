@@ -187,6 +187,48 @@ func processCDCFlowConfigUpdate(
 	return nextRunNone, nil
 }
 
+func processTerminate(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	req *protos.FlowStateChangeRequest,
+) {
+	state.ActiveSignal = model.TerminateSignal
+	dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+	state.DropFlowInput = &protos.DropFlowInput{
+		FlowJobName:           dropCfg.FlowJobName,
+		FlowConnectionConfigs: dropCfg,
+		DropFlowStats:         req.DropMirrorStats,
+		SkipDestinationDrop:   req.SkipDestinationDrop,
+	}
+}
+
+func processResync(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	req *protos.FlowStateChangeRequest,
+	syncStateToCatalog bool,
+) {
+	state.ActiveSignal = model.ResyncSignal
+	cfg.Resync = true
+	cfg.DoInitialSnapshot = true
+	// update State with snapshot parameters
+	overrideSnapshotParametersInState(req, state)
+	resyncCfg := cfg
+	// when syncStateToCatalog = false, persistence to catalog intentionally deferred by the caller
+	if syncStateToCatalog {
+		resyncCfg = syncStateToConfigProtoInCatalog(ctx, cfg, state)
+	}
+	state.DropFlowInput = &protos.DropFlowInput{
+		FlowJobName:           resyncCfg.FlowJobName,
+		FlowConnectionConfigs: resyncCfg,
+		DropFlowStats:         req.DropMirrorStats,
+		SkipDestinationDrop:   req.SkipDestinationDrop,
+		Resync:                true,
+	}
+}
+
 func handleFlowSignalStateChange(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigsCore,
@@ -198,32 +240,13 @@ func handleFlowSignalStateChange(
 		switch val.RequestedFlowState {
 		case protos.FlowStatus_STATUS_TERMINATING:
 			logger.Info("terminating CDCFlow", slog.String("operation", op))
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
+			processTerminate(ctx, cfg, state, val)
 		case protos.FlowStatus_STATUS_RESYNC:
 			logger.Info("resync requested", slog.String("operation", op))
-			state.ActiveSignal = model.ResyncSignal
-			// since we are adding to TableMappings, multiple signals can lead to duplicates
-			// we should ContinueAsNew after the first signal in the selector, but just in case
-			cfg.Resync = true
-			cfg.DoInitialSnapshot = true
-			// This is just for in-memory
-			// Override Snapshot Parameters if request in State Change request
-			overrideSnapshotParametersInState(val, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				// to be filled in just before ContinueAsNew
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-				Resync:                true,
-			}
+			// syncStateToCatalog=false: this handler fires mid table addition/removal, and the
+			// persisted config must reflect that update as desired state. The caller syncs right
+			// before ContinueAsNew, which guarantees this regardless of when the handler fires.
+			processResync(ctx, cfg, state, val, false)
 		case protos.FlowStatus_STATUS_PAUSED:
 			logger.Info("pause requested while busy, ignoring for now", slog.String("operation", op))
 		}
@@ -522,28 +545,9 @@ func handlePaused(
 	flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 		switch val.RequestedFlowState {
 		case protos.FlowStatus_STATUS_TERMINATING:
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
+			processTerminate(ctx, cfg, state, val)
 		case protos.FlowStatus_STATUS_RESYNC:
-			state.ActiveSignal = model.ResyncSignal
-			cfg.Resync = true
-			cfg.DoInitialSnapshot = true
-			// Update State with snapshot parameters
-			overrideSnapshotParametersInState(val, state)
-			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           resyncCfg.FlowJobName,
-				FlowConnectionConfigs: resyncCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-				Resync:                true,
-			}
+			processResync(ctx, cfg, state, val, true)
 		}
 	})
 	addCdcPropertiesSignalListener(ctx, logger, selector, state)
@@ -669,33 +673,12 @@ func startSetupAndSnapshot(
 		case protos.FlowStatus_STATUS_PAUSED:
 			logger.Warn("pause requested during setup, ignoring")
 		case protos.FlowStatus_STATUS_TERMINATING:
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
+			processTerminate(ctx, cfg, state, val)
 		case protos.FlowStatus_STATUS_RESYNC:
-			state.ActiveSignal = model.ResyncSignal
-			cfg.Resync = true
-			cfg.DoInitialSnapshot = true
-			cfg.TableMappings = originalTableMappings
 			// this is the only place where we can have a resync during a resync
 			// so we need to NOT sync the tableMappings to catalog to preserve original names
-
-			// We still override the snapshot parameters (when resync with updated values)
-			internal.ApplySnapshotConfigOverrides(cfg, val.GetFlowConfigUpdate().GetCdcFlowConfigUpdate())
-			uploadConfigToCatalog(ctx, cfg)
-
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-				Resync:                true,
-			}
+			state.SyncFlowOptions.TableMappings = originalTableMappings
+			processResync(ctx, cfg, state, val, true)
 		}
 	})
 
@@ -925,27 +908,9 @@ func startCDC(
 		finished = true
 		switch val.RequestedFlowState {
 		case protos.FlowStatus_STATUS_TERMINATING:
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
+			processTerminate(ctx, cfg, state, val)
 		case protos.FlowStatus_STATUS_RESYNC:
-			state.ActiveSignal = model.ResyncSignal
-			cfg.Resync = true
-			cfg.DoInitialSnapshot = true
-			overrideSnapshotParametersInState(val, state)
-			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           resyncCfg.FlowJobName,
-				FlowConnectionConfigs: resyncCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-				Resync:                true,
-			}
+			processResync(ctx, cfg, state, val, true)
 		}
 	})
 
