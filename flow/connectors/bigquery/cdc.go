@@ -157,13 +157,20 @@ func (c *BigQueryConnector) PullRecords(
 	}
 	slices.Sort(sourceTables)
 
+	var bytesProcessed int64
 	for _, sourceTableIdentifier := range sourceTables {
-		if err := pullTable(
+		tableBytesProcessed, err := pullTable(
 			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], checkpoint, upper, addRecord,
-		); err != nil {
+		)
+		if err != nil {
 			return err
 		}
+		bytesProcessed += tableBytesProcessed
 	}
+
+	// All tables queried here are mapped tables
+	otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
+	otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
 
 	// The window advances regardless of whether it contained changes.
 	req.RecordStream.UpdateLatestCheckpointText(
@@ -174,25 +181,31 @@ func (c *BigQueryConnector) PullRecords(
 		req.RecordStream.SignalAsEmpty()
 	}
 
-	trace.SpanFromContext(ctx).SetAttributes(attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)))
+	trace.SpanFromContext(ctx).SetAttributes(
+		attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
+		attribute.Int64(otel_metrics.BytesPulledKey, bytesProcessed),
+	)
 	c.logger.Info("[bigquery] PullRecords polled window",
-		slog.Time("start", checkpoint), slog.Time("end", upper), slog.Int("records", recordCount))
+		slog.Time("start", checkpoint), slog.Time("end", upper),
+		slog.Int("records", recordCount), slog.Int64("bytes", bytesProcessed))
 
 	return nil
 }
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
 // source table over [start, end), converting and pushing each row via addRecord.
+// Returns the approximate byte size of the RecordItems actually forwarded (see
+// recordItemsApproxBytes), for FetchedBytesCounter.
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
 	nameAndExclude model.NameAndExclude,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
-) error {
+) (int64, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
-		return fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
 	q := c.client.Query(fmt.Sprintf("SELECT * FROM APPENDS(TABLE %s, @start, @end)", dsTable.stringQuoted()))
@@ -203,7 +216,7 @@ func (c *BigQueryConnector) pullTableAppends(
 
 	it, err := q.Read(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
+		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
 	}
 
 	// it.Schema is only guaranteed populated after the first Next() call (the Go
@@ -212,13 +225,14 @@ func (c *BigQueryConnector) pullTableAppends(
 	// first row rather than right after Read().
 	var qfields []types.QField
 	var changeCols bigQueryChangeColumns
+	var bytesForwarded int64
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return nil
+				return bytesForwarded, nil
 			}
-			return fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		if qfields == nil {
@@ -241,8 +255,14 @@ func (c *BigQueryConnector) pullTableAppends(
 
 		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row, nameAndExclude.Exclude)
 		if err != nil {
-			return fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
+
+		itemBytes, err := recordItemsApproxBytes(items)
+		if err != nil {
+			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
+		}
+		bytesForwarded += itemBytes
 
 		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
@@ -250,9 +270,24 @@ func (c *BigQueryConnector) pullTableAppends(
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: nameAndExclude.Name,
 		}); err != nil {
-			return err
+			return 0, err
 		}
 	}
+}
+
+// recordItemsApproxBytes estimates the wire/storage size of one converted row --
+// post-exclude, post-pairing -- as its JSON encoding's length. This is what
+// PullRecords sums into FetchedBytesCounter: an approximation of what's actually
+// forwarded to the destination, not of what BigQuery scanned to answer the query
+// (those two can differ substantially -- see bigQueryRowToRecordItems' column
+// filtering, and CHANGES()'s scan cost being a function of the underlying change-log
+// storage rather than of the result set size).
+func recordItemsApproxBytes(items model.RecordItems) (int64, error) {
+	b, err := items.MarshalJSON()
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(b)), nil
 }
 
 // bigQueryChangePseudoColumns are the metadata columns APPENDS()/CHANGES() add on top
@@ -330,16 +365,18 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 // pairBigQueryChanges' doc comment for why it's structured as a pure function over a
 // slice). Poll windows are capped at maxQueryWindow, so this is bounded, not unbounded,
 // per-table memory.
+// Returns the approximate byte size of the RecordItems actually forwarded (see
+// recordItemsApproxBytes), for FetchedBytesCounter.
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
 	nameAndExclude model.NameAndExclude,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
-) error {
+) (int64, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
-		return fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
 	// Re-checked here, not just trusted from mirror-creation-time validation
@@ -350,10 +387,10 @@ func (c *BigQueryConnector) pullTableChanges(
 	// with source.go's tableHasPrimaryKey, this calls that same helper.
 	metadata, err := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).Metadata(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get metadata for table %s: %w", sourceTableIdentifier, err)
+		return 0, fmt.Errorf("failed to get metadata for table %s: %w", sourceTableIdentifier, err)
 	}
 	if !tableHasPrimaryKey(metadata) {
-		return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
+		return 0, fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
 			"CHANGES mode requires one", sourceTableIdentifier)
 	}
 	pkColumns := metadata.TableConstraints.PrimaryKey.Columns
@@ -377,7 +414,7 @@ func (c *BigQueryConnector) pullTableChanges(
 
 	it, err := q.Read(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
+		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
 	}
 
 	var qfields []types.QField
@@ -391,7 +428,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			if errors.Is(err, iterator.Done) {
 				break
 			}
-			return fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		if qfields == nil {
@@ -404,7 +441,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			for i, col := range pkColumns {
 				idx := slices.IndexFunc(it.Schema, func(f *bigquery.FieldSchema) bool { return f.Name == col })
 				if idx < 0 {
-					return fmt.Errorf("primary key column %s not found in CHANGES result for table %s", col, sourceTableIdentifier)
+					return 0, fmt.Errorf("primary key column %s not found in CHANGES result for table %s", col, sourceTableIdentifier)
 				}
 				pkIdx[i] = idx
 			}
@@ -428,19 +465,24 @@ func (c *BigQueryConnector) pullTableChanges(
 		changeRows = append(changeRows, changeRow)
 	}
 
+	var bytesForwarded int64
 	for _, change := range pairBigQueryChanges(changeRows) {
-		if err := c.emitBigQueryChange(
+		changeBytes, err := c.emitBigQueryChange(
 			ctx, change, rows, changeRows, it.Schema, qfields, sourceTableIdentifier, nameAndExclude, addRecord,
-		); err != nil {
-			return err
+		)
+		if err != nil {
+			return 0, err
 		}
+		bytesForwarded += changeBytes
 	}
-	return nil
+	return bytesForwarded, nil
 }
 
 // emitBigQueryChange converts one pairBigQueryChanges result into the corresponding
 // Insert/Update/DeleteRecord and pushes it via addRecord. rows and changeRows are the
-// same index-aligned, parallel slices pairBigQueryChanges was given.
+// same index-aligned, parallel slices pairBigQueryChanges was given. Returns the
+// approximate byte size of the RecordItems forwarded (see recordItemsApproxBytes) --
+// both OldItems and NewItems for an update, since both traverse the pipeline.
 func (c *BigQueryConnector) emitBigQueryChange(
 	ctx context.Context,
 	change bigQueryPairedChange,
@@ -451,18 +493,26 @@ func (c *BigQueryConnector) emitBigQueryChange(
 	sourceTableIdentifier string,
 	nameAndExclude model.NameAndExclude,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
-) error {
+) (int64, error) {
 	switch change.kind {
 	case bigQueryChangeUpdate:
 		oldItems, err := bigQueryRowToRecordItems(schema, qfields, rows[change.deleteIdx], nameAndExclude.Exclude)
 		if err != nil {
-			return fmt.Errorf("failed to convert old row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to convert old row for table %s: %w", sourceTableIdentifier, err)
 		}
 		newItems, err := bigQueryRowToRecordItems(schema, qfields, rows[change.insertIdx], nameAndExclude.Exclude)
 		if err != nil {
-			return fmt.Errorf("failed to convert new row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to convert new row for table %s: %w", sourceTableIdentifier, err)
 		}
-		return addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+		oldBytes, err := recordItemsApproxBytes(oldItems)
+		if err != nil {
+			return 0, fmt.Errorf("failed to size old row for table %s: %w", sourceTableIdentifier, err)
+		}
+		newBytes, err := recordItemsApproxBytes(newItems)
+		if err != nil {
+			return 0, fmt.Errorf("failed to size new row for table %s: %w", sourceTableIdentifier, err)
+		}
+		if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: changeRows[change.insertIdx].changeTime.UnixNano()},
 			OldItems:             oldItems,
 			NewItems:             newItems,
@@ -473,29 +523,46 @@ func (c *BigQueryConnector) emitBigQueryChange(
 			// returns full rows. Left nil/unset, the same convention MySQL's cdc.go
 			// follows when the binlog didn't skip any columns for a given row,
 			// even though MySQL has no TOAST either.
-		})
+		}); err != nil {
+			return 0, err
+		}
+		return oldBytes + newBytes, nil
 	case bigQueryChangeInsert:
 		items, err := bigQueryRowToRecordItems(schema, qfields, rows[change.insertIdx], nameAndExclude.Exclude)
 		if err != nil {
-			return fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
-		return addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+		itemBytes, err := recordItemsApproxBytes(items)
+		if err != nil {
+			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
+		}
+		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: changeRows[change.insertIdx].changeTime.UnixNano()},
 			Items:                items,
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: nameAndExclude.Name,
-		})
+		}); err != nil {
+			return 0, err
+		}
+		return itemBytes, nil
 	default: // bigQueryChangeDelete
 		items, err := bigQueryRowToRecordItems(schema, qfields, rows[change.deleteIdx], nameAndExclude.Exclude)
 		if err != nil {
-			return fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
-		return addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+		itemBytes, err := recordItemsApproxBytes(items)
+		if err != nil {
+			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
+		}
+		if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: changeRows[change.deleteIdx].changeTime.UnixNano()},
 			Items:                items,
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: nameAndExclude.Name,
-		})
+		}); err != nil {
+			return 0, err
+		}
+		return itemBytes, nil
 	}
 }
 
