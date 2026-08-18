@@ -283,7 +283,19 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		if err := a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas); err != nil {
+			return nil, err
+		}
+
+		// Deltas are durable now, so it is safe to move the offset past the DDL that produced them.
+		// Skip zero-value checkpoints: last_text has no monotonicity guard in the catalog, so writing
+		// one would clobber a stored offset such as a MySQL GTID set.
+		if checkpoint := recordBatchSync.GetLastCheckpoint(); checkpoint.Text != "" || checkpoint.ID != 0 {
+			if err := srcConn.UpdateReplStateLastOffset(ctx, checkpoint); err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+			}
+		}
+		return nil, nil
 	}
 
 	var res *model.SyncResponse
