@@ -401,7 +401,7 @@ func bigQueryRowToRecordItems(
 			continue
 		}
 
-		qval, err := qvalueFromBigQueryValue(qfields[i], row[i])
+		qval, err := qvalueFromBigQueryValue(qfields[i], row[i], field)
 		if err != nil {
 			return model.RecordItems{}, fmt.Errorf("failed to convert column %s: %w", field.Name, err)
 		}
