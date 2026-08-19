@@ -354,6 +354,20 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
+
+	if internal.GetFlowMetadata(ctx) == nil {
+		flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+			FlowName:        config.FlowJobName,
+			SourceName:      config.SourceName,
+			DestinationName: config.DestinationName,
+			Status:          protos.FlowStatus_STATUS_RUNNING,
+			IsResync:        config.Resync,
+		})
+		if err != nil {
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch flow metadata: %w", err))
+		}
+		ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	}
 	logger := internal.LoggerFromCtx(ctx)
 
 	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
