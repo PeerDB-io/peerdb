@@ -155,11 +155,11 @@ func quoteBigQueryTableFQN(fqn string) string {
 
 // bqCdcFlowConnectionConfig builds the FlowConnectionConfigs shared by the CDC
 // lifecycle tests below: initial snapshot enabled, continuing into CDC
-// (InitialSnapshotOnly=false), with cdcMode threaded through the
-// source_connector_config oneof (chunk 1) that source.go/cdc.go read via
-// cfg.GetBigqueryCdcConfig().GetCdcMode().
+// (InitialSnapshotOnly=false), EVENTS replication mode, with eventsFunction
+// threaded through the table mapping that source.go/cdc.go read via
+// tableMapping.GetBigqueryCdcEventsFunction().
 func bqCdcFlowConnectionConfig(
-	s BigQueryClickhouseSuite, srcTable, dstTable string, cdcMode protos.BigqueryCdcMode,
+	s BigQueryClickhouseSuite, srcTable, dstTable string, eventsFunction protos.BigqueryCdcEventsFunction,
 ) *protos.FlowConnectionConfigs {
 	source := s.Source().(*bigQuerySource)
 	connectionGen := FlowConnectionGenerationConfig{
@@ -168,6 +168,7 @@ func bqCdcFlowConnectionConfig(
 			{
 				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
 				DestinationTableIdentifier: s.DestinationTable(dstTable),
+				BigqueryCdcEventsFunction:  eventsFunction,
 			},
 		},
 		Destination: s.Peer().Name,
@@ -177,7 +178,9 @@ func bqCdcFlowConnectionConfig(
 	flowConnConfig.InitialSnapshotOnly = false
 	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 	flowConnConfig.SourceConnectorConfig = &protos.FlowConnectionConfigs_BigqueryCdcConfig{
-		BigqueryCdcConfig: &protos.BigqueryCdcConfig{CdcMode: cdcMode},
+		BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+		},
 	}
 	return flowConnConfig
 }
@@ -205,7 +208,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_To_CDC_Handoff() {
 	// present before the mirror exists - must land via the initial snapshot.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}, {ID: 2, Val: "pre-snapshot-2"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -251,7 +254,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -299,7 +302,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	tableFQN := createBigQueryAllTypesCdcSourceTable(ctx, t, source, srcTable)
 
 	flowConnConfig := bqCdcFlowConnectionConfig(
-		s, srcTable, dstTable, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS,
+		s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
 	)
 	flowConnConfig.DoInitialSnapshot = false
 
@@ -408,7 +411,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 		{ID: 3, Val: "initial-3"},
 	})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES)
+	// Default safety lag is 60s; lowered here so this test's CDC poll picks up
+	// the insert/update/delete below without a slow, mostly-idle wait.
+	flowConnConfig.Env = map[string]string{"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -425,23 +431,25 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	// delete.
 	bqDeleteRow(ctx, t, source, tableFQN, 2)
 
+	// post-change expected set: {1: updated, 3: initial-3, 4: inserted} - id=2 deleted.
+	// Checked by value, not just len(rows.Records) == 3: the pre-change set
+	// {1,2,3} is also 3 rows, so a count-only check would pass immediately on
+	// the initial snapshot, before the CDC poll above has scanned anything.
+	var valByID map[int64]string
 	EnvWaitFor(t, env, 4*time.Minute, "insert/update/delete picked up by CHANGES CDC poll", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")
 		if err != nil {
 			t.Log(err)
 			return false
 		}
-		// post-change expected set: {1: updated, 3: initial-3, 4: inserted} - id=2 deleted.
-		return len(rows.Records) == 3
+		valByID = make(map[int64]string, len(rows.Records))
+		for _, rec := range rows.Records {
+			valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
+		}
+		return valByID[1] == "updated" && valByID[3] == "initial-3" && valByID[4] == "inserted" && len(valByID) == 3
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
-	dstRows, err := s.GetRows(dstTable, "id,val")
-	require.NoError(t, err)
-	valByID := make(map[int64]string, len(dstRows.Records))
-	for _, rec := range dstRows.Records {
-		valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
-	}
 	require.Equal(t, "updated", valByID[1], "update should have replaced the row's val, not appeared alongside the old value")
 	require.NotContains(t, valByID, int64(2), "deleted row should not be present in the destination")
 	require.Equal(t, "inserted", valByID[4])
@@ -480,7 +488,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)

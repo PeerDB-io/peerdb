@@ -65,10 +65,20 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		return nil
 	}
 
-	cdcMode := cfg.GetBigqueryCdcConfig().GetCdcMode()
+	replicationMode := cfg.GetBigqueryCdcConfig().GetReplicationMode()
+	if replicationMode == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
+		return fmt.Errorf("BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY is not yet supported")
+	}
 
+	needsChangeHistory := false
+	for _, tableMapping := range cfg.TableMappings {
+		if tableMapping.GetBigqueryCdcEventsFunction() == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
+			needsChangeHistory = true
+			break
+		}
+	}
 	var changeHistoryByTable map[bqvalidate.DatasetTable]bool
-	if cdcMode == protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES {
+	if needsChangeHistory {
 		allDstDatasetTables := make([]bqvalidate.DatasetTable, 0, len(dstDatasetTables))
 		for _, dstDatasetTable := range dstDatasetTables {
 			allDstDatasetTables = append(allDstDatasetTables,
@@ -90,8 +100,8 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		hasPK := tableHasPrimaryKey(metadata)
 		destinationHasOrderingKey := hasPK || tableHasOrderingKey(tableMapping)
 
-		switch cdcMode {
-		case protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES:
+		switch tableMapping.GetBigqueryCdcEventsFunction() {
+		case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
 			if !destinationHasOrderingKey {
 				return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
 					"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
@@ -104,7 +114,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 					"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
 					dstDatasetTable.string())
 			}
-		case protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_APPENDS:
+		case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
 			if (tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
 				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE) && !destinationHasOrderingKey {
 				return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+

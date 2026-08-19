@@ -196,20 +196,36 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		InitialSnapshotOnly: false,
 	}
 
-	t.Run("CDC now supported (default APPENDS mode)", func(t *testing.T) {
+	t.Run("CDC now supported", func(t *testing.T) {
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 		require.NoError(t, err, "CDC should be allowed now that chunk 3 replaced the blanket rejection")
 	})
 
 	t.Run("CHANGES mode requires enable_change_history", func(t *testing.T) {
-		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
-			BigqueryCdcConfig: &protos.BigqueryCdcConfig{CdcMode: protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES},
+		for _, tableMapping := range flowConfig.TableMappings {
+			tableMapping.BigqueryCdcEventsFunction = protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES
 		}
-		defer func() { flowConfig.SourceConnectorConfig = nil }()
+		defer func() {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.BigqueryCdcEventsFunction = protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+			}
+		}()
 
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 		require.Error(t, err, "CHANGES mode should reject a table without enable_change_history set")
 		require.Contains(t, err.Error(), "enable_change_history")
+	})
+
+	t.Run("QUERY replication mode is rejected", func(t *testing.T) {
+		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
+			},
+		}
+		defer func() { flowConfig.SourceConnectorConfig = nil }()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.Error(t, err, "QUERY replication mode isn't implemented yet")
 	})
 }
 
