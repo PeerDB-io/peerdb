@@ -25,14 +25,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// gcThresholdErrorSubstring appears when CREATE CHANGEFEED is given a cursor
-// older than the tables' gc.ttlseconds window: the MVCC history needed to
-// resume has been garbage collected and retrying can never succeed.
-const gcThresholdErrorSubstring = "must be after replica GC threshold"
-
-func isCursorTooOldError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), gcThresholdErrorSubstring)
-}
+// pullProgressLogInterval throttles per-record pull progress logging: one log
+// line every this many records streamed, so large pulls stay observable
+// without flooding the logs.
+const pullProgressLogInterval = 50_000
 
 // classifySnapshotReadError marks AS OF SYSTEM TIME reads whose timestamp has
 // fallen behind the replica GC threshold as non-retryable for Temporal: the
@@ -229,6 +225,10 @@ func (c *CockroachDBConnector) PullQRepRecords(
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
+	// initial snapshots of changefeed mirrors read at a GC-protected timestamp;
+	// heartbeat the protection so loads longer than its window stay covered
+	c.maybeExtendSnapshotHistory(ctx, config)
+
 	tableSchemas, err := c.GetTableSchema(ctx, config.Env, config.Version, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: config.WatermarkTable}})
 	if err != nil {
@@ -282,7 +282,7 @@ func (c *CockroachDBConnector) PullQRepRecords(
 		for _, val := range rows.RawValues() {
 			totalBytes += int64(len(val))
 		}
-		if totalRecords%50000 == 0 {
+		if totalRecords%pullProgressLogInterval == 0 {
 			c.logger.Info("[cockroachdb] pulling records",
 				partitionIdLog,
 				slog.Int64("records", totalRecords),
@@ -309,7 +309,7 @@ func (c *CockroachDBConnector) PullQRepRecords(
 func (c *CockroachDBConnector) snapshotSystemTime(ctx context.Context, config *protos.QRepConfig) (crdbHLC, error) {
 	if config.SnapshotName != "" {
 		// parse rather than pattern-match so the persisted snapshot string is
-		// validated at the boundary and handled as a typed timestamp from here on
+		// validated the same way changefeed cursors are
 		ts, err := parseHLC(config.SnapshotName)
 		if err != nil {
 			return crdbHLC{}, fmt.Errorf("invalid CockroachDB system time %q", config.SnapshotName)

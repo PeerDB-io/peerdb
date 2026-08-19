@@ -116,6 +116,13 @@ local_resource(
 )
 
 local_resource(
+    'provision-cockroachdb',
+    cmd='./local_provision_scripts/cockroachdb.sh',
+    labels=['Ancillary-DB-Provisioning'],
+    resource_deps=['cockroachdb']
+)
+
+local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Ancillary-DB-Provisioning'],
@@ -235,6 +242,10 @@ dc_resource('clickhouse-keeper', labels=['Ancillary-DB'], auto_init=False)
 dc_resource('clickhouse-02', labels=['Ancillary-DB'], links=[
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_HTTP_PORT_02', '13123'), 'CH Node 2 HTTP'),
     link('http://localhost:' + resolve_ancillary_env('CI_CLICKHOUSE_NATIVE_PORT_02', '13000'), 'CH Node 2 TCP'),
+], auto_init=False)
+
+dc_resource('cockroachdb', labels=['Ancillary-DB'], links=[
+    link('http://localhost:' + resolve_ancillary_env('CI_COCKROACH_PORT', '26257'), 'CockroachDB'),
 ], auto_init=False)
 
 dc_resource('mongodb', labels=['Ancillary-DB'], links=[
