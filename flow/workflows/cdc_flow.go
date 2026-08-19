@@ -677,6 +677,7 @@ func startSetupAndSnapshot(
 		case protos.FlowStatus_STATUS_RESYNC:
 			// this is the only place where we can have a resync during a resync
 			// so we need to NOT sync the tableMappings to catalog to preserve original names
+			cfg.TableMappings = originalTableMappings
 			state.SyncFlowOptions.TableMappings = originalTableMappings
 			processResync(ctx, cfg, state, val, true)
 		}
