@@ -32,6 +32,8 @@ export function DBTypeToGoodText(ptype?: DBType) {
       return 'Elasticsearch';
     case DBType.MONGO:
       return 'MongoDB';
+    case DBType.COCKROACHDB:
+      return 'CockroachDB';
     default:
       return 'Unrecognised';
   }
