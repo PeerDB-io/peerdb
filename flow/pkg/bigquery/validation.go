@@ -16,10 +16,11 @@ type DatasetTable struct {
 	Table   string
 }
 
-// TablesHaveChangeHistoryEnabled checks the enable_change_history table option
-// via INFORMATION_SCHEMA.TABLE_OPTIONS, one query per dataset for all tables in
-// that dataset. This option is not exposed as a typed field on
-// bigquery.TableMetadata.
+// TablesHaveChangeHistoryEnabled checks whether change history is enabled via
+// INFORMATION_SCHEMA.TABLES.is_change_history_enabled, one query per dataset
+// for all tables in that dataset. enable_change_history itself never shows up
+// in INFORMATION_SCHEMA.TABLE_OPTIONS (or bq show) even once set - TABLES has
+// its own dedicated column instead.
 func TablesHaveChangeHistoryEnabled(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]bool, error) {
@@ -31,8 +32,8 @@ func TablesHaveChangeHistoryEnabled(
 	result := make(map[DatasetTable]bool, len(tables))
 	for dataset, tableNames := range tablesByDataset {
 		q := client.Query(fmt.Sprintf(
-			"SELECT table_name, option_value FROM `%s`.INFORMATION_SCHEMA.TABLE_OPTIONS "+
-				"WHERE table_name IN UNNEST(@table_names) AND option_name = 'enable_change_history'",
+			"SELECT table_name, is_change_history_enabled FROM `%s`.INFORMATION_SCHEMA.TABLES "+
+				"WHERE table_name IN UNNEST(@table_names)",
 			dataset))
 		q.Parameters = []bigquery.QueryParameter{{Name: "table_names", Value: tableNames}}
 		q.DefaultProjectID = projectID
@@ -51,8 +52,8 @@ func TablesHaveChangeHistoryEnabled(
 				return nil, err
 			}
 			tableName, _ := row[0].(string)
-			optionValue, _ := row[1].(string)
-			result[DatasetTable{Dataset: dataset, Table: tableName}] = strings.EqualFold(optionValue, "true")
+			isEnabled, _ := row[1].(string)
+			result[DatasetTable{Dataset: dataset, Table: tableName}] = strings.EqualFold(isEnabled, "YES")
 		}
 	}
 	return result, nil

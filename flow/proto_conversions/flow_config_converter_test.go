@@ -86,7 +86,7 @@ func TestFlowConnectionConfigsOneof(t *testing.T) {
 		FlowJobName: "oneof_test",
 		SourceConnectorConfig: &protos.FlowConnectionConfigs_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
-				CdcMode: protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES,
+				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
 			},
 		},
 	}
@@ -94,13 +94,13 @@ func TestFlowConnectionConfigsOneof(t *testing.T) {
 	core := FlowConnectionConfigsToCore(api)
 	coreVariant, ok := core.SourceConnectorConfig.(*protos.FlowConnectionConfigsCore_BigqueryCdcConfig)
 	require.Truef(t, ok, "expected *FlowConnectionConfigsCore_BigqueryCdcConfig, got %T", core.SourceConnectorConfig)
-	require.Equal(t, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES, coreVariant.BigqueryCdcConfig.CdcMode)
+	require.Equal(t, protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS, coreVariant.BigqueryCdcConfig.ReplicationMode)
 
 	roundTripped := &protos.FlowConnectionConfigs{}
 	copyFieldsByNumber(core.ProtoReflect(), roundTripped.ProtoReflect())
 	apiVariant, ok := roundTripped.SourceConnectorConfig.(*protos.FlowConnectionConfigs_BigqueryCdcConfig)
 	require.Truef(t, ok, "expected *FlowConnectionConfigs_BigqueryCdcConfig, got %T", roundTripped.SourceConnectorConfig)
-	require.Equal(t, protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES, apiVariant.BigqueryCdcConfig.CdcMode)
+	require.Equal(t, protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS, apiVariant.BigqueryCdcConfig.ReplicationMode)
 
 	// mirrors with no connector-specific config leave the oneof unset
 	unset := FlowConnectionConfigsToCore(&protos.FlowConnectionConfigs{FlowJobName: "no_oneof_test"})

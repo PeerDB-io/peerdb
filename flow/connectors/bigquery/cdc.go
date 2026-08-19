@@ -137,9 +137,9 @@ func (c *BigQueryConnector) PullRecords(
 	if err != nil {
 		return fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
-	pullTable := c.pullTableAppends
-	if cfg.GetBigqueryCdcConfig().GetCdcMode() == protos.BigqueryCdcMode_BIGQUERY_CDC_MODE_CHANGES {
-		pullTable = c.pullTableChanges
+	eventsFunctionByTable := make(map[string]protos.BigqueryCdcEventsFunction, len(cfg.TableMappings))
+	for _, tableMapping := range cfg.TableMappings {
+		eventsFunctionByTable[tableMapping.SourceTableIdentifier] = tableMapping.GetBigqueryCdcEventsFunction()
 	}
 
 	var recordCount int
@@ -162,6 +162,10 @@ func (c *BigQueryConnector) PullRecords(
 
 	var bytesProcessed int64
 	for _, sourceTableIdentifier := range sourceTables {
+		pullTable := c.pullTableAppends
+		if eventsFunctionByTable[sourceTableIdentifier] == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
+			pullTable = c.pullTableChanges
+		}
 		tableBytesProcessed, err := pullTable(
 			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], checkpoint, upper, addRecord,
 		)
