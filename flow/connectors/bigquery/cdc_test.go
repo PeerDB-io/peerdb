@@ -120,8 +120,8 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 }
 
 func TestExceptClause(t *testing.T) {
-	assert.Equal(t, "", exceptClause(nil))
-	assert.Equal(t, "", exceptClause(map[string]struct{}{}))
+	assert.Empty(t, exceptClause(nil))
+	assert.Empty(t, exceptClause(map[string]struct{}{}))
 	assert.Equal(t, " EXCEPT (`a`, `b`)", exceptClause(map[string]struct{}{"b": {}, "a": {}}))
 }
 
