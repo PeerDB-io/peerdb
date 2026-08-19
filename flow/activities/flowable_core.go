@@ -841,21 +841,18 @@ func (a *FlowableActivity) normalizeLoop(
 			normalizingBatchID.Store(reqBatchID)
 			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				for {
-					// update req to latest normalize request & retry
-					select {
-					case <-syncDone:
-						logger.Info("[normalize-loop] syncDone closed before retry")
-						return
-					case <-ctx.Done():
-						logger.Info("[normalize-loop] context closed before retry")
-						return
-					default:
-						time.Sleep(retryInterval)
-						retryInterval = min(retryInterval*2, 5*time.Minute)
-						reqBatchID = normalizeRequests.Load()
-						continue retryLoop
-					}
+				// update req to latest normalize request & retry
+				select {
+				case <-syncDone:
+					logger.Info("[normalize-loop] syncDone closed before retry")
+					return
+				case <-ctx.Done():
+					logger.Info("[normalize-loop] context closed before retry")
+					return
+				case <-time.After(retryInterval):
+					retryInterval = min(retryInterval*2, 5*time.Minute)
+					reqBatchID = normalizeRequests.Load()
+					continue retryLoop
 				}
 			}
 			break
