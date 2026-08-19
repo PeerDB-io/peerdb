@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
@@ -341,11 +342,32 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 	runSnapshotStagingPath := basePath.JoinPath(activityInfo.WorkflowExecution.RunID).String()
 	c.logger.Info("Run snapshot staging path", slog.String("path", runSnapshotStagingPath))
 
-	jobs := make(map[string]*bigquery.Job)
-	for _, tm := range cfg.TableMappings {
-		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, runSnapshotStagingPath)
+	// snapshotTime (T) anchors every table's export below via FOR SYSTEM_TIME AS OF, so all
+	// tables are read as of the same consistent point in time.
+	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
+	}
+
+	if err := c.exportTablesAsOf(ctx, flowName, cfg.TableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
+		return nil, nil, err
+	}
+
+	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
+}
+
+func (c *BigQueryConnector) exportTablesAsOf(
+	ctx context.Context,
+	flowName string,
+	tableMappings []*protos.TableMapping,
+	stagingPath string,
+	snapshotTime time.Time,
+) error {
+	jobs := make(map[string]*bigquery.Job, len(tableMappings))
+	for _, tm := range tableMappings {
+		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, stagingPath, snapshotTime)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
+			return fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 
 		q := c.client.Query(exportSQL)
@@ -361,21 +383,36 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 				}
 			}
 
-			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
+			return fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
 		}
 		jobs[tm.SourceTableIdentifier] = job
 	}
 	for sourceTableIdentifier, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
-			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
+			return fmt.Errorf("error waiting for export job to complete: %w", err)
 		} else if err := status.Err(); err != nil {
-			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
+			return fmt.Errorf("export job completed with error: %w", err)
 		}
 
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
 	}
+	return nil
+}
 
-	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
+// currentBigQueryTimestamp queries BigQuery's own clock (rather than local wall-clock) so the
+// returned timestamp is consistent with BigQuery's FOR SYSTEM_TIME AS OF time-travel semantics.
+func (c *BigQueryConnector) currentBigQueryTimestamp(ctx context.Context) (time.Time, error) {
+	it, err := c.client.Query("SELECT CURRENT_TIMESTAMP() AS ts").Read(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to query current BigQuery timestamp: %w", err)
+	}
+	var row struct {
+		Ts time.Time `bigquery:"ts"`
+	}
+	if err := it.Next(&row); err != nil {
+		return time.Time{}, fmt.Errorf("failed to read current BigQuery timestamp: %w", err)
+	}
+	return row.Ts, nil
 }
 
 // bigQueryExportQueryStatement builds the EXPORT DATA SQL statement for exporting data from BigQuery to GCS in Parquet format.
@@ -386,6 +423,7 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	ctx context.Context,
 	sourceTableIdentifier, snapshotStagingPath string,
+	snapshotTime time.Time,
 ) (string, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
@@ -398,8 +436,18 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 		return "", fmt.Errorf("failed to get table metadata for %s: %w", sourceTableIdentifier, err)
 	}
 
-	columnSelects := make([]string, 0, len(metadata.Schema))
-	for _, field := range metadata.Schema {
+	return buildBigQueryExportSQL(dsTable, metadata.Schema, snapshotStagingPath, sourceTableIdentifier, snapshotTime), nil
+}
+
+// buildBigQueryExportSQL builds the EXPORT DATA SQL string
+func buildBigQueryExportSQL(
+	dsTable datasetTable,
+	schema bigquery.Schema,
+	snapshotStagingPath, sourceTableIdentifier string,
+	snapshotTime time.Time,
+) string {
+	columnSelects := make([]string, 0, len(schema))
+	for _, field := range schema {
 		quotedName := quotedIdentifier(field.Name)
 		columnSelect := quotedName
 		switch field.Type {
@@ -419,20 +467,16 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 	}
 
 	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
+	snapshotLiteral := snapshotTime.UTC().Format("2006-01-02 15:04:05.999999")
 
-	exportSQL := fmt.Sprintf(`EXPORT DATA OPTIONS(
-			uri='%s',
-			format='PARQUET',
-			compression='GZIP',
-			overwrite=true
-		) AS
-		SELECT %s FROM %s`,
+	return fmt.Sprintf(
+		"EXPORT DATA OPTIONS(uri='%s', format='PARQUET', compression='GZIP', overwrite=true)"+
+			" AS SELECT %s FROM %s FOR SYSTEM_TIME AS OF TIMESTAMP('%s UTC')",
 		uri,
 		strings.Join(columnSelects, ", "),
 		dsTable.stringQuoted(),
+		snapshotLiteral,
 	)
-
-	return exportSQL, nil
 }
 
 func (c *BigQueryConnector) FinishExport(v any) error {
@@ -507,9 +551,39 @@ func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
+// SetupReplication is BigQuery's equivalent of capturing a starting replication position
+// (like MySQL's GTID/file-position capture): it has no replication slot to open, so it just
+// captures a BigQuery-clock timestamp T and persists it as the initial CDC checkpoint. Unlike
+// MySQL/Postgres, BigQuery's initial load can't query the live table at pull time - QRep
+// pulls read pre-exported Parquet from GCS - so when the mirror wants an initial load
+// (req.DoInitialSnapshot), this also runs that export as of the same T, the same way
+// ExportTxSnapshot does for pure snapshot-only flows.
 func (c *BigQueryConnector) SetupReplication(
-	context.Context, shared.CatalogPool,
-	*protos.SetupReplicationInput,
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
+	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
+	}
+
+	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+	}
+
+	if req.DoInitialSnapshot {
+		_ = c.LogFlowInfo(ctx, req.FlowJobName, "Starting initial-load BigQuery export to GCS staging bucket")
+		if err := c.exportTablesAsOf(ctx, req.FlowJobName, cfg.TableMappings, cfg.SnapshotStagingPath, snapshotTime); err != nil {
+			return model.SetupReplicationResult{}, err
+		}
+	}
+
+	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
+	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+	}
+
 	return model.SetupReplicationResult{}, nil
 }
