@@ -18,9 +18,7 @@ type DatasetTable struct {
 
 // TablesHaveChangeHistoryEnabled checks whether change history is enabled via
 // INFORMATION_SCHEMA.TABLES.is_change_history_enabled, one query per dataset
-// for all tables in that dataset. enable_change_history itself never shows up
-// in INFORMATION_SCHEMA.TABLE_OPTIONS (or bq show) even once set - TABLES has
-// its own dedicated column instead.
+// for all tables in that dataset.
 func TablesHaveChangeHistoryEnabled(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]bool, error) {
