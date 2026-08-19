@@ -28,8 +28,8 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket/prefix",
 			sourceTableIdentifier: "my_dataset.my_table",
 			snapshotTime:          time.Date(2026, 8, 14, 12, 34, 56, 789000000, time.UTC),
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/prefix/my_dataset.my_table/*.parquet',\n\t\t\tformat='PARQUET',\n\t\t\t" +
-				"compression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\tSELECT `id`, `name` FROM `my_dataset`.`my_table` " +
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/prefix/my_dataset.my_table/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS SELECT `id`, `name` FROM `my_dataset`.`my_table` " +
 				"FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:34:56.789 UTC')",
 		},
 		{
@@ -39,8 +39,8 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 10, 0, 0, 0, time.FixedZone("UTC-5", -5*60*60)), // == 2026-08-14 15:00:00 UTC
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
-				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/tbl/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS " +
 				"SELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 15:00:00 UTC')",
 		},
 		{
@@ -50,8 +50,8 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC),
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
-				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/tbl/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS " +
 				"SELECT `id` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 00:00:00 UTC')",
 		},
 		{
@@ -66,8 +66,8 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			snapshotStagingPath:   "gs://bucket",
 			sourceTableIdentifier: "tbl",
 			snapshotTime:          time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
-			expected: "EXPORT DATA OPTIONS(\n\t\t\turi='gs://bucket/tbl/*.parquet',\n\t\t\tformat='PARQUET'," +
-				"\n\t\t\tcompression='GZIP',\n\t\t\toverwrite=true\n\t\t) AS\n\t\t" +
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/tbl/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS " +
 				"SELECT `plain`, TO_JSON_STRING(`payload`) AS `payload`, ST_AsText(`geo`) AS `geo`, " +
 				"CAST(`ts` AS TIMESTAMP) AS `ts` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:00:00 UTC')",
 		},

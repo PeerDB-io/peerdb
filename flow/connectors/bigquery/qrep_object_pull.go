@@ -469,13 +469,9 @@ func buildBigQueryExportSQL(
 	uri := fmt.Sprintf("%s/%s/*.parquet", snapshotStagingPath, url.PathEscape(sourceTableIdentifier))
 	snapshotLiteral := snapshotTime.UTC().Format("2006-01-02 15:04:05.999999")
 
-	return fmt.Sprintf(`EXPORT DATA OPTIONS(
-			uri='%s',
-			format='PARQUET',
-			compression='GZIP',
-			overwrite=true
-		) AS
-		SELECT %s FROM %s FOR SYSTEM_TIME AS OF TIMESTAMP('%s UTC')`,
+	return fmt.Sprintf(
+		"EXPORT DATA OPTIONS(uri='%s', format='PARQUET', compression='GZIP', overwrite=true)"+
+			" AS SELECT %s FROM %s FOR SYSTEM_TIME AS OF TIMESTAMP('%s UTC')",
 		uri,
 		strings.Join(columnSelects, ", "),
 		dsTable.stringQuoted(),
