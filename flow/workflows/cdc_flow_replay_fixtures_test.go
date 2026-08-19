@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 	t.Run("parked_resume", func(t *testing.T) {
 		wfID, firstRunID := startParkedFlow(ctx, t, c, "parked-resume")
 		require.NoError(t, c.SignalWorkflow(ctx, wfID, firstRunID, model.FlowSignal.Name, model.NoopSignal))
-		waitContinuedAsNew(ctx, t, c, wfID, firstRunID)
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, time.Minute)
 		exportHistory(ctx, t, c, wfID, firstRunID, "parked_resume")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
@@ -81,7 +82,7 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		wfID, firstRunID := startParkedFlow(ctx, t, c, "parked-config-update")
 		update := &protos.CDCFlowConfigUpdate{BatchSize: 250, IdleTimeout: 33}
 		require.NoError(t, c.SignalWorkflow(ctx, wfID, firstRunID, model.CDCDynamicPropertiesSignal.Name, update))
-		waitContinuedAsNew(ctx, t, c, wfID, firstRunID)
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, time.Minute)
 		exportHistory(ctx, t, c, wfID, firstRunID, "parked_config_update")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
@@ -90,7 +91,7 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		wfID, firstRunID := startRunningFlow(ctx, t, c, "running-pause")
 		waitPendingActivity(ctx, t, c, wfID, firstRunID, "SyncFlow")
 		require.NoError(t, c.SignalWorkflow(ctx, wfID, firstRunID, model.FlowSignal.Name, model.PauseSignal))
-		waitContinuedAsNew(ctx, t, c, wfID, firstRunID)
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, time.Minute)
 		exportHistory(ctx, t, c, wfID, firstRunID, "running_pause")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
@@ -100,7 +101,7 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		waitPendingActivity(ctx, t, c, wfID, firstRunID, "SyncFlow")
 		req := &protos.FlowStateChangeRequest{RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING}
 		require.NoError(t, c.SignalWorkflow(ctx, wfID, firstRunID, model.FlowSignalStateChange.Name, req))
-		waitContinuedAsNew(ctx, t, c, wfID, firstRunID)
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, time.Minute)
 		exportHistory(ctx, t, c, wfID, firstRunID, "running_terminate")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
@@ -109,8 +110,18 @@ func TestGenerateCDCFlowReplayFixtures(t *testing.T) {
 		// the fake SyncFlow returns promptly for this flow name, exercising the
 		// steady-state "sync finished -> ContinueAsNew" path
 		wfID, firstRunID := startRunningFlow(ctx, t, c, "running-sync-finish")
-		waitContinuedAsNew(ctx, t, c, wfID, firstRunID)
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, time.Minute)
 		exportHistory(ctx, t, c, wfID, firstRunID, "running_sync_finish")
+		terminateWorkflow(ctx, t, c, wfID)
+	})
+
+	t.Run("running_sync_error", func(t *testing.T) {
+		// the fake SyncFlow fails for this flow name, exercising the error path:
+		// ActivityTaskFailed -> backoff timer -> timer fires -> ContinueAsNew.
+		wfID, firstRunID := startRunningFlow(ctx, t, c, "running-sync-error")
+		// give enough time for backoff timer to complete
+		waitContinuedAsNew(ctx, t, c, wfID, firstRunID, 3*time.Minute)
+		exportHistory(ctx, t, c, wfID, firstRunID, "running_sync_error")
 		terminateWorkflow(ctx, t, c, wfID)
 	})
 }
@@ -155,15 +166,21 @@ func registerFakeActivities(w worker.Worker) {
 		activity.RegisterOptions{Name: "UpdateCDCConfigInCatalogActivity"},
 	)
 	w.RegisterActivityWithOptions(
+		// one registration serves all scenarios, so behavior is keyed on flow
+		// name: running-sync-finish needs SyncFlow to complete, running-sync-error
+		// needs SyncFlow to error, and running-pause/-terminate need it stuck in
+		// flight so the signal cancels an active sync
 		func(ctx context.Context, cfg *protos.FlowConnectionConfigsCore, opts *protos.SyncFlowOptions) error {
-			// one registration serves all scenarios, so behavior is keyed on flow
-			// name: running-sync-finish needs SyncFlow to complete (recording the
-			// sync-finished -> ContinueAsNew path), while running-pause/-terminate
-			// need it stuck in flight so the signal cancels an active sync
 			if cfg.FlowJobName == fixtureFlowName("running-sync-finish") {
 				time.Sleep(2 * time.Second)
 				return nil
 			}
+
+			if cfg.FlowJobName == fixtureFlowName("running-sync-error") {
+				time.Sleep(2 * time.Second)
+				return errors.New("simulated sync failure for replay fixture")
+			}
+
 			// block until canceled; heartbeats are required both by the 1-minute
 			// HeartbeatTimeout and to receive the cancellation from the server
 			for {
@@ -264,7 +281,7 @@ func waitPendingActivity(ctx context.Context, t *testing.T, c client.Client, wfI
 	}, time.Minute, 200*time.Millisecond, "activity %s never became pending", activityName)
 }
 
-func waitContinuedAsNew(ctx context.Context, t *testing.T, c client.Client, wfID, runID string) {
+func waitContinuedAsNew(ctx context.Context, t *testing.T, c client.Client, wfID, runID string, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		resp, err := c.DescribeWorkflowExecution(ctx, wfID, runID)
@@ -272,7 +289,7 @@ func waitContinuedAsNew(ctx context.Context, t *testing.T, c client.Client, wfID
 			return false
 		}
 		return resp.WorkflowExecutionInfo.Status == enums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW
-	}, time.Minute, 200*time.Millisecond, "run %s never continued-as-new", runID)
+	}, timeout, 200*time.Millisecond, "run %s never continued-as-new", runID)
 }
 
 func exportHistory(ctx context.Context, t *testing.T, c client.Client, wfID, runID, name string) {
