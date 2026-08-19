@@ -161,21 +161,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Connection() {
 	require.NotNil(t, allTablesResp, "all tables response should not be nil")
 }
 
-// Test_BigQuery_Source_CDC_Validation covers ValidateMirrorSource's CDC-mode
-// checks (chunk 3), which replaced the old blanket "only supports initial
-// snapshot flows" rejection this test used to assert. trips_1k has a real PK
-// (see Test_BigQuery_Source_Get_Table_Schema) but no enable_change_history
-// option, so it's a convenient fixture for both the "CDC is now allowed"
-// case and the CHANGES-mode-specific rejection.
-//
-// The old "No Initial Snapshot Not Supported" subtest (InitialSnapshotOnly=true,
-// DoInitialSnapshot=false) is dropped rather than adapted: none of
-// Postgres/MySQL/Mongo's ValidateMirrorSource special-case that degenerate
-// combo either (they all key off `DoInitialSnapshot && InitialSnapshotOnly`
-// for the snapshot-only fast path and otherwise validate for real), and it's
-// a no-op at the workflow level (matches no branch of
-// SnapshotFlowWorkflow) regardless of what validation does - inventing a
-// BigQuery-specific rejection for it would be new, un-asked-for behavior.
 func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 	t := s.T()
 	ctx := t.Context()
@@ -1059,11 +1044,6 @@ func (s *bigQuerySource) Connector() connectors.Connector {
 	return s.conn
 }
 
-// Exec runs sql as a BigQuery query job and drains its result set (DML
-// statements like INSERT/UPDATE/DELETE return zero rows but still need
-// draining to surface any error). Positional args aren't supported -
-// BigQuery's client library only takes named (@foo) query parameters, so
-// callers needing parameterization should format them into sql directly.
 func (s *bigQuerySource) Exec(ctx context.Context, sql string, args ...any) error {
 	if len(args) != 0 {
 		return fmt.Errorf("bigQuerySource.Exec: positional query args are not supported (got %d), format them into sql instead", len(args))
