@@ -108,7 +108,8 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
         cache: 'no-store',
         body: JSON.stringify(req),
       });
-      const data: GetCDCBatchesResponse = await res.json();
+      const responseBody: unknown = await res.json();
+      const data = GetCDCBatchesResponse.fromJSON(responseBody);
       setBatches(data.cdcBatches ?? []);
       setCurrentPage(data.page);
       setTotalPages(Math.ceil(data.total / req.limit));
