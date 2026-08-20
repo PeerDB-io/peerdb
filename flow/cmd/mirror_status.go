@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -568,10 +569,16 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	}
 
 	q := fmt.Sprintf(`SELECT DISTINCT ON(batch_id)
-			batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn
-		FROM peerdb_stats.cdc_batches
-		WHERE flow_name=$1 AND start_time IS NOT NULL%s
-		ORDER BY batch_id %s%s`, whereExpr, sortOrderBy, limitClause)
+				batch_id,start_time,end_time,rows_in_batch,batch_start_lsn,batch_end_lsn,batch_end_lsn_text
+			FROM peerdb_stats.cdc_batches
+			WHERE flow_name=$1 AND start_time IS NOT NULL%s
+			ORDER BY batch_id %s%s`, whereExpr, sortOrderBy, limitClause)
+	var latestCheckpointText string
+	if err := h.pool.QueryRow(ctx,
+		"SELECT last_text FROM metadata_last_sync_state WHERE job_name=$1", req.FlowJobName,
+	).Scan(&latestCheckpointText); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, NewInternalApiError(fmt.Errorf("unable to query latest CDC checkpoint - %s: %w", req.FlowJobName, err))
+	}
 	rows, err := h.pool.Query(ctx, q, queryArgs...)
 	if err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("unable to query cdc batches - %s: %s", req.FlowJobName, err.Error()))
@@ -585,12 +592,13 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		var numRows pgtype.Int8
 		var startLSN pgtype.Numeric
 		var endLSN pgtype.Numeric
-		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
+		var endCheckpointText string
+		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN, &endCheckpointText); err != nil {
 			slog.ErrorContext(ctx, fmt.Sprintf("unable to scan cdc batches - %s: %s", req.FlowJobName, err.Error()))
 			return nil, NewInternalApiError(fmt.Errorf("unable to scan cdc batches - %s: %w", req.FlowJobName, err))
 		}
 
-		var batch protos.CDCBatch
+		batch := protos.CDCBatch{Status: protos.CDCBatchStatus_CDC_BATCH_STATUS_RUNNING}
 
 		if batchID.Valid {
 			batch.BatchId = batchID.Int64
@@ -600,6 +608,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		}
 		if endTime.Valid {
 			batch.EndTime = timestamppb.New(endTime.Time)
+			batch.Status = protos.CDCBatchStatus_CDC_BATCH_STATUS_COMPLETED
 		}
 		if numRows.Valid {
 			batch.NumRows = numRows.Int64
@@ -609,6 +618,20 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		}
 		if endLSN.Valid {
 			batch.EndLsn = endLSN.Int.Int64()
+		}
+
+		if progress, ok := connbigquery.BigQueryCDCBatchTableProgress(endCheckpointText, latestCheckpointText); ok {
+			batch.TablesCompleted = uint32(progress.Completed)
+			batch.TablesTotal = uint32(progress.Total)
+			batch.LaggingTables = progress.LaggingTables
+			switch {
+			case progress.Total > 0 && progress.Completed == progress.Total && endTime.Valid:
+				batch.Status = protos.CDCBatchStatus_CDC_BATCH_STATUS_COMPLETED
+			case progress.Completed > 0 || endTime.Valid:
+				batch.Status = protos.CDCBatchStatus_CDC_BATCH_STATUS_PARTIAL
+			default:
+				batch.Status = protos.CDCBatchStatus_CDC_BATCH_STATUS_RUNNING
+			}
 		}
 
 		return &batch, nil

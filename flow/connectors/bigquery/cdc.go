@@ -17,11 +17,13 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -88,8 +90,9 @@ func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout tim
 	return nil
 }
 
-// PullRecords polls every mapped table over one window, [checkpoint, upper), and
-// pushes the resulting records onto the stream.
+// PullRecords polls every mapped table from its own synced-through checkpoint.
+// A table failure leaves only that table behind; successful siblings continue
+// and the resulting per-table checkpoint is confirmed with the shared stream.
 func (c *BigQueryConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -105,9 +108,15 @@ func (c *BigQueryConnector) PullRecords(
 		return err
 	}
 
-	checkpoint, err := time.Parse(time.RFC3339Nano, req.LastOffset.Text)
+	sourceTables := make([]string, 0, len(req.TableNameMapping))
+	for sourceTableIdentifier := range req.TableNameMapping {
+		sourceTables = append(sourceTables, sourceTableIdentifier)
+	}
+	slices.Sort(sourceTables)
+
+	checkpoint, err := parseBigQueryCDCCheckpoint(req.LastOffset.Text, sourceTables)
 	if err != nil {
-		return fmt.Errorf("failed to parse BigQuery CDC checkpoint %q: %w", req.LastOffset.Text, err)
+		return err
 	}
 
 	now, err := c.currentBigQueryTimestamp(ctx)
@@ -122,15 +131,6 @@ func (c *BigQueryConnector) PullRecords(
 	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
-	}
-
-	upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
-	if !ok {
-		// Nothing new to scan yet (e.g. the safety lag hasn't cleared). Don't
-		// advance the checkpoint: nothing was scanned to protect from a re-scan,
-		// and the same window is simply recomputed on the next poll.
-		req.RecordStream.SignalAsEmpty()
-		return nil
 	}
 
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
@@ -151,47 +151,90 @@ func (c *BigQueryConnector) PullRecords(
 		return req.RecordStream.AddRecord(ctx, record)
 	}
 
-	// Sequential per table, not concurrent, within this poll cycle -- bounds
-	// BigQuery job/slot usage (see https://docs.cloud.google.com/bigquery/docs/slots).
-	// Sorted so polls process tables in a deterministic order.
-	sourceTables := make([]string, 0, len(req.TableNameMapping))
-	for sourceTableIdentifier := range req.TableNameMapping {
-		sourceTables = append(sourceTables, sourceTableIdentifier)
-	}
-	slices.Sort(sourceTables)
-
 	var bytesProcessed int64
+	var tableErrors []error
+	type tablePullError struct {
+		table string
+		err   error
+	}
+	var customerVisibleTableErrors []tablePullError
+	healthyTables := 0
 	for _, sourceTableIdentifier := range sourceTables {
+		start, err := checkpoint.SyncedThrough(sourceTableIdentifier)
+		if err != nil {
+			return err
+		}
+		upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
+		if !ok {
+			// This table has no safe window to scan yet. It is healthy, and a
+			// sibling failure must not turn that into a flow-wide failure.
+			healthyTables++
+			continue
+		}
+
 		pullTable := c.pullTableAppends
 		if eventsFunctionByTable[sourceTableIdentifier] == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 			pullTable = c.pullTableChanges
 		}
+		recordCountBeforeTable := recordCount
 		tableBytesProcessed, err := pullTable(
-			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], checkpoint, upper, addRecord,
+			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], start, upper, addRecord,
 		)
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if recordCount > recordCountBeforeTable {
+				return fmt.Errorf("BigQuery CDC table %s failed after emitting records: %w", sourceTableIdentifier, err)
+			}
+			if checkpoint.RecordFailure(sourceTableIdentifier, upper) {
+				customerVisibleTableErrors = append(customerVisibleTableErrors, tablePullError{
+					table: sourceTableIdentifier,
+					err:   err,
+				})
+			}
+			tableErrors = append(tableErrors, err)
+			c.logger.Error("[bigquery] CDC table poll failed; other tables will continue",
+				slog.String("table", sourceTableIdentifier), slog.Any("error", err))
+			continue
 		}
+		checkpoint.RecordSuccess(sourceTableIdentifier, upper)
+		healthyTables++
 		bytesProcessed += tableBytesProcessed
+	}
+	if len(sourceTables) > 0 && healthyTables == 0 {
+		return errors.Join(tableErrors...)
+	}
+	if len(customerVisibleTableErrors) > 0 {
+		alerter := alerting.NewAlerter(ctx, catalogPool, otelManager)
+		for _, tableError := range customerVisibleTableErrors {
+			_ = alerter.LogFlowError(ctx, req.FlowJobName, fmt.Errorf(
+				"BigQuery CDC failed to poll source table %s; replication for other tables will continue: %w",
+				tableError.table, exceptions.NewBigQueryError(tableError.err),
+			))
+		}
 	}
 
 	// All tables queried here are mapped tables
 	otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
 
-	latestCheckpointText := upper.Format(time.RFC3339Nano)
+	checkpointText, err := checkpoint.Marshal()
+	if err != nil {
+		return err
+	}
+	// Each successful table advances regardless of whether its window contained
+	// changes. Failed tables retain their prior synced-through position and the
+	// attempted target, so they retry without holding healthy tables back.
+	req.RecordStream.UpdateLatestCheckpointText(checkpointText)
 
-	// The window advances regardless of whether it contained changes.
-	req.RecordStream.UpdateLatestCheckpointText(
-		latestCheckpointText,
-	)
 	if recordCount == 0 {
 		c.logger.Info("[bigquery] PullRecords no new records")
 		// still move the checkpoint forward
-		err = c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: latestCheckpointText})
+		err = c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: checkpointText})
 		if err != nil {
 			c.logger.Error("[bigquery] PullRecords failed to persist checkpoint",
-				slog.String("checkpoint", latestCheckpointText),
+				slog.String("checkpoint", checkpointText),
 				slog.Any("error", err))
 		}
 		req.RecordStream.SignalAsEmpty()
@@ -201,8 +244,8 @@ func (c *BigQueryConnector) PullRecords(
 		attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
 		attribute.Int64(otel_metrics.BytesPulledKey, bytesProcessed),
 	)
-	c.logger.Info("[bigquery] PullRecords polled window",
-		slog.Time("start", checkpoint), slog.Time("end", upper),
+	c.logger.Info("[bigquery] PullRecords polled tables",
+		slog.Int("tables", len(sourceTables)), slog.Int("failedTables", len(tableErrors)),
 		slog.Int("records", recordCount), slog.Int64("bytes", bytesProcessed))
 
 	return nil
