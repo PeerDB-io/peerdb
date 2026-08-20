@@ -186,6 +186,13 @@ local_resource(
 )
 
 local_resource(
+    'setup-cockroachdb-peer',
+    cmd='./local_provision_scripts/setup-cockroachdb-peer.sh',
+    labels=['Setup-PeerDB-Peers'],
+    resource_deps=['peerdb', 'provision-cockroachdb'],
+)
+
+local_resource(
     'setup-mongodb-peer',
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
@@ -395,6 +402,10 @@ e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrid
 
 # MongoDB to ClickHouse test suite
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+
+# CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
+e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
+connector_test('cockroachdb', ['provision-cockroachdb'])
 
 # Switchboard tests
 
