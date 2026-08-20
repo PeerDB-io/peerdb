@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -458,16 +459,183 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Table_Failure_Does_Not_Block_Sibling drops the first
+// source table in poll order, waits until its checkpoint records a failed
+// window, then proves a later healthy table can still advance through CDC.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Failure_Does_Not_Block_Sibling() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	failedSrc := AddSuffix(s, "a_cdc_isolation_failed")
+	healthySrc := AddSuffix(s, "z_cdc_isolation_healthy")
+	failedDst := failedSrc + "_dst"
+	healthyDst := healthySrc + "_dst"
+	failedFQN := createBigQueryCdcSourceTable(ctx, t, source, failedSrc, false)
+	healthyFQN := createBigQueryCdcSourceTable(ctx, t, source, healthySrc, false)
+	failedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, failedSrc)
+	healthySourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, healthySrc)
+	require.Less(t, failedSourceID, healthySourceID, "failed table must be polled before its healthy sibling")
+
+	bqInsertRows(ctx, t, source, failedFQN, []bqCdcRow{{ID: 1, Val: "failed-initial"}})
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 1, Val: "healthy-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, failedSrc, failedDst, appends)
+	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, &protos.TableMapping{
+		SourceTableIdentifier:      healthySourceID,
+		DestinationTableIdentifier: s.DestinationTable(healthyDst),
+		BigqueryCdcEventsFunction:  appends,
+	})
+	flowConnConfig.IdleTimeoutSeconds = 5
+	flowConnConfig.Env = map[string]string{"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "1"}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	t.Cleanup(func() { env.Cancel(context.Background()) })
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "failed table initial snapshot landed", failedSrc, failedDst, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "healthy table initial snapshot landed", healthySrc, healthyDst, "id,val")
+
+	pool, err := catalogTestAccessPool()
+	require.NoError(t, err)
+	require.NoError(t, source.client.DatasetInProject(
+		source.config.ProjectId, source.config.DatasetId,
+	).Table(failedSrc).Delete(ctx), "should drop the failing source table")
+
+	var checkpointAtFailure bigQueryCDCTestCheckpoint
+	EnvWaitFor(t, env, 2*time.Minute, "failed table checkpoint lags its attempted target", func() bool {
+		checkpointText, err := queryBigQueryCheckpointText(ctx, pool, flowConnConfig.FlowJobName)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		checkpoint, err := decodeBigQueryCDCTestCheckpoint(checkpointText)
+		if err != nil {
+			if strings.HasPrefix(strings.TrimSpace(checkpointText), "{") {
+				t.Log(err)
+			}
+			return false
+		}
+		failedProgress, failedOK := checkpoint.Tables[failedSourceID]
+		_, healthyOK := checkpoint.Tables[healthySourceID]
+		if !failedOK || !healthyOK || !failedProgress.Target.After(failedProgress.SyncedThrough) {
+			return false
+		}
+		checkpointAtFailure = checkpoint
+		return true
+	})
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 2, Val: "healthy-after-sibling-failure"}})
+	EnvWaitFor(t, env, 4*time.Minute, "healthy CDC row synced despite failed sibling", func() bool {
+		rows, err := s.GetRows(healthyDst, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, record := range rows.Records {
+			if record[0].Value() == int64(2) && record[1].Value() == "healthy-after-sibling-failure" {
+				return true
+			}
+		}
+		return false
+	})
+	RequireEqualTablesWithNames(s, healthySrc, healthyDst, "id,val")
+
+	var latestCheckpoint bigQueryCDCTestCheckpoint
+	EnvWaitFor(t, env, 2*time.Minute, "healthy checkpoint advances while failed checkpoint stays put", func() bool {
+		checkpointText, err := queryBigQueryCheckpointText(ctx, pool, flowConnConfig.FlowJobName)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		checkpoint, err := decodeBigQueryCDCTestCheckpoint(checkpointText)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		failedProgress, failedOK := checkpoint.Tables[failedSourceID]
+		healthyProgress, healthyOK := checkpoint.Tables[healthySourceID]
+		if !failedOK || !healthyOK ||
+			failedProgress.SyncedThrough != checkpointAtFailure.Tables[failedSourceID].SyncedThrough ||
+			!failedProgress.Target.After(failedProgress.SyncedThrough) ||
+			!failedProgress.Target.After(checkpointAtFailure.Tables[failedSourceID].Target) ||
+			!healthyProgress.SyncedThrough.After(checkpointAtFailure.Tables[healthySourceID].SyncedThrough) ||
+			healthyProgress.Target != healthyProgress.SyncedThrough {
+			return false
+		}
+		latestCheckpoint = checkpoint
+		return true
+	})
+	require.Equal(t,
+		checkpointAtFailure.Tables[failedSourceID].SyncedThrough,
+		latestCheckpoint.Tables[failedSourceID].SyncedThrough,
+		"failed table must retain its last confirmed checkpoint",
+	)
+	require.True(t,
+		latestCheckpoint.Tables[failedSourceID].Target.After(latestCheckpoint.Tables[failedSourceID].SyncedThrough),
+		"failed table must remain behind its attempted target",
+	)
+	require.True(t,
+		latestCheckpoint.Tables[healthySourceID].SyncedThrough.After(
+			checkpointAtFailure.Tables[healthySourceID].SyncedThrough,
+		),
+		"healthy table checkpoint must advance after the sibling failure",
+	)
+	require.Equal(t,
+		latestCheckpoint.Tables[healthySourceID].Target,
+		latestCheckpoint.Tables[healthySourceID].SyncedThrough,
+		"healthy table must complete its latest attempted window",
+	)
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+	var customerErrorCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*)
+		FROM peerdb_stats.flow_errors
+		WHERE flow_name = $1
+			AND error_type = 'error'
+			AND position($2 in error_message) > 0
+			AND position('replication for other tables will continue' in error_message) > 0`,
+		flowConnConfig.FlowJobName, failedSourceID,
+	).Scan(&customerErrorCount))
+	require.Equal(t, 1, customerErrorCount,
+		"the customer-visible error should be emitted once for the table failure episode")
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	EnvWaitFor(t, env, 2*time.Minute, "CDC batch reports the dropped table as lagging", func() bool {
+		response, err := apiClient.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+			Limit:       10,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, batch := range response.CdcBatches {
+			if batch.Status == protos.CDCBatchStatus_CDC_BATCH_STATUS_PARTIAL &&
+				batch.TablesCompleted == 1 && batch.TablesTotal == 2 &&
+				len(batch.LaggingTables) == 1 && batch.LaggingTables[0] == failedSourceID {
+				return true
+			}
+		}
+		return false
+	})
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
 // Test_BigQuery_CDC_Restart_Mid_Window_Resume covers resuming from the
 // persisted checkpoint (chunk 4's UpdateReplStateLastOffset/SetLastOffset)
 // rather than re-scanning already-synced rows or dropping rows written while
 // the mirror wasn't polling.
 //
-// This connector has no partial-window checkpoint (PullRecords only calls
-// UpdateLatestCheckpointText once a whole poll window has been scanned across
-// every mapped table - see cdc.go's PullRecords), so there's no
-// finer-grained "mid-window" boundary to interrupt at than between two poll
-// cycles. Pausing the workflow between cycles - the same mechanism
+// PullRecords confirms its per-table checkpoint document only after the shared
+// destination sync completes, so the harness has no finer-grained restart
+// boundary than the gap between poll cycles. Pausing the workflow there - the
+// same mechanism
 // Test_Mongo_Can_Resume_After_Delete_Table/Test_CDC_Sync_Wait_For_Table_Level
 // (mongo_test.go/postgres_test.go) already use to approximate a restart in
 // this harness, since nothing here literally kills the Temporal worker
@@ -511,6 +679,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	require.NoError(t, err)
 	checkpointBeforePause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
 	require.NotEmpty(t, checkpointBeforePause, "checkpoint should be persisted after batch A lands")
+	checkpointTimeBeforePause := bigQueryTableCheckpointTime(
+		t, checkpointBeforePause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+	)
 
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
@@ -547,7 +718,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	// already have timed out.
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
-	require.Greater(t, readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName), checkpointBeforePause,
+	checkpointAfterPause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
+	require.Greater(t, bigQueryTableCheckpointTime(
+		t, checkpointAfterPause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+	), checkpointTimeBeforePause,
 		"checkpoint should have advanced past batch B after resuming")
 
 	env.Cancel(ctx)
@@ -555,16 +729,50 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 }
 
 // readBigQueryCheckpointText reads the BigQuery CDC checkpoint
-// (model.CdcCheckpoint.Text, an RFC3339Nano timestamp - see cdc.go's
-// PullRecords/UpdateReplStateLastOffset) persisted for flowJobName. Lexical
-// comparison of two RFC3339Nano timestamps sharing the same fixed-width
-// format and timezone offset is equivalent to chronological comparison,
-// which is all the monotonic-advance assertions above need.
+// (model.CdcCheckpoint.Text, a versioned per-table JSON document) persisted for
+// flowJobName.
 func readBigQueryCheckpointText(t *testing.T, pool *pgxpool.Pool, flowJobName string) string {
 	t.Helper()
-	var lastText string
-	require.NoError(t, pool.QueryRow(
-		t.Context(), "SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1", flowJobName,
-	).Scan(&lastText))
+	lastText, err := queryBigQueryCheckpointText(t.Context(), pool, flowJobName)
+	require.NoError(t, err)
 	return lastText
+}
+
+func queryBigQueryCheckpointText(ctx context.Context, pool *pgxpool.Pool, flowJobName string) (string, error) {
+	var lastText string
+	err := pool.QueryRow(
+		ctx, "SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1", flowJobName,
+	).Scan(&lastText)
+	return lastText, err
+}
+
+type bigQueryCDCTestTableProgress struct {
+	SyncedThrough time.Time `json:"synced_through"`
+	Target        time.Time `json:"target"`
+	Active        bool      `json:"active"`
+}
+
+type bigQueryCDCTestCheckpoint struct {
+	Tables  map[string]bigQueryCDCTestTableProgress `json:"tables"`
+	Version int                                     `json:"version"`
+}
+
+func decodeBigQueryCDCTestCheckpoint(checkpointText string) (bigQueryCDCTestCheckpoint, error) {
+	var checkpoint bigQueryCDCTestCheckpoint
+	if err := json.Unmarshal([]byte(checkpointText), &checkpoint); err != nil {
+		return bigQueryCDCTestCheckpoint{}, err
+	}
+	if checkpoint.Version != 1 {
+		return bigQueryCDCTestCheckpoint{}, fmt.Errorf("unexpected BigQuery CDC checkpoint version %d", checkpoint.Version)
+	}
+	return checkpoint, nil
+}
+
+func bigQueryTableCheckpointTime(t *testing.T, checkpointText, sourceTable string) time.Time {
+	t.Helper()
+	checkpoint, err := decodeBigQueryCDCTestCheckpoint(checkpointText)
+	require.NoError(t, err)
+	tableCheckpoint, ok := checkpoint.Tables[sourceTable]
+	require.True(t, ok, "checkpoint should contain source table %s", sourceTable)
+	return tableCheckpoint.SyncedThrough
 }
