@@ -23,6 +23,9 @@ type bigQueryCDCTableProgress struct {
 	// started. PeerDB persists it with the checkpoint so worker restarts keep
 	// the configured poll interval. A zero value makes a new table due now.
 	LastAttemptAt time.Time `json:"last_attempt_at,omitzero"`
+	// SyncedBatchID is the latest raw batch assigned to a successful poll of
+	// this table. It stays fixed while this table is failed or backpressured.
+	SyncedBatchID int64 `json:"synced_batch_id"`
 }
 
 type bigQueryCDCCheckpoint struct {
@@ -144,11 +147,16 @@ func (c *bigQueryCDCCheckpoint) RecordAttempt(table string, attemptedAt time.Tim
 	c.Tables[table] = progress
 }
 
-func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time) {
+func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time, syncBatchID int64) {
 	progress := c.Tables[table]
 	progress.SyncedThrough = target
 	progress.Target = target
+	progress.SyncedBatchID = syncBatchID
 	c.Tables[table] = progress
+}
+
+func (c *bigQueryCDCCheckpoint) IsBackpressured(table string, normalizedBatchID, bufferSize int64) bool {
+	return c.Tables[table].SyncedBatchID-normalizedBatchID >= bufferSize
 }
 
 // RecordFailure keeps the last confirmed cursor and records the attempted

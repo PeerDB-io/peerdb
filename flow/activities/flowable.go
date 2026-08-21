@@ -408,6 +408,9 @@ func (a *FlowableActivity) SyncFlow(
 	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
+	// ClickHouse persists normalization progress per destination table, and
+	// BigQuery can pause source tables independently.
+	tableLevelBackpressure := config.GetBigqueryCdcConfig() != nil && destinationType == protos.DBType_CLICKHOUSE
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
@@ -425,7 +428,7 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, tableLevelBackpressure, idleTimeout, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
@@ -478,6 +481,7 @@ func (a *FlowableActivity) pullAndSync(
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	tableLevelBackpressure bool,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
@@ -512,7 +516,7 @@ func (a *FlowableActivity) pullAndSync(
 		}
 	}
 	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+		normRequests, normResponses, normBufferSize, tableLevelBackpressure, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -531,7 +535,7 @@ func (a *FlowableActivity) pullAndSyncPg(
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+		normRequests, normResponses, normBufferSize, false, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)

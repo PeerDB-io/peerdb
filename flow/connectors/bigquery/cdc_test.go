@@ -67,8 +67,8 @@ func TestBigQueryCDCCheckpointInitialization(t *testing.T) {
 	assert.JSONEq(t, `{
 		"version": 1,
 		"tables": {
-			"project.dataset.a": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"},
-			"project.dataset.b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"}
+			"project.dataset.a": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z", "synced_batch_id": 0},
+			"project.dataset.b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z", "synced_batch_id": 0}
 		}
 	}`, encoded)
 }
@@ -79,7 +79,7 @@ func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
 	cp := newBigQueryCDCCheckpoint(start, []string{"a", "b"})
 
 	cp.RecordAttempt("a", target)
-	cp.RecordSuccess("a", target)
+	cp.RecordSuccess("a", target, 7)
 	cp.RecordAttempt("b", target)
 	assert.True(t, cp.RecordFailure("b", target), "first failure in an episode should be reported")
 	cp.RecordAttempt("b", target.Add(time.Hour))
@@ -92,8 +92,42 @@ func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
 	assert.Equal(t, target.Add(time.Hour), cp.Tables["b"].Target)
 	assert.Equal(t, target.Add(time.Hour), cp.Tables["b"].LastAttemptAt)
 
-	cp.RecordSuccess("b", target.Add(2*time.Hour))
+	cp.RecordSuccess("b", target.Add(2*time.Hour), 8)
 	assert.True(t, cp.RecordFailure("b", target.Add(3*time.Hour)), "failure after recovery starts a new episode")
+}
+
+func TestBigQueryCDCCheckpointTableBackpressure(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	cp := newBigQueryCDCCheckpoint(start, []string{"a", "b"})
+	cp.RecordSuccess("a", start.Add(time.Hour), 10)
+	cp.RecordSuccess("b", start.Add(time.Hour), 20)
+
+	assert.False(t, cp.IsBackpressured("a", 9, 2))
+	assert.True(t, cp.IsBackpressured("a", 8, 2), "the exact buffer boundary applies pressure")
+	assert.True(t, cp.IsBackpressured("b", 18, 2))
+
+	before := cp.Tables["a"]
+	cp.RecordSuccess("b", start.Add(2*time.Hour), 21)
+	assert.Equal(t, before, cp.Tables["a"], "a skipped table retains its complete progress")
+}
+
+func TestTableIsBackpressuredUsesDestinationProgressAndGlobalFloor(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	cp := newBigQueryCDCCheckpoint(start, []string{"source.a", "source.b"})
+	cp.RecordSuccess("source.a", start.Add(time.Hour), 10)
+	cp.RecordSuccess("source.b", start.Add(time.Hour), 10)
+	pressure := &model.TableBackpressure{
+		GlobalNormalizedID: 7,
+		NormalizedBatchIDs: map[string]int64{"destination.a": 8},
+		BufferSize:         2,
+	}
+
+	assert.True(t, tableIsBackpressured(cp, "source.a", "destination.a", pressure))
+	assert.True(t, tableIsBackpressured(cp, "source.b", "destination.b", pressure))
+	pressure.GlobalNormalizedID = 9
+	assert.False(t, tableIsBackpressured(cp, "source.b", "destination.b", pressure),
+		"the global frontier covers batches where a sparse table had no rows")
+	assert.False(t, tableIsBackpressured(cp, "source.a", "destination.a", nil))
 }
 
 func TestBigQueryCDCCheckpointDropsRemovedTables(t *testing.T) {
@@ -164,7 +198,7 @@ func TestBigQueryCDCCheckpointPollScheduleSurvivesReload(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	cp := newBigQueryCDCCheckpoint(now.Add(-3*time.Hour), []string{"a", "b"})
 	cp.RecordAttempt("a", now)
-	cp.RecordSuccess("a", now.Add(-time.Hour))
+	cp.RecordSuccess("a", now.Add(-time.Hour), 7)
 	cp.RecordAttempt("b", now.Add(-2*time.Hour))
 	assert.True(t, cp.RecordFailure("b", now.Add(-time.Hour)))
 

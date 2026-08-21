@@ -167,6 +167,22 @@ func runTablePolls(
 	return results, nil
 }
 
+func tableIsBackpressured(
+	checkpoint *bigQueryCDCCheckpoint,
+	sourceTableIdentifier string,
+	destinationTableIdentifier string,
+	pressure *model.TableBackpressure,
+) bool {
+	if pressure == nil {
+		return false
+	}
+	normalizedBatchID := max(
+		pressure.GlobalNormalizedID,
+		pressure.NormalizedBatchIDs[destinationTableIdentifier],
+	)
+	return checkpoint.IsBackpressured(sourceTableIdentifier, normalizedBatchID, pressure.BufferSize)
+}
+
 // PullRecords polls every mapped table from its own synced-through checkpoint.
 // A table failure leaves only that table behind; successful siblings continue
 // and the resulting per-table checkpoint is confirmed with the shared stream.
@@ -247,6 +263,7 @@ func (c *BigQueryConnector) PullRecords(
 	}
 
 	healthyTables := 0
+	backpressuredTables := 0
 	plans := make([]tablePollPlan, 0, len(sourceTables))
 	attemptedTables := 0
 	for _, sourceTableIdentifier := range sourceTables {
@@ -261,6 +278,12 @@ func (c *BigQueryConnector) PullRecords(
 		checkpoint.RecordAttempt(sourceTableIdentifier, now)
 		attemptedTables++
 
+		destinationTable := req.TableNameMapping[sourceTableIdentifier].Name
+		if tableIsBackpressured(checkpoint, sourceTableIdentifier, destinationTable, req.TableBackpressure) {
+			backpressuredTables++
+			healthyTables++
+			continue
+		}
 		start, err := checkpoint.SyncedThrough(sourceTableIdentifier)
 		if err != nil {
 			return err
@@ -301,7 +324,7 @@ func (c *BigQueryConnector) PullRecords(
 				slog.String("table", plan.table), slog.Any("error", err))
 			continue
 		}
-		checkpoint.RecordSuccess(plan.table, plan.upper)
+		checkpoint.RecordSuccess(plan.table, plan.upper, req.SyncBatchID)
 		healthyTables++
 		bytesProcessed += results[i].bytesProcessed
 	}
@@ -347,6 +370,7 @@ func (c *BigQueryConnector) PullRecords(
 	)
 	c.logger.Info("[bigquery] PullRecords polled tables",
 		slog.Int("tables", attemptedTables), slog.Int("failedTables", len(tableErrors)),
+		slog.Int("backpressuredTables", backpressuredTables),
 		slog.Int("records", recordCount), slog.Int64("bytes", bytesProcessed))
 
 	return nil

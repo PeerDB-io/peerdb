@@ -886,6 +886,7 @@ func queryBigQueryCheckpointText(ctx context.Context, pool *pgxpool.Pool, flowJo
 type bigQueryCDCTestTableProgress struct {
 	SyncedThrough time.Time `json:"synced_through"`
 	Target        time.Time `json:"target"`
+	SyncedBatchID int64     `json:"synced_batch_id"`
 }
 
 type bigQueryCDCTestCheckpoint struct {
