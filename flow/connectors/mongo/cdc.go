@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -230,12 +233,281 @@ func decodeEvent(
 	return nil
 }
 
+// Constants used by PullRecords.
+//
+// Buffered channel size for channels to pass records to decode and send loops (see below).
+// This should ideally be larger than decodeWorkerBufSize.
+const workerBufferedChanSize = 10
+
+// Number of recordItems to pass in one batch to decode/send loops. Doing per-item channel sends
+// results in too much coordination and reduces effective concurrency in practice.
+const pullRecordsItemsBatchSize = 256
+
+// maxNumDecodeWorkers is the maximum number of goroutines that decodeLoop spins up to parallelize
+// decoding of record batches.
+const maxNumDecodeWorkers = 6
+
+// decodeWorkerBufSize is the size of the channel to each decode worker spun up by decodeLoop.
+const decodeWorkerBufSize = 4
+
+// Amount of time to wait for workers to drain before timing out.
+const workerDrainTimeout = 2 * time.Minute
+
+type decodeBatch struct {
+	// base64-encoded resume token
+	resumeToken string
+	items       []recordItems
+}
+
+type sendBatch struct {
+	// base64-encoded resume token
+	resumeToken string
+	// records to send to RecordStream.
+	records []model.Record[model.RecordItems]
+}
+
+// Two additional loops are created by PullRecords, each running in their own goroutines.
+// One is decodeLoop, which takes records from the main PullRecords goroutine through `records`
+// that have already had the operation type decoded, but not the full document. decodeLoop manages
+// decodeWorkers running in their own goroutines that handle the actual bson document parsing. After
+// a decodeWorker has parsed a batch of items, it passes the batch to sendLoop, which assembles records
+// from all decodeWorkers into req.RecordStream. req.RecordStream.AddRecord could block on the downstream
+// channel send, so separating `sendLoop` out this way from `decodeWorker` makes sense to speed up the
+// relatively CPU-heavy `decodeWorker`. `sendLoop` is also responsible for advancing the resume token
+// inside req.RecordStream, except in cases when `sendLoop` has been confirmed to be terminated,
+// in which case `PullRecords` itself can do the advancement.
+//
+// decodeLoop is expected to propagate channel closures through to sendLoop for graceful
+// draining to ensure no records are lost. Context cancellation is only used in the error
+// path, where losing inflight records is acceptable with the expectation that a future
+// restart from the last checkpoint will see those events again. Note that in case of
+// recreation of the upstream changestream, we could drain and restart these two worker loops
+// plus any decodeWorkers within the execution of one `PullRecords`.
+func (c *MongoConnector) sendLoop(
+	ctx context.Context,
+	records <-chan chan sendBatch,
+	errChan chan<- error,
+	req *model.PullRecordsRequest[model.RecordItems],
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	for {
+		select {
+		case recordChan, ok := <-records:
+			if !ok {
+				return
+			}
+			select {
+			case sendBatch := <-recordChan:
+				for i := range sendBatch.records {
+					if err := req.RecordStream.AddRecord(ctx, sendBatch.records[i]); err != nil {
+						select {
+						case errChan <- err:
+						case <-ctx.Done():
+						}
+						return
+					}
+				}
+				if sendBatch.resumeToken != "" {
+					req.RecordStream.UpdateLatestCheckpointText(sendBatch.resumeToken)
+				}
+			case <-ctx.Done():
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+type recordItems struct {
+	maybeFullDocument    *bson.Raw
+	operationType        operationType
+	sourceTableName      string
+	destinationTableName string
+	documentKey          bson.Raw
+	commitTimeNanos      int64
+}
+
+// decodeWorker is spun up by decodeLoop in separate goroutines, up to
+// maxNumDecodeWorker in parallel. Batches of items to decode are passed in
+// through recv, and the output is sent through `send` to `sendLoop` directly.
+func (c *MongoConnector) decodeWorker(
+	ctx context.Context,
+	recv <-chan decodeBatch,
+	send chan<- sendBatch,
+	req *model.PullRecordsRequest[model.RecordItems],
+) error {
+	// Utils used by this routine.
+	converter := NewDirectBsonConverter()
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
+	parseItem := func(item recordItems) (model.Record[model.RecordItems], error) {
+		items := model.NewRecordItems(2)
+
+		if len(item.documentKey) > 0 {
+			rv := item.documentKey.Lookup(DefaultDocumentKeyColumnName)
+			if rv.IsZero() || rv.Type == bson.TypeNull {
+				return nil, exceptions.NewInvalidIdValueError(item.sourceTableName)
+			}
+			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+			if err != nil {
+				return nil, err
+			}
+			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+		} else {
+			return nil, fmt.Errorf("document key is nil")
+		}
+
+		if item.maybeFullDocument != nil && len(*item.maybeFullDocument) > 0 {
+			qValue, err := converter.QValueJSONFromDocument(*item.maybeFullDocument)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert document: %w", err)
+			}
+			items.AddColumn(fullDocumentColumnName, qValue)
+		} else {
+			// `fullDocument` field will not exist in the following scenarios:
+			// 1) operationType is 'delete'
+			// 2) document is deleted / collection is dropped in between update and lookup
+			// 3) update changes the values for at least one of the fields in that collection's
+			//    shard key (although sharding is not supported today)
+			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+		}
+		var record model.Record[model.RecordItems]
+		switch item.operationType {
+		case operationTypeInsert:
+			record = &model.InsertRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				Items:                items,
+				SourceTableName:      item.sourceTableName,
+				DestinationTableName: item.destinationTableName,
+			}
+
+		case operationTypeUpdate, operationTypeReplace:
+			record = &model.UpdateRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				NewItems:             items,
+				SourceTableName:      item.sourceTableName,
+				DestinationTableName: item.destinationTableName,
+			}
+		case operationTypeDelete:
+			record = &model.DeleteRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				Items:                items,
+				SourceTableName:      item.sourceTableName,
+				DestinationTableName: item.destinationTableName,
+			}
+		}
+		return record, nil
+	}
+	for {
+		select {
+		case batch, ok := <-recv:
+			if !ok {
+				return nil
+			}
+			items := batch.items
+
+			modelRecords := make([]model.Record[model.RecordItems], len(items))
+			for i := range items {
+				var err error
+				if modelRecords[i], err = parseItem(items[i]); err != nil {
+					return err
+				}
+			}
+
+			select {
+			case send <- sendBatch{records: modelRecords, resumeToken: batch.resumeToken}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (c *MongoConnector) decodeLoop(
+	parentCtx context.Context,
+	recv <-chan decodeBatch,
+	errChan chan<- error,
+	req *model.PullRecordsRequest[model.RecordItems],
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	// NB: child workers are tracked by this errGroup, not by
+	// the parent WaitGroup (shared with PullRecords and sendLoop).
+	eg, ctx := errgroup.WithContext(parentCtx)
+	defer func() {
+		err := eg.Wait()
+		if err != nil {
+			select {
+			case errChan <- err:
+			case <-parentCtx.Done():
+			}
+		}
+	}()
+
+	// This function spins up half as many workers as the number of cores, capped
+	// at maxNumDecodeWorkers.
+	numWorkers := max(1, min(maxNumDecodeWorkers, runtime.GOMAXPROCS(0)/2))
+	workerChan := make([]struct {
+		req chan decodeBatch
+		res chan sendBatch
+	}, numWorkers)
+	for i := range workerChan {
+		workerChan[i].req = make(chan decodeBatch, decodeWorkerBufSize)
+		workerChan[i].res = make(chan sendBatch, decodeWorkerBufSize)
+		// Start worker.
+		eg.Go(func() error {
+			return c.decodeWorker(ctx, workerChan[i].req, workerChan[i].res, req)
+		})
+	}
+
+	// Start up sendLoop. Have a buffered channel in case decoding runs faster
+	// than the downstream addition of records to req.RecordStream.
+	sender := make(chan chan sendBatch, decodeWorkerBufSize*maxNumDecodeWorkers)
+	go c.sendLoop(parentCtx, sender, errChan, req, wg)
+	// Index of next worker to send a result to.
+	nextWorker := 0
+
+	for {
+		select {
+		case item, ok := <-recv:
+			if !ok {
+				// Draining. Close all worker channels.
+				for i := range workerChan {
+					close(workerChan[i].req)
+				}
+				close(sender)
+				return
+			}
+
+			select {
+			case workerChan[nextWorker].req <- item:
+				sender <- workerChan[nextWorker].res
+				nextWorker = (nextWorker + 1) % numWorkers
+			case <-ctx.Done():
+				return
+			}
+		case <-parentCtx.Done():
+			// Context cancellation usually means an error, not just cutting a batch (which would be
+			// a graceful drain via recv getting closed).
+			return
+		}
+	}
+}
+
 func (c *MongoConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
-) error {
+) (retErr error) {
 	defer req.RecordStream.Close()
 
 	var alerter *alerting.Alerter
@@ -247,6 +519,7 @@ func (c *MongoConnector) PullRecords(
 	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
+	var wg sync.WaitGroup
 
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
@@ -324,7 +597,12 @@ func (c *MongoConnector) PullRecords(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
 			attribute.Int64(otel_metrics.BytesPulledKey, cumulativeBytesProcessed.Load()),
 		)
-		if changeStream != nil {
+		if changeStream != nil && retErr == nil {
+			// NB: We don't set the otel metrics ResumeTokenKey in the error case because
+			// it's possible for the changeStream to have been advanced past the last record
+			// send to RecordStream (and therefore the actual resume token set in RecordStream).
+			// It's safer to not report a resume token than to report an incorrect one that can
+			// skip records if used.
 			if rt := changeStream.ResumeToken(); rt != nil {
 				rtStr := base64.StdEncoding.EncodeToString(rt)
 				if len(rtStr) > 64 {
@@ -339,6 +617,15 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+	// Context inheritance tree: There's a parent ctx (always called ctx in this function).
+	// Off of that, we create two child contexts, one for workers (called workerCtx), that's passed
+	// to children workers (eg. decodeLoop). The other, timeoutCtx, is managed by us for timeouts.
+	// Note that when we hit a timeout, we don't want to cancel the workerCtx; we want the workers
+	// to gracefully drain.
+	//
+	// Also note that timeoutCtx is occasionally rewritten, such as when a record in a batch arrives
+	// or when we reset the changestream.
+	workerCtx, workerCtxCancel := context.WithCancel(ctx)
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
@@ -351,6 +638,8 @@ func (c *MongoConnector) PullRecords(
 
 	defer func() {
 		cancelTimeout()
+		workerCtxCancel()
+		wg.Wait()
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
@@ -377,44 +666,8 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter := NewDirectBsonConverter()
-	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
-		if len(documentKey) > 0 {
-			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return exceptions.NewInvalidIdValueError(tableName)
-			}
-			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-			if err != nil {
-				return fmt.Errorf("failed to convert key: %w", err)
-			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
-			return fmt.Errorf("document key is nil")
-		}
-
-		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
-			if err != nil {
-				return fmt.Errorf("failed to convert document: %w", err)
-			}
-			items.AddColumn(fullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
-		}
-		return nil
-	}
-
-	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+	incrementRecordCount := func() {
 		recordCount += 1
-		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
-			return err
-		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
@@ -426,7 +679,67 @@ func (c *MongoConnector) PullRecords(
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
+	}
+	existingBatch := make([]recordItems, 0, pullRecordsItemsBatchSize)
+	decodeChan := make(chan decodeBatch, workerBufferedChanSize)
+	errChan := make(chan error, 2) // size = one for decodeLoop, one for sendLoop.
+	// decodeLoop starts up sendLoop.
+	wg.Add(2)
+	go c.decodeLoop(workerCtx, decodeChan, errChan, req, &wg)
+
+	finishBatch := func() error {
+		if len(existingBatch) == 0 {
+			// Nothing to send.
+			return nil
+		}
+		rt := changeStream.ResumeToken()
+		var rtText string
+		if rt == nil {
+			c.logger.Warn("change stream does not currently contain a resume token")
+		} else {
+			rtText = base64.StdEncoding.EncodeToString(rt)
+		}
+		select {
+		case decodeChan <- decodeBatch{items: existingBatch, resumeToken: rtText}:
+		case err := <-errChan:
+			workerCtxCancel()
+			return err
+		case <-ctx.Done():
+			workerCtxCancel()
+			return ctx.Err()
+		}
+		existingBatch = make([]recordItems, 0, pullRecordsItemsBatchSize)
 		return nil
+	}
+
+	drainWorkers := func() error {
+		finishErr := finishBatch()
+		// Close the decode loop and wait for events to drain.
+		close(decodeChan)
+		wgWaiter := make(chan bool)
+		go func() {
+			wg.Wait()
+			close(wgWaiter)
+		}()
+		select {
+		case <-wgWaiter:
+			// Check if there was an error returned at the same time
+			// as the other goroutines disappeared.
+			select {
+			case err := <-errChan:
+				return err
+			default:
+			}
+		case err := <-errChan:
+			workerCtxCancel()
+			<-wgWaiter
+			return err
+		case <-time.After(workerDrainTimeout):
+			workerCtxCancel()
+			<-wgWaiter
+			return errors.New("timed out waiting for PullRecords workers to drain")
+		}
+		return finishErr
 	}
 
 	recreateChangeStream := func(useOperationTime bool) error {
@@ -444,6 +757,12 @@ func (c *MongoConnector) PullRecords(
 		// reset context timeout
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+
+		// Restart the decode loop
+		decodeChan = make(chan decodeBatch, workerBufferedChanSize)
+		// decodeLoop starts up sendLoop; add one for each.
+		wg.Add(2)
+		go c.decodeLoop(workerCtx, decodeChan, errChan, req, &wg)
 
 		// set resume point based on whether operation time should be used or not
 		if useOperationTime {
@@ -474,11 +793,25 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
+			// Before checking for timeout, see if there's an error from the child workers waiting.
+			select {
+			case err := <-errChan:
+				workerCtxCancel()
+				return err
+			default:
+			}
+			if err := drainWorkers(); err != nil {
+				return err
+			}
+
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount > 0 {
 					// advance offset to the PostBatchResumeToken since the last change event's resume token may be quite old
+					//
+					// This checkpoint is safe to do here as opposed to in sendLoop, because sendLoop has been drained away
+					// above.
 					checkpoint()
-					break
+					return nil
 				}
 				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
 				// it's safe to persist to catalog since no records were handed off to the sync workflow,
@@ -539,47 +872,18 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 
-		items := model.NewRecordItems(2)
-		switch operationType(changeEvent.OperationType) {
-		case operationTypeInsert:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add insert record: %w", err)
-			}
-		case operationTypeUpdate, operationTypeReplace:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				NewItems:             items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add update record: %w", err)
-			}
-		case operationTypeDelete:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add delete record: %w", err)
-			}
+		items := recordItems{
+			documentKey:          changeEvent.DocumentKey,
+			maybeFullDocument:    changeEvent.FullDocument,
+			operationType:        operationType(changeEvent.OperationType),
+			sourceTableName:      sourceTableName,
+			destinationTableName: destinationTableName,
+			commitTimeNanos:      commitTimeNanos,
+		}
+		switch items.operationType {
+		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
+			// Happy path.
+			incrementRecordCount()
 		default:
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
@@ -600,7 +904,16 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
-		checkpoint()
+		existingBatch = append(existingBatch, items)
+		if len(existingBatch) >= pullRecordsItemsBatchSize {
+			if err := finishBatch(); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := drainWorkers(); err != nil {
+		return err
 	}
 
 	return nil
