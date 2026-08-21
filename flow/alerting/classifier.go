@@ -214,6 +214,9 @@ var (
 	ErrorNotifyConstraintViolation = ErrorClass{
 		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
 	}
+	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
+		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
+	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
 	}
@@ -809,6 +812,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.CheckViolation, pgerrcode.UniqueViolation:
 			return ErrorNotifyConstraintViolation, pgErrorInfo
+
+		case pgerrcode.GeneratedAlways:
+			// Destination has a GENERATED ALWAYS column, so an explicit value from the source is rejected
+			// e.g. `cannot insert a non-DEFAULT value into column "id"`
+			return ErrorNotifyGeneratedAlwaysColumn, pgErrorInfo
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,

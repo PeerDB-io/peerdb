@@ -699,6 +699,21 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.GeneratedAlways,
+		Message:  `cannot insert a non-DEFAULT value into column "id"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
+	assert.Equal(t, ErrorNotifyGeneratedAlwaysColumn, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.GeneratedAlways,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
