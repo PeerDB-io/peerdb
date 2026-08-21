@@ -64,36 +64,36 @@ func (r *RecordsToStreamRequest[T]) GetRecords() <-chan Record[T] {
 }
 
 type PullRecordsRequest[T Items] struct {
+	// overrides dynamic configuration
+	Env map[string]string
 	// record batch for pushing changes into
 	RecordStream *CDCStream[T]
-	// ConsumedOffset can be reported as committed to reduce slot size
-	ConsumedOffset *atomic.Int64
-	// FlowJobName is the name of the flow job.
-	FlowJobName string
+	// TableBackpressure is set only when the source can pause tables independently.
+	TableBackpressure *TableBackpressure
 	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
-	// overrides dynamic configuration
-	Env map[string]string
+	// ConsumedOffset can be reported as committed to reduce slot size
+	ConsumedOffset *atomic.Int64
 	// override publication name
 	OverridePublicationName string
 	// override replication slot name
 	OverrideReplicationSlotName string
+	// FlowJobName is the name of the flow job.
+	FlowJobName string
 	// LastOffset is the latest LSN that was synced.
 	LastOffset CdcCheckpoint
-	// MaxBatchSize is the max number of records to fetch.
-	MaxBatchSize uint32
-	// peerdb versioning to prevent breaking changes
-	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 	// SyncBatchID is the batch that will contain records emitted by this pull.
 	SyncBatchID int64
-	// TableBackpressure is set only when the source can pause tables independently.
-	TableBackpressure *TableBackpressure
+	// MaxBatchSize is the max number of records to fetch.
+	MaxBatchSize uint32
+	// peerdb versioning to prevent breaking changes
+	InternalVersion uint32
 }
 
 // TableBackpressure contains durable destination normalization progress for a
