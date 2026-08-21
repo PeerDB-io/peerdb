@@ -52,8 +52,14 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 }
 
 type BigQueryConnector struct {
+	// lastPollAt is the wall-clock time PullRecords last actually queried BigQuery.
+	lastPollAt time.Time
+	// droppedExcludeColumns remembers, per source table, excluded columns that
+	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
+	// to EXCEPT them.
+	droppedExcludeColumns map[string]map[string]struct{}
+	logger                log.Logger
 	*metadataStore.PostgresMetadata
-	logger        log.Logger
 	bqConfig      *protos.BigqueryConfig
 	credentials   *auth.Credentials
 	client        *bigquery.Client
@@ -123,15 +129,16 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	return &BigQueryConnector{
-		credentials:      creds,
-		bqConfig:         config,
-		client:           client,
-		datasetID:        datasetID,
-		projectID:        projectID,
-		PostgresMetadata: metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
-		storageClient:    storageClient,
-		catalogPool:      catalogPool,
-		logger:           logger,
+		credentials:           creds,
+		bqConfig:              config,
+		client:                client,
+		datasetID:             datasetID,
+		projectID:             projectID,
+		PostgresMetadata:      metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
+		storageClient:         storageClient,
+		catalogPool:           catalogPool,
+		logger:                logger,
+		droppedExcludeColumns: make(map[string]map[string]struct{}),
 	}, nil
 }
 

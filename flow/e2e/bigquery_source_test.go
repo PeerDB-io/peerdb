@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
@@ -160,7 +161,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Connection() {
 	require.NotNil(t, allTablesResp, "all tables response should not be nil")
 }
 
-func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
+func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 	t := s.T()
 	ctx := t.Context()
 
@@ -176,24 +177,40 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 			},
 		},
 		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: false,
 	}
 
-	t.Run("CDC Not Supported", func(t *testing.T) {
-		flowConfig.InitialSnapshotOnly = false
-		flowConfig.DoInitialSnapshot = true
-
+	t.Run("CDC now supported", func(t *testing.T) {
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-		require.Error(t, err, "should reject CDC flow")
-		require.Contains(t, err.Error(), "only supports initial snapshot flows", "error should mention snapshot-only support")
+		require.NoError(t, err, "CDC should be allowed now that chunk 3 replaced the blanket rejection")
 	})
 
-	t.Run("No Initial Snapshot Not Supported", func(t *testing.T) {
-		flowConfig.InitialSnapshotOnly = true
-		flowConfig.DoInitialSnapshot = false
+	t.Run("CHANGES mode requires enable_change_history", func(t *testing.T) {
+		for _, tableMapping := range flowConfig.TableMappings {
+			tableMapping.BigqueryCdcEventsFunction = protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES
+		}
+		defer func() {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.BigqueryCdcEventsFunction = protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+			}
+		}()
 
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-		require.Error(t, err, "should reject flow without initial snapshot")
-		require.Contains(t, err.Error(), "only supports initial snapshot flows", "error should mention snapshot-only support")
+		require.Error(t, err, "CHANGES mode should reject a table without enable_change_history set")
+		require.Contains(t, err.Error(), "enable_change_history")
+	})
+
+	t.Run("QUERY replication mode is rejected", func(t *testing.T) {
+		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
+			},
+		}
+		defer func() { flowConfig.SourceConnectorConfig = nil }()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.Error(t, err, "QUERY replication mode isn't implemented yet")
 	})
 }
 
@@ -1028,7 +1045,23 @@ func (s *bigQuerySource) Connector() connectors.Connector {
 }
 
 func (s *bigQuerySource) Exec(ctx context.Context, sql string, args ...any) error {
-	return errors.New("not implemented")
+	if len(args) != 0 {
+		return fmt.Errorf("bigQuerySource.Exec: positional query args are not supported (got %d), format them into sql instead", len(args))
+	}
+
+	it, err := s.client.Query(sql).Read(ctx)
+	if err != nil {
+		return err
+	}
+	var row []bigquery.Value
+	for {
+		if err := it.Next(&row); err != nil {
+			if errors.Is(err, iterator.Done) {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func (s *bigQuerySource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {

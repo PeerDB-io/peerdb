@@ -31,6 +31,14 @@ message ColumnSetting {
   bool nullable_enabled = 5;
 }
 
+// BigqueryCdcEventsFunction selects which BigQuery table-valued function backs
+// EVENTS-mode CDC polling (see BigQueryReplicationMode) for one table:
+// APPENDS() (insert-only) or CHANGES() (insert/update/delete).
+enum BigqueryCdcEventsFunction {
+  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 0;
+  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 1;
+}
+
 message TableMapping {
   string source_table_identifier = 1;
   string destination_table_identifier = 2;
@@ -41,12 +49,25 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  // Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
+  // BIGQUERY_REPLICATION_MODE_EVENTS.
+  BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
 }
 
 message SetupInput {
   map<string, string> env = 1;
   string flow_name = 2;
   string peer_name = 3;
+}
+
+enum BigQueryReplicationMode {
+  // Default: table-valued function (APPENDS()/CHANGES()) based CDC polling.
+  BIGQUERY_REPLICATION_MODE_EVENTS = 0;
+  BIGQUERY_REPLICATION_MODE_QUERY = 1;
+}
+
+message BigqueryCdcConfig {
+  BigQueryReplicationMode replication_mode = 1;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
@@ -97,6 +118,11 @@ message FlowConnectionConfigs {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  // connector-specific mirror config, mirroring Peer's per-connector config oneof
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -149,6 +175,10 @@ message FlowConnectionConfigsCore {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
 }
 
 message RenameTableOption {

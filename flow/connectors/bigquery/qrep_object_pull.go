@@ -314,13 +314,6 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 	return types.NewQRecordSchema(fields), nil
 }
 
-func (c *BigQueryConnector) EnsurePullability(
-	ctx context.Context,
-	req *protos.EnsurePullabilityBatchInput,
-) (*protos.EnsurePullabilityBatchOutput, error) {
-	return nil, nil
-}
-
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
@@ -539,18 +532,6 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
-	return nil
-}
-
-func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
-	return nil
-}
-
-func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
-	return nil
-}
-
 // SetupReplication is BigQuery's equivalent of capturing a starting replication position
 // (like MySQL's GTID/file-position capture): it has no replication slot to open, so it just
 // captures a BigQuery-clock timestamp T and persists it as the initial CDC checkpoint. Unlike
@@ -580,7 +561,12 @@ func (c *BigQueryConnector) SetupReplication(
 		}
 	}
 
-	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Format(time.RFC3339Nano)}
+	// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc),
+	// but the snapshot export's FOR SYSTEM_TIME AS OF snapshotTime already includes rows
+	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
+	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
+	// keeps CDC's first window from re-pulling what the snapshot already captured.
+	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)}
 	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
 	}
