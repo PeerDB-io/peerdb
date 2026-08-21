@@ -347,6 +347,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_REPLACING_MERGE_CLEANUP_MIN_AGE_HOURS",
+		Description: "Hours all parts in a partition must age past before ClickHouse automatically force-merges " +
+			"them and physically drops deleted rows, for ReplacingMergeTree tables created with deleteOnMerge " +
+			"enabled. Applies to newly created tables",
+		DefaultValue:     "24",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -813,6 +823,10 @@ func PeerDBClickHouseClientName(ctx context.Context, env map[string]string) (str
 
 func PeerDBClickHouseRawTableTTLDays(ctx context.Context, env map[string]string) (uint32, error) {
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_RAW_TABLE_TTL_DAYS")
+}
+
+func PeerDBClickHouseReplacingMergeCleanupMinAgeHours(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_CLICKHOUSE_REPLACING_MERGE_CLEANUP_MIN_AGE_HOURS")
 }
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {

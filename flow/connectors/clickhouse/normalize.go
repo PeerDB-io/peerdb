@@ -282,6 +282,30 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			// non-empty if a resync is triggered on top of another resync that is mid-snapshot.
 			chSettings.Add(chinternal.SettingMaxTableSizeToDrop, "0")
 		}
+		if isDeletedColumnPart != "" &&
+			(tmEngine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
+				tmEngine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE) {
+			// The is_deleted engine parameter alone only affects deduplication (which version of a row
+			// wins); it does NOT make ClickHouse drop deleted rows during merges. That requires opting
+			// into cleanup merges, and making it automatic (rather than needing a manual
+			// OPTIMIZE ... FINAL CLEANUP) additionally requires forcing a full merge once parts age out.
+			chSettings.Add(chinternal.SettingAllowExperimentalReplacingMergeWithCleanup, "1")
+			if chinternal.SupportsSetting(chVersion, chinternal.SettingEnableReplacingMergeWithCleanupForMinAgeToForceMerge) {
+				minAgeHours, err := internal.PeerDBClickHouseReplacingMergeCleanupMinAgeHours(ctx, config.Env)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load ReplacingMergeTree cleanup min age: %w", err)
+				}
+				chSettings.Add(chinternal.SettingEnableReplacingMergeWithCleanupForMinAgeToForceMerge, "1")
+				chSettings.Add(chinternal.SettingMinAgeToForceMergeSeconds, strconv.FormatUint(uint64(minAgeHours)*3600, 10))
+				chSettings.Add(chinternal.SettingMinAgeToForceMergeOnPartitionOnly, "1")
+			} else {
+				internal.LoggerFromCtx(ctx).Warn(
+					"ClickHouse version predates automatic ReplacingMergeTree cleanup merges; "+
+						"deleted rows will only be purged via a manual OPTIMIZE ... FINAL CLEANUP",
+					"table", tableIdentifier,
+				)
+			}
+		}
 		stmtBuilder.WriteString(chSettings.String())
 
 		if c.Config.Cluster != "" {

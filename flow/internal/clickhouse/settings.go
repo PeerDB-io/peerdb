@@ -20,6 +20,16 @@ const (
 	SettingThrowOnMaxPartitionsPerInsertBlock CHSetting = "throw_on_max_partitions_per_insert_block"
 	SettingParallelDistributedInsertSelect    CHSetting = "parallel_distributed_insert_select"
 	SettingMaxTableSizeToDrop                 CHSetting = "max_table_size_to_drop"
+	// SettingAllowExperimentalReplacingMergeWithCleanup allows OPTIMIZE ... FINAL CLEANUP to physically
+	// drop rows marked via a ReplacingMergeTree is_deleted column.
+	SettingAllowExperimentalReplacingMergeWithCleanup CHSetting = "allow_experimental_replacing_merge_with_cleanup"
+	// SettingEnableReplacingMergeWithCleanupForMinAgeToForceMerge, together with SettingMinAgeToForceMergeSeconds
+	// and SettingMinAgeToForceMergeOnPartitionOnly, makes cleanup merges happen automatically in the background
+	// once all parts in a partition are older than the configured age, instead of requiring a manual
+	// OPTIMIZE ... FINAL CLEANUP.
+	SettingEnableReplacingMergeWithCleanupForMinAgeToForceMerge CHSetting = "enable_replacing_merge_with_cleanup_for_min_age_to_force_merge"
+	SettingMinAgeToForceMergeSeconds                            CHSetting = "min_age_to_force_merge_seconds"
+	SettingMinAgeToForceMergeOnPartitionOnly                    CHSetting = "min_age_to_force_merge_on_partition_only"
 )
 
 // CHSettingMinVersions maps setting names to their minimum required ClickHouse versions that PeerDB supports.
@@ -28,6 +38,11 @@ var CHSettingMinVersions = map[CHSetting]chproto.Version{
 	SettingJsonTypeEscapeDotsInKeys:    {Major: 25, Minor: 8, Patch: 0},
 	SettingTypeJsonSkipDuplicatedPaths: {Major: 24, Minor: 8, Patch: 0},
 	SettingMaxTableSizeToDrop:          {Major: 23, Minor: 12, Patch: 0},
+	// Re-introduced (after a data-corruption revert) in https://github.com/ClickHouse/ClickHouse/pull/58316,
+	// first released in 24.1.
+	SettingAllowExperimentalReplacingMergeWithCleanup: {Major: 24, Minor: 1, Patch: 0},
+	// Introduced in https://github.com/ClickHouse/ClickHouse/pull/76440, first released in 25.3.
+	SettingEnableReplacingMergeWithCleanupForMinAgeToForceMerge: {Major: 25, Minor: 3, Patch: 0},
 }
 
 type CHSetting string
@@ -47,6 +62,16 @@ func GetMinVersion(name CHSetting) (chproto.Version, bool) {
 		return minVersion, true
 	}
 	return chproto.Version{}, false
+}
+
+// SupportsSetting reports whether the given ClickHouse server version supports the setting.
+// A nil version is treated as supporting every setting, matching CHSettings.String's behavior.
+func SupportsSetting(version *chproto.Version, name CHSetting) bool {
+	minVersion, exists := GetMinVersion(name)
+	if !exists || version == nil {
+		return true
+	}
+	return chproto.CheckMinVersion(minVersion, *version)
 }
 
 // NewCHSettingsString is a one-liner method to generate an immutable settings string
