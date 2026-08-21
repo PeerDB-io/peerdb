@@ -34,6 +34,7 @@ var retryableExceptions = map[chproto.Error]struct{}{
 	chproto.ErrUnknownStatusOfInsert:      {},
 	425:                                   {}, // SYSTEM_ERROR
 	chproto.ErrKeeperException:            {},
+	chproto.ErrCannotAssignAlter:          {}, // "Metadata on replica is not up to date ... You can retry this error"
 }
 
 var retryableExceptionSubstrings = map[chproto.Error][]string{
