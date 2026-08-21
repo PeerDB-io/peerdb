@@ -61,9 +61,37 @@ func TestPostgresCloudSQLAuthModeAndTLSValidation(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "requires certificate verification")
 
+	provider, err = newPostgresCloudSQLTokenProviderWithFactory(
+		t.Context(),
+		&protos.PostgresConfig{AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH},
+		unexpectedPostgresCredentialsFactory,
+	)
+	require.Nil(t, provider)
+	require.ErrorContains(t, err, "without tls_host requires a non-empty root CA")
+	_, err = NewPostgresConnector(t.Context(), nil, &protos.PostgresConfig{
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+	})
+	require.ErrorContains(t, err, "without tls_host requires a non-empty root CA")
+	_, err = postgresConfigForSchemaDump(t.Context(), &protos.PostgresConfig{
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+	})
+	require.ErrorContains(t, err, "without tls_host requires a non-empty root CA")
+	emptyRootCA := ""
+	provider, err = newPostgresCloudSQLTokenProviderWithFactory(
+		t.Context(),
+		&protos.PostgresConfig{
+			AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+			RootCa:   &emptyRootCA,
+		},
+		unexpectedPostgresCredentialsFactory,
+	)
+	require.Nil(t, provider)
+	require.ErrorContains(t, err, "requires a non-empty root CA")
+
 	config := &protos.PostgresConfig{
 		User:     "configured-db-user",
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+		TlsHost:  "cloudsql.google.internal",
 	}
 	var scopes []string
 	provider, err = newPostgresCloudSQLTokenProviderWithFactory(
@@ -108,7 +136,7 @@ func TestPostgresCloudSQLEmptyTokenRejected(t *testing.T) {
 }
 
 func TestPostgresCloudSQLTokenAppliedToEveryConnectionConfig(t *testing.T) {
-	provider := &sequenceTokenProvider{values: []string{"initial-token", "replication-token"}}
+	provider := &sequenceTokenProvider{values: []string{"initial-token", "replication-token", "schema-token"}}
 	initial := &pgx.ConnConfig{Config: pgx.ConnConfig{}.Config}
 	initial.User = "configured-db-user"
 	initial.Password = "persisted-password"
@@ -119,13 +147,19 @@ func TestPostgresCloudSQLTokenAppliedToEveryConnectionConfig(t *testing.T) {
 	require.NoError(t, err)
 	replicationWithToken, err := preparePostgresConnConfig(t.Context(), replication, "", nil, provider)
 	require.NoError(t, err)
+	schemaConfig := &protos.PostgresConfig{User: "configured-db-user", Password: "persisted-password"}
+	schemaWithToken, err := postgresConfigWithCloudSQLToken(t.Context(), schemaConfig, provider)
+	require.NoError(t, err)
 
 	require.Equal(t, "configured-db-user", initialWithToken.User)
 	require.Equal(t, "initial-token", initialWithToken.Password)
 	require.Equal(t, "configured-db-user", replicationWithToken.User)
 	require.Equal(t, "replication-token", replicationWithToken.Password)
-	require.Equal(t, 2, provider.calls)
+	require.Equal(t, "configured-db-user", schemaWithToken.User)
+	require.Equal(t, "schema-token", schemaWithToken.Password)
+	require.Equal(t, 3, provider.calls)
 	require.Equal(t, "persisted-password", initial.Password)
+	require.Equal(t, "persisted-password", schemaConfig.Password)
 }
 
 func TestPostgresPasswordConfigRemainsUnchanged(t *testing.T) {

@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 
@@ -87,15 +86,12 @@ func preparePostgresConnConfig(
 		connConfig.Password = token
 	}
 	if cloudSQLAuth != nil {
-		token, err := cloudSQLAuth.Token(ctx)
+		token, err := postgresCloudSQLToken(ctx, cloudSQLAuth)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get PostgreSQL Cloud SQL IAM token: %w", err)
-		}
-		if token == nil || token.Value == "" {
-			return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM token is empty")
+			return nil, err
 		}
 		connConfig = connConfig.Copy()
-		connConfig.Password = token.Value
+		connConfig.Password = token
 	}
 	return connConfig, nil
 }

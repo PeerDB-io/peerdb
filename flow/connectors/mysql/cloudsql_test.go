@@ -2,7 +2,15 @@ package connmysql
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/auth"
 	"github.com/stretchr/testify/require"
@@ -60,9 +68,33 @@ func TestMySQLCloudSQLAuthModeAndTLSValidation(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "requires certificate verification")
 
+	provider, err = newMySQLCloudSQLTokenProviderWithFactory(
+		t.Context(),
+		&protos.MySqlConfig{AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH},
+		unexpectedMySQLCredentialsFactory,
+	)
+	require.Nil(t, provider)
+	require.ErrorContains(t, err, "without tls_host requires a non-empty root CA")
+	_, err = NewMySqlConnector(t.Context(), &protos.MySqlConfig{
+		AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+	})
+	require.ErrorContains(t, err, "without tls_host requires a non-empty root CA")
+	emptyRootCA := ""
+	provider, err = newMySQLCloudSQLTokenProviderWithFactory(
+		t.Context(),
+		&protos.MySqlConfig{
+			AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+			RootCa:   &emptyRootCA,
+		},
+		unexpectedMySQLCredentialsFactory,
+	)
+	require.Nil(t, provider)
+	require.ErrorContains(t, err, "requires a non-empty root CA")
+
 	config := &protos.MySqlConfig{
 		User:     "configured-db-user",
 		AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+		TlsHost:  "cloudsql.google.internal",
 	}
 	var scopes []string
 	provider, err = newMySQLCloudSQLTokenProviderWithFactory(
@@ -77,6 +109,35 @@ func TestMySQLCloudSQLAuthModeAndTLSValidation(t *testing.T) {
 	require.NotNil(t, provider)
 	require.Equal(t, []string{utils.GCPCloudSQLLoginScope}, scopes)
 	require.Equal(t, "configured-db-user", config.User)
+}
+
+func TestMySQLCloudSQLTLSIdentityPolicy(t *testing.T) {
+	_, err := mySQLTLSConfig(&protos.MySqlConfig{
+		Host:     "synthetic-rpe-alias.internal",
+		AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+	})
+	require.ErrorContains(t, err, "requires a non-empty root CA")
+
+	rootCA := generateMySQLRootCA(t)
+	chainOnlyConfig, err := mySQLTLSConfig(&protos.MySqlConfig{
+		Host:     "synthetic-rpe-alias.internal",
+		AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+		RootCa:   &rootCA,
+	})
+	require.NoError(t, err)
+	require.True(t, chainOnlyConfig.InsecureSkipVerify)
+	require.NotNil(t, chainOnlyConfig.VerifyConnection)
+	require.Empty(t, chainOnlyConfig.ServerName)
+
+	tlsHostConfig, err := mySQLTLSConfig(&protos.MySqlConfig{
+		Host:     "synthetic-rpe-alias.internal",
+		AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+		TlsHost:  "cloudsql.google.internal",
+	})
+	require.NoError(t, err)
+	require.False(t, tlsHostConfig.InsecureSkipVerify)
+	require.Nil(t, tlsHostConfig.VerifyConnection)
+	require.Equal(t, "cloudsql.google.internal", tlsHostConfig.ServerName)
 }
 
 func TestMySQLCloudSQLEmptyTokenRejected(t *testing.T) {
@@ -169,4 +230,22 @@ func (provider mysqlTokenResultProvider) Token(context.Context) (*auth.Token, er
 
 func unexpectedMySQLCredentialsFactory(context.Context, []string) (auth.TokenProvider, error) {
 	panic("credentials factory should not be called")
+}
+
+func generateMySQLRootCA(t *testing.T) string {
+	t.Helper()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test root"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	certificate, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	require.NoError(t, err)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate}))
 }

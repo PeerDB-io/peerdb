@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -396,16 +395,9 @@ func (c *MySqlConnector) buildBinlogSyncerConfig(
 	ctx context.Context,
 	env map[string]string,
 ) (replication.BinlogSyncerConfig, error) {
-	var tlsConfig *tls.Config
-	if !c.config.DisableTls {
-		var err error
-		tlsConfig, err = common.CreateTlsConfig(
-			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
-			nil,
-		)
-		if err != nil {
-			return replication.BinlogSyncerConfig{}, err
-		}
+	tlsConfig, err := mySQLTLSConfig(c.config)
+	if err != nil {
+		return replication.BinlogSyncerConfig{}, err
 	}
 	config, err := c.configWithAuthToken(ctx, true)
 	if err != nil {

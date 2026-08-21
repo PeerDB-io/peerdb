@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -217,11 +218,26 @@ func newPostgresCloudSQLTokenProviderWithFactory(
 	if config.SkipCertVerification {
 		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication requires certificate verification")
 	}
+	if strings.TrimSpace(config.TlsHost) == "" &&
+		(config.RootCa == nil || strings.TrimSpace(config.GetRootCa()) == "") {
+		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication without tls_host requires a non-empty root CA")
+	}
 	credentials, err := credentialsFactory(ctx, []string{utils.GCPCloudSQLLoginScope})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PostgreSQL Cloud SQL IAM credentials: %w", err)
 	}
 	return credentials, nil
+}
+
+func postgresCloudSQLToken(ctx context.Context, provider auth.TokenProvider) (string, error) {
+	token, err := provider.Token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get PostgreSQL Cloud SQL IAM token: %w", err)
+	}
+	if token == nil || token.Value == "" {
+		return "", fmt.Errorf("PostgreSQL Cloud SQL IAM token is empty")
+	}
+	return token.Value, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -247,9 +263,14 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 				return nil, err
 			}
 		}
+		var tlsOptions []common.TLSConfigOption
+		if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH &&
+			strings.TrimSpace(pgConfig.TlsHost) == "" {
+			tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
+		}
 		tlsConfig, err := common.CreateTlsConfig(
 			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification,
-			clientCert)
+			clientCert, tlsOptions...)
 		if err != nil {
 			return nil, err
 		}

@@ -152,6 +152,10 @@ func newMySQLCloudSQLTokenProviderWithFactory(
 	if config.SkipCertVerification {
 		return nil, fmt.Errorf("MySQL Cloud SQL IAM authentication requires certificate verification")
 	}
+	if strings.TrimSpace(config.TlsHost) == "" &&
+		(config.RootCa == nil || strings.TrimSpace(config.GetRootCa()) == "") {
+		return nil, fmt.Errorf("MySQL Cloud SQL IAM authentication without tls_host requires a non-empty root CA")
+	}
 	credentials, err := credentialsFactory(ctx, []string{utils.GCPCloudSQLLoginScope})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MySQL Cloud SQL IAM credentials: %w", err)
@@ -229,15 +233,12 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 					return err
 				}
 			}
-			if !c.config.DisableTls {
-				config, err := common.CreateTlsConfig(
-					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
-					nil,
-				)
-				if err != nil {
-					return err
-				}
-				conn.SetTLSConfig(config)
+			tlsConfig, err := mySQLTLSConfig(c.config)
+			if err != nil {
+				return err
+			}
+			if tlsConfig != nil {
+				conn.SetTLSConfig(tlsConfig)
 			}
 			return nil
 		}}
@@ -260,6 +261,26 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		}
 	}
 	return conn, nil
+}
+
+func mySQLTLSConfig(config *protos.MySqlConfig) (*tls.Config, error) {
+	if config.DisableTls {
+		return nil, nil
+	}
+	var tlsOptions []common.TLSConfigOption
+	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH &&
+		strings.TrimSpace(config.TlsHost) == "" {
+		tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
+	}
+	return common.CreateTlsConfig(
+		tls.VersionTLS12,
+		config.RootCa,
+		config.Host,
+		config.TlsHost,
+		config.SkipCertVerification,
+		nil,
+		tlsOptions...,
+	)
 }
 
 func (c *MySqlConnector) configWithAuthToken(
