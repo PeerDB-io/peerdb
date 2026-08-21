@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -37,6 +39,7 @@ type PostgresConnector struct {
 	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
 	rdsAuth                *utils.RDSAuth
+	cloudSQLAuth           auth.TokenProvider
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -84,6 +87,10 @@ func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
+	cloudSQLAuth, err := newPostgresCloudSQLTokenProvider(ctx, pgConfig)
+	if err != nil {
+		return nil, err
+	}
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
@@ -122,7 +129,7 @@ func newPostgresConnector(
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, cloudSQLAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 
@@ -171,6 +178,7 @@ func newPostgresConnector(
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
+		cloudSQLAuth:           cloudSQLAuth,
 		cdcStoreEnabled:        cdcStoreEnabled,
 	}
 
@@ -182,6 +190,54 @@ func newPostgresConnector(
 	})
 
 	return connector, nil
+}
+
+func newPostgresCloudSQLTokenProvider(
+	ctx context.Context,
+	config *protos.PostgresConfig,
+) (auth.TokenProvider, error) {
+	return newPostgresCloudSQLTokenProviderWithFactory(ctx, config, func(
+		ctx context.Context,
+		scopes []string,
+	) (auth.TokenProvider, error) {
+		return utils.NewGCPWorkloadIdentityCredentials(ctx, scopes)
+	})
+}
+
+func newPostgresCloudSQLTokenProviderWithFactory(
+	ctx context.Context,
+	config *protos.PostgresConfig,
+	credentialsFactory func(context.Context, []string) (auth.TokenProvider, error),
+) (auth.TokenProvider, error) {
+	if config.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		return nil, nil
+	}
+	if config.DisableTls != nil && config.GetDisableTls() {
+		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication requires TLS")
+	}
+	if config.SkipCertVerification {
+		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication requires certificate verification")
+	}
+	if strings.TrimSpace(config.TlsHost) == "" &&
+		(config.RootCa == nil || strings.TrimSpace(config.GetRootCa()) == "") {
+		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication without tls_host requires a non-empty root CA")
+	}
+	credentials, err := credentialsFactory(ctx, []string{utils.GCPCloudSQLLoginScope})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PostgreSQL Cloud SQL IAM credentials: %w", err)
+	}
+	return credentials, nil
+}
+
+func postgresCloudSQLToken(ctx context.Context, provider auth.TokenProvider) (string, error) {
+	token, err := provider.Token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get PostgreSQL Cloud SQL IAM token: %w", err)
+	}
+	if token == nil || token.Value == "" {
+		return "", fmt.Errorf("PostgreSQL Cloud SQL IAM token is empty")
+	}
+	return token.Value, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -207,9 +263,14 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 				return nil, err
 			}
 		}
+		var tlsOptions []common.TLSConfigOption
+		if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH &&
+			strings.TrimSpace(pgConfig.TlsHost) == "" {
+			tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
+		}
 		tlsConfig, err := common.CreateTlsConfig(
 			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification,
-			clientCert)
+			clientCert, tlsOptions...)
 		if err != nil {
 			return nil, err
 		}
