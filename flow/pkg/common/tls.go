@@ -76,7 +76,7 @@ func CreateTlsConfig(
 		}
 	}
 
-	config := &tls.Config{MinVersion: minVersion} //nolint:gosec // Callers select TLS 1.2 or newer.
+	config := &tls.Config{MinVersion: minVersion}
 	if rootCAs != nil {
 		caPool := x509.NewCertPool()
 		if !caPool.AppendCertsFromPEM([]byte(*rootCAs)) {
