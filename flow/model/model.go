@@ -90,6 +90,18 @@ type PullRecordsRequest[T Items] struct {
 	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
+	// SyncBatchID is the batch that will contain records emitted by this pull.
+	SyncBatchID int64
+	// TableBackpressure is set only when the source can pause tables independently.
+	TableBackpressure *TableBackpressure
+}
+
+// TableBackpressure contains durable destination normalization progress for a
+// table-aware source pull.
+type TableBackpressure struct {
+	NormalizedBatchIDs map[string]int64
+	GlobalNormalizedID int64
+	BufferSize         int64
 }
 
 type ToJSONOptions struct {
