@@ -9,11 +9,13 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/bigquery"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -90,6 +92,80 @@ func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout tim
 	return nil
 }
 
+// tablePollPlan is one table's poll window for the current batch. Windows are
+// resolved from the checkpoint before any table runs, so concurrent polls never
+// touch the checkpoint.
+type tablePollPlan struct {
+	start time.Time
+	upper time.Time
+	pull  func(
+		ctx context.Context,
+		sourceTableIdentifier string,
+		nameAndExclude model.NameAndExclude,
+		start, end time.Time,
+		addRecord func(context.Context, model.Record[model.RecordItems]) error,
+	) (int64, error)
+	table string
+}
+
+type tablePollResult struct {
+	err            error
+	bytesProcessed int64
+}
+
+type tablePullError struct {
+	err   error
+	table string
+}
+
+// runTablePolls scans the planned windows with up to parallelism tables in flight,
+// returning one result per plan. A table that fails without emitting anything is
+// reported in its own result so siblings keep their progress; anything that makes
+// the whole pull unsafe -- context cancellation, or a failure after part of a
+// table's window already reached the stream -- is returned as the error and
+// abandons the remaining tables.
+func runTablePolls(
+	ctx context.Context,
+	plans []tablePollPlan,
+	parallelism int,
+	tableNameMapping map[string]model.NameAndExclude,
+	addRecord func(context.Context, model.Record[model.RecordItems]) error,
+) ([]tablePollResult, error) {
+	results := make([]tablePollResult, len(plans))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(parallelism)
+	for i, plan := range plans {
+		group.Go(func() error {
+			emitted := false
+			tableBytesProcessed, err := plan.pull(
+				groupCtx, plan.table, tableNameMapping[plan.table], plan.start, plan.upper,
+				func(ctx context.Context, record model.Record[model.RecordItems]) error {
+					emitted = true
+					return addRecord(ctx, record)
+				},
+			)
+			if err != nil {
+				if groupCtx.Err() != nil {
+					return groupCtx.Err()
+				}
+				if emitted {
+					// Part of this table's window is already downstream, so leaving the
+					// table behind would let the batch confirm records it never finished.
+					return fmt.Errorf("BigQuery CDC table %s failed after emitting records: %w", plan.table, err)
+				}
+				results[i] = tablePollResult{err: err}
+				return nil
+			}
+			results[i] = tablePollResult{bytesProcessed: tableBytesProcessed}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // PullRecords polls every mapped table from its own synced-through checkpoint.
 // A table failure leaves only that table behind; successful siblings continue
 // and the resulting per-table checkpoint is confirmed with the shared stream.
@@ -132,18 +208,34 @@ func (c *BigQueryConnector) PullRecords(
 	if err != nil {
 		return fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
 	}
-
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to fetch flow config from db: %w", err)
+	}
+
+	parallelism := int(cfg.GetBigqueryCdcConfig().GetQueryCdcTablesParallelism())
+	if parallelism <= 0 {
+		parallelism, err = internal.PeerDBBigQueryCDCTableParallelism(ctx, req.Env)
+		if err != nil {
+			return fmt.Errorf("failed to get BigQuery CDC table parallelism: %w", err)
+		}
+	}
+	if parallelism <= 0 {
+		parallelism = -1 // errgroup treats a negative limit as unlimited
 	}
 	eventsFunctionByTable := make(map[string]protos.BigqueryCdcEventsFunction, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		eventsFunctionByTable[tableMapping.SourceTableIdentifier] = tableMapping.GetBigqueryCdcEventsFunction()
 	}
 
+	var streamMu sync.Mutex
 	var recordCount int
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+		// SignalAsNotEmpty closes the channel and can't be called in parallel
+		// as well as AddRecord, writing to the records channel is fine, but
+		// it also read-write needsNormalize in unsynchronized way
+		streamMu.Lock()
+		defer streamMu.Unlock()
 		if recordCount == 0 {
 			req.RecordStream.SignalAsNotEmpty()
 		}
@@ -151,14 +243,8 @@ func (c *BigQueryConnector) PullRecords(
 		return req.RecordStream.AddRecord(ctx, record)
 	}
 
-	var bytesProcessed int64
-	var tableErrors []error
-	type tablePullError struct {
-		err   error
-		table string
-	}
-	var customerVisibleTableErrors []tablePullError
 	healthyTables := 0
+	plans := make([]tablePollPlan, 0, len(sourceTables))
 	for _, sourceTableIdentifier := range sourceTables {
 		start, err := checkpoint.SyncedThrough(sourceTableIdentifier)
 		if err != nil {
@@ -172,35 +258,37 @@ func (c *BigQueryConnector) PullRecords(
 			continue
 		}
 
-		pullTable := c.pullTableAppends
+		pull := c.pullTableAppends
 		if eventsFunctionByTable[sourceTableIdentifier] == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-			pullTable = c.pullTableChanges
+			pull = c.pullTableChanges
 		}
-		recordCountBeforeTable := recordCount
-		tableBytesProcessed, err := pullTable(
-			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], start, upper, addRecord,
-		)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if recordCount > recordCountBeforeTable {
-				return fmt.Errorf("BigQuery CDC table %s failed after emitting records: %w", sourceTableIdentifier, err)
-			}
-			if checkpoint.RecordFailure(sourceTableIdentifier, upper) {
+		plans = append(plans, tablePollPlan{start: start, upper: upper, table: sourceTableIdentifier, pull: pull})
+	}
+
+	results, err := runTablePolls(ctx, plans, parallelism, req.TableNameMapping, addRecord)
+	if err != nil {
+		return err
+	}
+
+	var bytesProcessed int64
+	var tableErrors []error
+	var customerVisibleTableErrors []tablePullError
+	for i, plan := range plans {
+		if err := results[i].err; err != nil {
+			if checkpoint.RecordFailure(plan.table, plan.upper) {
 				customerVisibleTableErrors = append(customerVisibleTableErrors, tablePullError{
-					table: sourceTableIdentifier,
+					table: plan.table,
 					err:   err,
 				})
 			}
 			tableErrors = append(tableErrors, err)
 			c.logger.Error("[bigquery] CDC table poll failed; other tables will continue",
-				slog.String("table", sourceTableIdentifier), slog.Any("error", err))
+				slog.String("table", plan.table), slog.Any("error", err))
 			continue
 		}
-		checkpoint.RecordSuccess(sourceTableIdentifier, upper)
+		checkpoint.RecordSuccess(plan.table, plan.upper)
 		healthyTables++
-		bytesProcessed += tableBytesProcessed
+		bytesProcessed += results[i].bytesProcessed
 	}
 	if len(sourceTables) > 0 && healthyTables == 0 {
 		return errors.Join(tableErrors...)
@@ -382,15 +470,10 @@ func (c *BigQueryConnector) runPullQuery(
 		if len(missing) == 0 {
 			return nil, err
 		}
-		dropped := c.droppedExcludeColumns[sourceTableIdentifier]
-		if dropped == nil {
-			dropped = make(map[string]struct{}, len(missing))
-			c.droppedExcludeColumns[sourceTableIdentifier] = dropped
-		}
 		next := make(map[string]struct{}, len(effective))
 		for col := range effective {
 			if _, gone := missing[col]; gone {
-				dropped[col] = struct{}{}
+				c.markDroppedExcludeColumn(sourceTableIdentifier, col)
 				c.logger.Warn("[bigquery] excluded column no longer exists on source table, dropping from EXCEPT clause",
 					slog.String("table", sourceTableIdentifier), slog.String("column", col))
 				continue
@@ -401,10 +484,28 @@ func (c *BigQueryConnector) runPullQuery(
 	}
 }
 
+// markDroppedExcludeColumn remembers that col no longer exists on
+// sourceTableIdentifier, so later polls stop asking BigQuery to EXCEPT it.
+func (c *BigQueryConnector) markDroppedExcludeColumn(sourceTableIdentifier string, col string) {
+	dropped := c.droppedExcludeColumnsFor(sourceTableIdentifier)
+	next := make(map[string]struct{}, len(dropped)+1)
+	maps.Copy(next, dropped)
+	next[col] = struct{}{}
+	c.droppedExcludeColumns.Store(sourceTableIdentifier, next)
+}
+
+func (c *BigQueryConnector) droppedExcludeColumnsFor(sourceTableIdentifier string) map[string]struct{} {
+	stored, ok := c.droppedExcludeColumns.Load(sourceTableIdentifier)
+	if !ok {
+		return nil
+	}
+	return stored.(map[string]struct{})
+}
+
 // effectiveExclude returns exclude minus any columns already known (from a prior
 // runPullQuery retry) to no longer exist on sourceTableIdentifier.
 func (c *BigQueryConnector) effectiveExclude(sourceTableIdentifier string, exclude map[string]struct{}) map[string]struct{} {
-	dropped := c.droppedExcludeColumns[sourceTableIdentifier]
+	dropped := c.droppedExcludeColumnsFor(sourceTableIdentifier)
 	if len(dropped) == 0 {
 		return exclude
 	}
