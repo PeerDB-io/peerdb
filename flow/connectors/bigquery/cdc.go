@@ -154,8 +154,8 @@ func (c *BigQueryConnector) PullRecords(
 	var bytesProcessed int64
 	var tableErrors []error
 	type tablePullError struct {
-		table string
 		err   error
+		table string
 	}
 	var customerVisibleTableErrors []tablePullError
 	healthyTables := 0
