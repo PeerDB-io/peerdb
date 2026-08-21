@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/auth"
@@ -56,8 +57,9 @@ type BigQueryConnector struct {
 	lastPollAt time.Time
 	// droppedExcludeColumns remembers, per source table, excluded columns that
 	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
-	// to EXCEPT them.
-	droppedExcludeColumns map[string]map[string]struct{}
+	// to EXCEPT them. Parallel CDC table polls share it, so it maps a source table
+	// identifier to a map[string]struct{} that is replaced, never mutated in place.
+	droppedExcludeColumns sync.Map
 	logger                log.Logger
 	*metadataStore.PostgresMetadata
 	bqConfig      *protos.BigqueryConfig
@@ -129,16 +131,15 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	return &BigQueryConnector{
-		credentials:           creds,
-		bqConfig:              config,
-		client:                client,
-		datasetID:             datasetID,
-		projectID:             projectID,
-		PostgresMetadata:      metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
-		storageClient:         storageClient,
-		catalogPool:           catalogPool,
-		logger:                logger,
-		droppedExcludeColumns: make(map[string]map[string]struct{}),
+		credentials:      creds,
+		bqConfig:         config,
+		client:           client,
+		datasetID:        datasetID,
+		projectID:        projectID,
+		PostgresMetadata: metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
+		storageClient:    storageClient,
+		catalogPool:      catalogPool,
+		logger:           logger,
 	}, nil
 }
 

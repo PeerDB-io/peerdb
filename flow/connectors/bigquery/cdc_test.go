@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -253,9 +255,8 @@ func TestMissingExceptColumns(t *testing.T) {
 }
 
 func TestEffectiveExclude(t *testing.T) {
-	c := &BigQueryConnector{droppedExcludeColumns: map[string]map[string]struct{}{
-		"ds.tbl": {"secret_column": {}},
-	}}
+	c := &BigQueryConnector{}
+	c.droppedExcludeColumns.Store("ds.tbl", map[string]struct{}{"secret_column": {}})
 	exclude := map[string]struct{}{"secret_column": {}, "large_payload": {}}
 
 	assert.Equal(t, map[string]struct{}{"large_payload": {}}, c.effectiveExclude("ds.tbl", exclude))
@@ -275,4 +276,106 @@ func TestBuildPullQuery(t *testing.T) {
 		"SELECT * EXCEPT (`secret`) FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
 		buildPullQuery("CHANGES", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, "`_CHANGE_TIMESTAMP`"),
 	)
+}
+
+func testPollPlan(
+	table string,
+	pull func(context.Context, string, model.NameAndExclude, time.Time, time.Time,
+		func(context.Context, model.Record[model.RecordItems]) error) (int64, error),
+) tablePollPlan {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	return tablePollPlan{start: start, upper: start.Add(time.Hour), table: table, pull: pull}
+}
+
+func TestRunTablePollsIsolatesFailures(t *testing.T) {
+	failure := errors.New("boom")
+	plans := []tablePollPlan{
+		testPollPlan("ds.ok", func(
+			context.Context, string, model.NameAndExclude, time.Time, time.Time,
+			func(context.Context, model.Record[model.RecordItems]) error,
+		) (int64, error) {
+			return 42, nil
+		}),
+		testPollPlan("ds.bad", func(
+			context.Context, string, model.NameAndExclude, time.Time, time.Time,
+			func(context.Context, model.Record[model.RecordItems]) error,
+		) (int64, error) {
+			return 0, failure
+		}),
+	}
+
+	results, err := runTablePolls(t.Context(), plans, 2, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	require.NoError(t, results[0].err)
+	assert.Equal(t, int64(42), results[0].bytesProcessed)
+	assert.ErrorIs(t, results[1].err, failure)
+}
+
+func TestRunTablePollsFailsBatchWhenTableAlreadyEmitted(t *testing.T) {
+	failure := errors.New("boom")
+	plans := []tablePollPlan{
+		testPollPlan("ds.bad", func(
+			ctx context.Context, _ string, _ model.NameAndExclude, _ time.Time, _ time.Time,
+			addRecord func(context.Context, model.Record[model.RecordItems]) error,
+		) (int64, error) {
+			if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{}); err != nil {
+				return 0, err
+			}
+			return 0, failure
+		}),
+	}
+
+	_, err := runTablePolls(t.Context(), plans, 1, nil, func(context.Context, model.Record[model.RecordItems]) error {
+		return nil
+	})
+	require.ErrorIs(t, err, failure)
+	assert.Contains(t, err.Error(), "ds.bad")
+}
+
+func TestRunTablePollsRespectsParallelism(t *testing.T) {
+	const parallelism = 2
+	var mu sync.Mutex
+	inFlight, maxInFlight := 0, 0
+
+	plans := make([]tablePollPlan, 0, 8)
+	for i := range 8 {
+		plans = append(plans, testPollPlan(fmt.Sprintf("ds.t%d", i), func(
+			context.Context, string, model.NameAndExclude, time.Time, time.Time,
+			func(context.Context, model.Record[model.RecordItems]) error,
+		) (int64, error) {
+			mu.Lock()
+			inFlight++
+			maxInFlight = max(maxInFlight, inFlight)
+			mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			return 0, nil
+		}))
+	}
+
+	_, err := runTablePolls(t.Context(), plans, parallelism, nil, nil)
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.LessOrEqual(t, maxInFlight, parallelism)
+	assert.Greater(t, maxInFlight, 1, "tables should actually run concurrently")
+}
+
+func TestRunTablePollsReturnsContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	plans := []tablePollPlan{
+		testPollPlan("ds.tbl", func(
+			ctx context.Context, _ string, _ model.NameAndExclude, _ time.Time, _ time.Time,
+			_ func(context.Context, model.Record[model.RecordItems]) error,
+		) (int64, error) {
+			return 0, ctx.Err()
+		}),
+	}
+
+	_, err := runTablePolls(ctx, plans, 1, nil, nil)
+	assert.ErrorIs(t, err, context.Canceled)
 }

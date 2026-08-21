@@ -68,6 +68,10 @@ enum BigQueryReplicationMode {
 
 message BigqueryCdcConfig {
   BigQueryReplicationMode replication_mode = 1;
+  // How many source tables one CDC poll queries concurrently. BigQuery enforces a
+  // hard limit of 100 concurrent queries per project, shared by every mirror.
+  // Falls back to PEERDB_BIGQUERY_CDC_TABLE_PARALLELISM (default 10) when unset.
+  int32 query_cdc_tables_parallelism = 2;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
