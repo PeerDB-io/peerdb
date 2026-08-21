@@ -17,6 +17,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 		disableTls *bool
 		name       string
 		requireTls bool
+		authType   protos.PostgresAuthType
 		expected   bool
 	}{
 		{
@@ -61,6 +62,11 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			disableTls: boolPtr(true),
 			expected:   true,
 		},
+		{
+			name:     "Cloud SQL IAM defaults to TLS",
+			authType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,6 +74,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			config := &protos.PostgresConfig{
 				RequireTls: tt.requireTls,
 				DisableTls: tt.disableTls,
+				AuthType:   tt.authType,
 			}
 			assert.Equal(t, tt.expected, PGMustUseTlsConnection(config))
 		})

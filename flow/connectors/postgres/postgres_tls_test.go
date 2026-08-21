@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const testTLSConnString = "postgres://user@localhost:5432/testdb?sslmode=require"
@@ -124,4 +125,21 @@ func TestParseConfigClientTLS(t *testing.T) {
 		})
 		require.Error(t, err)
 	})
+}
+
+func TestParseConfigCloudSQLIAMEnablesTLSByDefault(t *testing.T) {
+	config := &protos.PostgresConfig{
+		Host:     "localhost",
+		Port:     5432,
+		User:     "configured-db-user",
+		Database: "testdb",
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+	}
+	require.Nil(t, config.DisableTls)
+	connectionString := internal.GetPGConnectionString(config, "")
+	require.Contains(t, connectionString, "sslmode=require")
+	connConfig, err := ParseConfig(connectionString, config)
+	require.NoError(t, err)
+	require.NotNil(t, connConfig.TLSConfig)
+	require.Equal(t, "configured-db-user", connConfig.User)
 }

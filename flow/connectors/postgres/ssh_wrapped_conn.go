@@ -2,9 +2,11 @@ package connpostgres
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 
+	"cloud.google.com/go/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
 
@@ -17,6 +19,7 @@ func NewPostgresConnFromConfig(
 	connConfig *pgx.ConnConfig,
 	tlsHost string,
 	rdsAuth *utils.RDSAuth,
+	cloudSQLAuth auth.TokenProvider,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	if tunnel.IsActive() {
@@ -27,24 +30,11 @@ func NewPostgresConnFromConfig(
 			return []string{host}, nil
 		}
 	}
-	logger := internal.LoggerFromCtx(ctx)
-	if rdsAuth != nil {
-		host := connConfig.Host
-		if tlsHost != "" {
-			host = tlsHost
-		}
-		logger.Info("Setting up IAM auth for Postgres")
-		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: host,
-			Port: uint32(connConfig.Port),
-			User: connConfig.User,
-		}, rdsAuth, "POSTGRES")
-		if err != nil {
-			return nil, err
-		}
-		connConfig = connConfig.Copy()
-		connConfig.Password = token
+	connConfig, err := preparePostgresConnConfig(ctx, connConfig, tlsHost, rdsAuth, cloudSQLAuth)
+	if err != nil {
+		return nil, err
 	}
+	logger := internal.LoggerFromCtx(ctx)
 
 	// If the endpoint is misbehaved (e.g. a TCP tunnel started pointing at something new),
 	// the random initial sequence of bytes may be misinterpreted as a multi-GB message and
@@ -69,4 +59,43 @@ func NewPostgresConnFromConfig(
 	conn.PgConn().Frontend().SetMaxBodyLen(0)
 
 	return conn, nil
+}
+
+func preparePostgresConnConfig(
+	ctx context.Context,
+	connConfig *pgx.ConnConfig,
+	tlsHost string,
+	rdsAuth *utils.RDSAuth,
+	cloudSQLAuth auth.TokenProvider,
+) (*pgx.ConnConfig, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	if rdsAuth != nil {
+		host := connConfig.Host
+		if tlsHost != "" {
+			host = tlsHost
+		}
+		logger.Info("Setting up IAM auth for Postgres")
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: uint32(connConfig.Port),
+			User: connConfig.User,
+		}, rdsAuth, "POSTGRES")
+		if err != nil {
+			return nil, err
+		}
+		connConfig = connConfig.Copy()
+		connConfig.Password = token
+	}
+	if cloudSQLAuth != nil {
+		token, err := cloudSQLAuth.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PostgreSQL Cloud SQL IAM token: %w", err)
+		}
+		if token == nil || token.Value == "" {
+			return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM token is empty")
+		}
+		connConfig = connConfig.Copy()
+		connConfig.Password = token.Value
+	}
+	return connConfig, nil
 }

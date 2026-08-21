@@ -21,7 +21,9 @@ import (
 // 2. If TLS is not explicitly required, but DisableTls is explicitly set to false, then we also use TLS.
 // 3. Otherwise, we do not use TLS.
 func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
-	return pgConfig.RequireTls || (pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
+	return pgConfig.RequireTls ||
+		pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH ||
+		(pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
 }
 
 // SanitizePGHost strips pasted connection-string junk (path/query suffixes,
