@@ -19,10 +19,6 @@ type bigQueryCDCTableProgress struct {
 	// SyncedThrough after success and remains ahead of it while a failed window
 	// is waiting to be retried.
 	Target time.Time `json:"target"`
-	// Active records whether the source table belonged to the mirror when this
-	// checkpoint was written. Removed tables remain in the checkpoint as
-	// inactive entries so their last cursor is retained.
-	Active bool `json:"active"`
 }
 
 type bigQueryCDCCheckpoint struct {
@@ -38,14 +34,14 @@ type bigQueryCDCCheckpoint struct {
 // targets stored with a historical CDC batch. It does not describe destination
 // normalization.
 type CDCBatchTableProgress struct {
-	// LaggingTables contains active source table identifiers whose current
+	// LaggingTables contains current source table identifiers whose latest
 	// SyncedThrough timestamp has not reached the target stored with the batch.
 	LaggingTables []string
-	// Completed is the number of active source tables whose current cursor has
+	// Completed is the number of current source tables whose latest cursor has
 	// reached the target stored with the batch.
 	Completed int
-	// Total is the number of active source tables recorded in the batch
-	// checkpoint.
+	// Total is the number of source tables that exist in both the historical
+	// batch checkpoint and the mirror's latest checkpoint.
 	Total int
 }
 
@@ -55,7 +51,6 @@ func newBigQueryCDCCheckpoint(syncedThrough time.Time, sourceTables []string) *b
 		tables[table] = bigQueryCDCTableProgress{
 			SyncedThrough: syncedThrough,
 			Target:        syncedThrough,
-			Active:        true,
 		}
 	}
 	return &bigQueryCDCCheckpoint{Version: bigQueryCDCCheckpointVersion, Tables: tables}
@@ -100,17 +95,12 @@ func (c *bigQueryCDCCheckpoint) retainAndInitializeTables(sourceTables []string)
 		}
 	}
 
-	tables := make(map[string]bigQueryCDCTableProgress, len(c.Tables)+len(sourceTables))
-	for table, progress := range c.Tables {
-		progress.Active = false
-		tables[table] = progress
-	}
+	tables := make(map[string]bigQueryCDCTableProgress, len(sourceTables))
 	for _, table := range sourceTables {
 		if progress, ok := c.Tables[table]; ok {
-			progress.Active = true
 			tables[table] = progress
 		} else if !fallback.IsZero() {
-			tables[table] = bigQueryCDCTableProgress{SyncedThrough: fallback, Target: fallback, Active: true}
+			tables[table] = bigQueryCDCTableProgress{SyncedThrough: fallback, Target: fallback}
 		}
 	}
 	c.Tables = tables
@@ -125,7 +115,7 @@ func (c *bigQueryCDCCheckpoint) SyncedThrough(table string) (time.Time, error) {
 }
 
 func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time) {
-	c.Tables[table] = bigQueryCDCTableProgress{SyncedThrough: target, Target: target, Active: true}
+	c.Tables[table] = bigQueryCDCTableProgress{SyncedThrough: target, Target: target}
 }
 
 // RecordFailure keeps the last confirmed cursor and records the attempted
@@ -134,7 +124,6 @@ func (c *bigQueryCDCCheckpoint) RecordFailure(table string, target time.Time) bo
 	progress := c.Tables[table]
 	wasLagging := progress.Target.After(progress.SyncedThrough)
 	progress.Target = target
-	progress.Active = true
 	c.Tables[table] = progress
 	return !wasLagging
 }
@@ -164,12 +153,12 @@ func BigQueryCDCBatchTableProgress(batchCheckpointText, latestCheckpointText str
 
 	progress := CDCBatchTableProgress{}
 	for table, batchTable := range batch.Tables {
-		if !batchTable.Active {
+		latestTable, ok := latest.Tables[table]
+		if !ok {
 			continue
 		}
 		progress.Total++
-		latestTable, ok := latest.Tables[table]
-		if ok && !latestTable.SyncedThrough.Before(batchTable.Target) {
+		if !latestTable.SyncedThrough.Before(batchTable.Target) {
 			progress.Completed++
 		} else {
 			progress.LaggingTables = append(progress.LaggingTables, table)
