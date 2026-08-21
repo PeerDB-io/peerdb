@@ -588,7 +588,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Table_Removal_Drops_Ch
 	EnvWaitFor(t, env, 3*time.Minute, "completed two-table CDC batch", func() bool {
 		response, err := apiClient.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
 			FlowJobName: flowConnConfig.FlowJobName,
-			Limit:       20,
 			Ascending:   true,
 			BeforeId:    -1,
 			AfterId:     batchIDBeforeWave,
