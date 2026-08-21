@@ -316,6 +316,7 @@ func main() {
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
 		appClose()
+		//nolint:gocritic
 		os.Exit(1)
 	}
 }
