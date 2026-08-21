@@ -315,6 +315,6 @@ func main() {
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
-		panic(err)
+		os.Exit(1)
 	}
 }
