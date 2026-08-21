@@ -16,21 +16,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
-// bqCdcRow is one row of the small (id, val) schema every test below creates
-// its source table with - just enough columns to exercise insert/update/delete
-// without the type-conversion breadth Test_Types/Test_JSON_Support already cover.
 type bqCdcRow struct {
 	Val string
 	ID  int64
 }
 
-// createBigQueryCdcSourceTable creates a table with a real (NOT ENFORCED) PK
-// constraint on id - required by CHANGES mode (see source.go's
-// ValidateMirrorSource) and sidesteps APPENDS mode's keyless-engine check
-// entirely, so every test below can use it regardless of mode. When
-// enableChangeHistory is set, also flips the enable_change_history table
-// option CHANGES mode validates for (not exposed as a typed field on
-// bigquery.TableMetadata, so this needs a raw DDL statement).
 func createBigQueryCdcSourceTable(
 	ctx context.Context, t *testing.T, source *bigQuerySource, tableName string, enableChangeHistory bool,
 ) string {
@@ -62,11 +52,6 @@ func createBigQueryCdcSourceTable(
 	return fqn
 }
 
-// bqInsertRows inserts rows via DML (INSERT ... VALUES ...), not the
-// streaming Inserter Test_Types/Test_JSON_Support use: streamed rows sit in
-// BigQuery's streaming buffer and reject UPDATE/DELETE DML against them for
-// up to 90 minutes, which every CHANGES-mode test below needs to do almost
-// immediately after inserting.
 func bqInsertRows(ctx context.Context, t *testing.T, source *bigQuerySource, tableFQN string, rows []bqCdcRow) {
 	t.Helper()
 	if len(rows) == 0 {
@@ -153,11 +138,6 @@ func quoteBigQueryTableFQN(fqn string) string {
 	return "`" + strings.ReplaceAll(fqn, "`", "\\`") + "`"
 }
 
-// bqCdcFlowConnectionConfig builds the FlowConnectionConfigs shared by the CDC
-// lifecycle tests below: initial snapshot enabled, continuing into CDC
-// (InitialSnapshotOnly=false), EVENTS replication mode, with eventsFunction
-// threaded through the table mapping that source.go/cdc.go read via
-// tableMapping.GetBigqueryCdcEventsFunction().
 func bqCdcFlowConnectionConfig(
 	s BigQueryClickhouseSuite, srcTable, dstTable string, eventsFunction protos.BigqueryCdcEventsFunction,
 ) *protos.FlowConnectionConfigs {
@@ -185,17 +165,6 @@ func bqCdcFlowConnectionConfig(
 	return flowConnConfig
 }
 
-// Test_BigQuery_CDC_Snapshot_To_CDC_Handoff covers the initial-snapshot-to-CDC
-// handoff at T (chunk 2's FOR SYSTEM_TIME AS OF timestamp): rows present
-// before the mirror is created land via the snapshot, rows inserted
-// afterwards must land via CDC polling (chunk 4) picking up from the
-// persisted checkpoint.
-//
-// UNTESTED AGAINST A LIVE BIGQUERY INSTANCE: this sandboxed dev environment
-// has no BigQuery credentials, so this has only been verified to compile and
-// vet cleanly (`go build ./e2e/... && go vet ./e2e/...`), not to actually pass
-// against a real BigQuery/Temporal/ClickHouse stack. Same caveat as chunks
-// 4/5 already flagged for APPENDS()/CHANGES()'s window-bounds inclusivity.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_To_CDC_Handoff() {
 	t := s.T()
 	ctx := t.Context()
@@ -233,16 +202,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_To_CDC_Handoff() {
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Appends_Insert_Only covers APPENDS mode's insert-only
-// path (chunk 4) across more than one poll cycle - not just a single
-// post-snapshot batch (Test_BigQuery_CDC_Snapshot_To_CDC_Handoff already
-// covers the handoff itself), to exercise the self-paced polling loop
-// (waitForNextPoll/pollWindow) picking up successive waves of inserts rather
-// than a one-shot catch-up.
-//
-// UNTESTED AGAINST A LIVE BIGQUERY INSTANCE - see
-// Test_BigQuery_CDC_Snapshot_To_CDC_Handoff's doc comment for the caveat;
-// applies identically here.
+// Test_BigQuery_CDC_Appends_Insert_Only covers APPENDS mode
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 	t := s.T()
 	ctx := t.Context()
@@ -383,19 +343,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode (chunk
-// 5): insert, update (verifying the delete+insert pairing CHANGES() emits
-// for an UPDATE collapses into one UpdateRecord rather than surfacing as a
-// spurious delete followed by a re-insert), and delete propagation.
-//
-// This is the one thing in the whole bq-cdc series that has never been run
-// against a live BigQuery CHANGES() call - chunks 4/5 verified the
-// pairing/conversion logic with synthetic data only (cdc_test.go), and the
-// standalone script that validated APPENDS()/CHANGES() query mechanics
-// (mentioned in the series' research notes) exercised the raw SQL, not this
-// connector's code. UNTESTED AGAINST A LIVE BIGQUERY INSTANCE here - see
-// Test_BigQuery_CDC_Snapshot_To_CDC_Handoff's doc comment for the general
-// caveat; it applies with extra force to this test specifically.
+// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete() {
 	t := s.T()
 	ctx := t.Context()
@@ -412,8 +360,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	})
 
 	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES)
-	// Default safety lag is 60s; lowered here so this test's CDC poll picks up
-	// the insert/update/delete below without a slow, mostly-idle wait.
 	flowConnConfig.Env = map[string]string{"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5"}
 
 	tc := NewTemporalClient(t)
@@ -424,17 +370,12 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 
 	// insert.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 4, Val: "inserted"}})
-	// update: CHANGES() represents this as a delete+insert pair sharing id=1's
-	// PK and timestamp - pairBigQueryChanges (cdc.go) must collapse it into one
-	// UpdateRecord, not a visible delete followed by a re-insert.
+	// update
 	bqUpdateRowVal(ctx, t, source, tableFQN, 1, "updated")
 	// delete.
 	bqDeleteRow(ctx, t, source, tableFQN, 2)
 
 	// post-change expected set: {1: updated, 3: initial-3, 4: inserted} - id=2 deleted.
-	// Checked by value, not just len(rows.Records) == 3: the pre-change set
-	// {1,2,3} is also 3 rows, so a count-only check would pass immediately on
-	// the initial snapshot, before the CDC poll above has scanned anything.
 	var valByID map[int64]string
 	EnvWaitFor(t, env, 4*time.Minute, "insert/update/delete picked up by CHANGES CDC poll", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")
@@ -462,21 +403,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 // persisted checkpoint (chunk 4's UpdateReplStateLastOffset/SetLastOffset)
 // rather than re-scanning already-synced rows or dropping rows written while
 // the mirror wasn't polling.
-//
-// This connector has no partial-window checkpoint (PullRecords only calls
-// UpdateLatestCheckpointText once a whole poll window has been scanned across
-// every mapped table - see cdc.go's PullRecords), so there's no
-// finer-grained "mid-window" boundary to interrupt at than between two poll
-// cycles. Pausing the workflow between cycles - the same mechanism
-// Test_Mongo_Can_Resume_After_Delete_Table/Test_CDC_Sync_Wait_For_Table_Level
-// (mongo_test.go/postgres_test.go) already use to approximate a restart in
-// this harness, since nothing here literally kills the Temporal worker
-// process either - is the closest available proxy: it exercises exactly the
-// property that matters, that a resumed pull continues from the persisted
-// checkpoint instead of re-scanning or skipping.
-//
-// UNTESTED AGAINST A LIVE BIGQUERY INSTANCE - see
-// Test_BigQuery_CDC_Snapshot_To_CDC_Handoff's doc comment for the caveat.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	t := s.T()
 	ctx := t.Context()
@@ -554,12 +480,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	RequireEnvCanceled(t, env)
 }
 
-// readBigQueryCheckpointText reads the BigQuery CDC checkpoint
-// (model.CdcCheckpoint.Text, an RFC3339Nano timestamp - see cdc.go's
-// PullRecords/UpdateReplStateLastOffset) persisted for flowJobName. Lexical
-// comparison of two RFC3339Nano timestamps sharing the same fixed-width
-// format and timezone offset is equivalent to chronological comparison,
-// which is all the monotonic-advance assertions above need.
 func readBigQueryCheckpointText(t *testing.T, pool *pgxpool.Pool, flowJobName string) string {
 	t.Helper()
 	var lastText string
