@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -227,6 +228,168 @@ func decodeEvent(
 	return nil
 }
 
+// Two additional loops are created by PullRecords, each running in their own goroutines.
+// One is decodeLoop, which takes records from
+func (c *MongoConnector) sendLoop(
+	ctx context.Context,
+	records <-chan model.Record[model.RecordItems],
+	errChan chan<- error,
+	req *model.PullRecordsRequest[model.RecordItems],
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	for {
+		select {
+		case record, ok := <-records:
+			if !ok {
+				return
+			}
+			if err := req.RecordStream.AddRecord(ctx, record); err != nil {
+				select {
+				case errChan <- err:
+				case <-ctx.Done():
+				}
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+type recordItems struct {
+	documentKey          bson.Raw
+	maybeFullDocument    *bson.Raw
+	operationType        operationType
+	sourceTableName      string
+	destinationTableName string
+	commitTimeNanos      int64
+}
+
+func (c *MongoConnector) decodeLoop(
+	ctx context.Context,
+	recv <-chan recordItems,
+	errChan chan<- error,
+	req *model.PullRecordsRequest[model.RecordItems],
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	// Start up sendLoop.
+	sender := make(chan model.Record[model.RecordItems], 10)
+	wg.Add(1)
+	go c.sendLoop(ctx, sender, errChan, req, wg)
+
+	// Utils used by this routine.
+	converter := NewDirectBsonConverter()
+
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
+
+	for {
+		select {
+		case item, ok := <-recv:
+			if !ok {
+				// Draining.
+				close(sender)
+				return
+			}
+			items := model.NewMongoRecordItems(2)
+
+			if len(item.documentKey) > 0 {
+				rv := item.documentKey.Lookup(DefaultDocumentKeyColumnName)
+				if rv.IsZero() || rv.Type == bson.TypeNull {
+					err := exceptions.NewInvalidIdValueError(item.sourceTableName)
+					select {
+					case errChan <- err:
+						close(sender)
+					case <-ctx.Done():
+					}
+					return
+				}
+				qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+				if err != nil {
+					err = fmt.Errorf("failed to convert key: %w", err)
+					select {
+					case errChan <- err:
+						close(sender)
+					case <-ctx.Done():
+					}
+					return
+				}
+				items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+			} else {
+				err := fmt.Errorf("document key is nil")
+				select {
+				case errChan <- err:
+					close(sender)
+				case <-ctx.Done():
+				}
+				return
+			}
+
+			if item.maybeFullDocument != nil && len(*item.maybeFullDocument) > 0 {
+				qValue, err := converter.QValueJSONFromDocument(*item.maybeFullDocument)
+				if err != nil {
+					err = fmt.Errorf("failed to convert document: %w", err)
+					select {
+					case errChan <- err:
+						close(sender)
+					case <-ctx.Done():
+					}
+					return
+				}
+				items.AddColumn(fullDocumentColumnName, qValue)
+			} else {
+				// `fullDocument` field will not exist in the following scenarios:
+				// 1) operationType is 'delete'
+				// 2) document is deleted / collection is dropped in between update and lookup
+				// 3) update changes the values for at least one of the fields in that collection's
+				//    shard key (although sharding is not supported today)
+				items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			}
+			var record model.Record[model.RecordItems]
+			switch item.operationType {
+			case operationTypeInsert:
+				record = &model.InsertRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+					Items:                items,
+					SourceTableName:      item.sourceTableName,
+					DestinationTableName: item.destinationTableName,
+				}
+
+			case operationTypeUpdate, operationTypeReplace:
+				record = &model.UpdateRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+					NewItems:             items,
+					SourceTableName:      item.sourceTableName,
+					DestinationTableName: item.destinationTableName,
+				}
+			case operationTypeDelete:
+				record = &model.DeleteRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+					Items:                items,
+					SourceTableName:      item.sourceTableName,
+					DestinationTableName: item.destinationTableName,
+				}
+			}
+			select {
+			case sender <- record:
+			case <-ctx.Done():
+				return
+			}
+
+		case <-ctx.Done():
+			// Context cancellation usually means an error, not just cutting a batch (which would be
+			// a graceful drain via recv getting closed).
+			return
+		}
+	}
+}
+
 func (c *MongoConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -234,11 +397,7 @@ func (c *MongoConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
-
-	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
-		fullDocumentColumnName = LegacyFullDocumentColumnName
-	}
+	var wg sync.WaitGroup
 
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
@@ -331,6 +490,15 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+	// Context inheritance tree: There's a parent ctx (always called ctx in this function).
+	// Off of that, we create two child contexts, one for workers (called workerCtx), that's passed
+	// to children workers (eg. decodeLoop). The other, timeoutCtx, is managed by us for timeouts.
+	// Note that when we hit a timeout, we don't want to cancel the workerCtx; we want the workers
+	// to gracefully drain.
+	//
+	// Also note that timeoutCtx is occasionally rewritten, such as when a record in a batch arrives
+	// or when we reset the changestream.
+	workerCtx, workerCtxCancel := context.WithCancel(ctx)
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
@@ -343,6 +511,8 @@ func (c *MongoConnector) PullRecords(
 
 	defer func() {
 		cancelTimeout()
+		workerCtxCancel()
+		wg.Wait()
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
@@ -369,44 +539,8 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter := NewDirectBsonConverter()
-	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
-		if len(documentKey) > 0 {
-			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return exceptions.NewInvalidIdValueError(tableName)
-			}
-			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-			if err != nil {
-				return fmt.Errorf("failed to convert key: %w", err)
-			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
-			return fmt.Errorf("document key is nil")
-		}
-
-		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
-			if err != nil {
-				return fmt.Errorf("failed to convert document: %w", err)
-			}
-			items.AddColumn(fullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
-		}
-		return nil
-	}
-
-	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+	incrementRecordCount := func() {
 		recordCount += 1
-		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
-			return err
-		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
@@ -417,6 +551,40 @@ func (c *MongoConnector) PullRecords(
 				slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+		}
+	}
+	decodeChan := make(chan recordItems, 10)
+	errChan := make(chan error, 2) // size = max number of workers
+	// decodeLoop starts up sendLoop.
+	wg.Add(1)
+	go c.decodeLoop(workerCtx, decodeChan, errChan, req, &wg)
+	const workerDrainTimeout = 2 * time.Minute
+
+	drainWorkers := func() error {
+		// Close the decode loop and wait for events to drain.
+		close(decodeChan)
+		wgWaiter := make(chan bool)
+		go func() {
+			wg.Wait()
+			close(wgWaiter)
+		}()
+		select {
+		case <-wgWaiter:
+			// Check if there was an error returned at the same time
+			// as the other goroutines disappeared.
+			select {
+			case err := <-errChan:
+				return err
+			default:
+			}
+		case err := <-errChan:
+			workerCtxCancel()
+			<-wgWaiter
+			return err
+		case <-time.After(workerDrainTimeout):
+			workerCtxCancel()
+			<-wgWaiter
+			return errors.New("timed out waiting for PullRecords workers to drain")
 		}
 		return nil
 	}
@@ -436,6 +604,15 @@ func (c *MongoConnector) PullRecords(
 		// reset context timeout
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+		if err := drainWorkers(); err != nil {
+			return err
+		}
+
+		// Restart the decode loop
+		decodeChan = make(chan recordItems, 10)
+		// decodeLoop starts up sendLoop.
+		wg.Add(1)
+		go c.decodeLoop(workerCtx, decodeChan, errChan, req, &wg)
 
 		// set resume point based on whether operation time should be used or not
 		if useOperationTime {
@@ -464,6 +641,14 @@ func (c *MongoConnector) PullRecords(
 			err := changeStream.Err()
 			if err == nil {
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
+			}
+
+			// Before checking for timeout, see if there's an error from the child workers waiting.
+			select {
+			case err := <-errChan:
+				workerCtxCancel()
+				return err
+			default:
 			}
 
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -531,53 +716,37 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 
-		items := model.NewMongoRecordItems(2)
-		switch operationType(changeEvent.OperationType) {
-		case operationTypeInsert:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add insert record: %w", err)
-			}
-		case operationTypeUpdate, operationTypeReplace:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				NewItems:             items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add update record: %w", err)
-			}
-		case operationTypeDelete:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add delete record: %w", err)
-			}
+		incrementRecordCount()
+		items := recordItems{
+			documentKey:          changeEvent.DocumentKey,
+			maybeFullDocument:    changeEvent.FullDocument,
+			operationType:        operationType(changeEvent.OperationType),
+			sourceTableName:      sourceTableName,
+			destinationTableName: destinationTableName,
+			commitTimeNanos:      commitTimeNanos,
+		}
+		switch items.operationType {
+		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
+			// Happy path.
 		default:
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
+		select {
+		case decodeChan <- items:
+		case err := <-errChan:
+			workerCtxCancel()
+			return err
+		case <-ctx.Done():
+			workerCtxCancel()
+			return ctx.Err()
+		}
 		checkpoint()
+	}
+
+	if err := drainWorkers(); err != nil {
+		return err
 	}
 
 	return nil
