@@ -132,8 +132,9 @@ func (AwsIAMAuthConfigType) EnumDescriptor() ([]byte, []int) {
 type PostgresAuthType int32
 
 const (
-	PostgresAuthType_POSTGRES_PASSWORD PostgresAuthType = 0
-	PostgresAuthType_POSTGRES_IAM_AUTH PostgresAuthType = 1
+	PostgresAuthType_POSTGRES_PASSWORD               PostgresAuthType = 0
+	PostgresAuthType_POSTGRES_IAM_AUTH               PostgresAuthType = 1
+	PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH PostgresAuthType = 2
 )
 
 // Enum value maps for PostgresAuthType.
@@ -141,10 +142,12 @@ var (
 	PostgresAuthType_name = map[int32]string{
 		0: "POSTGRES_PASSWORD",
 		1: "POSTGRES_IAM_AUTH",
+		2: "POSTGRES_GCP_CLOUD_SQL_IAM_AUTH",
 	}
 	PostgresAuthType_value = map[string]int32{
-		"POSTGRES_PASSWORD": 0,
-		"POSTGRES_IAM_AUTH": 1,
+		"POSTGRES_PASSWORD":               0,
+		"POSTGRES_IAM_AUTH":               1,
+		"POSTGRES_GCP_CLOUD_SQL_IAM_AUTH": 2,
 	}
 )
 
@@ -328,8 +331,9 @@ func (MySqlReplicationMechanism) EnumDescriptor() ([]byte, []int) {
 type MySqlAuthType int32
 
 const (
-	MySqlAuthType_MYSQL_PASSWORD MySqlAuthType = 0
-	MySqlAuthType_MYSQL_IAM_AUTH MySqlAuthType = 1
+	MySqlAuthType_MYSQL_PASSWORD               MySqlAuthType = 0
+	MySqlAuthType_MYSQL_IAM_AUTH               MySqlAuthType = 1
+	MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH MySqlAuthType = 2
 )
 
 // Enum value maps for MySqlAuthType.
@@ -337,10 +341,12 @@ var (
 	MySqlAuthType_name = map[int32]string{
 		0: "MYSQL_PASSWORD",
 		1: "MYSQL_IAM_AUTH",
+		2: "MYSQL_GCP_CLOUD_SQL_IAM_AUTH",
 	}
 	MySqlAuthType_value = map[string]int32{
-		"MYSQL_PASSWORD": 0,
-		"MYSQL_IAM_AUTH": 1,
+		"MYSQL_PASSWORD":               0,
+		"MYSQL_IAM_AUTH":               1,
+		"MYSQL_GCP_CLOUD_SQL_IAM_AUTH": 2,
 	}
 )
 
@@ -3180,10 +3186,11 @@ const file_peers_proto_rawDesc = "" +
 	"\x14AwsIAMAuthConfigType\x12\x16\n" +
 	"\x12IAM_AUTH_AUTOMATIC\x10\x00\x12\x1f\n" +
 	"\x1bIAM_AUTH_STATIC_CREDENTIALS\x10\x01\x12\x18\n" +
-	"\x14IAM_AUTH_ASSUME_ROLE\x10\x02*@\n" +
+	"\x14IAM_AUTH_ASSUME_ROLE\x10\x02*e\n" +
 	"\x10PostgresAuthType\x12\x15\n" +
 	"\x11POSTGRES_PASSWORD\x10\x00\x12\x15\n" +
-	"\x11POSTGRES_IAM_AUTH\x10\x01*=\n" +
+	"\x11POSTGRES_IAM_AUTH\x10\x01\x12#\n" +
+	"\x1fPOSTGRES_GCP_CLOUD_SQL_IAM_AUTH\x10\x02*=\n" +
 	"\tAvroCodec\x12\b\n" +
 	"\x04Null\x10\x00\x12\v\n" +
 	"\aDeflate\x10\x01\x12\n" +
@@ -3199,10 +3206,11 @@ const file_peers_proto_rawDesc = "" +
 	"MYSQL_AUTO\x10\x00\x12\x0e\n" +
 	"\n" +
 	"MYSQL_GTID\x10\x01\x12\x11\n" +
-	"\rMYSQL_FILEPOS\x10\x02*7\n" +
+	"\rMYSQL_FILEPOS\x10\x02*Y\n" +
 	"\rMySqlAuthType\x12\x12\n" +
 	"\x0eMYSQL_PASSWORD\x10\x00\x12\x12\n" +
-	"\x0eMYSQL_IAM_AUTH\x10\x01*E\n" +
+	"\x0eMYSQL_IAM_AUTH\x10\x01\x12 \n" +
+	"\x1cMYSQL_GCP_CLOUD_SQL_IAM_AUTH\x10\x02*E\n" +
 	"\x15ElasticsearchAuthType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04NONE\x10\x01\x12\t\n" +
