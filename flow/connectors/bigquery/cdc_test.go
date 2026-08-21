@@ -58,7 +58,6 @@ func TestBigQueryCDCCheckpointInitialization(t *testing.T) {
 
 	assert.Equal(t, start, cp.Tables["project.dataset.a"].SyncedThrough)
 	assert.Equal(t, start, cp.Tables["project.dataset.a"].Target)
-	assert.True(t, cp.Tables["project.dataset.a"].Active)
 	assert.Equal(t, start, cp.Tables["project.dataset.b"].SyncedThrough)
 
 	encoded, err := cp.Marshal()
@@ -66,8 +65,8 @@ func TestBigQueryCDCCheckpointInitialization(t *testing.T) {
 	assert.JSONEq(t, `{
 		"version": 1,
 		"tables": {
-			"project.dataset.a": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z", "active": true},
-			"project.dataset.b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z", "active": true}
+			"project.dataset.a": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"},
+			"project.dataset.b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"}
 		}
 	}`, encoded)
 }
@@ -90,34 +89,33 @@ func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
 	assert.True(t, cp.RecordFailure("b", target.Add(3*time.Hour)), "failure after recovery starts a new episode")
 }
 
-func TestBigQueryCDCCheckpointRetainsRemovedTablesAsInactive(t *testing.T) {
+func TestBigQueryCDCCheckpointDropsRemovedTables(t *testing.T) {
 	raw := `{
 		"version": 1,
 		"tables": {
-			"removed": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z", "active": true}
+			"removed": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z"}
 		}
 	}`
 	cp, err := parseBigQueryCDCCheckpoint(raw, []string{"added"})
 	require.NoError(t, err)
 
-	assert.False(t, cp.Tables["removed"].Active)
-	assert.True(t, cp.Tables["added"].Active)
-	assert.Equal(t, cp.Tables["removed"].SyncedThrough, cp.Tables["added"].SyncedThrough)
+	assert.NotContains(t, cp.Tables, "removed")
+	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), cp.Tables["added"].SyncedThrough)
 }
 
 func TestBigQueryCDCBatchTableProgress(t *testing.T) {
 	batch := `{
 		"version": 1,
 		"tables": {
-			"a": {"synced_through": "2026-08-01T01:00:00Z", "target": "2026-08-01T01:00:00Z", "active": true},
-			"b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z", "active": true}
+			"a": {"synced_through": "2026-08-01T01:00:00Z", "target": "2026-08-01T01:00:00Z"},
+			"b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z"}
 		}
 	}`
 	latest := `{
 		"version": 1,
 		"tables": {
-			"a": {"synced_through": "2026-08-01T02:00:00Z", "target": "2026-08-01T02:00:00Z", "active": true},
-			"b": {"synced_through": "2026-08-01T00:30:00Z", "target": "2026-08-01T01:30:00Z", "active": true}
+			"a": {"synced_through": "2026-08-01T02:00:00Z", "target": "2026-08-01T02:00:00Z"},
+			"b": {"synced_through": "2026-08-01T00:30:00Z", "target": "2026-08-01T01:30:00Z"}
 		}
 	}`
 
@@ -126,6 +124,18 @@ func TestBigQueryCDCBatchTableProgress(t *testing.T) {
 	assert.Equal(t, 1, progress.Completed)
 	assert.Equal(t, 2, progress.Total)
 	assert.Equal(t, []string{"b"}, progress.LaggingTables)
+
+	latestAfterRemovingB := `{
+		"version": 1,
+		"tables": {
+			"a": {"synced_through": "2026-08-01T02:00:00Z", "target": "2026-08-01T02:00:00Z"}
+		}
+	}`
+	progress, ok = BigQueryCDCBatchTableProgress(batch, latestAfterRemovingB)
+	require.True(t, ok)
+	assert.Equal(t, 1, progress.Completed)
+	assert.Equal(t, 1, progress.Total)
+	assert.Empty(t, progress.LaggingTables)
 
 	_, ok = BigQueryCDCBatchTableProgress("2026-08-01T01:00:00Z", latest)
 	assert.False(t, ok, "non-BigQuery checkpoints do not carry table membership")
