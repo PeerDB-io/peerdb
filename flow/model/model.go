@@ -186,8 +186,12 @@ type SyncResponse struct {
 }
 
 type NormalizeResponse struct {
-	StartBatchID int64
-	EndBatchID   int64
+	// Keyed by destination table name; values are SOURCE column names that were auto-removed
+	// during normalize because the user dropped the corresponding destination columns.
+	// The caller should remove these columns from the catalog schemas.
+	RemovedColumnsMapping map[string][]string
+	StartBatchID          int64
+	EndBatchID            int64
 }
 
 type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
