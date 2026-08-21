@@ -4,6 +4,7 @@ import { humanizeThresholds } from '@/app/utils/momentOptions';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCBatch,
+  CDCBatchStatus,
   GetCDCBatchesRequest,
   GetCDCBatchesResponse,
 } from '@/grpc_generated/route';
@@ -13,6 +14,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { Tooltip } from '@/lib/Tooltip';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
@@ -48,6 +50,41 @@ function TimeWithDurationOrRunning({
   }
 }
 
+function BatchStatus({ batch }: { batch: CDCBatch }) {
+  switch (batch.status) {
+    case CDCBatchStatus.CDC_BATCH_STATUS_PARTIAL: {
+      const progress =
+        batch.tablesTotal > 0
+          ? ` · ${batch.tablesCompleted}/${batch.tablesTotal} tables`
+          : '';
+      const laggingTables =
+        batch.laggingTables.length > 0
+          ? `Lagging tables: ${batch.laggingTables.join(', ')}`
+          : 'Some tables have not reached this batch yet';
+      return (
+        <Tooltip content={laggingTables}>
+          <Label
+            style={{
+              backgroundColor: '#fef3c7',
+              borderRadius: '999px',
+              color: '#92400e',
+              padding: '2px 8px',
+            }}
+          >
+            Partial{progress}
+          </Label>
+        </Tooltip>
+      );
+    }
+    case CDCBatchStatus.CDC_BATCH_STATUS_COMPLETED:
+      return <Label>Completed</Label>;
+    case CDCBatchStatus.CDC_BATCH_STATUS_RUNNING:
+    case CDCBatchStatus.CDC_BATCH_STATUS_UNSPECIFIED:
+    case CDCBatchStatus.UNRECOGNIZED:
+      return <Label>Running</Label>;
+  }
+}
+
 const ROWS_PER_PAGE = 5;
 export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
   const sortButtonColor = useSortButtonColor();
@@ -71,13 +108,17 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
         cache: 'no-store',
         body: JSON.stringify(req),
       });
-      const data: GetCDCBatchesResponse = await res.json();
+      const responseBody: unknown = await res.json();
+      const data = GetCDCBatchesResponse.fromJSON(responseBody);
       setBatches(data.cdcBatches ?? []);
       setCurrentPage(data.page);
       setTotalPages(Math.ceil(data.total / req.limit));
     };
 
     fetchData();
+
+    const refresh = window.setInterval(fetchData, 10_000);
+    return () => window.clearInterval(refresh);
   }, [mirrorName, beforeId, afterId, ascending]);
 
   const nextPage = useCallback(() => {
@@ -145,15 +186,19 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
       }}
       header={
         <TableRow>
-          {['Batch ID', 'Start Time', 'End Time (Duration)', 'Rows Synced'].map(
-            (heading, index) => (
-              <TableCell as='th' key={index}>
-                <Label as='label' style={{ fontWeight: 'bold' }}>
-                  {heading}
-                </Label>
-              </TableCell>
-            )
-          )}
+          {[
+            'Batch ID',
+            'Status',
+            'Start Time',
+            'End Time (Duration)',
+            'Rows Synced',
+          ].map((heading, index) => (
+            <TableCell as='th' key={index}>
+              <Label as='label' style={{ fontWeight: 'bold' }}>
+                {heading}
+              </Label>
+            </TableCell>
+          ))}
         </TableRow>
       }
     >
@@ -161,6 +206,9 @@ export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
         <TableRow key={row.batchId}>
           <TableCell>
             <Label>{Number(row.batchId)}</Label>
+          </TableCell>
+          <TableCell>
+            <BatchStatus batch={row} />
           </TableCell>
           <TableCell>
             <Label>

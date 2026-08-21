@@ -566,7 +566,16 @@ func (c *BigQueryConnector) SetupReplication(
 	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
 	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
 	// keeps CDC's first window from re-pulling what the snapshot already captured.
-	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)}
+	checkpointTime := snapshotTime.Add(time.Microsecond)
+	sourceTables := make([]string, 0, len(cfg.TableMappings))
+	for _, tableMapping := range cfg.TableMappings {
+		sourceTables = append(sourceTables, tableMapping.SourceTableIdentifier)
+	}
+	checkpointText, err := newBigQueryCDCCheckpoint(checkpointTime, sourceTables).Marshal()
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to encode initial CDC checkpoint: %w", err)
+	}
+	checkpoint := model.CdcCheckpoint{Text: checkpointText}
 	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
 	}

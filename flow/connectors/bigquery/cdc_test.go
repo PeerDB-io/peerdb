@@ -52,6 +52,105 @@ func TestPollWindow(t *testing.T) {
 	})
 }
 
+func TestBigQueryCDCCheckpointInitialization(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	cp := newBigQueryCDCCheckpoint(start, []string{"project.dataset.a", "project.dataset.b"})
+
+	assert.Equal(t, start, cp.Tables["project.dataset.a"].SyncedThrough)
+	assert.Equal(t, start, cp.Tables["project.dataset.a"].Target)
+	assert.Equal(t, start, cp.Tables["project.dataset.b"].SyncedThrough)
+
+	encoded, err := cp.Marshal()
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"version": 1,
+		"tables": {
+			"project.dataset.a": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"},
+			"project.dataset.b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T00:00:00Z"}
+		}
+	}`, encoded)
+}
+
+func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	target := start.Add(time.Hour)
+	cp := newBigQueryCDCCheckpoint(start, []string{"a", "b"})
+
+	cp.RecordSuccess("a", target)
+	assert.True(t, cp.RecordFailure("b", target), "first failure in an episode should be reported")
+	assert.False(t, cp.RecordFailure("b", target.Add(time.Hour)), "repeated failure should not be reported again")
+
+	assert.Equal(t, target, cp.Tables["a"].SyncedThrough)
+	assert.Equal(t, target, cp.Tables["a"].Target)
+	assert.Equal(t, start, cp.Tables["b"].SyncedThrough)
+	assert.Equal(t, target.Add(time.Hour), cp.Tables["b"].Target)
+
+	cp.RecordSuccess("b", target.Add(2*time.Hour))
+	assert.True(t, cp.RecordFailure("b", target.Add(3*time.Hour)), "failure after recovery starts a new episode")
+}
+
+func TestBigQueryCDCCheckpointDropsRemovedTables(t *testing.T) {
+	raw := `{
+		"version": 1,
+		"tables": {
+			"removed": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z"}
+		}
+	}`
+	cp, err := parseBigQueryCDCCheckpoint(raw, []string{"added"})
+	require.NoError(t, err)
+
+	assert.NotContains(t, cp.Tables, "removed")
+	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), cp.Tables["added"].SyncedThrough)
+}
+
+func TestBigQueryCDCBatchTableProgress(t *testing.T) {
+	batch := `{
+		"version": 1,
+		"tables": {
+			"a": {"synced_through": "2026-08-01T01:00:00Z", "target": "2026-08-01T01:00:00Z"},
+			"b": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z"}
+		}
+	}`
+	latest := `{
+		"version": 1,
+		"tables": {
+			"a": {"synced_through": "2026-08-01T02:00:00Z", "target": "2026-08-01T02:00:00Z"},
+			"b": {"synced_through": "2026-08-01T00:30:00Z", "target": "2026-08-01T01:30:00Z"}
+		}
+	}`
+
+	progress, ok := BigQueryCDCBatchTableProgress(batch, latest)
+	require.True(t, ok)
+	assert.Equal(t, 1, progress.Completed)
+	assert.Equal(t, 2, progress.Total)
+	assert.Equal(t, []string{"b"}, progress.LaggingTables)
+
+	latestAfterRemovingB := `{
+		"version": 1,
+		"tables": {
+			"a": {"synced_through": "2026-08-01T02:00:00Z", "target": "2026-08-01T02:00:00Z"}
+		}
+	}`
+	progress, ok = BigQueryCDCBatchTableProgress(batch, latestAfterRemovingB)
+	require.True(t, ok)
+	assert.Equal(t, 1, progress.Completed)
+	assert.Equal(t, 1, progress.Total)
+	assert.Empty(t, progress.LaggingTables)
+
+	_, ok = BigQueryCDCBatchTableProgress("2026-08-01T01:00:00Z", latest)
+	assert.False(t, ok, "non-BigQuery checkpoints do not carry table membership")
+}
+
+func TestBigQueryCDCCheckpointRejectsNonJSON(t *testing.T) {
+	_, err := parseBigQueryCDCCheckpoint("2026-08-01T00:00:00Z", nil)
+	require.ErrorContains(t, err, "failed to parse BigQuery CDC checkpoint JSON")
+}
+
+func TestBigQueryCDCCheckpointRejectsUnknownVersion(t *testing.T) {
+	_, err := parseBigQueryCDCCheckpoint(`{"version":2,"tables":{}}`, nil)
+	require.ErrorContains(t, err, "unsupported BigQuery CDC checkpoint version 2")
+}
+
 func TestWaitForNextPoll(t *testing.T) {
 	t.Run("first-ever call (zero lastPollAt) returns immediately", func(t *testing.T) {
 		c := &BigQueryConnector{}
