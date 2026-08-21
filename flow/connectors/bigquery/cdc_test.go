@@ -52,15 +52,14 @@ func TestPollWindow(t *testing.T) {
 	})
 }
 
-func TestBigQueryCDCCheckpointLegacyUpgrade(t *testing.T) {
-	legacy := "2026-08-01T00:00:00Z"
-	cp, err := parseBigQueryCDCCheckpoint(legacy, []string{"project.dataset.a", "project.dataset.b"})
-	require.NoError(t, err)
+func TestBigQueryCDCCheckpointInitialization(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	cp := newBigQueryCDCCheckpoint(start, []string{"project.dataset.a", "project.dataset.b"})
 
-	want := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	assert.Equal(t, want, cp.Tables["project.dataset.a"].SyncedThrough)
-	assert.Equal(t, want, cp.Tables["project.dataset.a"].Target)
-	assert.Equal(t, want, cp.Tables["project.dataset.b"].SyncedThrough)
+	assert.Equal(t, start, cp.Tables["project.dataset.a"].SyncedThrough)
+	assert.Equal(t, start, cp.Tables["project.dataset.a"].Target)
+	assert.True(t, cp.Tables["project.dataset.a"].Active)
+	assert.Equal(t, start, cp.Tables["project.dataset.b"].SyncedThrough)
 
 	encoded, err := cp.Marshal()
 	require.NoError(t, err)
@@ -76,8 +75,7 @@ func TestBigQueryCDCCheckpointLegacyUpgrade(t *testing.T) {
 func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
 	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	target := start.Add(time.Hour)
-	cp, err := parseBigQueryCDCCheckpoint(start.Format(time.RFC3339Nano), []string{"a", "b"})
-	require.NoError(t, err)
+	cp := newBigQueryCDCCheckpoint(start, []string{"a", "b"})
 
 	cp.RecordSuccess("a", target)
 	assert.True(t, cp.RecordFailure("b", target), "first failure in an episode should be reported")
@@ -130,7 +128,12 @@ func TestBigQueryCDCBatchTableProgress(t *testing.T) {
 	assert.Equal(t, []string{"b"}, progress.LaggingTables)
 
 	_, ok = BigQueryCDCBatchTableProgress("2026-08-01T01:00:00Z", latest)
-	assert.False(t, ok, "legacy batches do not carry immutable table membership")
+	assert.False(t, ok, "non-BigQuery checkpoints do not carry table membership")
+}
+
+func TestBigQueryCDCCheckpointRejectsNonJSON(t *testing.T) {
+	_, err := parseBigQueryCDCCheckpoint("2026-08-01T00:00:00Z", nil)
+	require.ErrorContains(t, err, "failed to parse BigQuery CDC checkpoint JSON")
 }
 
 func TestBigQueryCDCCheckpointRejectsUnknownVersion(t *testing.T) {
