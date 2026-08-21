@@ -127,6 +127,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 	normBufferSize int64,
+	tableLevelBackpressure bool,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
@@ -229,6 +230,19 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	startTime := time.Now()
 	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
+	var tableBackpressure *model.TableBackpressure
+	if tableLevelBackpressure {
+		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+		normalizeBatchIDs, err := pgMetadata.GetLastNormalizeBatchIDs(ctx, flowName)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+		}
+		tableBackpressure = &model.TableBackpressure{
+			NormalizedBatchIDs: normalizeBatchIDs.Tables,
+			GlobalNormalizedID: normalizeBatchIDs.Global,
+			BufferSize:         normBufferSize,
+		}
+	}
 	errGroup.Go(func() error {
 		pullCtx, pullSpan := a.OtelManager.Tracer.Start(errCtx, "cdc.pull", trace.WithAttributes(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
@@ -250,6 +264,8 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
+			SyncBatchID:                 syncBatchID,
+			TableBackpressure:           tableBackpressure,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)
@@ -428,7 +444,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 		syncState.Store(new("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
 		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
-		if normResponses.Load() <= normWaitThreshold {
+		if !tableLevelBackpressure && normResponses.Load() <= normWaitThreshold {
 			logger.Warn("sync waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
 				slog.Int64("normalizeBatchID", normResponses.Load()),

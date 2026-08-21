@@ -37,6 +37,11 @@ type PostgresMetadata struct {
 	logger log.Logger
 }
 
+type NormalizeBatchIDs struct {
+	Tables map[string]int64
+	Global int64
+}
+
 func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
 	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
@@ -98,6 +103,28 @@ func (p *PostgresMetadata) GetLastNormalizedBatchIDForTable(ctx context.Context,
 	}
 
 	return lastSyncedBatchID, nil
+}
+
+// GetLastNormalizeBatchIDs reads the global and per-table normalization
+// frontiers from the same catalog snapshot.
+func (p *PostgresMetadata) GetLastNormalizeBatchIDs(ctx context.Context, jobName string) (NormalizeBatchIDs, error) {
+	var global pgtype.Int8
+	var tableBatchIDDataJSON string
+	if err := p.pool.QueryRow(ctx,
+		`SELECT normalize_batch_id, table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&global, &tableBatchIDDataJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return NormalizeBatchIDs{Tables: make(map[string]int64)}, nil
+		}
+		return NormalizeBatchIDs{}, fmt.Errorf("failed to get normalize batch ids: %w", err)
+	}
+
+	tables := make(map[string]int64)
+	if err := json.Unmarshal([]byte(tableBatchIDDataJSON), &tables); err != nil {
+		return NormalizeBatchIDs{}, fmt.Errorf("failed to unmarshal table batch id data: %w", err)
+	}
+	return NormalizeBatchIDs{Global: global.Int64, Tables: tables}, nil
 }
 
 // SetLastNormalizedBatchIDForTable updates the last batch ID normalized for the given target table.

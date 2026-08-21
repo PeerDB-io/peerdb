@@ -19,6 +19,9 @@ type bigQueryCDCTableProgress struct {
 	// SyncedThrough after success and remains ahead of it while a failed window
 	// is waiting to be retried.
 	Target time.Time `json:"target"`
+	// SyncedBatchID is the latest raw batch assigned to a successful poll of
+	// this table. It stays fixed while this table is failed or backpressured.
+	SyncedBatchID int64 `json:"synced_batch_id"`
 }
 
 type bigQueryCDCCheckpoint struct {
@@ -114,8 +117,16 @@ func (c *bigQueryCDCCheckpoint) SyncedThrough(table string) (time.Time, error) {
 	return progress.SyncedThrough, nil
 }
 
-func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time) {
-	c.Tables[table] = bigQueryCDCTableProgress{SyncedThrough: target, Target: target}
+func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time, syncBatchID int64) {
+	c.Tables[table] = bigQueryCDCTableProgress{
+		SyncedThrough: target,
+		Target:        target,
+		SyncedBatchID: syncBatchID,
+	}
+}
+
+func (c *bigQueryCDCCheckpoint) IsBackpressured(table string, normalizedBatchID, bufferSize int64) bool {
+	return c.Tables[table].SyncedBatchID-normalizedBatchID >= bufferSize
 }
 
 // RecordFailure keeps the last confirmed cursor and records the attempted
