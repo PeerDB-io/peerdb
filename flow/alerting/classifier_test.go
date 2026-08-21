@@ -731,6 +731,7 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+<<<<<<< HEAD
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
@@ -744,6 +745,27 @@ func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.GeneratedAlways,
 	}, errInfo, "Unexpected error info")
+=======
+func TestPostgresExtensionNotAvailableOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"not available": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  extension "vector" is not available`,
+		"missing control file": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postgresql/16/extension/vector.control": No such file or directory`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresExtensionNotAvailable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "EXTENSION_NOT_AVAILABLE",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+>>>>>>> abf467b05 (fix(pg-pg): classify pgdump extension missing)
 }
 
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {

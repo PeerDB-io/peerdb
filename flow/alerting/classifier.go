@@ -82,8 +82,13 @@ var (
 	// e.g. could not open file "pg_logical/snapshots/2-8B023150.snap.8007.tmp": No such file or directory
 	PostgresCouldNotOpenSnapshotRe = regexp.MustCompile(`could not open file ".*\.snap\..*\.tmp"`)
 	PostgresNeonDonorWalLaggingRe  = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
-	MySqlRdsBinlogFileNotFoundRe   = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
-	MongoPoolClearedErrorRe        = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	// pg_dump automated schema migration failing because the destination lacks an extension the source uses,
+	// e.g. `extension "vector" is not available` or `could not open extension control file ".../vector.control"`.
+	PostgresExtensionNotAvailableRe = regexp.MustCompile(
+		`extension ".*?" is not available|could not open extension control file`,
+	)
+	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -214,8 +219,15 @@ var (
 	ErrorNotifyConstraintViolation = ErrorClass{
 		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
 	}
+<<<<<<< HEAD
 	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
 		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
+=======
+	// The pg_dump automated schema migration failed because the destination is missing an extension
+	// that the source schema depends on; the user must install it on the destination.
+	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
+		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
+>>>>>>> abf467b05 (fix(pg-pg): classify pgdump extension missing)
 	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
@@ -1446,6 +1458,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
+		}
+	}
+
+	// pg_dump automated schema migration pipes into psql, so a missing destination extension surfaces
+	// as plain stderr text rather than a *pgconn.PgError.
+	if PostgresExtensionNotAvailableRe.MatchString(err.Error()) {
+		return ErrorNotifyPostgresExtensionNotAvailable, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "EXTENSION_NOT_AVAILABLE",
 		}
 	}
 
