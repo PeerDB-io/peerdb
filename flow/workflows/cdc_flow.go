@@ -594,24 +594,6 @@ func fetchMetadata(
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 ) (workflow.Context, error) {
-	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
-
-	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
-	// TODO: no longer needed, remove with versioning
-	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    2 * time.Minute,
-	})
-	if err := workflow.ExecuteActivity(
-		migrateCtx,
-		flowable.MigratePostgresTableOIDs,
-		cfg.FlowJobName,
-		state.SyncFlowOptions.SrcTableIdNameMapping,
-		state.SyncFlowOptions.TableMappings,
-	).Get(migrateCtx, nil); err != nil {
-		return ctx, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
-	}
-
 	for {
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
@@ -648,6 +630,11 @@ func startSetupAndSnapshot(
 	state *cdc_state.CDCFlowWorkflowState,
 	flowSignalStateChangeChan model.TypedReceiveChannel[*protos.FlowStateChangeRequest],
 ) (nextRun, error) {
+	var err error
+	if ctx, err = fetchMetadata(ctx, logger, cfg, state); err != nil {
+		return nextRunNone, err
+	}
+
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 	originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
@@ -983,10 +970,6 @@ func CDCFlowWorkflow(
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
-		// no longer used, handler kept to avoid nondeterminism
-		return state.CurrentFlowStatus, nil
-	})
 
 	// completion from a snapshot-only mirror, we are done
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
@@ -995,30 +978,23 @@ func CDCFlowWorkflow(
 
 	var next nextRun
 	var nextErr error
-	continueAsNewCtx := ctx
+
 	if state.ActiveSignal == model.PauseSignal {
 		next, nextErr = handlePaused(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+	} else if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
+		next, nextErr = startSetupAndSnapshot(ctx, logger, cfg, state, flowSignalStateChangeChan)
 	} else {
-		enrichedCtx, err := fetchMetadata(ctx, logger, cfg, state)
-		if err != nil {
-			return state, err
-		}
-		continueAsNewCtx = enrichedCtx
-		if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
-			next, nextErr = startSetupAndSnapshot(enrichedCtx, logger, cfg, state, flowSignalStateChangeChan)
-		} else {
-			next, nextErr = startCDC(enrichedCtx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
-		}
+		next, nextErr = startCDC(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
 	}
 
 	switch next {
 	case nextRunCDC:
-		return state, workflow.NewContinueAsNewError(continueAsNewCtx, CDCFlowWorkflow, cfg, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	case nextRunDrop:
 		if state.DropFlowInput == nil {
 			return state, errors.New("internal: drop transition without DropFlowInput")
 		}
-		return state, workflow.NewContinueAsNewError(continueAsNewCtx, DropFlowWorkflow, state.DropFlowInput)
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 	default:
 		return state, nextErr
 	}
