@@ -410,30 +410,60 @@ func (a *FlowableActivity) SyncFlow(
 	normBufferSize = max(normBufferSize, 2)
 
 	group, groupCtx := errgroup.WithContext(ctx)
+	pullCtx, cancelPull := context.WithCancel(groupCtx)
+	defer cancelPull()
+	normCtx, cancelNorm := context.WithCancel(groupCtx)
+	defer cancelNorm()
+
+	// on worker shutdown (SIGTERM), cancel pull and normalize so this activity returns
+	// cleanly well within WorkerStopTimeout.
+	var draining atomic.Bool
+	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		go func() {
+			select {
+			case <-workerStopChan:
+				logger.Info("[worker shutdown] SIGTERM received, worker is stopping, draining SyncFlow")
+				draining.Store(true)
+				cancelPull()
+				cancelNorm()
+			case <-pullCtx.Done():
+				// exit guard to prevent goroutine leak: pullCtx descends from the activity ctx
+				// and is additionally canceled by `defer cancelPull()` on every SyncFlow return
+				// path, so this goroutine can never outlive the activity regardless of how it exits.
+			}
+		}()
+	}
+
 	group.Go(func() error {
-		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
+		normalizeCtx := internal.WithOperationContext(normCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 
-	for groupCtx.Err() == nil {
+	for groupCtx.Err() == nil && !draining.Load() {
 		syncNum := currentSyncFlowNum.Add(1)
 		logger.Info("executing sync flow", slog.Int64("count", int64(syncNum)))
 
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(pullCtx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(pullCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
 			if groupCtx.Err() != nil {
 				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
+				break
+			}
+			if draining.Load() {
+				// worker shutdown canceled the pull, exit cleanly so the workflow
+				// continues-as-new instead of entering error backoff
+				logger.Info("[worker shutdown] SyncFlow drained")
 				break
 			}
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
@@ -467,6 +497,7 @@ func (a *FlowableActivity) SyncFlow(
 		logger.Error("sync failed", slog.Any("error", waitErr))
 		return waitErr
 	}
+	logger.Info("[worker shutdown] SyncFlow exit gracefully")
 	return nil
 }
 
