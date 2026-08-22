@@ -21,7 +21,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -378,10 +377,10 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	// syncDone will be closed by SyncFlow,
-	// whereas normalizeDone will be closed by normalizing goroutine
-	// Wait on normalizeDone at end to not interrupt final normalize
+	// syncDone is closed by SyncFlow to signal the normalize goroutine that no more batches
+	// are coming, whereas normDone is closed by the normalize goroutine upon exit.
 	syncDone := make(chan struct{})
+	normDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
 
@@ -409,40 +408,30 @@ func (a *FlowableActivity) SyncFlow(
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
-		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
+	go func() {
+		defer close(normDone)
+		normalizeCtx := internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
-		return nil
-	})
+	}()
 
-	for groupCtx.Err() == nil {
+	var syncErr error
+	for ctx.Err() == nil {
 		syncNum := currentSyncFlowNum.Add(1)
 		logger.Info("executing sync flow", slog.Int64("count", int64(syncNum)))
 
 		var syncResponse *model.SyncResponse
-		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
-			if groupCtx.Err() != nil {
-				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
-				break
-			}
-			logger.Error("failed to sync records", slog.Any("error", syncErr))
-			syncState.Store(new("cleanup"))
-			close(syncDone)
-			normRequests.Close()
-			normResponses.Close()
-			return errors.Join(syncErr, group.Wait())
-		} else if syncResponse != nil {
+			break
+		}
+		if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
@@ -458,14 +447,15 @@ func (a *FlowableActivity) SyncFlow(
 	close(syncDone)
 	normRequests.Close()
 	normResponses.Close()
+	<-normDone
 
-	waitErr := group.Wait()
-	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled", slog.Any("error", err))
-		return err
-	} else if waitErr != nil {
-		logger.Error("sync failed", slog.Any("error", waitErr))
-		return waitErr
+	if syncErr != nil && ctx.Err() == nil {
+		// return syncErr when it's not a top-level context cancellation
+		logger.Error("failed to sync records", slog.Any("error", syncErr))
+		return syncErr
+	} else if ctx.Err() != nil {
+		logger.Info("sync canceled", slog.Any("error", ctx.Err()))
+		return ctx.Err()
 	}
 	return nil
 }
