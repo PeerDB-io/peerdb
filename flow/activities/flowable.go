@@ -422,6 +422,7 @@ func (a *FlowableActivity) SyncFlow(
 	// worker since this worker's pollers are already stopped.
 	var draining atomic.Bool
 	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		logger.Info("starting goroutine to watch worker stop channel")
 		go func() {
 			select {
 			case <-workerStopChan:
@@ -493,7 +494,7 @@ func (a *FlowableActivity) SyncFlow(
 
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled", slog.Any("error", err))
+		logger.Info("sync canceled", slog.Any("error", err), slog.Any("cause", context.Cause(ctx)))
 		return err
 	} else if waitErr != nil {
 		logger.Error("sync failed", slog.Any("error", waitErr))
