@@ -288,7 +288,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "60",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name: "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS",
@@ -297,7 +297,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "86400",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
