@@ -201,7 +201,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		require.Contains(t, err.Error(), "enable_change_history")
 	})
 
-	t.Run("QUERY replication mode is rejected", func(t *testing.T) {
+	t.Run("QUERY replication mode", func(t *testing.T) {
 		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
 				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
@@ -209,8 +209,54 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		}
 		defer func() { flowConfig.SourceConnectorConfig = nil }()
 
-		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-		require.Error(t, err, "QUERY replication mode isn't implemented yet")
+		t.Run("requires a watermark column", func(t *testing.T) {
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a table with no watermark_column set")
+			require.Contains(t, err.Error(), "watermark_column")
+		})
+
+		t.Run("rejects a non-timestamp/date watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.WatermarkColumn = "trip_id" // INTEGER
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.WatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP or DATE")
+			require.Contains(t, err.Error(), "must be TIMESTAMP or DATE")
+		})
+
+		t.Run("accepts a TIMESTAMP watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.WatermarkColumn = "pickup_datetime"
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.WatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
+
+		t.Run("accepts a DATE watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.WatermarkColumn = "pickup_date"
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.WatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
 	})
 }
 

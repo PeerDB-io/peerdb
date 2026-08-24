@@ -204,7 +204,7 @@ func TestBigQueryCDCCheckpointPollScheduleSurvivesReload(t *testing.T) {
 
 	encoded, err := cp.Marshal()
 	require.NoError(t, err)
-	reloaded, err := parseBigQueryCDCCheckpoint(encoded, []string{"a", "b"})
+	reloaded, err := parseBigQueryCDCCheckpoint(encoded, []string{"a", "b"}, now)
 	require.NoError(t, err)
 
 	assert.Zero(t, reloaded.nextPollWait(now, time.Hour), "table b is already due")
@@ -231,7 +231,7 @@ func TestBigQueryCDCCheckpointNextPollWait(t *testing.T) {
 			"tables": {
 				"a": {"synced_through": "2026-08-01T10:00:00Z", "target": "2026-08-01T10:00:00Z"}
 			}
-		}`, []string{"a"})
+		}`, []string{"a"}, now)
 		require.NoError(t, err)
 		assert.Zero(t, cp.nextPollWait(now, time.Hour))
 	})
@@ -360,6 +360,18 @@ func TestBuildPullQuery(t *testing.T) {
 	assert.Equal(t,
 		"SELECT * EXCEPT (`secret`) FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
 		buildPullQuery("CHANGES", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, "`_CHANGE_TIMESTAMP`"),
+	)
+}
+
+func TestBuildQueryModePullQuery(t *testing.T) {
+	assert.Equal(t,
+		"SELECT * FROM `ds`.`tbl` WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end ORDER BY `updated_at`",
+		buildQueryModePullQuery("`ds`.`tbl`", "updated_at", nil),
+	)
+	assert.Equal(t,
+		"SELECT * EXCEPT (`secret`) FROM `ds`.`tbl` WHERE TIMESTAMP(`updated_at`) > @start AND "+
+			"TIMESTAMP(`updated_at`) <= @end ORDER BY `updated_at`",
+		buildQueryModePullQuery("`ds`.`tbl`", "updated_at", map[string]struct{}{"secret": {}}),
 	)
 }
 

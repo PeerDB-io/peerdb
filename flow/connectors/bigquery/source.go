@@ -67,7 +67,30 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 	replicationMode := cfg.GetBigqueryCdcConfig().GetReplicationMode()
 	if replicationMode == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
-		return fmt.Errorf("BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY is not yet supported")
+		for _, tableMapping := range cfg.TableMappings {
+			dstDatasetTable := dstDatasetTables[tableMapping.SourceTableIdentifier]
+			watermarkColumn := tableMapping.GetWatermarkColumn()
+			if watermarkColumn == "" {
+				return fmt.Errorf("table %s has no watermark_column configured; QUERY replication mode requires "+
+					"one TIMESTAMP or DATE column per table to incrementally scan", dstDatasetTable.string())
+			}
+
+			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
+			metadata, err := table.Metadata(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.SourceTableIdentifier, err)
+			}
+
+			field := bigQueryFieldByName(metadata.Schema, watermarkColumn)
+			if field == nil {
+				return fmt.Errorf("watermark column %s does not exist on table %s", watermarkColumn, dstDatasetTable.string())
+			}
+			if field.Type != bigquery.TimestampFieldType && field.Type != bigquery.DateFieldType {
+				return fmt.Errorf("watermark column %s on table %s must be TIMESTAMP or DATE, got %s",
+					watermarkColumn, dstDatasetTable.string(), field.Type)
+			}
+		}
+		return nil
 	}
 
 	needsChangeHistory := false
@@ -127,6 +150,16 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
+	return nil
+}
+
+// bigQueryFieldByName returns the schema field named name, or nil if absent.
+func bigQueryFieldByName(schema bigquery.Schema, name string) *bigquery.FieldSchema {
+	for _, field := range schema {
+		if field.Name == name {
+			return field
+		}
+	}
 	return nil
 }
 

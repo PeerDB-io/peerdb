@@ -63,6 +63,14 @@ func newBigQueryCDCCheckpoint(syncedThrough time.Time, sourceTables []string) *b
 	return &bigQueryCDCCheckpoint{Version: bigQueryCDCCheckpointVersion, Tables: tables}
 }
 
+func newBigQueryCDCCheckpointPerTable(syncedThrough map[string]time.Time) *bigQueryCDCCheckpoint {
+	tables := make(map[string]bigQueryCDCTableProgress, len(syncedThrough))
+	for table, t := range syncedThrough {
+		tables[table] = bigQueryCDCTableProgress{SyncedThrough: t, Target: t}
+	}
+	return &bigQueryCDCCheckpoint{Version: bigQueryCDCCheckpointVersion, Tables: tables}
+}
+
 func parseBigQueryCDCCheckpoint(raw string, sourceTables []string, now time.Time) (*bigQueryCDCCheckpoint, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
