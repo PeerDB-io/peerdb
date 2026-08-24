@@ -786,6 +786,85 @@ func (s CockroachDBSuite) Test_CDC_Live_PullRecords() {
 	require.Greater(t, checkpoint2.ID, checkpoint.ID)
 }
 
+// Test_CDC_Exactly_Once_Across_Batches pins the resolved-timestamp buffering
+// behavior: records are emitted only once a resolved timestamp covers them and
+// the checkpoint advances to that same value, so consecutive batches must not
+// re-deliver events on the happy path. A force-emit (buffer cap or a stalled
+// resolved stream) intentionally breaks this and logs a loud warning; if this
+// test ever flakes with a duplicate, check the pull logs for that warning
+// before suspecting the buffering logic.
+func (s CockroachDBSuite) Test_CDC_Exactly_Once_Across_Batches() {
+	t := s.t
+	ctx := t.Context()
+	schema := "e2e_test_" + s.suffix
+	flowName := "cdcexact_" + s.suffix
+	src := schema + ".cdc_exact"
+	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf(
+		"CREATE TABLE %s (id INT8 PRIMARY KEY, v TEXT)", src)))
+
+	cfConn := s.changefeedConnector(t)
+	_, err := cfConn.SetupReplication(ctx, shared.CatalogPool{}, &protos.SetupReplicationInput{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{src: "cdc_exact_dst"},
+	})
+	require.NoError(t, err)
+	lastOffset, err := cfConn.GetLastOffset(ctx, flowName)
+	require.NoError(t, err)
+
+	tableMappings := []*protos.TableMapping{
+		{SourceTableIdentifier: src, DestinationTableIdentifier: "cdc_exact_dst"},
+	}
+	schemas, err := cfConn.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q, tableMappings)
+	require.NoError(t, err)
+	makeRequest := func(offset model.CdcCheckpoint) *model.PullRecordsRequest[model.RecordItems] {
+		return &model.PullRecordsRequest[model.RecordItems]{
+			FlowJobName:            flowName,
+			TableNameMapping:       map[string]model.NameAndExclude{src: model.NewNameAndExclude("cdc_exact_dst", nil)},
+			TableNameSchemaMapping: map[string]*protos.TableSchema{"cdc_exact_dst": schemas[src]},
+			LastOffset:             offset,
+			MaxBatchSize:           1000,
+			InternalVersion:        shared.InternalVersion_Latest,
+			IdleTimeout:            5 * time.Second,
+		}
+	}
+
+	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s SELECT i, 'v' || i::TEXT FROM generate_series(1, 50) AS g(i)", src)))
+	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf("UPDATE %s SET v = 'u2' WHERE id = 2", src)))
+	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = 3", src)))
+
+	records1, checkpoint1, err := pullOneBatch(t, ctx, cfConn, makeRequest(lastOffset))
+	require.NoError(t, err)
+
+	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s SELECT i, 'v' || i::TEXT FROM generate_series(51, 80) AS g(i)", src)))
+	records2, checkpoint2, err := pullOneBatch(t, ctx, cfConn, makeRequest(checkpoint1))
+	require.NoError(t, err)
+	require.Greater(t, checkpoint2.ID, checkpoint1.ID)
+
+	type cdcEvent struct {
+		id   int64
+		kind string
+	}
+	seen := map[cdcEvent]int{}
+	for _, record := range append(append([]model.Record[model.RecordItems]{}, records1...), records2...) {
+		switch typed := record.(type) {
+		case *model.InsertRecord[model.RecordItems]:
+			seen[cdcEvent{typed.Items.GetColumnValue("id").(types.QValueInt64).Val, "insert"}]++
+		case *model.UpdateRecord[model.RecordItems]:
+			seen[cdcEvent{typed.NewItems.GetColumnValue("id").(types.QValueInt64).Val, "update"}]++
+		case *model.DeleteRecord[model.RecordItems]:
+			seen[cdcEvent{typed.Items.GetColumnValue("id").(types.QValueInt64).Val, "delete"}]++
+		default:
+			t.Fatalf("unexpected record type %T", record)
+		}
+	}
+	require.Len(t, seen, 82, "80 inserts + 1 update + 1 delete, each as a distinct event")
+	for event, count := range seen {
+		require.Equal(t, 1, count, "event %v must be emitted exactly once across batches", event)
+	}
+}
+
 func (s CockroachDBSuite) Test_CDC_Schema_Delta_At_Event_Time() {
 	t := s.t
 	ctx := t.Context()

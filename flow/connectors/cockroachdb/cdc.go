@@ -99,11 +99,18 @@ func (c *CockroachDBConnector) PullFlowCleanup(ctx context.Context, jobName stri
 // changefeedPullState carries the per-batch state shared between changefeed
 // sessions (a session being one sinkless changefeed query on one connection).
 //
-// A session reconnect replays every message since the last resolved timestamp,
-// so rows delivered before the failure point can be emitted again within one
-// PullRecords batch. Those duplicates are deliberately passed through: PeerDB
-// guarantees at-least-once delivery and destinations already absorb replays,
-// so deduplicating here would only duplicate that responsibility.
+// Converted records are buffered keyed by commit timestamp and row key, and
+// only handed to the record stream once a resolved timestamp at or beyond
+// their commit timestamp arrives; the checkpoint then advances to that same
+// resolved timestamp. Nothing emitted therefore ever lies past the persisted
+// checkpoint, so neither batch boundaries nor session reconnects re-deliver
+// records on the happy path (a reconnect's replays land on the same buffer
+// keys and collapse). Records still buffered when the batch ends are dropped,
+// not emitted: the next batch re-reads them from the cursor, trading a little
+// re-fetch work for exactly-once emission across batches. Delivery overall
+// stays at least once: a crash between emitting and persisting the checkpoint
+// replays, and force-emits under memory pressure (see
+// changefeedBufferSoftLimitBytes) intentionally emit past the checkpoint.
 //
 //nolint:govet // keeping related fields together over alignment
 type changefeedPullState struct {
@@ -112,6 +119,9 @@ type changefeedPullState struct {
 	sourceByEmitted  map[string]string
 	emittedSources   [][2]string
 	schemas          map[string]*changefeedTableSchema
+	buffer           map[string]*bufferedChangefeedRecord
+	bufferSeq        uint64
+	bufferedBytes    int64
 	cursor           crdbHLC
 	resolvedInterval time.Duration
 	recordCount      uint32
@@ -120,6 +130,35 @@ type changefeedPullState struct {
 	lastLagWarnAt    time.Time
 	deltaBytes       atomic.Int64
 	totalBytes       atomic.Int64
+}
+
+// bufferedChangefeedRecord is one converted record waiting for a resolved
+// timestamp to cover it. seq preserves arrival order among records sharing a
+// commit timestamp so emission stays deterministic.
+type bufferedChangefeedRecord struct {
+	record model.Record[model.RecordItems]
+	ts     crdbHLC
+	seq    uint64
+	bytes  int64
+}
+
+// stashRecord buffers a converted record under its commit timestamp and row
+// key. A replayed message (same timestamp, table and key) overwrites its
+// earlier copy instead of queueing a duplicate.
+func (state *changefeedPullState) stashRecord(
+	bufferKey string, record model.Record[model.RecordItems], ts crdbHLC, messageBytes int64,
+) {
+	if prior, ok := state.buffer[bufferKey]; ok {
+		state.bufferedBytes -= prior.bytes
+	}
+	state.bufferSeq++
+	state.buffer[bufferKey] = &bufferedChangefeedRecord{
+		record: record,
+		ts:     ts,
+		seq:    state.bufferSeq,
+		bytes:  messageBytes,
+	}
+	state.bufferedBytes += messageBytes
 }
 
 // indexSource registers a source table under the exact and quote-stripped
@@ -214,6 +253,7 @@ func (c *CockroachDBConnector) PullRecords(
 		tables:           make([]*common.QualifiedTable, 0, len(req.TableNameMapping)),
 		sourceByEmitted:  make(map[string]string, len(req.TableNameMapping)),
 		schemas:          make(map[string]*changefeedTableSchema, len(req.TableNameMapping)),
+		buffer:           make(map[string]*bufferedChangefeedRecord),
 		cursor:           cursor,
 		resolvedInterval: changefeedResolvedInterval,
 	}
@@ -258,6 +298,14 @@ func (c *CockroachDBConnector) PullRecords(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(state.recordCount)),
 			attribute.Int64(otel_metrics.BytesPulledKey, state.totalBytes.Load()),
 		)
+		if len(state.buffer) > 0 {
+			// no data loss: nothing buffered was emitted, so the persisted
+			// cursor still precedes these records and the next batch re-reads
+			// them from the changefeed
+			c.logger.Debug("[cockroachdb] leaving records past the final resolved timestamp for the next batch",
+				slog.Int("bufferedRecords", len(state.buffer)),
+				slog.Int64("bufferedBytes", state.bufferedBytes))
+		}
 		c.logger.Info("[cockroachdb] PullRecords finished streaming",
 			slog.Uint64("records", uint64(state.recordCount)),
 			slog.Int64("bytes", state.totalBytes.Load()),
@@ -419,7 +467,7 @@ func (c *CockroachDBConnector) runChangefeedSession(
 				return done, err
 			}
 		} else if tableName.Valid {
-			if err := c.processChangefeedRow(ctx, otelManager, state, tableName.String, key, envelope); err != nil {
+			if err := c.processChangefeedRow(ctx, otelManager, state, tableName.String, key, envelope, messageBytes); err != nil {
 				return false, err
 			}
 		} else {
@@ -428,11 +476,26 @@ func (c *CockroachDBConnector) runChangefeedSession(
 
 		now := time.Now()
 		if !state.graceDeadline.IsZero() && !now.Before(state.graceDeadline) {
+			// the grace window closed without a covering resolved timestamp:
+			// hand over the buffer (emitting past the checkpoint, so it may
+			// replay) rather than cut an empty batch and re-read the same
+			// window next time
+			if err := c.emitBuffered(ctx, state, nil,
+				"batch filled but no covering resolved timestamp arrived within the grace window"); err != nil {
+				return false, err
+			}
 			return true, nil
 		}
-		if state.recordCount > 0 && !now.Before(state.batchDeadline.Add(2*state.resolvedInterval)) {
+		if (state.recordCount > 0 || len(state.buffer) > 0) &&
+			!now.Before(state.batchDeadline.Add(2*state.resolvedInterval)) {
 			// records are flowing but resolved timestamps stalled past the
-			// idle deadline: cut the batch with the last known checkpoint
+			// idle deadline: hand over whatever is buffered (emitting past the
+			// checkpoint, so it may replay) and cut the batch on the last
+			// known checkpoint rather than sit on the data indefinitely
+			if err := c.emitBuffered(ctx, state, nil,
+				"batch deadline passed without a covering resolved timestamp"); err != nil {
+				return false, err
+			}
 			return true, nil
 		}
 		watchdog.Reset(state.watchdogWindow())
@@ -464,8 +527,11 @@ func classifySessionEnd(ctx context.Context, queryCtx context.Context, rowsErr e
 	}
 }
 
-// handleResolved advances the checkpoint: resolved timestamps are the only
-// safe resume points, as row timestamps between them may arrive out of order.
+// handleResolved emits every buffered record the resolved timestamp covers,
+// then advances the checkpoint to it: resolved timestamps are the only safe
+// resume points, as row timestamps between them may arrive out of order, and
+// emitting first keeps everything handed to the stream at or before the
+// checkpoint that will be persisted for it.
 func (c *CockroachDBConnector) handleResolved(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
@@ -477,6 +543,9 @@ func (c *CockroachDBConnector) handleResolved(
 		return false, err
 	}
 	otelManager.Metrics.CockroachDBResolvedLagGauge.Record(ctx, time.Since(time.Unix(0, ts.WallNanos)).Seconds())
+	if err := c.emitBuffered(ctx, state, &ts, ""); err != nil {
+		return false, err
+	}
 	state.cursor = ts
 	state.req.RecordStream.UpdateLatestCheckpointText(ts.String())
 	state.req.RecordStream.UpdateLatestCheckpointID(ts.WallNanos)
@@ -514,6 +583,7 @@ func (c *CockroachDBConnector) processChangefeedRow(
 	emittedTableName string,
 	key []byte,
 	envelope *changefeedEnvelope,
+	messageBytes int64,
 ) error {
 	source, ok := state.lookupSource(emittedTableName)
 	if !ok {
@@ -608,29 +678,91 @@ func (c *CockroachDBConnector) processChangefeedRow(
 		}
 	}
 
-	if err := state.req.RecordStream.AddRecord(ctx, record); err != nil {
-		return err
-	}
+	// the buffer key is the event's identity: a session reconnect replaying
+	// the same message lands on the same key and overwrites instead of queueing
+	// a duplicate
+	bufferKey := envelope.Updated + "\x00" + emittedTableName + "\x00" + string(key)
+	state.stashRecord(bufferKey, record, updatedTs, messageBytes)
 	otelManager.Metrics.CockroachDBRecordsReceivedCounter.Add(ctx, 1)
-	state.recordCount++
-	if state.recordCount == 1 {
-		state.req.RecordStream.SignalAsNotEmpty()
+	if state.batchDeadline.IsZero() {
 		state.batchDeadline = time.Now().Add(state.req.IdleTimeout)
 	}
-	if state.recordCount >= state.req.MaxBatchSize && state.graceDeadline.IsZero() {
+	if state.bufferedBytes >= changefeedBufferSoftLimitBytes {
+		if err := c.emitBuffered(ctx, state, nil, "buffer size limit reached"); err != nil {
+			return err
+		}
+	}
+	if state.recordCount+uint32(len(state.buffer)) >= state.req.MaxBatchSize && state.graceDeadline.IsZero() {
 		// full batch: allow a short grace period for a final resolved
 		// timestamp so the checkpoint covers the pulled records
 		state.graceDeadline = time.Now().Add(2 * state.resolvedInterval)
-	}
-	if state.recordCount%pullProgressLogInterval == 0 {
-		c.logger.Info("[cockroachdb] PullRecords streaming",
-			slog.Uint64("records", uint64(state.recordCount)),
-			slog.Int64("bytes", state.totalBytes.Load()))
 	}
 
 	commitTime := time.Unix(0, commitWallNanos)
 	otelManager.Metrics.LatestConsumedLogEventGauge.Record(ctx, commitTime.Unix())
 	otelManager.Metrics.SourceLagGauge.Record(ctx, time.Since(commitTime).Milliseconds())
+	return nil
+}
+
+// emitBuffered hands buffered records to the record stream in commit-timestamp
+// order. With upTo set, only records at or before it are emitted (the resolved
+// path, which keeps emissions covered by the checkpoint about to be recorded).
+// With upTo nil the whole buffer is force-emitted past the checkpoint, logged
+// with the reason: those records replay after a restart, which is the
+// pre-buffering behavior and the deliberate trade against unbounded memory.
+func (c *CockroachDBConnector) emitBuffered(
+	ctx context.Context,
+	state *changefeedPullState,
+	upTo *crdbHLC,
+	forceReason string,
+) error {
+	if len(state.buffer) == 0 {
+		return nil
+	}
+	eligible := make([]*bufferedChangefeedRecord, 0, len(state.buffer))
+	keys := make([]string, 0, len(state.buffer))
+	for key, entry := range state.buffer {
+		if upTo == nil || !entry.ts.After(*upTo) {
+			eligible = append(eligible, entry)
+			keys = append(keys, key)
+		}
+	}
+	if len(eligible) == 0 {
+		return nil
+	}
+	if upTo == nil {
+		c.logger.Warn("[cockroachdb] force-emitting buffered records past the checkpoint: "+forceReason,
+			slog.Int("records", len(eligible)),
+			slog.Int64("bufferedBytes", state.bufferedBytes),
+			slog.String("cursor", state.cursor.String()))
+	}
+	slices.SortFunc(eligible, func(a, b *bufferedChangefeedRecord) int {
+		if a.ts != b.ts {
+			if a.ts.After(b.ts) {
+				return 1
+			}
+			return -1
+		}
+		return int(a.seq - b.seq)
+	})
+	for _, entry := range eligible {
+		if err := state.req.RecordStream.AddRecord(ctx, entry.record); err != nil {
+			return err
+		}
+		state.recordCount++
+		if state.recordCount == 1 {
+			state.req.RecordStream.SignalAsNotEmpty()
+		}
+		if state.recordCount%pullProgressLogInterval == 0 {
+			c.logger.Info("[cockroachdb] PullRecords streaming",
+				slog.Uint64("records", uint64(state.recordCount)),
+				slog.Int64("bytes", state.totalBytes.Load()))
+		}
+	}
+	for _, key := range keys {
+		state.bufferedBytes -= state.buffer[key].bytes
+		delete(state.buffer, key)
+	}
 	return nil
 }
 
