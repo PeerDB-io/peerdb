@@ -593,7 +593,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
 
-	// batch A: synced and checkpointed before the pause.
+	// batch A: synced before the pause.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "batch-a"}})
 	EnvWaitFor(t, env, 4*time.Minute, "batch A picked up before pause", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")
@@ -606,16 +606,19 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	checkpointBeforePause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
-	require.NotEmpty(t, checkpointBeforePause, "checkpoint should be persisted after batch A lands")
-	checkpointTimeBeforePause := bigQueryTableCheckpointTime(
-		t, checkpointBeforePause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-	)
 
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
+	// The destination row can become visible before the source checkpoint is
+	// persisted. Read the baseline only after PAUSED confirms the in-flight sync
+	// activity has stopped.
+	checkpointBeforePause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
+	require.NotEmpty(t, checkpointBeforePause, "checkpoint should be persisted after batch A lands")
+	checkpointTimeBeforePause := bigQueryTableCheckpointTime(
+		t, checkpointBeforePause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+	)
 
 	// batch B: written while the mirror isn't polling - must not be lost.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 3, Val: "batch-b"}})
@@ -647,11 +650,12 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	// already have timed out.
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
-	checkpointAfterPause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
-	require.Greater(t, bigQueryTableCheckpointTime(
-		t, checkpointAfterPause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
-	), checkpointTimeBeforePause,
-		"checkpoint should have advanced past batch B after resuming")
+	EnvWaitFor(t, env, 1*time.Minute, "checkpoint advanced past batch B after resuming", func() bool {
+		checkpointAfterPause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
+		return bigQueryTableCheckpointTime(
+			t, checkpointAfterPause, fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+		).After(checkpointTimeBeforePause)
+	})
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
@@ -723,8 +727,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Table_Removal_Drops_Ch
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
-	// Stage both writes while polling is paused so the next pull emits one
-	// deterministic two-row batch.
+	// Stage both writes while polling is paused. BigQuery commits the two INSERT
+	// jobs at different times, so they may land in one or two CDC batches.
 	bqInsertRows(ctx, t, source, retainedFQN, []bqCdcRow{{ID: 2, Val: "retained-cdc"}})
 	bqInsertRows(ctx, t, source, removedFQN, []bqCdcRow{{ID: 2, Val: "removed-cdc"}})
 	_, err = apiClient.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
@@ -753,7 +757,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Table_Removal_Drops_Ch
 			return false
 		}
 		for _, batch := range response.CdcBatches {
-			if batch.NumRows == 2 && batch.EndTime != nil &&
+			if batch.NumRows > 0 && batch.EndTime != nil &&
 				batch.Status == protos.CDCBatchStatus_CDC_BATCH_STATUS_COMPLETED &&
 				batch.TablesCompleted == 2 && batch.TablesTotal == 2 && len(batch.LaggingTables) == 0 {
 				historicalBatch = batch
@@ -764,7 +768,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Table_Removal_Drops_Ch
 	})
 	require.NotNil(t, historicalBatch)
 	require.Positive(t, historicalBatch.BatchId)
-	require.Equal(t, int64(2), historicalBatch.NumRows)
+	require.Positive(t, historicalBatch.NumRows)
 	require.NotNil(t, historicalBatch.EndTime)
 	require.Equal(t, protos.CDCBatchStatus_CDC_BATCH_STATUS_COMPLETED, historicalBatch.Status)
 	require.Equal(t, uint32(2), historicalBatch.TablesCompleted)
