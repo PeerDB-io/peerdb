@@ -21,10 +21,11 @@ func withByteCounter(ctx context.Context, counter *atomic.Int64) context.Context
 	return context.WithValue(ctx, byteCounterCtxKey{}, counter)
 }
 
-// meteredRoundTripper counts response body bytes actually read off the wire for
-// requests whose context carries a byte counter (see withByteCounter), so BigQuery
-// CDC pull can report real transferred bytes instead of an approximation of the
-// converted row size.
+// meteredRoundTripper counts response body bytes consumed by the BigQuery client
+// for requests whose context carries a byte counter (see withByteCounter), so
+// BigQuery CDC pull can report bytes read instead of an approximation of the
+// converted row size. net/http may transparently decompress the body before it
+// reaches this wrapper.
 type meteredRoundTripper struct {
 	base http.RoundTripper
 }
@@ -41,8 +42,7 @@ func (t *meteredRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 // countingReadCloser adds each Read's returned byte count to counter as the
-// response body is consumed, since chunked/compressed responses have no reliable
-// Content-Length to read the size from up front.
+// response body is consumed.
 type countingReadCloser struct {
 	io.ReadCloser
 	counter *atomic.Int64
@@ -55,7 +55,8 @@ func (c *countingReadCloser) Read(p []byte) (int, error) {
 }
 
 // newMeteredBigQueryHTTPClient builds an authenticated HTTP client for the
-// BigQuery client whose RoundTripper reports transferred bytes via withByteCounter.
+// BigQuery client whose RoundTripper reports consumed response body bytes via
+// withByteCounter.
 func newMeteredBigQueryHTTPClient(ctx context.Context, creds *auth.Credentials) (*http.Client, error) {
 	transport, err := htransport.NewTransport(ctx, &meteredRoundTripper{base: http.DefaultTransport},
 		option.WithAuthCredentials(creds))
