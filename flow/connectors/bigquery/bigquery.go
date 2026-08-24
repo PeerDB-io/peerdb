@@ -111,6 +111,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	client, err := bigquery.NewClient(
 		ctx,
 		credentialConfig.clientProjectID,
+		option.WithAuthCredentials(creds),
 		option.WithHTTPClient(meteredHTTPClient),
 	)
 	if err != nil {

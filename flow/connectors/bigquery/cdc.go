@@ -379,8 +379,8 @@ func (c *BigQueryConnector) PullRecords(
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
 // source table over [start, end), converting and pushing each row via addRecord.
-// Returns the HTTP response bytes BigQuery transferred for this table's query,
-// including pagination fetches (see withByteCounter).
+// Returns the HTTP response body bytes consumed by BigQuery for this table's
+// query, including pagination fetches (see withByteCounter).
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -624,8 +624,8 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 // carrying the new values. The old-values half is skipped -- OldItems isn't needed
 // downstream (see model.UpdateRecord usage), so there's nothing to pair it with; the
 // UPDATE row alone is forwarded as the UpdateRecord.
-// Returns the HTTP response bytes BigQuery transferred for this table's query,
-// including pagination fetches (see withByteCounter).
+// Returns the HTTP response body bytes consumed by BigQuery for this table's
+// query, including pagination fetches (see withByteCounter).
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
