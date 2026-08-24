@@ -94,91 +94,45 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	return bqField
 }
 
+// bqTypeKinds maps a bigquery.FieldType to the QValueKind used for a scalar column
+// and for a REPEATED column of that type. RecordFieldType has no entry here: QValue has
+// no structured-record kind, so BigQueryTypeToQValueKind handles it (and its comment) separately.
+var bqTypeKinds = map[bigquery.FieldType]struct{ scalar, array types.QValueKind }{
+	bigquery.StringFieldType:     {types.QValueKindString, types.QValueKindArrayString},
+	bigquery.BytesFieldType:      {types.QValueKindBytes, types.QValueKindArrayString},
+	bigquery.IntegerFieldType:    {types.QValueKindInt64, types.QValueKindArrayInt64},
+	bigquery.FloatFieldType:      {types.QValueKindFloat64, types.QValueKindArrayFloat64},
+	bigquery.BooleanFieldType:    {types.QValueKindBoolean, types.QValueKindArrayBoolean},
+	bigquery.TimestampFieldType:  {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
+	bigquery.DateTimeFieldType:   {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
+	bigquery.DateFieldType:       {types.QValueKindDate, types.QValueKindArrayDate},
+	bigquery.TimeFieldType:       {types.QValueKindTime, types.QValueKindArrayString},
+	bigquery.NumericFieldType:    {types.QValueKindNumeric, types.QValueKindArrayNumeric},
+	bigquery.BigNumericFieldType: {types.QValueKindNumeric, types.QValueKindArrayNumeric},
+	bigquery.GeographyFieldType:  {types.QValueKindGeography, types.QValueKindArrayString},
+	bigquery.JSONFieldType:       {types.QValueKindJSON, types.QValueKindArrayJSON},
+	bigquery.IntervalFieldType:   {types.QValueKindInterval, types.QValueKindArrayInterval},
+	bigquery.RangeFieldType:      {types.QValueKindString, types.QValueKindArrayString},
+}
+
 // BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
 func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKind {
-	switch fieldSchema.Type {
-	case bigquery.StringFieldType:
+	if fieldSchema.Type == bigquery.RecordFieldType {
+		// Preserve field names and values as JSON text in STRING or ARRAY<STRING> values.
 		if fieldSchema.Repeated {
 			return types.QValueKindArrayString
 		}
 		return types.QValueKindString
-	case bigquery.BytesFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-		return types.QValueKindBytes
-	case bigquery.IntegerFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayInt64
-		}
-		return types.QValueKindInt64
-	case bigquery.FloatFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayFloat64
-		}
-		return types.QValueKindFloat64
-	case bigquery.BooleanFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayBoolean
-		}
-		return types.QValueKindBoolean
-	case bigquery.TimestampFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayTimestamp
-		}
-		return types.QValueKindTimestamp
-	case bigquery.DateTimeFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayTimestamp
-		}
-		return types.QValueKindTimestamp
-	case bigquery.DateFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayDate
-		}
-		return types.QValueKindDate
-	case bigquery.TimeFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-		return types.QValueKindTime
-	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayNumeric
-		}
-		return types.QValueKindNumeric
-	case bigquery.GeographyFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-		return types.QValueKindGeography
-	case bigquery.JSONFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayJSON
-		}
-		return types.QValueKindJSON
-	case bigquery.IntervalFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayInterval
-		}
-		return types.QValueKindInterval
-	case bigquery.RangeFieldType:
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-		return types.QValueKindString
-	case bigquery.RecordFieldType:
-		// QValue has no structured-record kind. Preserve field names and values as
-		// JSON text in STRING or ARRAY<STRING> values.
+	}
 
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-
-		return types.QValueKindString
-	default:
+	kinds, ok := bqTypeKinds[fieldSchema.Type]
+	if !ok {
 		return types.QValueKindInvalid
 	}
+	if fieldSchema.Repeated {
+		return kinds.array
+	}
+	return kinds.scalar
 }
 
 // numericRoundingScale fallback to default scale if precision and scale are not set.
