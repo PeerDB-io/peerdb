@@ -361,10 +361,7 @@ func (c *BigQueryConnector) exportTablesAsOf(
 	})
 }
 
-// exportTablesAsOfWatermarks exports each table up to its own watermark-column
-// bound, for BIGQUERY_REPLICATION_MODE_QUERY -- unlike exportTablesAsOf, there is
-// no single BigQuery-clock instant every table is read as of, since each table's
-// watermark column advances independently.
+// exportTablesAsOfWatermarks exports each table up to its own watermark-column bound
 func (c *BigQueryConnector) exportTablesAsOfWatermarks(
 	ctx context.Context,
 	flowName string,
@@ -599,7 +596,8 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 
 // SetupReplication is BigQuery's equivalent of capturing a starting replication position
 // (like MySQL's GTID/file-position capture): it has no replication slot to open, so it just
-// captures a BigQuery-clock timestamp T and persists it as the initial CDC checkpoint. Unlike
+// captures a BigQuery-clock timestamp T OR max(watermark_column)
+// and persists it as the initial CDC checkpoint. Unlike
 // MySQL/Postgres, BigQuery's initial load can't query the live table at pull time - QRep
 // pulls read pre-exported Parquet from GCS - so when the mirror wants an initial load
 // (req.DoInitialSnapshot), this also runs that export as of the same T, the same way
@@ -614,19 +612,39 @@ func (c *BigQueryConnector) SetupReplication(
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
+	var checkpointText string
 	if cfg.GetBigqueryCdcConfig().GetReplicationMode() == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
-		return c.setupQueryModeReplication(ctx, req, cfg)
+		checkpointText, err = c.setupQueryModeReplication(ctx, req, cfg)
+	} else {
+		checkpointText, err = c.setupEventsModeReplication(ctx, req, cfg)
+	}
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to setup replication: %w", err)
 	}
 
+	if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: checkpointText}); err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+	}
+
+	return model.SetupReplicationResult{}, nil
+}
+
+// setupEventsModeReplication captures a single BigQuery-clock timestamp T as the initial CDC checkpoint
+// uses EXPORT DATA ... FOR SYSTEM_TIME AS OF T to export the initial snapshot
+func (c *BigQueryConnector) setupEventsModeReplication(
+	ctx context.Context,
+	req *protos.SetupReplicationInput,
+	cfg *protos.FlowConnectionConfigsCore,
+) (string, error) {
 	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+		return "", fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
 	}
 
 	if req.DoInitialSnapshot {
 		_ = c.LogFlowInfo(ctx, req.FlowJobName, "Starting initial-load BigQuery export to GCS staging bucket")
 		if err := c.exportTablesAsOf(ctx, req.FlowJobName, cfg.TableMappings, cfg.SnapshotStagingPath, snapshotTime); err != nil {
-			return model.SetupReplicationResult{}, err
+			return "", err
 		}
 	}
 
@@ -642,35 +660,24 @@ func (c *BigQueryConnector) SetupReplication(
 	}
 	checkpointText, err := newBigQueryCDCCheckpoint(checkpointTime, sourceTables).Marshal()
 	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to encode initial CDC checkpoint: %w", err)
-	}
-	checkpoint := model.CdcCheckpoint{Text: checkpointText}
-	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+		return "", fmt.Errorf("failed to encode initial CDC checkpoint: %w", err)
 	}
 
-	return model.SetupReplicationResult{}, nil
+	return checkpointText, nil
 }
 
-// setupQueryModeReplication is SetupReplication's BIGQUERY_REPLICATION_MODE_QUERY
-// path. There is no single BigQuery-clock instant to snapshot from: each table's
-// watermark column advances on its own, so each table gets its own starting
-// checkpoint -- the current MAX(watermark_column) on that table, queried directly
-// (this mode's initial load can read the live table, unlike EVENTS mode's
-// GCS/Parquet export, so it needs no FOR SYSTEM_TIME AS OF consistency point).
-// The exported snapshot and the first CDC checkpoint use that same value, so CDC's
-// first poll (watermark_column > checkpoint) picks up exactly where the snapshot
-// (watermark_column <= checkpoint) left off.
+// setupQueryModeReplication fetches max(watermark_column) for each table and uses those as the initial CDC checkpoint
+// uses plain SELECT ... FROM ... WHERE watermark_column <= max(watermark_column) for each table to export the initial snapshot
 func (c *BigQueryConnector) setupQueryModeReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
 	cfg *protos.FlowConnectionConfigsCore,
-) (model.SetupReplicationResult, error) {
+) (string, error) {
 	checkpointByTable := make(map[string]time.Time, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		watermark, err := c.maxWatermarkValue(ctx, tableMapping.SourceTableIdentifier, tableMapping.GetWatermarkColumn())
 		if err != nil {
-			return model.SetupReplicationResult{}, fmt.Errorf(
+			return "", fmt.Errorf(
 				"failed to get max watermark for table %s: %w", tableMapping.SourceTableIdentifier, err)
 		}
 		checkpointByTable[tableMapping.SourceTableIdentifier] = watermark
@@ -681,17 +688,14 @@ func (c *BigQueryConnector) setupQueryModeReplication(
 		if err := c.exportTablesAsOfWatermarks(
 			ctx, req.FlowJobName, cfg.TableMappings, cfg.SnapshotStagingPath, checkpointByTable,
 		); err != nil {
-			return model.SetupReplicationResult{}, err
+			return "", err
 		}
 	}
 
 	checkpointText, err := newBigQueryCDCCheckpointPerTable(checkpointByTable).Marshal()
 	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to encode initial CDC checkpoint: %w", err)
-	}
-	if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: checkpointText}); err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+		return "", fmt.Errorf("failed to encode initial CDC checkpoint: %w", err)
 	}
 
-	return model.SetupReplicationResult{}, nil
+	return checkpointText, nil
 }
