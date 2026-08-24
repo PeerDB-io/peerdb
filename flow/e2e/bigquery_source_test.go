@@ -215,7 +215,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			require.Contains(t, err.Error(), "watermark_column")
 		})
 
-		t.Run("rejects a non-timestamp/date watermark column", func(t *testing.T) {
+		t.Run("rejects a non-timestamp watermark column", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
 				tableMapping.WatermarkColumn = "trip_id" // INTEGER
 			}
@@ -226,27 +226,13 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			}()
 
 			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP or DATE")
-			require.Contains(t, err.Error(), "must be TIMESTAMP or DATE")
+			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP")
+			require.Contains(t, err.Error(), "must be TIMESTAMP")
 		})
 
 		t.Run("accepts a TIMESTAMP watermark column", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
 				tableMapping.WatermarkColumn = "pickup_datetime"
-			}
-			defer func() {
-				for _, tableMapping := range flowConfig.TableMappings {
-					tableMapping.WatermarkColumn = ""
-				}
-			}()
-
-			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-			require.NoError(t, err)
-		})
-
-		t.Run("accepts a DATE watermark column", func(t *testing.T) {
-			for _, tableMapping := range flowConfig.TableMappings {
-				tableMapping.WatermarkColumn = "pickup_date"
 			}
 			defer func() {
 				for _, tableMapping := range flowConfig.TableMappings {

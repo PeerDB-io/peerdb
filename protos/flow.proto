@@ -53,7 +53,7 @@ message TableMapping {
   // BIGQUERY_REPLICATION_MODE_EVENTS.
   BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
   // Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
-  // BIGQUERY_REPLICATION_MODE_QUERY. Names a TIMESTAMP or DATE column used to
+  // BIGQUERY_REPLICATION_MODE_QUERY. Names a TIMESTAMP column used to
   // incrementally scan this table: WHERE watermark_column > lower_bound AND
   // watermark_column <= upper_bound. Required in that mode.
   string watermark_column = 11;
