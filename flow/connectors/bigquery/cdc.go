@@ -79,17 +79,18 @@ func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Durati
 	return upper, upper.After(checkpoint)
 }
 
-// waitForNextPoll self-paces PullRecords, park it until
-// time since the last poll hasn't crossed idleTimeout
-func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout time.Duration) error {
-	if wait := idleTimeout - time.Since(c.lastPollAt); wait > 0 {
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+func waitForNextPoll(ctx context.Context, wait time.Duration) error {
+	if wait <= 0 {
+		return nil
 	}
-	return nil
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // tablePollPlan is one table's poll window for the current batch. Windows are
@@ -176,13 +177,6 @@ func (c *BigQueryConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
-	// Recorded regardless of how this call returns below (including the
-	// "nothing new to scan yet" early return) so pacing always advances.
-	defer func() { c.lastPollAt = time.Now() }()
-
-	if err := c.waitForNextPoll(ctx, req.IdleTimeout); err != nil {
-		return err
-	}
 
 	sourceTables := make([]string, 0, len(req.TableNameMapping))
 	for sourceTableIdentifier := range req.TableNameMapping {
@@ -193,6 +187,15 @@ func (c *BigQueryConnector) PullRecords(
 	now, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+	}
+	if wait := checkpoint.nextPollWait(now, req.IdleTimeout); wait > 0 {
+		if err := waitForNextPoll(ctx, wait); err != nil {
+			return err
+		}
+		now, err = c.currentBigQueryTimestamp(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to refresh current BigQuery timestamp after poll wait: %w", err)
+		}
 	}
 
 	checkpoint, err := parseBigQueryCDCCheckpoint(req.LastOffset.Text, sourceTables, now)
@@ -245,7 +248,19 @@ func (c *BigQueryConnector) PullRecords(
 
 	healthyTables := 0
 	plans := make([]tablePollPlan, 0, len(sourceTables))
+	attemptedTables := 0
 	for _, sourceTableIdentifier := range sourceTables {
+		pollDue, err := checkpoint.pollDue(sourceTableIdentifier, now, req.IdleTimeout)
+		if err != nil {
+			return err
+		}
+		if !pollDue {
+			healthyTables++
+			continue
+		}
+		checkpoint.RecordAttempt(sourceTableIdentifier, now)
+		attemptedTables++
+
 		start, err := checkpoint.SyncedThrough(sourceTableIdentifier)
 		if err != nil {
 			return err
@@ -318,14 +333,12 @@ func (c *BigQueryConnector) PullRecords(
 
 	if recordCount == 0 {
 		c.logger.Info("[bigquery] PullRecords no new records")
+		req.RecordStream.SignalAsEmpty()
 		// still move the checkpoint forward
 		err = c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: checkpointText})
 		if err != nil {
-			c.logger.Error("[bigquery] PullRecords failed to persist checkpoint",
-				slog.String("checkpoint", checkpointText),
-				slog.Any("error", err))
+			return fmt.Errorf("failed to persist BigQuery CDC checkpoint: %w", err)
 		}
-		req.RecordStream.SignalAsEmpty()
 	}
 
 	trace.SpanFromContext(ctx).SetAttributes(
@@ -333,7 +346,7 @@ func (c *BigQueryConnector) PullRecords(
 		attribute.Int64(otel_metrics.BytesPulledKey, bytesProcessed),
 	)
 	c.logger.Info("[bigquery] PullRecords polled tables",
-		slog.Int("tables", len(sourceTables)), slog.Int("failedTables", len(tableErrors)),
+		slog.Int("tables", attemptedTables), slog.Int("failedTables", len(tableErrors)),
 		slog.Int("records", recordCount), slog.Int64("bytes", bytesProcessed))
 
 	return nil

@@ -78,14 +78,19 @@ func TestBigQueryCDCCheckpointRecordsIndependentTableOutcomes(t *testing.T) {
 	target := start.Add(time.Hour)
 	cp := newBigQueryCDCCheckpoint(start, []string{"a", "b"})
 
+	cp.RecordAttempt("a", target)
 	cp.RecordSuccess("a", target)
+	cp.RecordAttempt("b", target)
 	assert.True(t, cp.RecordFailure("b", target), "first failure in an episode should be reported")
+	cp.RecordAttempt("b", target.Add(time.Hour))
 	assert.False(t, cp.RecordFailure("b", target.Add(time.Hour)), "repeated failure should not be reported again")
 
 	assert.Equal(t, target, cp.Tables["a"].SyncedThrough)
 	assert.Equal(t, target, cp.Tables["a"].Target)
+	assert.Equal(t, target, cp.Tables["a"].LastAttemptAt)
 	assert.Equal(t, start, cp.Tables["b"].SyncedThrough)
 	assert.Equal(t, target.Add(time.Hour), cp.Tables["b"].Target)
+	assert.Equal(t, target.Add(time.Hour), cp.Tables["b"].LastAttemptAt)
 
 	cp.RecordSuccess("b", target.Add(2*time.Hour))
 	assert.True(t, cp.RecordFailure("b", target.Add(3*time.Hour)), "failure after recovery starts a new episode")
@@ -155,42 +160,86 @@ func TestBigQueryCDCCheckpointRejectsUnknownVersion(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported BigQuery CDC checkpoint version 2")
 }
 
+func TestBigQueryCDCCheckpointPollScheduleSurvivesReload(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	cp := newBigQueryCDCCheckpoint(now.Add(-3*time.Hour), []string{"a", "b"})
+	cp.RecordAttempt("a", now)
+	cp.RecordSuccess("a", now.Add(-time.Hour))
+	cp.RecordAttempt("b", now.Add(-2*time.Hour))
+	assert.True(t, cp.RecordFailure("b", now.Add(-time.Hour)))
+
+	encoded, err := cp.Marshal()
+	require.NoError(t, err)
+	reloaded, err := parseBigQueryCDCCheckpoint(encoded, []string{"a", "b"})
+	require.NoError(t, err)
+
+	assert.Zero(t, reloaded.nextPollWait(now, time.Hour), "table b is already due")
+	due, err := reloaded.pollDue("a", now, time.Hour)
+	require.NoError(t, err)
+	assert.False(t, due)
+	due, err = reloaded.pollDue("b", now, time.Hour)
+	require.NoError(t, err)
+	assert.True(t, due)
+	assert.Equal(t, now.Add(-3*time.Hour), reloaded.Tables["b"].SyncedThrough)
+}
+
+func TestBigQueryCDCCheckpointNextPollWait(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+
+	t.Run("new table is due immediately", func(t *testing.T) {
+		cp := newBigQueryCDCCheckpoint(now, []string{"a"})
+		assert.Zero(t, cp.nextPollWait(now, time.Hour))
+	})
+
+	t.Run("checkpoint from before durable scheduling is due immediately", func(t *testing.T) {
+		cp, err := parseBigQueryCDCCheckpoint(`{
+			"version": 1,
+			"tables": {
+				"a": {"synced_through": "2026-08-01T10:00:00Z", "target": "2026-08-01T10:00:00Z"}
+			}
+		}`, []string{"a"})
+		require.NoError(t, err)
+		assert.Zero(t, cp.nextPollWait(now, time.Hour))
+	})
+
+	t.Run("uses earliest per-table due time", func(t *testing.T) {
+		cp := newBigQueryCDCCheckpoint(now, []string{"a", "b"})
+		cp.RecordAttempt("a", now.Add(-15*time.Minute))
+		cp.RecordAttempt("b", now.Add(-45*time.Minute))
+		assert.Equal(t, 15*time.Minute, cp.nextPollWait(now, time.Hour))
+	})
+
+	t.Run("returns immediately once a table is due", func(t *testing.T) {
+		cp := newBigQueryCDCCheckpoint(now, []string{"a"})
+		cp.RecordAttempt("a", now.Add(-time.Hour))
+		assert.Zero(t, cp.nextPollWait(now, time.Hour))
+	})
+}
+
 func TestWaitForNextPoll(t *testing.T) {
-	t.Run("first-ever call (zero lastPollAt) returns immediately", func(t *testing.T) {
-		c := &BigQueryConnector{}
+	t.Run("non-positive wait returns immediately", func(t *testing.T) {
 		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), time.Hour)
+		err := waitForNextPoll(context.Background(), 0)
 		require.NoError(t, err)
 		assert.Less(t, time.Since(start), 100*time.Millisecond)
 	})
 
-	t.Run("waits out the remainder of idleTimeout since lastPollAt", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now()}
-		idleTimeout := 50 * time.Millisecond
+	t.Run("waits for the requested duration", func(t *testing.T) {
+		wait := 50 * time.Millisecond
 		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), idleTimeout)
+		err := waitForNextPoll(context.Background(), wait)
 		require.NoError(t, err)
-		elapsed := time.Since(start)
-		assert.GreaterOrEqual(t, elapsed, idleTimeout-5*time.Millisecond)
-	})
-
-	t.Run("no wait once idleTimeout has already elapsed", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now().Add(-time.Hour)}
-		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), time.Second)
-		require.NoError(t, err)
-		assert.Less(t, time.Since(start), 100*time.Millisecond)
+		assert.GreaterOrEqual(t, time.Since(start), wait-5*time.Millisecond)
 	})
 
 	t.Run("context cancellation interrupts the wait", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now()}
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			cancel()
 		}()
 		start := time.Now()
-		err := c.waitForNextPoll(ctx, time.Hour)
+		err := waitForNextPoll(ctx, time.Hour)
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Less(t, time.Since(start), time.Second)
 	})

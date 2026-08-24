@@ -19,6 +19,10 @@ type bigQueryCDCTableProgress struct {
 	// SyncedThrough after success and remains ahead of it while a failed window
 	// is waiting to be retried.
 	Target time.Time `json:"target"`
+	// LastAttemptAt is the BigQuery clock time when the latest poll attempt
+	// started. PeerDB persists it with the checkpoint so worker restarts keep
+	// the configured poll interval. A zero value makes a new table due now.
+	LastAttemptAt time.Time `json:"last_attempt_at,omitzero"`
 }
 
 type bigQueryCDCCheckpoint struct {
@@ -106,8 +110,45 @@ func (c *bigQueryCDCCheckpoint) SyncedThrough(table string) (time.Time, error) {
 	return progress.SyncedThrough, nil
 }
 
+func (c *bigQueryCDCCheckpoint) nextPollWait(now time.Time, pollInterval time.Duration) time.Duration {
+	var earliest time.Time
+	for _, progress := range c.Tables {
+		if progress.LastAttemptAt.IsZero() {
+			return 0
+		}
+		nextPollAt := progress.LastAttemptAt.Add(pollInterval)
+		if !nextPollAt.After(now) {
+			return 0
+		}
+		if earliest.IsZero() || nextPollAt.Before(earliest) {
+			earliest = nextPollAt
+		}
+	}
+	if earliest.IsZero() {
+		return 0
+	}
+	return earliest.Sub(now)
+}
+
+func (c *bigQueryCDCCheckpoint) pollDue(table string, now time.Time, pollInterval time.Duration) (bool, error) {
+	progress, ok := c.Tables[table]
+	if !ok {
+		return false, fmt.Errorf("BigQuery CDC checkpoint is missing table %s", table)
+	}
+	return progress.LastAttemptAt.IsZero() || !progress.LastAttemptAt.Add(pollInterval).After(now), nil
+}
+
+func (c *bigQueryCDCCheckpoint) RecordAttempt(table string, attemptedAt time.Time) {
+	progress := c.Tables[table]
+	progress.LastAttemptAt = attemptedAt
+	c.Tables[table] = progress
+}
+
 func (c *bigQueryCDCCheckpoint) RecordSuccess(table string, target time.Time) {
-	c.Tables[table] = bigQueryCDCTableProgress{SyncedThrough: target, Target: target}
+	progress := c.Tables[table]
+	progress.SyncedThrough = target
+	progress.Target = target
+	c.Tables[table] = progress
 }
 
 // RecordFailure keeps the last confirmed cursor and records the attempted
