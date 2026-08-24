@@ -159,3 +159,29 @@ func TestCompactMySQLJSON(t *testing.T) {
 	// Invalid JSON falls back to the original bytes rather than dropping the value.
 	require.Equal(t, `not json`, compactMySQLJSON([]byte(`not json`)))
 }
+
+func TestProcessGeometryData(t *testing.T) {
+	qv, err := processGeometryData(nil)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueGeometry{}, qv)
+
+	qv, err = processGeometryData([]byte{})
+	require.NoError(t, err)
+	require.Equal(t, types.QValueGeometry{}, qv)
+
+	// 1-4 bytes cannot be a valid SRID+WKB payload and is still rejected
+	_, err = processGeometryData([]byte{0, 0, 0, 0})
+	require.ErrorContains(t, err, "geometry data too short")
+
+	// SRID prefix + WKB for POINT(1 2)
+	point := []byte{
+		0, 0, 0, 0, // SRID 0
+		1,          // little-endian
+		1, 0, 0, 0, // type: point
+		0, 0, 0, 0, 0, 0, 0xf0, 0x3f, // x = 1
+		0, 0, 0, 0, 0, 0, 0, 0x40, // y = 2
+	}
+	qv, err = processGeometryData(point)
+	require.NoError(t, err)
+	require.Equal(t, "POINT (1 2)", qv.Val)
+}

@@ -152,6 +152,12 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 // MySQL's internal geometry format is 4-byte SRID (little-endian) followed by standard WKB.
 // SRID is stripped because destinations like ClickHouse don't support EWKT (SRID=N;WKT).
 func processGeometryData(data []byte) (types.QValueGeometry, error) {
+	if len(data) == 0 {
+		// MariaDB and MySQL 5.X store a zero-length value when a NOT NULL geometry column is filled
+		// by an implicit default (e.g. non-strict INSERT, INSERT IGNORE), and such rows survive
+		// upgrades even though they can no longer be created. Map them to an empty string.
+		return types.QValueGeometry{}, nil
+	}
 	if len(data) <= 4 {
 		return types.QValueGeometry{}, fmt.Errorf("geometry data too short: %d bytes", len(data))
 	}
