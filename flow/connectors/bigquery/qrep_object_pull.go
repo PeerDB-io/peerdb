@@ -361,20 +361,6 @@ func (c *BigQueryConnector) exportTablesAsOf(
 	})
 }
 
-// exportTablesAsOfWatermarks exports each table up to its own watermark-column bound
-func (c *BigQueryConnector) exportTablesAsOfWatermarks(
-	ctx context.Context,
-	flowName string,
-	tableMappings []*protos.TableMapping,
-	stagingPath string,
-	boundByTable map[string]time.Time,
-) error {
-	return c.runTableExports(ctx, flowName, tableMappings, func(tm *protos.TableMapping) (string, error) {
-		return c.bigQueryExportQueryStatement(
-			ctx, tm.SourceTableIdentifier, tm.GetWatermarkColumn(), stagingPath, boundByTable[tm.SourceTableIdentifier])
-	})
-}
-
 func (c *BigQueryConnector) runTableExports(
 	ctx context.Context,
 	flowName string,
@@ -685,9 +671,11 @@ func (c *BigQueryConnector) setupQueryModeReplication(
 
 	if req.DoInitialSnapshot {
 		_ = c.LogFlowInfo(ctx, req.FlowJobName, "Starting initial-load BigQuery export to GCS staging bucket")
-		if err := c.exportTablesAsOfWatermarks(
-			ctx, req.FlowJobName, cfg.TableMappings, cfg.SnapshotStagingPath, checkpointByTable,
-		); err != nil {
+		err := c.runTableExports(ctx, req.FlowJobName, cfg.TableMappings, func(tm *protos.TableMapping) (string, error) {
+			return c.bigQueryExportQueryStatement(
+				ctx, tm.SourceTableIdentifier, tm.GetWatermarkColumn(), cfg.SnapshotStagingPath, checkpointByTable[tm.SourceTableIdentifier])
+		})
+		if err != nil {
 			return "", err
 		}
 	}
