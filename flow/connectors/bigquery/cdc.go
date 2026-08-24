@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -210,7 +211,8 @@ func (c *BigQueryConnector) PullRecords(
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
 // source table over [start, end), converting and pushing each row via addRecord.
-// Returns the approximate byte size of the RecordItems actually forwarded
+// Returns the HTTP response bytes BigQuery transferred for this table's query,
+// including pagination fetches (see withByteCounter).
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -223,19 +225,20 @@ func (c *BigQueryConnector) pullTableAppends(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	it, err := c.runPullQuery(ctx, "APPENDS", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude, "", start, end)
+	var bytesTransferred atomic.Int64
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), "APPENDS", dsTable.stringQuoted(),
+		sourceTableIdentifier, nameAndExclude.Exclude, "", start, end)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
 	}
 
 	var qfields []types.QField
 	var changeCols bigQueryChangeColumns
-	var bytesForwarded int64
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return bytesForwarded, nil
+				return bytesTransferred.Load(), nil
 			}
 			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
 		}
@@ -264,12 +267,6 @@ func (c *BigQueryConnector) pullTableAppends(
 			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
 
-		itemBytes, err := recordItemsApproxBytes(items)
-		if err != nil {
-			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
-		}
-		bytesForwarded += itemBytes
-
 		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
 			Items:                items,
@@ -279,15 +276,6 @@ func (c *BigQueryConnector) pullTableAppends(
 			return 0, err
 		}
 	}
-}
-
-// recordItemsApproxBytes estimates the storage size of one converted row
-func recordItemsApproxBytes(items model.RecordItems) (int64, error) {
-	b, err := items.MarshalJSON()
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(b)), nil
 }
 
 // bigQueryChangePseudoColumns are the metadata columns APPENDS()/CHANGES() add on top
@@ -455,7 +443,8 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 // carrying the new values. The old-values half is skipped -- OldItems isn't needed
 // downstream (see model.UpdateRecord usage), so there's nothing to pair it with; the
 // UPDATE row alone is forwarded as the UpdateRecord.
-// Returns the approximate byte size of the RecordItems actually forwarded
+// Returns the HTTP response bytes BigQuery transferred for this table's query,
+// including pagination fetches (see withByteCounter).
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -468,8 +457,9 @@ func (c *BigQueryConnector) pullTableChanges(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
+	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(
-		ctx, "CHANGES", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude,
+		withByteCounter(ctx, &bytesTransferred), "CHANGES", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude,
 		quotedIdentifier(bigQueryChangeTimestampColumn), start, end,
 	)
 	if err != nil {
@@ -478,12 +468,11 @@ func (c *BigQueryConnector) pullTableChanges(
 
 	var qfields []types.QField
 	var changeCols bigQueryChangeColumns
-	var bytesForwarded int64
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return bytesForwarded, nil
+				return bytesTransferred.Load(), nil
 			}
 			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
 		}
@@ -523,11 +512,6 @@ func (c *BigQueryConnector) pullTableChanges(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
-		itemBytes, err := recordItemsApproxBytes(items)
-		if err != nil {
-			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
-		}
-		bytesForwarded += itemBytes
 
 		baseRecord := model.BaseRecord{CommitTimeNano: commitTimeNano}
 		var record model.Record[model.RecordItems]
