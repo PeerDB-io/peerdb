@@ -179,12 +179,21 @@ func (c *BigQueryConnector) PullRecords(
 	otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
 
+	latestCheckpointText := upper.Format(time.RFC3339Nano)
+
 	// The window advances regardless of whether it contained changes.
 	req.RecordStream.UpdateLatestCheckpointText(
-		upper.Format(time.RFC3339Nano),
+		latestCheckpointText,
 	)
-
 	if recordCount == 0 {
+		c.logger.Info("[bigquery] PullRecords no new records")
+		// still move the checkpoint forward
+		err = c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: latestCheckpointText})
+		if err != nil {
+			c.logger.Error("[bigquery] PullRecords failed to persist checkpoint",
+				slog.String("checkpoint", latestCheckpointText),
+				slog.Any("error", err))
+		}
 		req.RecordStream.SignalAsEmpty()
 	}
 

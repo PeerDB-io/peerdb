@@ -187,9 +187,6 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 	recordBatchPull := model.NewCDCStream[Items](channelBufferSize)
-	// seed initial value to avoid using zero value in case no records are pulled
-	recordBatchPull.UpdateLatestCheckpointID(lastOffset.ID)
-	recordBatchPull.UpdateLatestCheckpointText(lastOffset.Text)
 	recordBatchSync := recordBatchPull
 	if adaptStream != nil {
 		var err error
@@ -281,23 +278,12 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(
-			ctx, config.Env, flowName, options.TableMappings, recordBatchPull.SchemaDeltas, config.Flags,
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		if err := a.applySchemaDeltas(ctx, config, recordBatchPull.SchemaDeltas); err != nil {
-			return nil, err
-		}
-
-		lastCheckpoint := recordBatchPull.GetLastCheckpoint()
-		if lastCheckpoint != lastOffset {
-			if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
-				return nil, a.Alerter.LogFlowError(ctx, flowName, err)
-			}
-		}
-
-		return nil, nil
+		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
