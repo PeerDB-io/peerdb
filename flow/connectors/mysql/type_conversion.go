@@ -114,18 +114,11 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 		return false
 	}
 	if schemaKind == types.QValueKindBoolean && wireKind == types.QValueKindInt8 {
-		// TINYINT(1) display width does not survive binlog TABLE_MAP metadata: the
-		// snapshot types such a column bool, but the wire can only ever say int8, so
-		// this pairing would warn once per row-event forever on any tinyint(1) column.
-		// A real change (bool -> anything other than int8, or any non-bool schema
-		// kind) is still reported.
+		// TABLE_MAP omits TINYINT display width, so TINYINT(1) arrives as int8.
 		return false
 	}
 	if schemaKind == types.QValueKindEnum && wireKind == types.QValueKindString {
-		// ENUM does not survive binlog TABLE_MAP metadata either: MySQL/MariaDB encode
-		// it under the generic STRING column type, so a snapshot-typed enum column
-		// always arrives as string on the wire. Same per-row-event false positive as
-		// bool/int8; a real change (enum -> anything other than string) is still reported.
+		// TABLE_MAP encodes ENUM as STRING.
 		return false
 	}
 	return true
