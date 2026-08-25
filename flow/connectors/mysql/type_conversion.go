@@ -113,5 +113,13 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 		(schemaKind == types.QValueKindUUID || schemaKind == types.QValueKindINET) {
 		return false
 	}
+	if schemaKind == types.QValueKindBoolean && wireKind == types.QValueKindInt8 {
+		// TINYINT(1) display width does not survive binlog TABLE_MAP metadata: the
+		// snapshot types such a column bool, but the wire can only ever say int8, so
+		// this pairing would warn once per row-event forever on any tinyint(1) column.
+		// A real change (bool -> anything other than int8, or any non-bool schema
+		// kind) is still reported.
+		return false
+	}
 	return true
 }
