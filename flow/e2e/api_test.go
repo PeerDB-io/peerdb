@@ -29,10 +29,10 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
-	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -2685,6 +2685,20 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 	require.Equal(s.t, int64(2), initialLoadRowsSynced)
 
+	// exclusion params keep table mappings while dropping history
+	leanStatusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		IncludeFlowInfo:       true,
+		ExcludeBatches:        true,
+		ExcludeSnapshotStatus: true,
+	})
+	require.NoError(s.t, err)
+	leanCdcStatus := leanStatusResponse.GetCdcStatus()
+	require.NotNil(s.t, leanCdcStatus)
+	require.Nil(s.t, leanCdcStatus.SnapshotStatus)
+	require.Empty(s.t, leanCdcStatus.CdcBatches)
+	require.Len(s.t, leanCdcStatus.Config.TableMappings, 2)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
@@ -3066,7 +3080,7 @@ func (s APITestSuite) TestDropMissing() {
 		Destination:      s.ch.Peer().Name,
 	}
 	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
-	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg))
 	require.NoError(s.t, err)
 
 	var sourcePeerID, destPeerID int32

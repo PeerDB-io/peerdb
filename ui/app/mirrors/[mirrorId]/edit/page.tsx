@@ -13,6 +13,7 @@ async function getMirrorState(
       flow_job_name: flowJobName,
       include_flow_info: true,
       exclude_batches: true,
+      exclude_snapshot_status: true,
     }),
   });
   if (!res.ok) throw new Error('Mirror not found');

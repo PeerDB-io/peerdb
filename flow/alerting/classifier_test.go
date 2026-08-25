@@ -70,6 +70,51 @@ func TestCockroachDBWrappedPgErrorShouldKeepCockroachDBSource(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestCockroachDBInvalidSnapshotApplicationErrorShouldKeepCockroachDBSource(t *testing.T) {
+	t.Parallel()
+
+	// the CockroachDB connector raises the invalid snapshot application error
+	// over a wrapped CockroachDB read error, so the classification keeps
+	// pointing at cockroachdb rather than postgres
+	err := temporal.NewNonRetryableApplicationError(
+		"snapshot timestamp is older than the replica GC threshold, resync the mirror",
+		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
+		fmt.Errorf("failed to query for min/max: %w", exceptions.NewCockroachDBError(&pgconn.PgError{
+			Code:    pgerrcode.InternalError,
+			Message: "batch timestamp must be after replica GC threshold",
+		})))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyInvalidSnapshotIdentifier, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceCockroachDB,
+		Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestCockroachChangefeedIrrecoverableErrorShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	// changefeed failures no retry can fix (cursor past the GC threshold,
+	// watched table truncated, dropped or unresolvable at the cursor) notify
+	// the user that only a resync helps, mirroring the MySQL binlog-invalid
+	// handling
+	for _, code := range []string{"CURSOR_PAST_GC", "TABLE_TRUNCATED", "TABLE_DROPPED", "TABLE_NOT_AT_CURSOR"} {
+		err := fmt.Errorf("PullRecords failed: %w",
+			exceptions.NewCockroachChangefeedIrrecoverableError(code,
+				fmt.Errorf("changefeed cannot resume: %w", exceptions.NewCockroachDBError(&pgconn.PgError{
+					Code:    pgerrcode.InternalError,
+					Message: "batch timestamp must be after replica GC threshold",
+				}))))
+		errorClass, errInfo := GetErrorClass(t.Context(), err)
+		assert.Equal(t, ErrorNotifyChangefeedInvalid, errorClass, "Unexpected error class for %s", code)
+		assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "Unexpected error action for %s", code)
+		assert.Equal(t, ErrorInfo{
+			Source: ErrorSourceCockroachDB,
+			Code:   code,
+		}, errInfo, "Unexpected error info for %s", code)
+	}
+}
+
 func TestUnwrappedPgErrorShouldKeepPostgresSource(t *testing.T) {
 	t.Parallel()
 
@@ -651,6 +696,21 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UniqueViolation,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.GeneratedAlways,
+		Message:  `cannot insert a non-DEFAULT value into column "id"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
+	assert.Equal(t, ErrorNotifyGeneratedAlwaysColumn, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.GeneratedAlways,
 	}, errInfo, "Unexpected error info")
 }
 

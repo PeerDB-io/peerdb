@@ -13,6 +13,7 @@ export async function getMirrorState(
       flow_job_name,
       include_flow_info: true,
       exclude_batches: true,
+      exclude_snapshot_status: true,
     }),
   });
   if (!res.ok) throw res.json();
