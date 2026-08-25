@@ -96,11 +96,13 @@ func TestBigQueryCDCCheckpointDropsRemovedTables(t *testing.T) {
 			"removed": {"synced_through": "2026-08-01T00:00:00Z", "target": "2026-08-01T01:00:00Z"}
 		}
 	}`
-	cp, err := parseBigQueryCDCCheckpoint(raw, []string{"added"})
+	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	cp, err := parseBigQueryCDCCheckpoint(raw, []string{"added"}, now)
 	require.NoError(t, err)
 
 	assert.NotContains(t, cp.Tables, "removed")
-	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), cp.Tables["added"].SyncedThrough)
+	assert.Equal(t, now, cp.Tables["added"].SyncedThrough)
+	assert.Equal(t, now, cp.Tables["added"].Target)
 }
 
 func TestBigQueryCDCBatchTableProgress(t *testing.T) {
@@ -142,12 +144,12 @@ func TestBigQueryCDCBatchTableProgress(t *testing.T) {
 }
 
 func TestBigQueryCDCCheckpointRejectsNonJSON(t *testing.T) {
-	_, err := parseBigQueryCDCCheckpoint("2026-08-01T00:00:00Z", nil)
+	_, err := parseBigQueryCDCCheckpoint("2026-08-01T00:00:00Z", nil, time.Time{})
 	require.ErrorContains(t, err, "failed to parse BigQuery CDC checkpoint JSON")
 }
 
 func TestBigQueryCDCCheckpointRejectsUnknownVersion(t *testing.T) {
-	_, err := parseBigQueryCDCCheckpoint(`{"version":2,"tables":{}}`, nil)
+	_, err := parseBigQueryCDCCheckpoint(`{"version":2,"tables":{}}`, nil, time.Time{})
 	require.ErrorContains(t, err, "unsupported BigQuery CDC checkpoint version 2")
 }
 

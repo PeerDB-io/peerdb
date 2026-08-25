@@ -56,7 +56,7 @@ func newBigQueryCDCCheckpoint(syncedThrough time.Time, sourceTables []string) *b
 	return &bigQueryCDCCheckpoint{Version: bigQueryCDCCheckpointVersion, Tables: tables}
 }
 
-func parseBigQueryCDCCheckpoint(raw string, sourceTables []string) (*bigQueryCDCCheckpoint, error) {
+func parseBigQueryCDCCheckpoint(raw string, sourceTables []string, now time.Time) (*bigQueryCDCCheckpoint, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, fmt.Errorf("BigQuery CDC checkpoint is empty")
@@ -82,28 +82,20 @@ func parseBigQueryCDCCheckpoint(raw string, sourceTables []string) (*bigQueryCDC
 	}
 
 	if sourceTables != nil {
-		checkpoint.retainAndInitializeTables(sourceTables)
+		// drops tables no longer in sourceTables and seeds
+		// tables newly added to the mirror at now, since they have no prior progress
+		tables := make(map[string]bigQueryCDCTableProgress, len(sourceTables))
+		for _, table := range sourceTables {
+			if progress, ok := checkpoint.Tables[table]; ok {
+				tables[table] = progress
+			} else {
+				tables[table] = bigQueryCDCTableProgress{SyncedThrough: now, Target: now}
+			}
+		}
+		checkpoint.Tables = tables
 	}
+
 	return &checkpoint, nil
-}
-
-func (c *bigQueryCDCCheckpoint) retainAndInitializeTables(sourceTables []string) {
-	var fallback time.Time
-	for _, progress := range c.Tables {
-		if fallback.IsZero() || progress.SyncedThrough.Before(fallback) {
-			fallback = progress.SyncedThrough
-		}
-	}
-
-	tables := make(map[string]bigQueryCDCTableProgress, len(sourceTables))
-	for _, table := range sourceTables {
-		if progress, ok := c.Tables[table]; ok {
-			tables[table] = progress
-		} else if !fallback.IsZero() {
-			tables[table] = bigQueryCDCTableProgress{SyncedThrough: fallback, Target: fallback}
-		}
-	}
-	c.Tables = tables
 }
 
 func (c *bigQueryCDCCheckpoint) SyncedThrough(table string) (time.Time, error) {
@@ -142,11 +134,11 @@ func BigQueryCDCBatchTableProgress(batchCheckpointText, latestCheckpointText str
 		return CDCBatchTableProgress{}, false
 	}
 
-	batch, err := parseBigQueryCDCCheckpoint(batchCheckpointText, nil)
+	batch, err := parseBigQueryCDCCheckpoint(batchCheckpointText, nil, time.Time{})
 	if err != nil {
 		return CDCBatchTableProgress{}, false
 	}
-	latest, err := parseBigQueryCDCCheckpoint(latestCheckpointText, nil)
+	latest, err := parseBigQueryCDCCheckpoint(latestCheckpointText, nil, time.Time{})
 	if err != nil {
 		return CDCBatchTableProgress{}, false
 	}

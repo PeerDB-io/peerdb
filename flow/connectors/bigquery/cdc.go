@@ -114,14 +114,14 @@ func (c *BigQueryConnector) PullRecords(
 	}
 	slices.Sort(sourceTables)
 
-	checkpoint, err := parseBigQueryCDCCheckpoint(req.LastOffset.Text, sourceTables)
-	if err != nil {
-		return err
-	}
-
 	now, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+	}
+
+	checkpoint, err := parseBigQueryCDCCheckpoint(req.LastOffset.Text, sourceTables, now)
+	if err != nil {
+		return err
 	}
 
 	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
