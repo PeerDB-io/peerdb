@@ -428,7 +428,8 @@ func (a *FlowableActivity) SyncFlow(
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
-		if syncErr != nil {
+		if syncErr != nil && ctx.Err() == nil {
+			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			break
 		}
 		if syncResponse != nil {
@@ -449,14 +450,15 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses.Close()
 	<-normDone
 
-	if syncErr != nil && ctx.Err() == nil {
-		// return syncErr when it's not a top-level context cancellation
-		logger.Error("failed to sync records", slog.Any("error", syncErr))
-		return syncErr
-	} else if ctx.Err() != nil {
-		logger.Info("sync canceled", slog.Any("error", ctx.Err()))
+	if ctx.Err() != nil {
+		logger.Info("SyncFlow canceled", slog.Any("error", ctx.Err()))
 		return ctx.Err()
 	}
+	if syncErr != nil {
+		logger.Error("SyncFlow failed", slog.Any("error", syncErr))
+		return syncErr
+	}
+	logger.Info("SyncFlow returned")
 	return nil
 }
 
