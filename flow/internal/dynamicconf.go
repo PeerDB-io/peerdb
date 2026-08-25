@@ -301,12 +301,12 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name: "PEERDB_BIGQUERY_CDC_TABLE_PARALLELISM",
-		Description: "BigQuery CDC only: default for how many source tables one poll queries concurrently, " +
+		Description: "BigQuery CDC only: default for how many source tables are queried concurrently, " +
 			"used when a mirror does not set query_cdc_tables_parallelism; 0 or less removes the limit",
 		DefaultValue:     "10",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
