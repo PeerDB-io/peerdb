@@ -121,5 +121,12 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 		// kind) is still reported.
 		return false
 	}
+	if schemaKind == types.QValueKindEnum && wireKind == types.QValueKindString {
+		// ENUM does not survive binlog TABLE_MAP metadata either: MySQL/MariaDB encode
+		// it under the generic STRING column type, so a snapshot-typed enum column
+		// always arrives as string on the wire. Same per-row-event false positive as
+		// bool/int8; a real change (enum -> anything other than string) is still reported.
+		return false
+	}
 	return true
 }
