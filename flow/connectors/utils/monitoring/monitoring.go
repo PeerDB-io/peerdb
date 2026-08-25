@@ -64,6 +64,20 @@ func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool shared.CatalogP
 	return nil
 }
 
+// GetMaxCDCBatchID returns the highest batch_id ever recorded for flowJobName
+// in cdc_batches, including batches an AddCDCBatchForFlow call started but
+// never finished (e.g. a worker crash mid-batch).
+func GetMaxCDCBatchID(ctx context.Context, pool shared.CatalogPool, flowJobName string) (int64, error) {
+	var maxBatchID int64
+	if err := pool.QueryRow(ctx,
+		"SELECT COALESCE(MAX(batch_id), 0) FROM peerdb_stats.cdc_batches WHERE flow_name=$1",
+		flowJobName,
+	).Scan(&maxBatchID); err != nil {
+		return 0, fmt.Errorf("error while querying max cdc batch id: %w", err)
+	}
+	return maxBatchID, nil
+}
+
 func AddCDCBatchForFlow(ctx context.Context, pool shared.CatalogPool, flowJobName string,
 	batchInfo CDCBatchInfo,
 ) error {

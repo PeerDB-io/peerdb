@@ -275,12 +275,7 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	}
 	numParts = max(numParts, 1)
 
-	chSettings := clickhouse.NewCHSettings(s.chVersion)
-	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
-	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
-	}
+	chSettings := clickhouse.NewInsertSettings(s.chVersion, config.Version)
 
 	// Process each chunk file individually
 	for chunkIdx, avroFile := range avroFiles {

@@ -92,6 +92,82 @@ type PullRecordsRequest[T Items] struct {
 	IdleTimeout time.Duration
 }
 
+// PullTableRecordsRequest is one table's pull request in the isolated per-table
+// CDC path (see TableCDCPullConnector). Unlike PullRecordsRequest, there is one
+// of these per source table per poll, each with its own stream.
+//
+//nolint:govet // keeping field comments over alignment
+type PullTableRecordsRequest struct {
+	// overrides dynamic configuration
+	Env map[string]string
+	// FlowJobName is the name of the flow job.
+	FlowJobName string
+	// SourceTableIdentifier is the source table this request pulls.
+	SourceTableIdentifier string
+	// NameAndExclude carries the destination table name and excluded columns.
+	NameAndExclude NameAndExclude
+	// Cursor is the opaque value previously returned for this table by
+	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
+	Cursor string
+	// tablename to schema mapping
+	TableNameSchemaMapping map[string]*protos.TableSchema
+	// Stream is where pulled records are pushed.
+	Stream *TableCDCStream
+	// IdleTimeout is the timeout to wait for new records.
+	IdleTimeout time.Duration
+}
+
+// PullTableRecordsResult is returned by TableCDCPullConnector.PullTableRecords.
+type PullTableRecordsResult struct {
+	// NextCursor is persisted and passed back as PullTableRecordsRequest.Cursor
+	// on this table's next poll.
+	NextCursor string
+	// BytesProcessed is the number of bytes fetched from the source for this poll.
+	BytesProcessed int64
+}
+
+// SyncTableCDCRequest carries one table's CDC records to
+// TableCDCSyncConnector.SyncTableCDC, which stages them (e.g. as Avro on
+// S3/GCS) under BatchID, this table's own batch sequence, independent of
+// every other table's, without touching the final destination table.
+//
+//nolint:govet // logically grouped, fieldalignment confuses things
+type SyncTableCDCRequest struct {
+	Env                        map[string]string
+	FlowJobName                string
+	SourceTableIdentifier      string
+	DestinationTableIdentifier string
+	TableMapping               *protos.TableMapping
+	TableSchema                *protos.TableSchema
+	Records                    <-chan Record[RecordItems]
+	Version                    uint32
+	Flags                      []string
+	// BatchID is this table's own batch sequence number for the records being
+	// staged, persisted as its new synced_batch_id on success.
+	BatchID int64
+}
+
+// NormalizeTableCDCRequest asks TableCDCSyncConnector.NormalizeTableCDC to
+// insert batches (StartBatchID, EndBatchID], previously staged by
+// SyncTableCDC, straight into the final destination table, bypassing any
+// raw-table hop.
+//
+//nolint:govet // logically grouped, fieldalignment confuses things
+type NormalizeTableCDCRequest struct {
+	Env                        map[string]string
+	FlowJobName                string
+	SourceTableIdentifier      string
+	DestinationTableIdentifier string
+	TableMapping               *protos.TableMapping
+	TableSchema                *protos.TableSchema
+	Version                    uint32
+	Flags                      []string
+	// StartBatchID is exclusive (the table's last normalized batch), EndBatchID
+	// is inclusive (the table's last synced batch as of this normalize call).
+	StartBatchID int64
+	EndBatchID   int64
+}
+
 type ToJSONOptions struct {
 	UnnestColumns map[string]struct{}
 	HStoreAsJSON  bool

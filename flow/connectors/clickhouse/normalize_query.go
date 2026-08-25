@@ -356,14 +356,9 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := clickhouse.NewCHSettings(t.chVersion)
-	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewInsertSettings(t.chVersion, t.version)
 	if t.cluster {
 		chSettings.Add(clickhouse.SettingParallelDistributedInsertSelect, "0")
-	}
-	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",

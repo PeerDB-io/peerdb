@@ -66,3 +66,81 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 
 	return avroFile, nil
 }
+
+// SetTableAvroStage records a table's staged Avro file for the isolated
+// per-table CDC path (see flow/activities/flowable_isolated_cdc.go). Unlike
+// SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
+// flow-wide sync batch ID, one row per (flow, table, table's own batch).
+func SetTableAvroStage(
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
+) error {
+	avroFileJSON, err := json.Marshal(avroFile)
+	if err != nil {
+		return fmt.Errorf("failed to marshal avro file: %w", err)
+	}
+
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (flow_name, source_table_identifier, batch_id)
+		DO UPDATE SET avro_file = $4, created_at = CURRENT_TIMESTAMP`,
+		flowJobName, sourceTableIdentifier, batchID, avroFileJSON,
+	); err != nil {
+		return fmt.Errorf("failed to set table avro stage: %w", err)
+	}
+
+	return nil
+}
+
+// GetTableAvroStage retrieves a table's staged Avro file for batchID.
+func GetTableAvroStage(
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
+) (utils.AvroFile, error) {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return utils.AvroFile{}, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	var avroFileJSON []byte
+	if err := conn.QueryRow(ctx, `
+		SELECT avro_file FROM cdc_table_avro_stage
+		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
+		flowJobName, sourceTableIdentifier, batchID,
+	).Scan(&avroFileJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return utils.AvroFile{}, fmt.Errorf(
+				"no avro stage found for flow job %s, table %s, batch %d", flowJobName, sourceTableIdentifier, batchID)
+		}
+		return utils.AvroFile{}, fmt.Errorf("failed to get table avro stage: %w", err)
+	}
+
+	var avroFile utils.AvroFile
+	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
+		return utils.AvroFile{}, fmt.Errorf("failed to unmarshal avro file: %w", err)
+	}
+
+	return avroFile, nil
+}
+
+// DeleteTableAvroStage removes a table's staged Avro record for batchID once
+// it's been normalized. The underlying S3/GCS object is not removed here.
+func DeleteTableAvroStage(ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64) error {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx,
+		`DELETE FROM cdc_table_avro_stage WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
+		flowJobName, sourceTableIdentifier, batchID,
+	); err != nil {
+		return fmt.Errorf("failed to delete table avro stage: %w", err)
+	}
+
+	return nil
+}

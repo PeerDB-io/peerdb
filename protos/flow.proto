@@ -68,6 +68,7 @@ enum BigQueryReplicationMode {
 
 message BigqueryCdcConfig {
   BigQueryReplicationMode replication_mode = 1;
+  int32 query_cdc_tables_parallelism = 2;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility

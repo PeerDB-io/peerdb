@@ -175,12 +175,38 @@ func (a *FlowableActivity) EnsurePullability(
 	return output, nil
 }
 
+func isIsolatedTableCDCPath(
+	flowConfig *protos.FlowConnectionConfigsCore,
+	destinationType protos.DBType,
+) bool {
+	return flowConfig.GetBigqueryCdcConfig() != nil && destinationType == protos.DBType_CLICKHOUSE
+}
+
 // CreateRawTable creates a raw table in the destination flowable.
 func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.PeerName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+	flowConfig, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch flow config: %w", err))
+	}
+
+	if isIsolatedTableCDCPath(flowConfig, destinationType) {
+		// The isolated per-table CDC path writes typed Avro straight into each
+		// destination table, so there's no _peerdb_raw_* table to create.
+		if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
+			return nil, err
+		}
+		return &protos.CreateRawTableOutput{TableIdentifier: ""}, nil
+	}
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
@@ -371,6 +397,10 @@ func (a *FlowableActivity) SyncFlow(
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	if isIsolatedTableCDCPath(config, destinationType) {
+		return a.syncFlowIsolatedTables(ctx, config, options, srcConn.(connectors.TableCDCPullConnector))
 	}
 
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
@@ -1889,6 +1919,17 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	})
 	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+	if isIsolatedTableCDCPath(cfg, destinationType) {
+		// No raw table in the isolated per-table CDC path. The next SyncFlow
+		// run's PruneTableReplicationState call drops each removed table's own
+		// catalog row instead.
+		return nil
+	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 	normBatchID, err := pgMetadata.GetLastNormalizeBatchID(ctx, cfg.FlowJobName)

@@ -52,8 +52,6 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 }
 
 type BigQueryConnector struct {
-	// lastPollAt is the wall-clock time PullRecords last actually queried BigQuery.
-	lastPollAt time.Time
 	// droppedExcludeColumns remembers, per source table, excluded columns that
 	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
 	// to EXCEPT them.

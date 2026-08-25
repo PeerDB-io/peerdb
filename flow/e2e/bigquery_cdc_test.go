@@ -162,6 +162,12 @@ func bqCdcFlowConnectionConfig(
 			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
 		},
 	}
+	flowConnConfig.IdleTimeoutSeconds = 5
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5",
+		"PEERDB_BIGQUERY_ISOLATE_TABLES":         "true",
+	}
+
 	return flowConnConfig
 }
 

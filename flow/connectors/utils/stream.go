@@ -146,6 +146,84 @@ func recordToQRecordOrError(
 	return entries[:], nil
 }
 
+// RecordsToTypedCDCStream converts a single table's CDC record channel directly
+// into a typed QRecordStream, for destinations (currently ClickHouse) that can
+// INSERT the result straight into their final table without a JSON-blob raw
+// table in between.
+func RecordsToTypedCDCStream(
+	records <-chan model.Record[model.RecordItems],
+	destinationTableName string,
+	schema types.QRecordSchema,
+	sourceColumnByDest map[string]string,
+	targetDWH protos.DBType,
+	unboundedNumericAsString bool,
+	numericTruncator model.StreamNumericTruncator,
+	rowCounts *model.RecordTypeCounts,
+) (*model.QRecordStream, error) {
+	businessFields := schema.Fields[:len(schema.Fields)-2]
+	countMap := map[string]*model.RecordTypeCounts{destinationTableName: rowCounts}
+
+	recordStream := model.NewQRecordStream(1024)
+	recordStream.SetSchema(schema)
+
+	go func() {
+		tableNumericTruncator := numericTruncator.Get(destinationTableName)
+		for record := range records {
+			row, err := typedCDCRow(businessFields, sourceColumnByDest, record, targetDWH, unboundedNumericAsString, tableNumericTruncator)
+			if err != nil {
+				recordStream.Close(err)
+				return
+			}
+			if rowCounts != nil {
+				record.PopulateCountMap(countMap)
+			}
+			if row != nil {
+				recordStream.Records <- row
+			}
+		}
+		close(recordStream.Records)
+	}()
+	return recordStream, nil
+}
+
+func typedCDCRow(
+	businessFields []types.QField,
+	sourceColumnByDest map[string]string,
+	record model.Record[model.RecordItems],
+	targetDWH protos.DBType,
+	unboundedNumericAsString bool,
+	tableNumericTruncator model.CdcTableNumericTruncator,
+) ([]types.QValue, error) {
+	var items model.RecordItems
+	var isDeleted int64
+	switch typedRecord := record.(type) {
+	case *model.InsertRecord[model.RecordItems]:
+		items = typedRecord.Items
+	case *model.UpdateRecord[model.RecordItems]:
+		items = typedRecord.NewItems
+	case *model.DeleteRecord[model.RecordItems]:
+		items = typedRecord.Items
+		isDeleted = 1
+	case *model.MessageRecord[model.RecordItems]:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
+	}
+
+	items = truncateNumerics(items, targetDWH, unboundedNumericAsString, tableNumericTruncator)
+
+	row := make([]types.QValue, 0, len(businessFields)+2)
+	for _, field := range businessFields {
+		val := items.GetColumnValue(sourceColumnByDest[field.Name])
+		if val == nil {
+			val = types.QValueNull(field.Type)
+		}
+		row = append(row, val)
+	}
+	row = append(row, types.QValueInt64{Val: isDeleted}, types.QValueInt64{Val: time.Now().UnixNano()})
+	return row, nil
+}
+
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
 	tableNameRowsMapping := make(map[string]*model.RecordTypeCounts, len(tableMaps))
 	for _, mapping := range tableMaps {

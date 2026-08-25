@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -75,137 +73,88 @@ func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Durati
 	return upper, upper.After(checkpoint)
 }
 
-// waitForNextPoll self-paces PullRecords, park it until
-// time since the last poll hasn't crossed idleTimeout
-func (c *BigQueryConnector) waitForNextPoll(ctx context.Context, idleTimeout time.Duration) error {
-	if wait := idleTimeout - time.Since(c.lastPollAt); wait > 0 {
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return nil
+// encodeBigQueryTableCursor formats a single table's synced-through timestamp as
+// the opaque cursor text persisted between PullTableRecords calls.
+func encodeBigQueryTableCursor(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// PullRecords polls every mapped table over one window, [checkpoint, upper), and
-// pushes the resulting records onto the stream.
-func (c *BigQueryConnector) PullRecords(
+// decodeBigQueryTableCursor parses a cursor previously returned by
+// PullTableRecords. An empty cursor (table pulled for the first time) seeds
+// from now, matching newBigQueryCDCCheckpointPerTable's seeding behavior.
+func decodeBigQueryTableCursor(cursor string, now time.Time) (time.Time, error) {
+	if cursor == "" {
+		return now, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, cursor)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse BigQuery CDC table cursor %q: %w", cursor, err)
+	}
+	return t, nil
+}
+
+// PullTableRecords implements connectors.TableCDCPullConnector. It pulls a
+// single source table's due window, reusing the same window/dispatch logic
+// PullRecords uses across all its tables, scoped to just req.SourceTableIdentifier.
+func (c *BigQueryConnector) PullTableRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
-	req *model.PullRecordsRequest[model.RecordItems],
-) error {
-	defer req.RecordStream.Close()
-	// Recorded regardless of how this call returns below (including the
-	// "nothing new to scan yet" early return) so pacing always advances.
-	defer func() { c.lastPollAt = time.Now() }()
-
-	if err := c.waitForNextPoll(ctx, req.IdleTimeout); err != nil {
-		return err
-	}
-
-	checkpoint, err := time.Parse(time.RFC3339Nano, req.LastOffset.Text)
-	if err != nil {
-		return fmt.Errorf("failed to parse BigQuery CDC checkpoint %q: %w", req.LastOffset.Text, err)
-	}
-
+	req *model.PullTableRecordsRequest,
+) (model.PullTableRecordsResult, error) {
 	now, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+	}
+
+	start, err := decodeBigQueryTableCursor(req.Cursor, now)
+	if err != nil {
+		return model.PullTableRecordsResult{}, err
 	}
 
 	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
 	if err != nil {
-		return fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
+		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
 	}
 	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
 	if err != nil {
-		return fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
+		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
 	}
 
-	upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
 	if !ok {
-		// Nothing new to scan yet (e.g. the safety lag hasn't cleared). Don't
-		// advance the checkpoint: nothing was scanned to protect from a re-scan,
-		// and the same window is simply recomputed on the next poll.
-		req.RecordStream.SignalAsEmpty()
-		return nil
+		// No safe window to scan yet; cursor is unchanged.
+		return model.PullTableRecordsResult{NextCursor: encodeBigQueryTableCursor(start)}, nil
 	}
 
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
 	if err != nil {
-		return fmt.Errorf("failed to fetch flow config from db: %w", err)
+		return model.PullTableRecordsResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
-	eventsFunctionByTable := make(map[string]protos.BigqueryCdcEventsFunction, len(cfg.TableMappings))
+
+	var eventsFunction protos.BigqueryCdcEventsFunction
 	for _, tableMapping := range cfg.TableMappings {
-		eventsFunctionByTable[tableMapping.SourceTableIdentifier] = tableMapping.GetBigqueryCdcEventsFunction()
-	}
-
-	var recordCount int
-	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
-		if recordCount == 0 {
-			req.RecordStream.SignalAsNotEmpty()
+		if tableMapping.SourceTableIdentifier == req.SourceTableIdentifier {
+			eventsFunction = tableMapping.GetBigqueryCdcEventsFunction()
+			break
 		}
-		recordCount++
-		return req.RecordStream.AddRecord(ctx, record)
 	}
-
-	// Sequential per table, not concurrent, within this poll cycle -- bounds
-	// BigQuery job/slot usage (see https://docs.cloud.google.com/bigquery/docs/slots).
-	// Sorted so polls process tables in a deterministic order.
-	sourceTables := make([]string, 0, len(req.TableNameMapping))
-	for sourceTableIdentifier := range req.TableNameMapping {
-		sourceTables = append(sourceTables, sourceTableIdentifier)
-	}
-	slices.Sort(sourceTables)
 
 	var bytesProcessed int64
-	for _, sourceTableIdentifier := range sourceTables {
-		pullTable := c.pullTableAppends
-		if eventsFunctionByTable[sourceTableIdentifier] == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-			pullTable = c.pullTableChanges
-		}
-		tableBytesProcessed, err := pullTable(
-			ctx, sourceTableIdentifier, req.TableNameMapping[sourceTableIdentifier], checkpoint, upper, addRecord,
-		)
-		if err != nil {
-			return err
-		}
-		bytesProcessed += tableBytesProcessed
+	switch eventsFunction {
+	case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
+		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
+	default:
+		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
+	}
+	if err != nil {
+		return model.PullTableRecordsResult{}, err
 	}
 
-	// All tables queried here are mapped tables
-	otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
-	otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
-
-	latestCheckpointText := upper.Format(time.RFC3339Nano)
-
-	// The window advances regardless of whether it contained changes.
-	req.RecordStream.UpdateLatestCheckpointText(
-		latestCheckpointText,
-	)
-	if recordCount == 0 {
-		c.logger.Info("[bigquery] PullRecords no new records")
-		// still move the checkpoint forward
-		err = c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: latestCheckpointText})
-		if err != nil {
-			c.logger.Error("[bigquery] PullRecords failed to persist checkpoint",
-				slog.String("checkpoint", latestCheckpointText),
-				slog.Any("error", err))
-		}
-		req.RecordStream.SignalAsEmpty()
-	}
-
-	trace.SpanFromContext(ctx).SetAttributes(
-		attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
-		attribute.Int64(otel_metrics.BytesPulledKey, bytesProcessed),
-	)
-	c.logger.Info("[bigquery] PullRecords polled window",
-		slog.Time("start", checkpoint), slog.Time("end", upper),
-		slog.Int("records", recordCount), slog.Int64("bytes", bytesProcessed))
-
-	return nil
+	return model.PullTableRecordsResult{
+		NextCursor:     encodeBigQueryTableCursor(upper),
+		BytesProcessed: bytesProcessed,
+	}, nil
 }
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
