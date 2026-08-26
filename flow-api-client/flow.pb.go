@@ -1685,7 +1685,6 @@ type SyncFlowOptions struct {
 	IdleTimeoutSeconds    uint64                 `protobuf:"varint,3,opt,name=idle_timeout_seconds,json=idleTimeoutSeconds,proto3" json:"idle_timeout_seconds,omitempty"`
 	SrcTableIdNameMapping map[uint32]string      `protobuf:"bytes,4,rep,name=src_table_id_name_mapping,json=srcTableIdNameMapping,proto3" json:"src_table_id_name_mapping,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	TableMappings         []*TableMapping        `protobuf:"bytes,6,rep,name=table_mappings,json=tableMappings,proto3" json:"table_mappings,omitempty"`
-	NumberOfSyncs         int32                  `protobuf:"varint,7,opt,name=number_of_syncs,json=numberOfSyncs,proto3" json:"number_of_syncs,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1746,13 +1745,6 @@ func (x *SyncFlowOptions) GetTableMappings() []*TableMapping {
 		return x.TableMappings
 	}
 	return nil
-}
-
-func (x *SyncFlowOptions) GetNumberOfSyncs() int32 {
-	if x != nil {
-		return x.NumberOfSyncs
-	}
-	return 0
 }
 
 type EnsurePullabilityBatchInput struct {
@@ -4197,7 +4189,6 @@ type CDCFlowConfigUpdate struct {
 	AdditionalTables []*TableMapping        `protobuf:"bytes,1,rep,name=additional_tables,json=additionalTables,proto3" json:"additional_tables,omitempty"`
 	BatchSize        uint32                 `protobuf:"varint,2,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
 	IdleTimeout      uint64                 `protobuf:"varint,3,opt,name=idle_timeout,json=idleTimeout,proto3" json:"idle_timeout,omitempty"`
-	NumberOfSyncs    int32                  `protobuf:"varint,4,opt,name=number_of_syncs,json=numberOfSyncs,proto3" json:"number_of_syncs,omitempty"`
 	RemovedTables    []*TableMapping        `protobuf:"bytes,5,rep,name=removed_tables,json=removedTables,proto3" json:"removed_tables,omitempty"`
 	// updates keys in the env map, existing keys left unchanged
 	UpdatedEnv                           map[string]string `protobuf:"bytes,6,rep,name=updated_env,json=updatedEnv,proto3" json:"updated_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -4257,13 +4248,6 @@ func (x *CDCFlowConfigUpdate) GetBatchSize() uint32 {
 func (x *CDCFlowConfigUpdate) GetIdleTimeout() uint64 {
 	if x != nil {
 		return x.IdleTimeout
-	}
-	return 0
-}
-
-func (x *CDCFlowConfigUpdate) GetNumberOfSyncs() int32 {
-	if x != nil {
-		return x.NumberOfSyncs
 	}
 	return 0
 }
@@ -5743,17 +5727,16 @@ const file_flow_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
 	"\x1eCreateTablesFromExistingOutput\x12\"\n" +
-	"\rflow_job_name\x18\x02 \x01(\tR\vflowJobName\"\x8f\x03\n" +
+	"\rflow_job_name\x18\x02 \x01(\tR\vflowJobName\"\xed\x02\n" +
 	"\x0fSyncFlowOptions\x12\x1d\n" +
 	"\n" +
 	"batch_size\x18\x01 \x01(\rR\tbatchSize\x120\n" +
 	"\x14idle_timeout_seconds\x18\x03 \x01(\x04R\x12idleTimeoutSeconds\x12q\n" +
 	"\x19src_table_id_name_mapping\x18\x04 \x03(\v27.peerdb_flow.SyncFlowOptions.SrcTableIdNameMappingEntryR\x15srcTableIdNameMapping\x12@\n" +
-	"\x0etable_mappings\x18\x06 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12&\n" +
-	"\x0fnumber_of_syncs\x18\a \x01(\x05R\rnumberOfSyncs\x1aH\n" +
+	"\x0etable_mappings\x18\x06 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x1aH\n" +
 	"\x1aSrcTableIdNameMappingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x05\x10\x06\"\xc5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x05\x10\x06J\x04\b\a\x10\b\"\xc5\x01\n" +
 	"\x1bEnsurePullabilityBatchInput\x12\"\n" +
 	"\rflow_job_name\x18\x02 \x01(\tR\vflowJobName\x128\n" +
 	"\x18source_table_identifiers\x18\x03 \x03(\tR\x16sourceTableIdentifiers\x12+\n" +
@@ -5965,13 +5948,12 @@ const file_flow_proto_rawDesc = "" +
 	"\x12synced_at_col_name\x18\x02 \x01(\tR\x0fsyncedAtColNameJ\x04\b\x03\x10\x04\"x\n" +
 	"\x1fGetOpenConnectionsForUserResult\x12\x1b\n" +
 	"\tuser_name\x18\x01 \x01(\tR\buserName\x128\n" +
-	"\x18current_open_connections\x18\x02 \x01(\x03R\x16currentOpenConnections\"\x8c\x06\n" +
+	"\x18current_open_connections\x18\x02 \x01(\x03R\x16currentOpenConnections\"\xea\x05\n" +
 	"\x13CDCFlowConfigUpdate\x12F\n" +
 	"\x11additional_tables\x18\x01 \x03(\v2\x19.peerdb_flow.TableMappingR\x10additionalTables\x12\x1d\n" +
 	"\n" +
 	"batch_size\x18\x02 \x01(\rR\tbatchSize\x12!\n" +
-	"\fidle_timeout\x18\x03 \x01(\x04R\vidleTimeout\x12&\n" +
-	"\x0fnumber_of_syncs\x18\x04 \x01(\x05R\rnumberOfSyncs\x12@\n" +
+	"\fidle_timeout\x18\x03 \x01(\x04R\vidleTimeout\x12@\n" +
 	"\x0eremoved_tables\x18\x05 \x03(\v2\x19.peerdb_flow.TableMappingR\rremovedTables\x12Q\n" +
 	"\vupdated_env\x18\x06 \x03(\v20.peerdb_flow.CDCFlowConfigUpdate.UpdatedEnvEntryR\n" +
 	"updatedEnv\x12D\n" +
@@ -5983,7 +5965,7 @@ const file_flow_proto_rawDesc = "" +
 	")skip_initial_snapshot_for_table_additions\x18\v \x01(\bR$skipInitialSnapshotForTableAdditions\x1a=\n" +
 	"\x0fUpdatedEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x16\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x04\x10\x05\"\x16\n" +
 	"\x14QRepFlowConfigUpdate\"\xd1\x01\n" +
 	"\x10FlowConfigUpdate\x12W\n" +
 	"\x16cdc_flow_config_update\x18\x01 \x01(\v2 .peerdb_flow.CDCFlowConfigUpdateH\x00R\x13cdcFlowConfigUpdate\x12Z\n" +
