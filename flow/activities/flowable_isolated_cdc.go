@@ -47,7 +47,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 
-	parallelism := int(config.GetQueryCdcTablesParallelism())
+	parallelism := int(config.GetQueryCdcConfig().GetTablesParallelism())
 	if parallelism <= 0 {
 		parallelism, err = internal.PeerDBCDCTableParallelism(ctx, config.Env)
 		if err != nil {
@@ -127,6 +127,31 @@ func isolatedTablePollWait(lastAttemptAt time.Time, now time.Time, idleTimeout t
 		return 0
 	}
 	return nextPollAt.Sub(now)
+}
+
+// computePollWindow computes the upper bound of the next poll window for a
+// query-based CDC source, given the table's last-scanned checkpoint and the
+// source's current clock (now).
+func computePollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
+	upper := checkpoint.Add(maxQueryWindow)
+	if safe := now.Add(-safetyLag); safe.Before(upper) {
+		upper = safe
+	}
+	return upper, upper.After(checkpoint)
+}
+
+func isolatedTableCDCSafetyLag(ctx context.Context, config *protos.FlowConnectionConfigsCore) (time.Duration, error) {
+	if lag := config.GetQueryCdcConfig().GetSafetyLagSeconds(); lag > 0 {
+		return time.Duration(lag) * time.Second, nil
+	}
+	return internal.PeerDBCDCSafetyLag(ctx, config.Env)
+}
+
+func isolatedTableCDCMaxQueryWindow(ctx context.Context, config *protos.FlowConnectionConfigsCore) (time.Duration, error) {
+	if window := config.GetQueryCdcConfig().GetMaxQueryWindowSeconds(); window > 0 {
+		return time.Duration(window) * time.Second, nil
+	}
+	return internal.PeerDBCDCMaxQueryWindow(ctx, config.Env)
 }
 
 func waitOrDone(ctx context.Context, wait time.Duration) error {
@@ -232,18 +257,45 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		pollGroup, pollCtx := errgroup.WithContext(ctx)
 		var pullResult model.PullTableRecordsResult
+		var windowStart, windowEnd time.Time
+		var windowAdvanced bool
 		pollGroup.Go(func() error {
-			var pullErr error
-			pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-				Env:                    config.Env,
-				FlowJobName:            flowName,
-				SourceTableIdentifier:  sourceTable,
-				NameAndExclude:         nameAndExclude,
-				Cursor:                 state.CursorText,
-				TableNameSchemaMapping: tableNameSchemaMapping,
-				Stream:                 stream,
-				IdleTimeout:            idleTimeout,
-			})
+			pullErr := func() error {
+				now, err := srcConn.CurrentSourceTimestamp(pollCtx)
+				if err != nil {
+					return fmt.Errorf("failed to get current source timestamp: %w", err)
+				}
+				windowStart, err = srcConn.ParseCursor(state.CursorText, now)
+				if err != nil {
+					return err
+				}
+				safetyLag, err := isolatedTableCDCSafetyLag(pollCtx, config)
+				if err != nil {
+					return fmt.Errorf("failed to get CDC safety lag: %w", err)
+				}
+				maxQueryWindow, err := isolatedTableCDCMaxQueryWindow(pollCtx, config)
+				if err != nil {
+					return fmt.Errorf("failed to get CDC max query window: %w", err)
+				}
+				windowEnd, windowAdvanced = computePollWindow(windowStart, now, safetyLag, maxQueryWindow)
+				if !windowAdvanced {
+					// No safe window to scan yet; cursor is unchanged.
+					return nil
+				}
+				var pullErr error
+				pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
+					Env:                    config.Env,
+					FlowJobName:            flowName,
+					SourceTableIdentifier:  sourceTable,
+					NameAndExclude:         nameAndExclude,
+					Start:                  windowStart,
+					End:                    windowEnd,
+					TableNameSchemaMapping: tableNameSchemaMapping,
+					Stream:                 stream,
+					IdleTimeout:            idleTimeout,
+				})
+				return pullErr
+			}()
 			stream.Close()
 			if pullErr == nil {
 				logger.Info("[cdc] poll done", slog.Int64("bytesProcessed", pullResult.BytesProcessed))
@@ -313,6 +365,11 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
 		a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
 
+		nextCursor := srcConn.FormatCursor(windowStart)
+		if windowAdvanced {
+			nextCursor = srcConn.FormatCursor(windowEnd)
+		}
+
 		var numSynced int64
 		if rowCounts != nil {
 			numSynced = int64(rowCounts.InsertCount.Load() + rowCounts.UpdateCount.Load() + rowCounts.DeleteCount.Load())
@@ -322,7 +379,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			newBatchID = nextBatchID
 		}
 		if err := pgMetadata.RecordTableReplicationSync(
-			ctx, flowName, sourceTable, pullResult.NextCursor, time.Now(), newBatchID,
+			ctx, flowName, sourceTable, nextCursor, time.Now(), newBatchID,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
@@ -330,7 +387,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
 			if err := a.recordIsolatedTableBatch(
-				ctx, flowName, destTable, batchIDCounter, attemptedAt, numSynced, rowCounts, pullResult.NextCursor,
+				ctx, flowName, destTable, batchIDCounter, attemptedAt, numSynced, rowCounts, nextCursor,
 			); err != nil {
 				return a.Alerter.LogFlowError(ctx, flowName, err)
 			}
