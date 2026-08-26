@@ -1111,6 +1111,46 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	}
 }
 
+func (s APITestSuite) TestGetColumnsNullability() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("GetColumns is not implemented for Mongo")
+	}
+
+	tableName := "columns_nullability"
+	srcTableName := AttachSchema(s, tableName)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, req text not null, opt text)", srcTableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, req, opt) VALUES (1, 'required', NULL)", srcTableName)))
+
+	peer := s.source.GeneratePeer(s.t)
+	response, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
+		PeerName:   peer.Name,
+		SchemaName: Schema(s),
+		TableName:  tableName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, response.Columns, 3)
+
+	columns := make(map[string]*protos.ColumnsItem, len(response.Columns))
+	for _, column := range response.Columns {
+		columns[column.Name] = column
+	}
+
+	require.True(s.t, columns["id"].IsKey, "id is the primary key")
+	require.False(s.t, columns["id"].Nullable, "a primary key column is never nullable")
+	require.False(s.t, columns["req"].IsKey)
+	require.False(s.t, columns["req"].Nullable, "req is declared NOT NULL")
+	require.False(s.t, columns["opt"].IsKey)
+	require.True(s.t, columns["opt"].Nullable, "opt has no NOT NULL constraint")
+
+	if _, ok := s.source.(*PostgresSource); ok {
+		require.True(s.t, columns["id"].IsReplicaIdentity, "default replica identity is the primary key")
+		require.False(s.t, columns["req"].IsReplicaIdentity)
+		require.False(s.t, columns["opt"].IsReplicaIdentity)
+	}
+}
+
 func (s APITestSuite) TestGetTablesExcludeViews() {
 	tableName := "test_table"
 	viewName := "test_view"

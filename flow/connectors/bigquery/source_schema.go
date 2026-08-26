@@ -69,10 +69,11 @@ func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, dataset st
 		qkind := string(BigQueryTypeToQValueKind(field))
 
 		columns = append(columns, &protos.ColumnsItem{
-			Name:  field.Name,
-			Type:  fieldNormalizedTypeName(field),
-			IsKey: slices.Contains(primaryKeys, field.Name),
-			Qkind: qkind,
+			Name:     field.Name,
+			Type:     fieldNormalizedTypeName(field),
+			IsKey:    slices.Contains(primaryKeys, field.Name),
+			Qkind:    qkind,
+			Nullable: !field.Required,
 		})
 	}
 

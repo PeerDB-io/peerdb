@@ -209,6 +209,7 @@ message ColumnsItem {
   bool is_key = 3;
   string qkind = 4;
   bool is_replica_identity = 5;
+  bool nullable = 6;
 }
 
 message TableColumnsResponse {
