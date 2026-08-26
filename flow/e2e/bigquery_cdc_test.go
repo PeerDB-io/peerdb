@@ -405,9 +405,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 }
 
 // Test_BigQuery_CDC_Restart_Mid_Window_Resume covers resuming from the
-// persisted checkpoint (chunk 4's UpdateReplStateLastOffset/SetLastOffset)
-// rather than re-scanning already-synced rows or dropping rows written while
-// the mirror wasn't polling.
+// persisted per-table cursor (cdc_table_replication_state, written by
+// RecordTableReplicationSync in the isolated per-table CDC path) rather than
+// re-scanning already-synced rows or dropping rows written while the mirror
+// wasn't polling.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	t := s.T()
 	ctx := t.Context()
@@ -415,6 +416,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	source := s.Source().(*bigQuerySource)
 	srcTable := AddSuffix(s, "cdc_restart_resume")
 	dstTable := srcTable + "_dst"
+	sourceTableIdentifier := fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable)
 	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
@@ -440,19 +442,21 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	checkpointBeforePause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
-	require.NotEmpty(t, checkpointBeforePause, "checkpoint should be persisted after batch A lands")
+	checkpointBeforePause := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
+	require.False(t, checkpointBeforePause.IsZero(), "checkpoint should be persisted after batch A lands")
 
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
+	checkpointAtPause := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
+
 	// batch B: written while the mirror isn't polling - must not be lost.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 3, Val: "batch-b"}})
 
 	// checkpoint must not move while paused - nothing is being scanned.
-	require.Equal(t, checkpointBeforePause, readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName),
+	require.Equal(t, checkpointAtPause, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier),
 		"checkpoint should stay put while the mirror is paused")
 
 	// CDCDynamicPropertiesSignal auto-unpauses regardless of whether it
@@ -478,18 +482,22 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	// already have timed out.
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
-	require.Greater(t, readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName), checkpointBeforePause,
+	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier).After(checkpointAtPause),
 		"checkpoint should have advanced past batch B after resuming")
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
 }
 
-func readBigQueryCheckpointText(t *testing.T, pool *pgxpool.Pool, flowJobName string) string {
+func readBigQueryTableCursor(t *testing.T, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string) time.Time {
 	t.Helper()
-	var lastText string
+	var cursorText string
 	require.NoError(t, pool.QueryRow(
-		t.Context(), "SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1", flowJobName,
-	).Scan(&lastText))
-	return lastText
+		t.Context(),
+		"SELECT cursor_text FROM cdc_table_replication_state WHERE flow_name = $1 AND source_table_identifier = $2",
+		flowJobName, sourceTableIdentifier,
+	).Scan(&cursorText))
+	cursor, err := time.Parse(time.RFC3339Nano, cursorText)
+	require.NoError(t, err, "cursor_text should be a valid RFC3339Nano timestamp")
+	return cursor
 }

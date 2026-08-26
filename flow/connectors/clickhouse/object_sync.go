@@ -320,6 +320,7 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		connector:                 c,
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,
+		parquetStaged:             format == string(model.QObjectStreamBigQueryExportParquetFormat),
 	}
 
 	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction, nil)

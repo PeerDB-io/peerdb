@@ -28,6 +28,8 @@ type insertFromTableFunctionConfig struct {
 	schema                    types.QRecordSchema
 	excludedColumns           []string
 	fieldExpressionConverters []fieldExpressionConverter
+	// parquetStaged is true when the table function reads Parquet
+	parquetStaged bool
 }
 
 type fieldExpressionConverter func(
@@ -64,9 +66,9 @@ func timeFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	// Handle BigQuery source where TIME is exported as Parquet TIME(MICROS), which
-	// ClickHouse interprets as DateTime64(6, 'UTC'), so no manual conversion needed
-	if config.config.SourceType == protos.DBType_BIGQUERY {
+	// Parquet TIME(MICROS) (e.g. BigQuery's object export) is interpreted by
+	// ClickHouse as DateTime64(6, 'UTC') directly, so no manual conversion needed.
+	if config.parquetStaged {
 		return sourceFieldIdentifier, nil
 	}
 

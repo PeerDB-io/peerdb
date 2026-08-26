@@ -160,7 +160,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayString:      "Array(String)",
 	QValueKindArrayEnum:        "Array(LowCardinality(String))",
 	QValueKindArrayBoolean:     "Array(Bool)",
-	QValueKindArrayDate:        "Array(Date)",
+	QValueKindArrayDate:        "Array(Date32)",
 	QValueKindArrayInterval:    "Array(String)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",

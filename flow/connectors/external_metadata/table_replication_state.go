@@ -13,10 +13,7 @@ import (
 const cdcTableReplicationStateTableName = "cdc_table_replication_state"
 
 // TableReplicationState is one source table's durable progress in the
-// isolated per-table CDC path (see connectors.TableCDCPullConnector). It plays
-// the role bigQueryCDCCheckpoint's per-table map entries play for the shared
-// PullRecords path, but as its own catalog row per (flow, table) instead of a
-// single JSON blob per flow.
+// isolated per-table CDC path (see connectors.TableCDCPullConnector).
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
 type TableReplicationState struct {
