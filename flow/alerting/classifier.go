@@ -746,6 +746,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
+		case pgerrcode.DataCorrupted:
+			// Observed transient error on Aurora during a failover (evident by a subsequent transient error on retry:
+			// "ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)" that auto-recovered)
+			if pgErr.Routine == "WALReadRaiseError" && strings.Contains(pgErr.Message, "could not read from log segment") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			return ErrorOther, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			// the GUC names in this message are unquoted on PG16, quoted from PG17 on, and renamed to
 			// "effective_wal_level" on PG19, so only the prefix is stable across versions
@@ -1250,6 +1257,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:                 chErrorInfo.Code,
 				AdditionalAttributes: additionalAttributes,
 			}
+		case chproto.ErrTooManyTables:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrUnknownUser:
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}

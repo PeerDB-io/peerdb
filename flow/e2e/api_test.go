@@ -3387,9 +3387,14 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 		Namespace: "default",
 		Query:     fmt.Sprintf("WorkflowId = '%s'", response1.WorkflowId),
 	}
-	listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
-	require.NoError(s.t, err)
-	require.Greater(s.t, len(listResp.Executions), 1, "Should have multiple executions (continue-as-new happened)")
+	EnvWaitFor(s.t, env, time.Minute, "wait for continue-as-new", func() bool {
+		listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return len(listResp.Executions) > 1
+	})
 
 	// Call CreateCDCFlow again after continue-as-new - should return the same workflow ID
 	response2, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
