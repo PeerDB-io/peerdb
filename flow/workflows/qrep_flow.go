@@ -440,12 +440,6 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.QRepFlowStateQuery, err)
 	}
 
-	// Support a Query for the current status of the qrep flow.
-	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
-		// no longer used, handler kept to avoid nondeterminism
-		return state.CurrentFlowStatus, nil
-	})
-
 	return nil
 }
 

@@ -143,12 +143,6 @@ func startDevServer(ctx context.Context, t *testing.T) *testsuite.DevServer {
 // registerFakeActivities registers fake CDCFlowWorkflow activities under the production name.
 func registerFakeActivities(w worker.Worker) {
 	w.RegisterActivityWithOptions(
-		func(ctx context.Context, flowName string, srcTableIdNameMapping map[uint32]string, tableMappings []*protos.TableMapping) error {
-			return nil
-		},
-		activity.RegisterOptions{Name: "MigratePostgresTableOIDs"},
-	)
-	w.RegisterActivityWithOptions(
 		func(ctx context.Context, input *protos.FlowContextMetadataInput) (*protos.FlowContextMetadata, error) {
 			return &protos.FlowContextMetadata{FlowName: input.FlowName}, nil
 		},
