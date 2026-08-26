@@ -1923,9 +1923,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
 	if isIsolatedTableCDCPath(cfg, destinationType) {
-		// No raw table in the isolated per-table CDC path. The next SyncFlow
-		// run's PruneTableReplicationState call drops each removed table's own
-		// catalog row instead.
+		// No raw table in the isolated per-table CDC path.
 		return nil
 	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))

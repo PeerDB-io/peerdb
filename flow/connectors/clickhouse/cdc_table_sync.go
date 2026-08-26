@@ -9,7 +9,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -78,7 +77,7 @@ func (c *ClickHouseConnector) SyncTableCDC(
 		return nil, err
 	}
 
-	batchIdentifier := fmt.Sprintf("%s_%s_%d", common.RandomString(16), req.DestinationTableIdentifier, req.BatchID)
+	batchIdentifier := fmt.Sprintf("%s_%d", req.DestinationTableIdentifier, req.BatchID)
 	avroFile, err := avroSyncer.writeToAvroFile(ctx, req.Env, stream, nil, avroSchema, batchIdentifier, req.FlowJobName, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write typed CDC avro file: %w", err)
