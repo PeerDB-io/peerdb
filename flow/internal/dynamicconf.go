@@ -300,8 +300,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_BIGQUERY_CDC_TABLE_PARALLELISM",
-		Description: "BigQuery CDC only: default for how many source tables are queried concurrently, " +
+		Name: "PEERDB_CDC_TABLE_PARALLELISM",
+		Description: "Query-based CDC only: default for how many source tables are queried concurrently, " +
 			"used when a mirror does not set query_cdc_tables_parallelism; 0 or less removes the limit",
 		DefaultValue:     "10",
 		ValueType:        protos.DynconfValueType_INT,
@@ -729,8 +729,8 @@ func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string)
 	return time.Duration(x) * time.Second, nil
 }
 
-func PeerDBBigQueryCDCTableParallelism(ctx context.Context, env map[string]string) (int, error) {
-	return dynamicConfSigned[int](ctx, env, "PEERDB_BIGQUERY_CDC_TABLE_PARALLELISM")
+func PeerDBCDCTableParallelism(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_TABLE_PARALLELISM")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {

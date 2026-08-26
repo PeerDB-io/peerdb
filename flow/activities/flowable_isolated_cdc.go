@@ -47,11 +47,11 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 
-	parallelism := int(config.GetBigqueryCdcConfig().GetQueryCdcTablesParallelism())
+	parallelism := int(config.GetQueryCdcTablesParallelism())
 	if parallelism <= 0 {
-		parallelism, err = internal.PeerDBBigQueryCDCTableParallelism(ctx, config.Env)
+		parallelism, err = internal.PeerDBCDCTableParallelism(ctx, config.Env)
 		if err != nil {
-			return fmt.Errorf("failed to get BigQuery CDC table parallelism: %w", err)
+			return fmt.Errorf("failed to get CDC table parallelism: %w", err)
 		}
 	}
 	// Bounds concurrent pull+sync work only; each table's normalize loop runs
