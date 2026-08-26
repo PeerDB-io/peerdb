@@ -29,11 +29,10 @@ import (
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
-	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/pkg/mongo"
+	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -69,30 +68,6 @@ func (s APITestSuite) Connector() *connpostgres.PostgresConnector {
 
 func (s APITestSuite) DestinationTable(table string) string {
 	return table
-}
-
-// checkMigrationCompleted checks if a migration has been completed for a given flow
-func (s APITestSuite) checkMigrationCompleted(
-	ctx context.Context,
-	flowName string,
-	migrationName string,
-) (bool, error) {
-	var completed bool
-	err := s.catalog.QueryRow(
-		ctx,
-		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
-		flowName,
-		migrationName,
-	).Scan(&completed)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Migration record doesn't exist, so it hasn't been completed
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to check migration status: %w", err)
-	}
-
-	return completed, nil
 }
 
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
@@ -188,23 +163,6 @@ func (s APITestSuite) checkCatalogTableMapping(
 		}
 	}
 	return true, nil
-}
-
-func (s APITestSuite) getCatalogTableSchemaForSourceTable(
-	ctx context.Context,
-	flowName string,
-	sourceTableIdentifier string,
-) (*protos.TableSchema, error) {
-	var configBytes sql.RawBytes
-	if err := s.catalog.QueryRow(ctx,
-		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
-		flowName, sourceTableIdentifier,
-	).Scan(&configBytes); err != nil {
-		return nil, err
-	}
-
-	var config protos.TableSchema
-	return &config, proto.Unmarshal(configBytes, &config)
 }
 
 func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
@@ -568,6 +526,40 @@ func (s APITestSuite) TestMirrorValidation_InvalidTableMappings() {
 			require.True(t, ok, "expected gRPC status error")
 			require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition error code")
 		})
+	}
+}
+
+// This is the canonical test that source validation is wired up.
+// Specific validaton tests go as integration tests in connectors or flow/pkg.
+func (s APITestSuite) TestMirrorValidation_MissingSourceTable() {
+	tableNames := []string{"missing_src_create_a", "missing_src_create_b"}
+	tableNameMapping := make(map[string]string, len(tableNames))
+	for _, tn := range tableNames {
+		tableNameMapping[AttachSchema(s, tn)] = tn
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "missing_source_table_" + s.suffix,
+		TableNameMapping: tableNameMapping,
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	_, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
+	require.Contains(s.t, st.Message(), "source tables do not exist")
+	for _, tn := range tableNames {
+		require.Contains(s.t, st.Message(), fmt.Sprintf("%s.%s", Schema(s), tn))
+	}
+
+	// creating the mirror has to refuse for the same reason
+	_, err = s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(s.t, err)
+	require.Contains(s.t, err.Error(), "source tables do not exist")
+	for _, tn := range tableNames {
+		require.Contains(s.t, err.Error(), fmt.Sprintf("%s.%s", Schema(s), tn))
 	}
 }
 
@@ -1226,122 +1218,6 @@ func (s APITestSuite) TestScripts() {
 			require.Fail(s.t, "script not deleted")
 		}
 	}
-}
-
-func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
-	if _, ok := s.source.(*MongoSource); !ok {
-		s.t.Skip("only for MongoDB")
-	}
-
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	err := adminClient.Database(Schema(s)).CreateCollection(s.t.Context(), "t1")
-	require.NoError(s.t, err)
-
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "mongo_validation_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-
-	// test retention hours (< 24 hours) validation failure
-	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "replSetResizeOplog", Value: 1},
-		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
-	}).Err()
-	require.NoError(s.t, err)
-	res2, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.Nil(s.t, res2)
-	require.Error(s.t, err)
-	st, ok := status.FromError(err)
-	require.True(s.t, ok)
-	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Contains(s.t, st.Message(), "oplog retention must be set to >= 24 hours")
-
-	// test retention hours (>= 24 hours) validation success
-	err = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "replSetResizeOplog", Value: 1},
-		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours},
-	}).Err()
-	require.NoError(s.t, err)
-	res1, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, res1)
-}
-
-func (s APITestSuite) TestMongoDBUserRolesValidation() {
-	if _, ok := s.source.(*MongoSource); !ok {
-		s.t.Skip("only for MongoDB")
-	}
-
-	adminClient := s.Source().(*MongoSource).AdminClient()
-	user := "test_role_validation_user"
-	pass := "test_role_validation_pass"
-	mongoConfig := s.source.GeneratePeer(s.t).GetMongoConfig()
-	mongoConfig.Username = user
-	mongoConfig.Password = pass
-	peer := &protos.Peer{
-		Name:   AddSuffix(s, "mongo"),
-		Type:   protos.DBType_MONGO,
-		Config: &protos.Peer_MongoConfig{MongoConfig: mongoConfig},
-	}
-
-	defer func() {
-		_ = adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-			bson.E{Key: "dropUser", Value: user},
-		})
-	}()
-
-	// case 1: user without `readAnyDatabase` and `clusterMonitor` roles
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		{Key: "createUser", Value: user},
-		{Key: "pwd", Value: pass},
-		{Key: "roles", Value: bson.A{}},
-	}).Err())
-	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok := status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
-
-	// case 2: user with only `readAnyDatabase` role (missing `clusterMonitor`)
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase"}},
-	}).Err())
-	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok = status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: clusterMonitor")
-
-	// case 3: user with only `clusterMonitor` role (missing `readAnyDatabase`)
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "revokeRolesFromUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase"}},
-	}).Err())
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"clusterMonitor"}},
-	}).Err())
-	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.Error(s.t, err)
-	grpcStatus, ok = status.FromError(err)
-	require.True(s.t, ok, "expected error to be gRPC status")
-	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
-	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
-
-	// case 4: user with both `readAnyDatabase` and `clusterMonitor` roles
-	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
-		bson.E{Key: "grantRolesToUser", Value: user},
-		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase", "clusterMonitor"}},
-	}).Err())
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 }
 
 func (s APITestSuite) TestMySQLFlavorSwap() {
@@ -2768,6 +2644,20 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 	require.Equal(s.t, int64(2), initialLoadRowsSynced)
 
+	// exclusion params keep table mappings while dropping history
+	leanStatusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		IncludeFlowInfo:       true,
+		ExcludeBatches:        true,
+		ExcludeSnapshotStatus: true,
+	})
+	require.NoError(s.t, err)
+	leanCdcStatus := leanStatusResponse.GetCdcStatus()
+	require.NotNil(s.t, leanCdcStatus)
+	require.Nil(s.t, leanCdcStatus.SnapshotStatus)
+	require.Empty(s.t, leanCdcStatus.CdcBatches)
+	require.Len(s.t, leanCdcStatus.Config.TableMappings, 2)
+
 	// check table stats cdc
 	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
@@ -2777,90 +2667,6 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Len(s.t, tableStats.TablesData, 2)
 	require.Equal(s.t, int64(1), tableStats.TablesData[0].Counts.InsertsCount)
 	require.Equal(s.t, int64(1), tableStats.TablesData[1].Counts.InsertsCount)
-
-	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
-}
-
-func (s APITestSuite) TestPostgresTableOIDsMigration() {
-	pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector)
-	if !ok {
-		s.t.Skip("only for PostgreSQL source")
-	}
-
-	cols := "id,val"
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
-
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_postgres_table_oids_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-
-	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
-	require.NoError(s.t, err)
-	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
-
-	// Test initial load
-	RequireEqualTables(s.ch, "table1", cols)
-	RequireEqualTables(s.ch, "table2", cols)
-
-	// Check Postgres table OIDs in catalog
-	var table1OID, table2OID uint32
-	err = pgconn.Conn().QueryRow(s.t.Context(),
-		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
-		Schema(s), "table1").Scan(&table1OID)
-	require.NoError(s.t, err)
-	err = pgconn.Conn().QueryRow(s.t.Context(),
-		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
-		Schema(s), "table2").Scan(&table2OID)
-	require.NoError(s.t, err)
-	require.NotEqual(s.t, uint32(0), table1OID)
-	require.NotEqual(s.t, uint32(0), table2OID)
-
-	schema1, err := s.getCatalogTableSchemaForSourceTable(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		"table1",
-	)
-	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
-	require.Equal(s.t, table1OID, schema1.TableOid)
-
-	schema2, err := s.getCatalogTableSchemaForSourceTable(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		"table2",
-	)
-	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
-	require.Equal(s.t, table2OID, schema2.TableOid)
-
-	ok, err = s.checkMigrationCompleted(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		shared.POSTGRES_TABLE_OID_MIGRATION,
-	)
-	require.NoError(s.t, err)
-	require.True(s.t, ok, "expected Postgres table OID migration to be completed")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -3149,7 +2955,7 @@ func (s APITestSuite) TestDropMissing() {
 		Destination:      s.ch.Peer().Name,
 	}
 	cfg := connectionGen.GenerateFlowConnectionConfigs(s)
-	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg, 0))
+	cfgBytes, err := proto.Marshal(pconv.FlowConnectionConfigsToCore(cfg))
 	require.NoError(s.t, err)
 
 	var sourcePeerID, destPeerID int32
@@ -3581,9 +3387,14 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 		Namespace: "default",
 		Query:     fmt.Sprintf("WorkflowId = '%s'", response1.WorkflowId),
 	}
-	listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
-	require.NoError(s.t, err)
-	require.Greater(s.t, len(listResp.Executions), 1, "Should have multiple executions (continue-as-new happened)")
+	EnvWaitFor(s.t, env, time.Minute, "wait for continue-as-new", func() bool {
+		listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return len(listResp.Executions) > 1
+	})
 
 	// Call CreateCDCFlow again after continue-as-new - should return the same workflow ID
 	response2, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{

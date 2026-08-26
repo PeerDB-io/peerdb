@@ -77,9 +77,16 @@ func NewClickHouseConnector(
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 
-	return peerdb_clickhouse.ValidateClickHousePeer(
-		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.Validate,
-	)
+	if err := peerdb_clickhouse.ValidateClickHousePeer(
+		ctx, c.logger, allowedDomains, c.Config.Host, c.database, c.staging.ClickHouseAccessMethod(),
+	); err != nil {
+		return err
+	}
+
+	if err := c.staging.Validate(ctx); err != nil {
+		return fmt.Errorf("failed to validate staging bucket: %w", err)
+	}
+	return nil
 }
 
 // configureDirectoryTLS configures the tls.Config by loading certificate files
@@ -209,6 +216,11 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
+	}
+	if parallelViewProcessing, err := internal.PeerDBClickHouseParallelViewProcessing(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load parallel_view_processing config: %w", err)
+	} else if parallelViewProcessing {
+		settings["parallel_view_processing"] = uint64(1)
 	}
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)

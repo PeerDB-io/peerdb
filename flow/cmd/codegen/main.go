@@ -12,11 +12,6 @@ func main() {
 }
 
 func run() error {
-	// Generate flow config converter
-	if err := generateFlowConfigConverter(); err != nil {
-		return fmt.Errorf("failed to generate flow config converter: %w", err)
-	}
-
 	// Generate gRPC wrapper
 	if err := generateGRPCWrapper(); err != nil {
 		return fmt.Errorf("failed to generate gRPC wrapper: %w", err)

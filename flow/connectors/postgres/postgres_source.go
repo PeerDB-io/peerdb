@@ -433,13 +433,9 @@ func (c *PostgresConnector) GetSelectedColumns(
 		return nil, fmt.Errorf("error getting selected columns for table %s: %w", sourceTable, err)
 	}
 
-	columns := make([]string, 0)
-	for rows.Next() {
-		var columnName string
-		if err := rows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("error scanning column while getting selected columns: %w", err)
-		}
-		columns = append(columns, columnName)
+	columns, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("error scanning columns while getting selected columns for table %s: %w", sourceTable, err)
 	}
 
 	return columns, nil
@@ -550,7 +546,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	relID, err := c.GetRelIDForTable(ctx, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
 	}
@@ -683,7 +679,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// check if the table exists by getting the relation ID
-		relID, err := c.getRelIDForTable(ctx, schemaTable)
+		relID, err := c.GetRelIDForTable(ctx, schemaTable)
 		if err != nil {
 			return nil, err
 		}
@@ -902,9 +898,9 @@ func (c *PostgresConnector) HandleSlotInfo(
 	slotMetricGauges.RestartToConfirmedMBGauge.Record(ctx, float64(slotInfo.RestartToConfirmedMb), attributeSet)
 	slotMetricGauges.ConfirmedToCurrentMBGauge.Record(ctx, float64(slotInfo.ConfirmedToCurrentMb), attributeSet)
 
-	currentLSN, err := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
-	if err != nil {
-		logger.Warn("error parsing current LSN", slog.Any("error", err))
+	currentLSN, currentLSNErr := pglogrepl.ParseLSN(slotInfo.CurrentLSN)
+	if currentLSNErr != nil {
+		logger.Warn("error parsing current LSN", slog.Any("error", currentLSNErr))
 	}
 	slotMetricGauges.CurrentWalLSNGauge.Record(ctx, int64(currentLSN), attributeSet)
 
@@ -922,14 +918,36 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(confirmedFlushLSN), attributeSet)
 
-	restartLSN, err := pglogrepl.ParseLSN(slotInfo.RestartLSN)
-	if err != nil {
-		logger.Warn("error parsing restart LSN", slog.Any("error", err))
+	restartLSN, restartLSNErr := pglogrepl.ParseLSN(slotInfo.RestartLSN)
+	if restartLSNErr != nil {
+		logger.Warn("error parsing restart LSN", slog.Any("error", restartLSNErr))
 	}
 	slotMetricGauges.RestartLSNGauge.Record(ctx, int64(restartLSN), attributeSet)
 
 	if slotInfo.SafeWalSize != nil {
 		slotMetricGauges.SafeWalSizeGauge.Record(ctx, *slotInfo.SafeWalSize, attributeSet)
+	}
+
+	var usedBytes *int64
+	if currentLSNErr != nil || restartLSNErr != nil {
+		logger.Warn("current or restart LSN couldn't be parsed, skipping used bytes metric",
+			slog.String("currentLSN", slotInfo.CurrentLSN), slog.String("restartLSN", slotInfo.RestartLSN))
+	} else if currentLSN < restartLSN {
+		logger.Warn("current LSN precedes restart LSN, skipping used bytes metric",
+			slog.String("currentLSN", slotInfo.CurrentLSN), slog.String("restartLSN", slotInfo.RestartLSN))
+	} else {
+		value := int64(currentLSN) - int64(restartLSN)
+		usedBytes = &value
+	}
+
+	if walRetention, err := getWalRetentionSettings(ctx, c.conn); err != nil {
+		logger.Warn("error reading WAL retention settings", slog.Any("error", err))
+	} else {
+		slotMetricGauges.LogSpace.Record(ctx, otel_metrics.LogSpaceInfo{
+			LimitBytes: walRetention.LimitBytes(),
+			SafeBytes:  slotInfo.SafeWalSize,
+			UsedBytes:  usedBytes,
+		}, attributeSet)
 	}
 
 	var activeValue int64

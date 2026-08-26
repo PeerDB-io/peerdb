@@ -104,6 +104,7 @@ message MirrorStatusRequest {
   string flow_job_name = 1;
   bool include_flow_info = 2;
   bool exclude_batches = 3;
+  bool exclude_snapshot_status = 4;
 }
 
 message PartitionStatus {

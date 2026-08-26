@@ -12,14 +12,14 @@ import (
 
 	clickhouseproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/objectstore"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -114,20 +114,19 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		return fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
-	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
-		if partSize > 0 {
-			u.PartSize = partSize
-			if partSize > 256*1024*1024 {
-				u.Concurrency = 1
-			}
-		}
-	})
+	uploader := transfermanager.New(s3svc, utils.S3TransferOptions(partSize))
 
-	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
+	if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   body,
 	}); err != nil {
+		// transfermanager loses the context.Canceled unwrap chain when AbortMultipartUpload also
+		// fails on the canceled upload context; rejoin the cause so classifier sees the cancellation
+		// https://github.com/aws/aws-sdk-go-v2/blob/feature/s3/transfermanager/v0.3.10/feature/s3/transfermanager/api_op_UploadObject.go#L1204
+		if ctxErr := context.Cause(ctx); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
+		}
 		s3Path := "s3://" + s.bucket + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
 		return fmt.Errorf("failed to upload file to S3: %w", err)
@@ -211,7 +210,30 @@ func (s *s3StagingStore) Validate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	return objectstore.NewS3StagingValidator(s3Client, s.bucket, s.prefix)(ctx)
+
+	key := strings.TrimPrefix(s.prefix+"/"+stagingCheckObjectPrefix+uuid.NewString(), "/")
+	body := strings.NewReader(time.Now().Format(time.RFC3339))
+
+	if _, err := s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+		Body:   body,
+	}); err != nil {
+		return fmt.Errorf("failed to write to bucket: %w", err)
+	}
+
+	if _, err := s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}); err != nil {
+		return fmt.Errorf("failed to delete from bucket: %w", err)
+	}
+
+	return nil
+}
+
+func (s *s3StagingStore) ClickHouseAccessMethod() string {
+	return "S3"
 }
 
 func (s *s3StagingStore) BucketPath() string {

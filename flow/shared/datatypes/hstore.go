@@ -213,3 +213,18 @@ func ParseHstore(s string) (string, error) {
 	jsonBytes, err := json.Marshal(result)
 	return string(jsonBytes), err
 }
+
+// CanonicalizeHStoreJSON converts JSON emitted by PostgreSQL's hstore_to_json into the canonical
+// representation used by ParseHstore for CDC values.
+func CanonicalizeHStoreJSON(s string) (string, error) {
+	var result hstore
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
+		return "", err
+	}
+	if result == nil {
+		return "", errors.New("expected hstore JSON object")
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	return string(jsonBytes), err
+}

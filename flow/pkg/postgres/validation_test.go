@@ -20,14 +20,16 @@ func TestIsYugabyteVersion(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "Yugabyte example 2",
-			version: "PostgreSQL 15.12-YB-2025.2.2.2-b0 on x86_64-pc-linux-gnu, compiled by clang version 19.1.0 (https://github.com/yugabyte/llvm-project.git a2a6b655e14e7fa1fcf1011a6cb29cb8575249c0), 64-bit",
-			want:    true,
+			name: "Yugabyte example 2",
+			version: "PostgreSQL 15.12-YB-2025.2.2.2-b0 on x86_64-pc-linux-gnu, compiled by clang version 19.1.0 " +
+				"(https://github.com/yugabyte/llvm-project.git a2a6b655e14e7fa1fcf1011a6cb29cb8575249c0), 64-bit",
+			want: true,
 		},
 		{
-			name:    "Yugabyte example 3",
-			version: "PostgreSQL 16-YB-2025.2.2.2-customer-build on x86_64-pc-linux-gnu, compiled by clang version 19.1.0 (https://github.com/yugabyte/llvm-project.git a2a6b655e14e7fa1fcf1011a6cb29cb8575249c0), 64-bit",
-			want:    true,
+			name: "Yugabyte example 3",
+			version: "PostgreSQL 16-YB-2025.2.2.2-customer-build on x86_64-pc-linux-gnu, compiled by clang version 19.1.0 " +
+				"(https://github.com/yugabyte/llvm-project.git a2a6b655e14e7fa1fcf1011a6cb29cb8575249c0), 64-bit",
+			want: true,
 		},
 		{
 			name:    "Generic Postgres",

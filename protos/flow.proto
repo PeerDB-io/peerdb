@@ -102,7 +102,7 @@ message FlowConnectionConfigs {
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
 // It still needs to be a proto because Temporal
 // When adding fields here, add them to FlowConnectionConfigs too
-// Equivalence with FlowConnectionConfigs is enforced during codegen
+// Equivalence with FlowConnectionConfigs is enforced by flow/proto_conversions tests
 message FlowConnectionConfigsCore {
   reserved 2,3,17;
   string flow_job_name = 1;
@@ -187,12 +187,11 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
-  reserved 5;
+  reserved 5, 7;
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
-  int32 number_of_syncs = 7;
 }
 
 message EnsurePullabilityBatchInput {
@@ -254,6 +253,7 @@ message FieldDescription {
   int32 type_modifier = 3;
   bool nullable = 4;
   string type_schema_name = 5;
+  optional string default_expr = 6;
 }
 
 message SetupTableSchemaBatchInput {
@@ -533,10 +533,10 @@ enum FlowStatus {
 }
 
 message CDCFlowConfigUpdate {
+  reserved 4;
   repeated TableMapping additional_tables = 1;
   uint32 batch_size = 2;
   uint64 idle_timeout = 3;
-  int32 number_of_syncs = 4;
   repeated TableMapping removed_tables = 5;
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;

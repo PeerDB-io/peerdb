@@ -1,0 +1,18 @@
+<!-- User authenticated by client-certificate common name over the TLS
+     listener (config.d/tls.xml); used by TestClickHouseTLSDirectory with the
+     volumes/ch-tls client cert. Same definition the pre-Tilt CI flow used. -->
+<clickhouse>
+  <users>
+    <peerdb_tls>
+      <ssl_certificates>
+        <common_name>peerdb-client</common_name>
+      </ssl_certificates>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <access_management>1</access_management>
+    </peerdb_tls>
+  </users>
+</clickhouse>

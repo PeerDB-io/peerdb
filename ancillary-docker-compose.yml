@@ -48,11 +48,27 @@ services:
     ports:
       - "${CI_CLICKHOUSE_HTTP_PORT}:8123"
       - "${CI_CLICKHOUSE_NATIVE_PORT}:9000"
+      - "${CI_CLICKHOUSE_TLS_PORT:-11440}:9440"
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/tls.xml:/etc/clickhouse-server/config.d/tls.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node1/users.d/peerdb-tls-user.xml:/etc/clickhouse-server/users.d/peerdb-tls-user.xml:ro
+      - ./volumes/ch-tls:/etc/clickhouse-tls-src:ro
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        SRC=/etc/clickhouse-tls-src
+        DST=/etc/clickhouse-server/tls
+        mkdir -p "$$DST"
+        install -m 644 -o clickhouse -g clickhouse "$$SRC/ca.crt" "$$DST/ca.crt"
+        install -m 644 -o clickhouse -g clickhouse "$$SRC/server.crt" "$$DST/server.crt"
+        install -m 600 -o clickhouse -g clickhouse "$$SRC/server.key" "$$DST/server.key"
+        exec /entrypoint.sh
     ulimits:
       nofile:
         soft: 262144
@@ -116,7 +132,7 @@ services:
 
   mysql-gtid:
     container_name: peerdb-mysql-gtid
-    image: mysql:9.5
+    image: ${MYSQL_GTID_IMAGE}
     command:
       - "--binlog-row-metadata=FULL"
     restart: unless-stopped
@@ -136,7 +152,7 @@ services:
 
   mysql-pos:
     container_name: peerdb-mysql-pos
-    image: biarms/mysql:5.7
+    image: ${MYSQL_POS_IMAGE}
     command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
     restart: unless-stopped
     volumes:
@@ -155,7 +171,7 @@ services:
 
   mariadb:
     container_name: peerdb-mariadb
-    image: mariadb:lts-ubi9@sha256:55a81b2d791d2ff8ad33fef413d9e45e0ac57a951127e0cfc69a8e59f922ba6e
+    image: ${MARIADB_IMAGE}
     command:
       - "--log-bin=maria"
       - "--binlog-format=ROW"
@@ -171,6 +187,23 @@ services:
       - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-uroot", "-p${CI_MARIADB_ROOT_PASSWORD}"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+
+  cockroachdb:
+    container_name: peerdb-cockroachdb
+    image: ${COCKROACHDB_IMAGE}
+    command: ["start-single-node", "--insecure"]
+    restart: unless-stopped
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+    ports:
+      - "${CI_COCKROACH_PORT}:26257"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "./cockroach", "sql", "--insecure", "-e", "SELECT 1"]
       interval: 2s
       timeout: 10s
       retries: 5
@@ -260,7 +293,7 @@ services:
   openssh:
     container_name: peerdb-test-ssh
     # Same image as CI flow
-    image: linuxserver/openssh-server:latest@sha256:57c13941ef385d735cca18ee969eeba18e42ab95480c97af2182505aacdfe307
+    image: linuxserver/openssh-server:latest@sha256:9c5e178975fcc3917853f5e37cbf135ad7deb11de504ab0f460cc81a2e1eb539
     restart: unless-stopped
     ports:
       - "2222:2222"
@@ -280,6 +313,15 @@ services:
       timeout: 10s
       retries: 5
 
+  otel-collector:
+    container_name: peerdb-test-otel-collector
+    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+    volumes:
+      - ./volumes/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+
 volumes:
   postgres_data:
   postgres2_data:
@@ -290,6 +332,7 @@ volumes:
   mysql_gtid_data:
   mysql_pos_data:
   mariadb_data:
+  cockroach_data:
 
 networks:
   default:

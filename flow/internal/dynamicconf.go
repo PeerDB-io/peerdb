@@ -298,6 +298,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING",
+		Description: "Enables parallel_view_processing setting on clickhouse, pushing to attached materialized views " +
+			"concurrently during inserts",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE",
 		Description:      "Divide tables in batch into N insert selects. Helps distribute load to multiple nodes",
 		DefaultValue:     "0",
@@ -480,14 +489,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED",
-		Description:      "Enables automatic detection of a default partition key from primary key for MySQL initial load",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
 		Name:             "PEERDB_OFFLOAD_PARTITION_RANGES",
 		Description:      "Encrypt QRep partition ranges and offload them to the catalog instead of passing them through Temporal",
 		DefaultValue:     "true",
@@ -537,6 +538,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
+		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
+			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
 }
 
@@ -792,6 +802,10 @@ func PeerDBClickHouseMaxInsertThreads(ctx context.Context, env map[string]string
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_MAX_INSERT_THREADS")
 }
 
+func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING")
+}
+
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
 }
@@ -927,10 +941,6 @@ func PeerDBPostgresApplyCtidBlockPartitioning(ctx context.Context, env map[strin
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE")
 }
 
-func PeerDBMySQLDefaultPartitionKeyEnabled(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MYSQL_DEFAULT_PARTITION_KEY_ENABLED")
-}
-
 func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_OFFLOAD_PARTITION_RANGES")
 }
@@ -951,4 +961,8 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 		}
 	}
 	return ops, nil
+}
+
+func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
 }

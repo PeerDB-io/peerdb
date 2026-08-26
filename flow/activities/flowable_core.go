@@ -698,6 +698,12 @@ func (a *FlowableActivity) startNormalize(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
+	// record gauge on error as well
+	defer func() {
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, normalizeResponses.Load(),
+			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
+	}()
+
 	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,
 		config.Env,
@@ -761,6 +767,8 @@ func (a *FlowableActivity) startNormalize(
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
 		normalizeResponses.Update(res.EndBatchID)
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, res.EndBatchID,
+			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 		if res.EndBatchID >= batchID {
 			return nil
 		}
@@ -845,19 +853,11 @@ func (a *FlowableActivity) normalizeLoop(
 					default:
 						time.Sleep(retryInterval)
 						retryInterval = min(retryInterval*2, 5*time.Minute)
-						// record the last normalized batch ID even if retry fails to populate metrics consistently
-						a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(
-							ctx, lastNormalizedBatchID, metric.WithAttributeSet(attribute.NewSet(
-								attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-							)))
 						reqBatchID = normalizeRequests.Load()
 						continue retryLoop
 					}
 				}
 			}
-			a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-			)))
 			break
 		}
 	}

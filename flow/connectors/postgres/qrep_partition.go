@@ -492,7 +492,7 @@ func estimatedNumRowsForTable(ctx context.Context, pp PartitionParams) (int64, e
 			-- row estimation formula
 			CASE
 				WHEN c.reltuples >= 0 AND c.relpages > 0 AND NOT c.relhassubclass
-				    THEN c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer)
+				    THEN round(c.reltuples::numeric / c.relpages * (pg_relation_size(c.oid) / current_setting('block_size')::integer))
 				ELSE 0::numeric
 			END
 		FROM pg_class c WHERE c.oid = to_regclass($1)`

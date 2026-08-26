@@ -29,11 +29,11 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
-	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/internal/testutil"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
+	"github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
@@ -80,6 +80,19 @@ func AttachSchema(s Suite, table string) string {
 
 func AddSuffix(s Suite, str string) string {
 	return fmt.Sprintf("%s_%s", str, s.Suffix())
+}
+
+// InsertScript registers a transform script in the catalog's public.scripts
+// table.
+func InsertScript(t *testing.T, name string, lang string, source string) {
+	t.Helper()
+
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(),
+		"insert into public.scripts (name, lang, source) values ($1, $2, $3) on conflict do nothing",
+		name, lang, source)
+	require.NoError(t, err)
 }
 
 // Helper function to assert errors in go routines running concurrent to workflows
@@ -684,11 +697,11 @@ func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnecti
 	}
 }
 
-func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs, tableMappingsVersion int64) WorkflowRun {
+func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
 	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           config.FlowJobName,
 		DropFlowStats:         false,
-		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config, tableMappingsVersion),
+		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config),
 	})
 }
 

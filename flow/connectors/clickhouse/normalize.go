@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -75,7 +76,10 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 	for _, sql := range normalizedTableCreateSQL {
 		if err := c.execWithLogging(ctx, sql); err != nil {
-			return false, fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err)
+			return false, exceptions.NewClickHouseNormalizedTableCreationError(
+				fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err),
+				destinationTableIdentifier,
+			)
 		}
 	}
 	return false, nil

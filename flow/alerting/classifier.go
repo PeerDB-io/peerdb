@@ -45,11 +45,18 @@ const (
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
+	MongoInvalidResumeToken              = "Invalid resume token"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
 	// once we already know the error came from MySQL geometry parsing.
 	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
+
+	// http2ClientConnectionLost is raised by golang.org/x/net/http2 in ClientConn.closeForLostPing,
+	// which tears down the connection and aborts every in-flight request when a keepalive ping goes
+	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
+	// The error is created with errors.New, so there is no sentinel or type to match on.
+	http2ClientConnectionLost = "http2: client connection lost"
 )
 
 var (
@@ -72,9 +79,11 @@ var (
 	PostgresSpillFileMissingRe         = regexp.MustCompile(`Unable to restore changes for xid \d+`)
 	// e.g. could not rename file "pg_logical/snapshots/25-3370F40.snap.19943.tmp" to "pg_logical/snapshots/25-3370F40.snap"
 	PostgresCouldNotRenameSnapshotRe = regexp.MustCompile(`could not rename file ".*\.snap\..*\.tmp" to ".*\.snap"`)
-	PostgresNeonDonorWalLaggingRe    = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
-	MySqlRdsBinlogFileNotFoundRe     = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
-	MongoPoolClearedErrorRe          = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	// e.g. could not open file "pg_logical/snapshots/2-8B023150.snap.8007.tmp": No such file or directory
+	PostgresCouldNotOpenSnapshotRe = regexp.MustCompile(`could not open file ".*\.snap\..*\.tmp"`)
+	PostgresNeonDonorWalLaggingRe  = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
+	MySqlRdsBinlogFileNotFoundRe   = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe        = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -86,6 +95,7 @@ type ErrorSource string
 const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
+	ErrorSourceCockroachDB     ErrorSource = "cockroachdb"
 	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
@@ -145,6 +155,11 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	// CockroachDB changefeed cannot resume (cursor past the GC threshold, or a
+	// watched table truncated/dropped); only the user can fix it, via resync
+	ErrorNotifyChangefeedInvalid = ErrorClass{
+		Class: "NOTIFY_CHANGEFEED_INVALID", action: NotifyUser,
+	}
 	ErrorNotifyBinlogEventExceededMaxAllowedPacket = ErrorClass{
 		Class: "NOTIFY_BINLOG_EVENT_EXCEEDED_MAX_ALLOWED_PACKET", action: NotifyUser,
 	}
@@ -156,6 +171,9 @@ var (
 	}
 	ErrorNotifyMySQLCompressedColumnUnsupported = ErrorClass{
 		Class: "NOTIFY_MYSQL_COMPRESSED_COLUMN_UNSUPPORTED", action: NotifyUser,
+	}
+	ErrorNotifyMySQLSecureTransportRequired = ErrorClass{
+		Class: "NOTIFY_MYSQL_SECURE_TRANSPORT_REQUIRED", action: NotifyUser,
 	}
 	ErrorNotifyBinlogRowMetadataInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_ROW_METADATA_INVALID", action: NotifyUser,
@@ -192,6 +210,12 @@ var (
 	}
 	ErrorNotifyInvalidEnumValue = ErrorClass{
 		Class: "NOTIFY_INVALID_ENUM_VALUE", action: NotifyUser,
+	}
+	ErrorNotifyConstraintViolation = ErrorClass{
+		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
+	}
+	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
+		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
 	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
@@ -246,6 +270,12 @@ var (
 	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
 		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
 	}
+	// Aurora keeps logical replication slots on the writer only, so an in-flight failover makes the
+	// slot unusable until the new writer takes over
+	// https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Appendix.PostgreSQL.CommonDBATasks.pglogical.handle-slots.html
+	ErrorNotifyAuroraFailover = ErrorClass{
+		Class: "NOTIFY_AURORA_FAILOVER", action: NotifyUser,
+	}
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
@@ -264,6 +294,14 @@ var (
 	}
 	ErrorNotifyClickHousePermissionsError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_PERMISSIONS_ERROR", action: NotifyUser,
+	}
+	// Creating the destination table failed because a user-provided part of its definition
+	// (e.g. a PARTITION BY/ORDER BY expression or a custom column type) is invalid,
+	// such as referencing a column that does not exist in the normalized table
+	// or has a wrong type (this is the only practical case where validation might not
+	// caught the issues with PARTITION BY expressions).
+	ErrorNotifyInvalidDestinationTableDefinition = ErrorClass{
+		Class: "NOTIFY_INVALID_DESTINATION_TABLE_DEFINITION", action: NotifyUser,
 	}
 	// Catch-all for misc ClickHouse errors
 	ErrorNotifyClickHouseError = ErrorClass{
@@ -292,13 +330,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if pgWalErr, ok := errors.AsType[*exceptions.PostgresWalError](err); ok {
 		pgErr = pgconn.ErrorResponseToPgError(pgWalErr.UnderlyingError())
 	}
+	// CockroachDB shares the Postgres wire protocol and SQLSTATE codes; the
+	// CockroachDB connector wraps its errors so they can be attributed to the
+	// right source while reusing the Postgres code classification below.
+	pgErrSource := ErrorSourcePostgres
+	if _, ok := errors.AsType[*exceptions.CockroachDBError](err); ok {
+		pgErrSource = ErrorSourceCockroachDB
+	}
 	var pgErrorInfo ErrorInfo
 	if pgErrFromErr, ok := errors.AsType[*pgconn.PgError](err); pgErr != nil || ok {
 		if pgErr == nil {
 			pgErr = pgErrFromErr
 		}
 		pgErrorInfo = ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   pgErr.Code,
 		}
 
@@ -331,9 +376,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return errorClass, pgErrorInfo
 			}
 			return errorClass, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   "UNKNOWN",
 			}
+		}
+	}
+
+	if changefeedErr, ok := errors.AsType[*exceptions.CockroachChangefeedIrrecoverableError](err); ok {
+		return ErrorNotifyChangefeedInvalid, ErrorInfo{
+			Source: ErrorSourceCockroachDB,
+			Code:   changefeedErr.Code,
 		}
 	}
 
@@ -362,56 +414,56 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "TABLE_DOES_NOT_EXIST",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.ReplicaIdentityNothingError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "REPLICA_IDENTITY_NOTHING",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.TablesNotInPublicationError](err); ok {
 		return ErrorNotifyTablesNotInPublication, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "TABLES_NOT_IN_PUBLICATION",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.MissingPrimaryKeyError](err); ok {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "MISSING_PRIMARY_KEY",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.PostgresLogicalMessageProcessingError](err); ok {
 		return ErrorNotifyPostgresLogicalMessageProcessing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "LOGICAL_MESSAGE_PROCESSING_ERROR",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.PublicationMissingError](err); ok {
 		return ErrorNotifyPublicationMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "irrecoverable_publication_missing",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.SlotMissingError](err); ok {
 		return ErrorNotifyReplicationSlotMissing, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "irrecoverable_slot_missing",
 		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.ReplStateDesyncError](err); ok {
 		return ErrorOther, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "desync",
 		}
 	}
@@ -513,17 +565,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
 			return ErrorNotifyConnectivity, ErrorInfo{
-				Source: ErrorSourcePostgres,
+				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
 		}
@@ -542,7 +594,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNKNOWN",
 		}
 	}
@@ -584,6 +636,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			// Handles missing spill-to-disk file during logical decoding (transient error)
 			if PostgresSpillFileMissingRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			//nolint:lll
+			// Transient failure creating or renaming a logical decoding snapshot temp file, recovers on retry.
+			// The serialize path opens the temp file with O_CREAT, so ENOENT means pg_logical/snapshots itself went away.
+			// https://github.com/postgres/postgres/blob/1416f304d2c9514fe65f112514accc9b653902ad/src/backend/replication/logical/snapbuild.c#L1814-L1821
+			if PostgresCouldNotOpenSnapshotRe.MatchString(pgErr.Message) ||
+				PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -654,8 +715,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
-			// Transient failure renaming a logical decoding snapshot temp file, recovers on retry
-			if PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
+			// Same transient snapshot temp file failure as under UndefinedFile above, which some
+			// providers report as an internal error instead of a file access error.
+			if PostgresCouldNotOpenSnapshotRe.MatchString(pgErr.Message) ||
+				PostgresCouldNotRenameSnapshotRe.MatchString(pgErr.Message) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -669,6 +732,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrNotifyPostgresCreatingSlotOnReader, pgErrorInfo
 			}
 
+			// Transient failure renaming the replication slot state file, recovers when replication restarts
+			// https://github.com/postgres/postgres/blob/1416f304d2c9514fe65f112514accc9b653902ad/src/backend/replication/slot.c#L2187
+			if pgErr.Routine == "SaveSlotToPath" && strings.Contains(pgErr.Message, "could not rename file") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// low-level Postgres memory management bug, single occurrence and fixed by retry
 			if pgErr.Routine == "GenerationFree" && strings.Contains(pgErr.Message, "could not find block containing chunk") {
 				return ErrorRetryRecoverable, pgErrorInfo
@@ -677,8 +746,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
+		case pgerrcode.DataCorrupted:
+			// Observed transient error on Aurora during a failover (evident by a subsequent transient error on retry:
+			// "ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)" that auto-recovered)
+			if pgErr.Routine == "WALReadRaiseError" && strings.Contains(pgErr.Message, "could not read from log segment") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			return ErrorOther, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
-			if pgErr.Message == "logical decoding on standby requires \"wal_level\" >= \"logical\" on the primary" {
+			// the GUC names in this message are unquoted on PG16, quoted from PG17 on, and renamed to
+			// "effective_wal_level" on PG19, so only the prefix is stable across versions
+			// https://github.com/postgres/postgres/blob/REL_16_10/src/backend/replication/logical/logical.c#L140
+			// https://github.com/postgres/postgres/blob/REL_17_6/src/backend/replication/logical/logical.c#L143
+			if strings.Contains(pgErr.Message, "logical decoding on standby requires") {
 				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
 			}
 
@@ -703,8 +783,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			// Aurora failover: reader was promoted, slot can't be used on old RO node
 			if strings.Contains(pgErr.Message, "replication slots cannot be used on RO (Read Only) node") {
+				return ErrorNotifyAuroraFailover, pgErrorInfo
+			}
+
+		case pgerrcode.ReadOnlySQLTransaction:
+			// A server still in recovery forces every transaction read-only regardless of what the client asked for,
+			// https://github.com/postgres/postgres/blob/b4dfae2ffac25ea6caf116091b5ed15e140ddfc0/src/backend/access/transam/xact.c#L2164
+			// and the check runs before the command's own ownership check, so this is never a privilege problem:
+			// https://github.com/postgres/postgres/blob/b4dfae2ffac25ea6caf116091b5ed15e140ddfc0/src/backend/tcop/utility.c#L409
+			// A failover that leaves the endpoint on a not-yet-promoted node therefore rejects publication DDL
+			// until promotion completes, and the same statement then succeeds.
+			// Scoped to this message on purpose: we open read-only transactions ourselves for QRep reads,
+			// so a bare 25006 branch would hide a write wrongly issued inside one of those.
+			if strings.Contains(pgErr.Message, "cannot execute ALTER PUBLICATION in a read-only transaction") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
+			// Every other read-only statement keeps the labels the switch default would have given it
+			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
@@ -721,6 +816,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message, "invalid input value for enum") {
 				return ErrorNotifyInvalidEnumValue, pgErrorInfo
 			}
+
+		case pgerrcode.CheckViolation, pgerrcode.UniqueViolation:
+			return ErrorNotifyConstraintViolation, pgErrorInfo
+
+		case pgerrcode.GeneratedAlways:
+			// Destination has a GENERATED ALWAYS column, so an explicit value from the source is rejected
+			// e.g. `cannot insert a non-DEFAULT value into column "id"`
+			return ErrorNotifyGeneratedAlwaysColumn, pgErrorInfo
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
@@ -791,8 +894,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1194, // ER_CRASHED_ON_USAGE
 			1195, // ER_CRASHED_ON_REPAIR
 			1226, // ER_USER_LIMIT_REACHED
-			1827: // ER_PASSWORD_FORMAT
+			1827, // ER_PASSWORD_FORMAT
+			3032: // ER_SERVER_OFFLINE_MODE
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 3159: // ER_SECURE_TRANSPORT_REQUIRED
+			// The source rejects the handshake because the pipe connects without TLS while the server sets
+			// require_secure_transport=ON. https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_require_secure_transport
+			return ErrorNotifyMySQLSecureTransportRequired, myErrorInfo
 		case 1236: // ER_MASTER_FATAL_ERROR_READING_BINLOG
 			// A single binlog event larger than the replica's max_allowed_packet aborts the binlog stream read
 			if strings.Contains(myErr.Message, "max_allowed_packet") {
@@ -857,6 +965,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch mongoCmdErr.Code {
 		case 6: // HostUnreachable
 			return ErrorRetryRecoverable, mongoErrorInfo
+		case 9: // FailedToParse
+			if mongoCmdErr.HasErrorMessage(MongoInvalidResumeToken) {
+				return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
@@ -993,6 +1106,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorOther, gcsErrorInfo
 			}
 		}
+		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
+		// and is retried by dialing a new connection.
+		if strings.Contains(err.Error(), http2ClientConnectionLost) {
+			gcsErrorInfo.Code = "CONNECTION_LOST"
+			return ErrorRetryRecoverable, gcsErrorInfo
+		}
 		return ErrorOther, gcsErrorInfo
 	}
 
@@ -1086,6 +1205,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
+			// during table creation these come from user-provided pieces of the table
+			// definition, e.g. PARTITION BY toYYYYMM(col) referencing a nonexistent column
+			if tableCreationErr, ok := errors.AsType[*exceptions.ClickHouseNormalizedTableCreationError](err); ok {
+				return ErrorNotifyInvalidDestinationTableDefinition, ErrorInfo{
+					Source: chErrorInfo.Source,
+					Code:   chErrorInfo.Code,
+					AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+						ErrorAttributeKeyTable: tableCreationErr.DestinationTable,
+					},
+				}
+			}
 			if _, ok := errors.AsType[*exceptions.ClickHouseQRepSyncError](err); ok {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -1127,6 +1257,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:                 chErrorInfo.Code,
 				AdditionalAttributes: additionalAttributes,
 			}
+		case chproto.ErrTooManyTables:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrUnknownUser:
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}
@@ -1220,8 +1352,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// The source sends a heartbeat whenever the binlog has no unsent events, so silence across several
+	// heartbeat periods means the connection to the source is broken rather than merely idle, and the
+	// documented remedy is to reconnect: https://dev.mysql.com/worklog/task/?id=342
+	// Only the customer can act on the source server or on the network path in between.
 	if _, ok := errors.AsType[*exceptions.MySQLStaleConnectionError](err); ok {
-		return ErrorRetryRecoverable, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "CONNECTION_STALE",
 		}
@@ -1267,7 +1403,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if postgresPrimaryKeyModifiedError, ok := errors.AsType[*exceptions.PrimaryKeyModifiedError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
@@ -1278,7 +1414,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if postgresReplicaIdentityIndexError, ok := errors.AsType[*exceptions.ReplicaIdentityIndexError](err); ok {
 		return ErrorUnsupportedSchemaChange, ErrorInfo{
-			Source: ErrorSourcePostgres,
+			Source: pgErrSource,
 			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  postgresReplicaIdentityIndexError.Table,

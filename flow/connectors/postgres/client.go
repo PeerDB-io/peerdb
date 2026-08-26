@@ -116,8 +116,8 @@ const (
 	ReplicaIdentityNothing ReplicaIdentityType = 'n'
 )
 
-// getRelIDForTable returns the relation ID for a table.
-func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *common.QualifiedTable) (uint32, error) {
+// GetRelIDForTable returns the relation ID for a table.
+func (c *PostgresConnector) GetRelIDForTable(ctx context.Context, schemaTable *common.QualifiedTable) (uint32, error) {
 	var relID pgtype.Uint32
 	err := c.conn.QueryRow(ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
@@ -404,8 +404,7 @@ func getSlotInfo(
 		return nil, fmt.Errorf("failed to read information for slots: %w", err)
 	}
 	defer rows.Close()
-	var slotInfoRows []*protos.SlotInfo
-	for rows.Next() {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotInfo, error) {
 		var slotName pgtype.Text
 		var redoLSN pgtype.Text
 		var restartLSN pgtype.Text
@@ -427,7 +426,7 @@ func getSlotInfo(
 		var spillCount *int64
 		var spillBytes *int64
 
-		err := rows.Scan(
+		err := row.Scan(
 			&slotName,
 			&redoLSN,
 			&restartLSN,
@@ -453,7 +452,7 @@ func getSlotInfo(
 			return nil, err
 		}
 
-		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
+		return &protos.SlotInfo{
 			SlotName:                 slotName.String,
 			RedoLSN:                  redoLSN.String,
 			RestartLSN:               restartLSN.String,
@@ -474,9 +473,61 @@ func getSlotInfo(
 			SpillTxns:                spillTxns,
 			SpillCount:               spillCount,
 			SpillBytes:               spillBytes,
-		})
+		}, nil
+	})
+}
+
+type walRetentionSettings struct {
+	// Both are nil when the setting does not exist (PG<13) or does not impose a cap:
+	// max_slot_wal_keep_size defaults to -1 (unlimited) and wal_keep_size to 0.
+	MaxSlotWalKeepSizeBytes *int64
+	WalKeepSizeBytes        *int64
+}
+
+// LimitBytes returns the effective WAL retention cap used to normalize safe_wal_size.
+// It is nil when max_slot_wal_keep_size is unlimited or unavailable; wal_keep_size can raise it.
+func (s walRetentionSettings) LimitBytes() *int64 {
+	if s.MaxSlotWalKeepSizeBytes == nil {
+		return nil
 	}
-	return slotInfoRows, nil
+	limit := *s.MaxSlotWalKeepSizeBytes
+	if s.WalKeepSizeBytes != nil && *s.WalKeepSizeBytes > limit {
+		limit = *s.WalKeepSizeBytes
+	}
+	return &limit
+}
+
+// getWalRetentionSettings reads the settings bounding how much WAL a slot may retain. Both are
+// readable by any role, and pg_settings is an in-memory scan.
+func getWalRetentionSettings(ctx context.Context, conn *pgx.Conn) (walRetentionSettings, error) {
+	rows, err := conn.Query(ctx, `SELECT
+			name,
+			CASE WHEN setting::bigint < 0 THEN NULL
+				ELSE pg_size_bytes(setting || COALESCE(unit, '')) END
+		FROM pg_settings WHERE name IN ('max_slot_wal_keep_size', 'wal_keep_size')`)
+	if err != nil {
+		return walRetentionSettings{}, fmt.Errorf("failed to read WAL retention settings: %w", err)
+	}
+	defer rows.Close()
+
+	var settings walRetentionSettings
+	for rows.Next() {
+		var name string
+		var bytes *int64
+		if err := rows.Scan(&name, &bytes); err != nil {
+			return walRetentionSettings{}, err
+		}
+		switch name {
+		case "max_slot_wal_keep_size":
+			settings.MaxSlotWalKeepSizeBytes = bytes
+		case "wal_keep_size":
+			settings.WalKeepSizeBytes = bytes
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return walRetentionSettings{}, err
+	}
+	return settings, nil
 }
 
 // GetSlotInfo gets the information about the replication slot size and LSNs.

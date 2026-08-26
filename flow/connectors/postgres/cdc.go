@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1315,7 +1316,6 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
@@ -1333,9 +1333,11 @@ func processRelationMessage[Items model.Items](
 		return !isExcluded
 	}
 
+	addedColumnNames := make([]string, 0)
 	addedColumnTypeOIDs := make([]uint32, 0)
 	for _, column := range currRel.Columns {
 		if isAddedColumnAndNotExcluded(column.Name) {
+			addedColumnNames = append(addedColumnNames, column.Name)
 			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 		}
 	}
@@ -1345,26 +1347,48 @@ func processRelationMessage[Items model.Items](
 		return nil, fmt.Errorf("error getting schema names for added column types: %w", err)
 	}
 
+	// Relation messages carry neither nullability nor the value PostgreSQL returns for rows that
+	// predate an added column, so both come from pg_catalog. A later table rewrite can clear the
+	// missing value before a delayed CDC reader observes this relation message.
+	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, currRel.RelationID, addedColumnNames)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if isAddedColumnAndNotExcluded(column.Name) {
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
+			catalogInfo := addedColumnCatalogInfo[column.Name]
+			sourceMissingValue := ""
+			if catalogInfo.missingValue != nil {
+				sourceMissingValue = *catalogInfo.missingValue
+			}
+			var defaultExpr *string
+			// destinations on the PG type system splice the column type in verbatim, so a literal
+			// rendered for a QValueKind would not fit their DDL
+			if catalogInfo.missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
+				if literal, ok := defaultExprFromPostgresMissingValue(
+					*catalogInfo.missingValue, types.QValueKind(currRelMap[column.Name]),
+				); ok {
+					defaultExpr = &literal
+				}
+			}
+			addedColumn := &protos.FieldDescription{
 				Name:           column.Name,
 				Type:           currRelMap[column.Name],
 				TypeModifier:   column.TypeModifier,
-				Nullable:       false,
+				Nullable:       !catalogInfo.notNull,
 				TypeSchemaName: typeSchemaNameMapping[column.DataType],
-			})
-			// pg does not send nullable info, only whether column is part of replica identity
-			// After loop we will correct this based on pg_catalog,
-			// but can skip specific scenario where replident is default or index
-			if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
-				currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
-				potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
+				DefaultExpr:    defaultExpr,
 			}
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, addedColumn)
 			p.logger.Info("Detected added column",
-				slog.String("columnName", column.Name),
-				slog.String("columnType", currRelMap[column.Name]),
+				slog.String("columnName", addedColumn.Name),
+				slog.String("columnType", addedColumn.Type),
+				slog.Bool("nullable", addedColumn.Nullable),
+				slog.Bool("sourceHasMissing", catalogInfo.hasMissing),
+				slog.String("sourceMissingValue", sourceMissingValue),
+				slog.String("default", addedColumn.GetDefaultExpr()),
 				slog.String("relationName", schemaDelta.SrcTableName))
 		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
 			// Column is added but excluded
@@ -1396,36 +1420,6 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
-	if len(potentiallyNullableAddedColumns) > 0 {
-		p.logger.Info("Checking for potentially nullable columns in table",
-			slog.String("tableName", schemaDelta.SrcTableName),
-			slog.Any("potentiallyNullable", potentiallyNullableAddedColumns))
-
-		rows, err := p.conn.Query(
-			ctx,
-			fmt.Sprintf(
-				"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
-				strings.Join(potentiallyNullableAddedColumns, ","),
-			),
-			currRel.RelationID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
-		}
-
-		attnames, err := pgx.CollectRows[string](rows, pgx.RowTo)
-		if err != nil {
-			return nil, fmt.Errorf("error collecting rows for column nullable info for schema change: %w", err)
-		}
-		for _, column := range schemaDelta.AddedColumns {
-			if slices.Contains(attnames, column.Name) {
-				column.Nullable = true
-				p.logger.Info(fmt.Sprintf("Detected column %s in table %s as nullable",
-					column.Name, schemaDelta.SrcTableName))
-			}
-		}
-	}
-
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
@@ -1435,6 +1429,134 @@ func processRelationMessage[Items model.Items](
 		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
+}
+
+type addedColumnCatalogInfo struct {
+	// PostgreSQL uses this value when the column is physically absent from a row that predates
+	// ADD COLUMN. nil means either there is no missing value or that value is SQL NULL.
+	missingValue *string
+	hasMissing   bool
+	notNull      bool
+}
+
+// fetchAddedColumnCatalogInfo reads nullability and the value PostgreSQL uses for rows that predate
+// the named columns. pg_attrdef is deliberately not used: it describes the current default for new
+// rows, which can differ from the value stored in pg_attribute.attmissingval for existing rows.
+func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
+	ctx context.Context, relID uint32, columnNames []string,
+) (map[string]addedColumnCatalogInfo, error) {
+	if len(columnNames) == 0 {
+		return nil, nil
+	}
+
+	// attmissingval holds the original default value materialized when the column was added, rather
+	// than its current default. It is an anyarray with one element; converting through JSON extracts
+	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
+	// string while returning SQL NULL for a missing value of NULL.
+	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
+		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END
+		FROM pg_catalog.pg_attribute a
+		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
+		relID, columnNames)
+	if err != nil {
+		return nil, fmt.Errorf("error looking up added column info for schema change: %w", err)
+	}
+
+	catalogInfo := make(map[string]addedColumnCatalogInfo, len(columnNames))
+	var name string
+	var notNull bool
+	var hasMissing bool
+	var missingValue pgtype.Text
+	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue}, func() error {
+		info := addedColumnCatalogInfo{hasMissing: hasMissing, notNull: notNull}
+		if missingValue.Valid {
+			value := missingValue.String
+			info.missingValue = &value
+		}
+		catalogInfo[name] = info
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error collecting added column info for schema change: %w", err)
+	}
+	return catalogInfo, nil
+}
+
+// pg renders numbers as digits with an optional sign, fraction and exponent
+var pgNumericLiteralRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$`)
+
+// defaultExprFromPostgresMissingValue renders the value PostgreSQL stored in attmissingval as a SQL
+// literal that destinations can splice into DDL verbatim. Only types whose text form carries over are
+// translated; everything else is declined, leaving the destination column without a default.
+func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (string, bool) {
+	switch qkind {
+	case types.QValueKindBoolean:
+		if value != "true" && value != "false" {
+			return "", false
+		}
+		return value, true
+
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindInt256, types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32,
+		types.QValueKindUInt64, types.QValueKindUInt256, types.QValueKindFloat32, types.QValueKindFloat64,
+		types.QValueKindNumeric:
+		// Non-finite values such as NaN are left behind; destinations disagree on those.
+		if !pgNumericLiteralRegex.MatchString(value) {
+			return "", false
+		}
+		return value, true
+
+	case types.QValueKindTimestampTZ:
+		// to_json renders timestamps with a T separator and a numeric UTC offset. The destination
+		// column carries no zone of its own, so normalize the separator and remove the offset.
+		value = normalizePostgresMissingTimestamp(value)
+		var ok bool
+		if value, ok = strings.CutSuffix(value, "+00:00"); !ok {
+			value, ok = strings.CutSuffix(value, "+00")
+		}
+		if !ok {
+			return "", false
+		}
+		return quoteDefaultLiteral(value), true
+
+	case types.QValueKindTimestamp:
+		return quoteDefaultLiteral(normalizePostgresMissingTimestamp(value)), true
+
+	case types.QValueKindHStore:
+		// attmissingval is extracted through to_json, which uses hstore_to_json rather than hstore_out.
+		// Re-marshal it so defaults use the same canonical representation as CDC hstore values.
+		value, err := geo.CanonicalizeHStoreJSON(value)
+		if err != nil {
+			return "", false
+		}
+		return quoteDefaultLiteral(value), true
+
+	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
+		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindINET,
+		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
+		return quoteDefaultLiteral(value), true
+
+	default:
+		// bytea, arrays, interval, time and the geo types all have a text form the destination reads
+		// differently, if at all
+		return "", false
+	}
+}
+
+func normalizePostgresMissingTimestamp(value string) string {
+	if len(value) > len("2006-01-02") && value[len("2006-01-02")] == 'T' {
+		return value[:len("2006-01-02")] + " " + value[len("2006-01-02")+1:]
+	}
+	return value
+}
+
+var clickHouseDefaultLiteralReplacer = strings.NewReplacer(
+	"\\", "\\\\",
+	"'", "''",
+)
+
+// quoteDefaultLiteral quotes and escapes value for splicing into ClickHouse DDL.
+func quoteDefaultLiteral(value string) string {
+	return "'" + clickHouseDefaultLiteralReplacer.Replace(value) + "'"
 }
 
 // getParentRelIDIfPartitioned checks if the relation ID is a child table

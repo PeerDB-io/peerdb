@@ -24,10 +24,20 @@ func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
 	return pgConfig.RequireTls || (pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
 }
 
-func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
-	// strip path and query params that may be present in the host
-	host, _, _ := strings.Cut(pgConfig.Host, "/")
+// SanitizePGHost strips pasted connection-string junk (path/query suffixes,
+// whitespace, IPv6 brackets) from a stored host, yielding a bare hostname or IP.
+func SanitizePGHost(host string) string {
+	host = strings.TrimSpace(host)
+	host, _, _ = strings.Cut(host, "/")
 	host, _, _ = strings.Cut(host, "?")
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return host
+}
+
+func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
+	host := SanitizePGHost(pgConfig.Host)
 
 	u := &url.URL{
 		Scheme: "postgres",
@@ -173,97 +183,6 @@ func ReadModifyWriteTableSchemasToCatalog(
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	return nil
-}
-
-// TODO: use ReadModifyWriteTableSchemasToCatalog to guarantee transactionality
-func UpdateTableOIDsInTableSchemaInCatalog(
-	ctx context.Context,
-	pool shared.CatalogPool,
-	logger log.Logger,
-	flowName string,
-	tableOIDs map[string]uint32, // map[destinationTableName]tableOID
-) error {
-	if len(tableOIDs) == 0 {
-		logger.Info("no table OIDs to update, skipping migration",
-			slog.String("flowName", flowName))
-		return nil
-	}
-
-	logger.Info("updating table OIDs in catalog",
-		slog.String("flowName", flowName),
-		slog.Int("numTables", len(tableOIDs)))
-
-	tableNames := make([]string, 0, len(tableOIDs))
-	for tableName := range tableOIDs {
-		tableNames = append(tableNames, tableName)
-	}
-	tableSchemas, err := LoadTableSchemasFromCatalog(ctx, pool, flowName, tableNames)
-	if err != nil {
-		return fmt.Errorf("failed to load table schemas from catalog: %w", err)
-	}
-
-	tx, err := pool.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer shared.RollbackTx(tx, logger)
-
-	batch := &pgx.Batch{}
-	for tableName, tableOID := range tableOIDs {
-		tableSchema, exists := tableSchemas[tableName]
-		if !exists {
-			logger.Error("table schema not found in catalog",
-				slog.String("flowName", flowName),
-				slog.String("tableName", tableName))
-			return fmt.Errorf("table schema not found for table: %s", tableName)
-		}
-
-		tableSchema.TableOid = tableOID
-		tableSchemaBytes, err := proto.Marshal(tableSchema)
-		if err != nil {
-			return fmt.Errorf("unable to marshal updated table schema for %s: %w", tableName, err)
-		}
-
-		batch.Queue(
-			"UPDATE table_schema_mapping SET table_schema=$1 WHERE flow_name=$2 AND table_name=$3",
-			tableSchemaBytes, flowName, tableName,
-		)
-
-		logger.Info("queued table OID update",
-			slog.String("flowName", flowName),
-			slog.String("tableName", tableName),
-			slog.Uint64("tableOID", uint64(tableOID)))
-	}
-
-	results := tx.SendBatch(ctx, batch)
-	defer results.Close() // Ensure resources are freed in case of early return
-
-	for i := range len(tableOIDs) {
-		if _, err := results.Exec(); err != nil {
-			logger.Error("failed to update table schema in catalog",
-				slog.Any("error", err),
-				slog.String("flowName", flowName),
-				slog.Int("batchIndex", i))
-			return fmt.Errorf("failed to update table schema in catalog: %w", err)
-		}
-	}
-
-	// Close results before committing
-	if err := results.Close(); err != nil {
-		logger.Error("failed to close batch results",
-			slog.Any("error", err),
-			slog.String("flowName", flowName))
-		return fmt.Errorf("failed to close batch results: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	logger.Info("successfully updated all table OIDs in catalog",
-		slog.String("flowName", flowName),
-		slog.Int("numTables", len(tableOIDs)))
-
 	return nil
 }
 

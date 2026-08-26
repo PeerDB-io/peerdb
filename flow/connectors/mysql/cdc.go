@@ -13,6 +13,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	tidbmysql "github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/pingcap/tidb/pkg/parser/opcode"
+	tidbtypes "github.com/pingcap/tidb/pkg/types"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -844,7 +847,6 @@ func (c *MySqlConnector) PullRecords(
 					c.logger.Error(e.Error())
 					return e
 				}
-				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				fetchedBytes.Add(int64(len(event.RawData)))
 				totalFetchedBytes.Add(int64(len(event.RawData)))
 				inTx = true
@@ -1162,7 +1164,61 @@ func checkTableMapForCompressedColumns(ev *replication.TableMapEvent) error {
 	return nil
 }
 
-func fieldDescriptionFromMysqlColumn(
+// defaultExprFromMysqlColumnOption renders a MySQL column DEFAULT as a SQL literal that
+// destinations can splice into DDL verbatim.
+func (c *MySqlConnector) defaultExprFromMysqlColumnOption(expr ast.ExprNode) (string, bool) {
+	negate := false
+	if unary, ok := expr.(*ast.UnaryOperationExpr); ok {
+		switch unary.Op {
+		case opcode.Minus:
+			negate = true
+		case opcode.Plus:
+		default:
+			return "", false
+		}
+		expr = unary.V
+	}
+
+	value, ok := expr.(ast.ValueExpr)
+	if !ok {
+		// CURRENT_TIMESTAMP, NOW(), UUID(), ... arrive as *ast.FuncCallExpr
+		return "", false
+	}
+
+	var literal string
+	switch v := value.GetValue().(type) {
+	case int64:
+		literal = strconv.FormatInt(v, 10)
+	case uint64:
+		literal = strconv.FormatUint(v, 10)
+	case float64:
+		literal = strconv.FormatFloat(v, 'g', -1, 64)
+	case *tidbtypes.MyDecimal:
+		literal = v.String()
+	case string:
+		if negate || strings.ContainsAny(v, "\\\t\n\r\x00") {
+			return "", false
+		}
+		return "'" + strings.ReplaceAll(v, "'", "''") + "'", true
+	case nil, tidbtypes.BinaryLiteral:
+		// DEFAULT NULL and bit literals are deliberately not translated.
+		return "", false
+	default:
+		typeName := fmt.Sprintf("%T", v)
+		if _, loaded := c.warnedDdlDefaultTypes.LoadOrStore(typeName, struct{}{}); !loaded {
+			c.logger.Warn("unexpected MySQL column default datum type; omitting default",
+				slog.String("type", typeName))
+		}
+		return "", false
+	}
+
+	if negate {
+		literal = "-" + literal
+	}
+	return literal, true
+}
+
+func (c *MySqlConnector) fieldDescriptionFromMysqlColumn(
 	col *ast.ColumnDef, binlogRowMetadataSupported bool, mirrorVersion uint32,
 ) (*protos.FieldDescription, error) {
 	if col.Tp == nil {
@@ -1175,10 +1231,19 @@ func fieldDescriptionFromMysqlColumn(
 	}
 
 	nullable := true
+	var defaultExpr *string
 	for _, option := range col.Options {
-		if option.Tp == ast.ColumnOptionNotNull {
+		switch option.Tp {
+		case ast.ColumnOptionNotNull:
 			nullable = false
-			break
+		case ast.ColumnOptionDefaultValue:
+			// Servers without binlog row metadata carry enums and sets as their ordinal or
+			// bitmask, so the member name MySQL states as the default would not convert.
+			if option.Expr != nil && qkind != types.QValueKindUint16Enum && qkind != types.QValueKindUint64Set {
+				if literal, ok := c.defaultExprFromMysqlColumnOption(option.Expr); ok {
+					defaultExpr = &literal
+				}
+			}
 		}
 	}
 
@@ -1201,6 +1266,7 @@ func fieldDescriptionFromMysqlColumn(
 		Type:         string(qkind),
 		TypeModifier: typmod,
 		Nullable:     nullable,
+		DefaultExpr:  defaultExpr,
 	}, nil
 }
 
@@ -1254,7 +1320,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					continue
 				}
 
-				fd, err := fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
+				fd, err := c.fieldDescriptionFromMysqlColumn(col, binlogRowMetadataSupported, mirrorVersion)
 				if err != nil {
 					return err
 				}

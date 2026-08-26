@@ -68,6 +68,5 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 		clientOptions.ConnectionOptions = client.ConnectionOptions{TLS: tlsConfig}
 	}
 
-	tc, err := client.Dial(clientOptions)
-	return tc, err
+	return client.DialContext(ctx, clientOptions)
 }

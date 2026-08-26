@@ -42,6 +42,7 @@ type MySqlConnector struct {
 	warnedUnsupportedEventTypes sync.Map
 	warnedCharsets              sync.Map
 	warnedTypeChanges           sync.Map
+	warnedDdlDefaultTypes       sync.Map
 	serverVersion               string
 	binlogHeartbeatPeriod       time.Duration
 	clockOffset                 time.Duration

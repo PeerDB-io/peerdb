@@ -274,26 +274,52 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
-			if shardTableName != "" {
-				if err := c.execWithLogging(ctx,
+			defaultExpr := addedColumn.DefaultExpr
+			if defaultExpr != nil && (qvKind == types.QValueKindTime || qvKind == types.QValueKindTimeTZ) &&
+				!slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled) {
+				// on the legacy path time lands in DateTime64 as an offset from the epoch,
+				// which the source's 'HH:MM:SS' literal does not describe
+				c.logger.Warn("[schema delta replay] omitting source default for time column without Time64 support",
+					slog.String("column", addedColumn.Name), slog.String("default", *defaultExpr))
+				defaultExpr = nil
+			}
+
+			columnDef := clickHouseColType
+			if defaultExpr != nil {
+				columnDef += " DEFAULT " + *defaultExpr
+			}
+
+			addColumn := func(tableName, def string) error {
+				return c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-						peerdb_clickhouse.QuoteIdentifier(shardTableName), onCluster,
-						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
-				); err != nil {
+						peerdb_clickhouse.QuoteIdentifier(tableName), onCluster,
+						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), def))
+			}
+
+			// retry without default if ch rejected the expression
+			addColumnWithDefaultFallback := func(tableName string) error {
+				err := addColumn(tableName, columnDef)
+				if err == nil || defaultExpr == nil {
+					return err
+				}
+				c.logger.Warn("[schema delta replay] retrying added column without its source default",
+					slog.String("column", addedColumn.Name), slog.String("default", *defaultExpr),
+					slog.String("destination table name", tableName), slog.Any("error", err))
+				return addColumn(tableName, clickHouseColType)
+			}
+
+			if shardTableName != "" {
+				if err := addColumnWithDefaultFallback(shardTableName); err != nil {
 					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 				}
 			}
 
-			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName), onCluster,
-					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
-			); err != nil {
+			if err := addColumnWithDefaultFallback(schemaDelta.DstTableName); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(
 				"[schema delta replay] added column",
-				slog.String("column", addedColumn.Name), slog.String("type", clickHouseColType),
+				slog.String("column", addedColumn.Name), slog.String("type", columnDef),
 				slog.String("destination table name", schemaDelta.DstTableName), slog.String("source table name", schemaDelta.SrcTableName),
 			)
 		}

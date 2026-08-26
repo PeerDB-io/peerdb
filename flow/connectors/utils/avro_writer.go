@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,8 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -132,21 +132,19 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		return AvroFile{}, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
-	// Create the uploader using the AWS SDK v2 manager
-	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
-		if partSize > 0 {
-			u.PartSize = partSize
-			if partSize > 256*1024*1024 {
-				u.Concurrency = 1
-			}
-		}
-	})
+	uploader := transfermanager.New(s3svc, S3TransferOptions(partSize))
 
-	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
+	if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
 	}); err != nil {
+		// transfermanager loses the context.Canceled unwrap chain when AbortMultipartUpload also
+		// fails on the canceled upload context; rejoin the cause so classifier sees the cancellation
+		// https://github.com/aws/aws-sdk-go-v2/blob/feature/s3/transfermanager/v0.3.10/feature/s3/transfermanager/api_op_UploadObject.go#L1204
+		if ctxErr := context.Cause(ctx); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
+		}
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
 		return AvroFile{}, fmt.Errorf("failed to upload file: %w", err)

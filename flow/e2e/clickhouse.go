@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -63,8 +64,8 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       internal.ClickHouseTestHost(),
-					Port:       internal.ClickHouseTestPort(),
+					Host:       testutil.ClickHouseTestHost(),
+					Port:       testutil.ClickHouseTestPort(),
 					Database:   dbname,
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
@@ -86,8 +87,8 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:       internal.ClickHouseTestHost(),
-				Port:       internal.ClickHouseTestPort(),
+				Host:       testutil.ClickHouseTestHost(),
+				Port:       testutil.ClickHouseTestPort(),
 				Database:   dbname,
 				DisableTls: true,
 				S3:         s.s3Helper.S3Config,
@@ -349,6 +350,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, types.QValueFloat64{Val: *v})
 			case *[]float64:
 				qrow = append(qrow, types.QValueArrayFloat64{Val: *v})
+			case **uuid.UUID:
+				if *v == nil {
+					qrow = append(qrow, types.QValueNull(types.QValueKindUUID))
+				} else {
+					qrow = append(qrow, types.QValueUUID{Val: **v})
+				}
 			case *uuid.UUID:
 				qrow = append(qrow, types.QValueUUID{Val: *v})
 			case *[]uuid.UUID:

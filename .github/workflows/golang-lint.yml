@@ -14,7 +14,7 @@ jobs:
     name: lint
     runs-on: [ubuntu-24.04]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
@@ -24,14 +24,24 @@ jobs:
           sudo apt-get install libgeos-dev
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.5'
+          go-version: '1.26.6'
           cache: false
+      # flow/pkg's Ruleguard config imports flow/generated/protos, so lint needs
+      # both modules in a workspace. e2e_cleanup is linted under it too.
+      - name: Configure Go workspace
+        run: go work init ./flow ./flow/pkg ./e2e_cleanup
       - name: golangci-lint flow
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
           working-directory: ./flow
           args: --timeout=10m
+      - name: golangci-lint flow/pkg
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12.2
+          working-directory: ./flow/pkg
+          args: --config=../.golangci.yml --timeout=10m
       - name: golangci-lint e2e_cleanup
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:

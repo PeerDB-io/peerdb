@@ -87,3 +87,42 @@ func TestInvalidInput(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalizeHStoreJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		input  string
+		output string
+	}{
+		{
+			name:   "canonicalizes spacing, order, and HTML escapes",
+			input:  `{"z": "<&>", "a": null}`,
+			output: `{"a":null,"z":"\u003c\u0026\u003e"}`,
+		},
+		{
+			name:   "preserves quoted values",
+			input:  `{"a\\\"b": "c\\\\d"}`,
+			output: `{"a\\\"b":"c\\\\d"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := CanonicalizeHStoreJSON(tc.input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tc.output {
+				t.Errorf("expected %q, got %q", tc.output, result)
+			}
+		})
+	}
+
+	for _, input := range []string{
+		`null`,
+		`[]`,
+		`{"a": 1}`,
+	} {
+		if _, err := CanonicalizeHStoreJSON(input); err == nil {
+			t.Errorf("expected an error for %s", input)
+		}
+	}
+}

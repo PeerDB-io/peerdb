@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 // ColumnSchema holds the PostgreSQL type information for a single column,
@@ -41,15 +42,15 @@ func CheckSchemaExists(ctx context.Context, conn *pgx.Conn, schema string) error
 // GetDestinationTableSchema queries a PostgreSQL table's column type information
 // using SELECT * FROM tableIdentifier LIMIT 0 to get field descriptions with OIDs.
 // Returns pgx.ErrNoRows if the table exists but has no columns.
-func GetDestinationTableSchema(ctx context.Context, conn *pgx.Conn, tableIdentifier string) (map[string]ColumnSchema, error) {
+func GetDestinationTableSchema(
+	ctx context.Context,
+	conn *pgx.Conn,
+	tableIdentifier string,
+	customTypeMapping map[uint32]CustomDataType,
+) (map[string]ColumnSchema, error) {
 	parsedTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table identifier %s: %w", tableIdentifier, err)
-	}
-
-	customTypeMapping, err := GetCustomDataTypes(ctx, conn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
 
 	rows, err := conn.Query(ctx,
