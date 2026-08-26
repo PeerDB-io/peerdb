@@ -304,6 +304,22 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresWalRaiseErrorShouldBeRecoverable(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.DataCorrupted,
+		Message:  "could not read from log segment 0000000100000EA000000039, offset 35536896: read 0 of 8192",
+		Routine:  "WALReadRaiseError",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("error starting replication at startLsn - 16084218300273: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.DataCorrupted,
+	}, errInfo)
+}
+
 func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
 	// Simulate a Neon project quota exceeded error
 	err := &pgconn.PgError{
