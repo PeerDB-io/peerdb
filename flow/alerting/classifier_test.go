@@ -1462,6 +1462,23 @@ func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 	}, errInfo)
 }
 
+func TestClickHouseTooManyTablesDuringTableCreationShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	chErr := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyTables),
+		//nolint:lll
+		Message: "Too many tables. The limit (server configuration parameter `max_table_num_to_throw`) is set to 500, the current number is 500",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseNormalizedTableCreationError(
+		fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", chErr), "test"))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyTables)),
+	}, errInfo)
+}
+
 func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrTooManyParts),
