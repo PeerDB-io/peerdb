@@ -252,14 +252,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			return pullErr
 		})
 
-		// for query-based cdc schema delta is known once the first record is read
-		// so, we should apply schema deltas before starting the sync
 		hasRecords := !stream.WaitAndCheckEmpty()
-		if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
-			release()
-			return a.Alerter.LogFlowError(ctx, flowName, err)
-		}
-
 		var rowCounts *model.RecordTypeCounts
 		if hasRecords {
 			pollGroup.Go(func() error {
@@ -281,6 +274,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 					Records:                    stream.GetRecords(),
 					Version:                    config.Version,
 					Flags:                      config.Flags,
+					SchemaDeltas:               stream.SchemaDeltas,
 					BatchID:                    nextBatchID,
 					SoftDeleteColName:          config.SoftDeleteColName,
 				})
@@ -310,6 +304,12 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			continue
 		}
 		wasLagging = false
+
+		if len(stream.SchemaDeltas) > 0 {
+			if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
+				return a.Alerter.LogFlowError(ctx, flowName, err)
+			}
+		}
 
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
 		a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
