@@ -534,7 +534,7 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 
 // SetupReplication is BigQuery's equivalent of capturing a starting replication position
 // (like MySQL's GTID/file-position capture): it has no replication slot to open, so it just
-// captures a BigQuery-clock timestamp T and persists it as the initial CDC checkpoint. Unlike
+// captures a BigQuery-clock timestamp T and uses it as the initial per-table CDC checkpoint. Unlike
 // MySQL/Postgres, BigQuery's initial load can't query the live table at pull time - QRep
 // pulls read pre-exported Parquet from GCS - so when the mirror wants an initial load
 // (req.DoInitialSnapshot), this also runs that export as of the same T, the same way
@@ -566,9 +566,18 @@ func (c *BigQueryConnector) SetupReplication(
 	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
 	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
 	// keeps CDC's first window from re-pulling what the snapshot already captured.
-	checkpoint := model.CdcCheckpoint{Text: snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)}
-	if err := c.SetLastOffset(ctx, req.FlowJobName, checkpoint); err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to persist initial CDC checkpoint: %w", err)
+	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
+	if cfg.GetBigqueryCdcConfig() != nil {
+		for _, tableMapping := range cfg.TableMappings {
+			if err := c.InitializeTableReplicationState(
+				ctx, req.FlowJobName, tableMapping.SourceTableIdentifier, checkpoint,
+			); err != nil {
+				return model.SetupReplicationResult{}, fmt.Errorf(
+					"failed to initialize CDC checkpoint for table %s: %w",
+					tableMapping.SourceTableIdentifier, err,
+				)
+			}
+		}
 	}
 
 	return model.SetupReplicationResult{}, nil

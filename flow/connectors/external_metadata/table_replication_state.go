@@ -61,6 +61,26 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	return state, nil
 }
 
+// InitializeTableReplicationState seeds a table's cursor from the setup
+// checkpoint before any per-table poll starts. Existing progress always wins;
+// this only fills an uninitialized state row.
+func (p *PostgresMetadata) InitializeTableReplicationState(
+	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string,
+) error {
+	if _, err := p.pool.Exec(ctx, `
+		INSERT INTO `+cdcTableReplicationStateTableName+` (flow_name, source_table_identifier, cursor_text)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (flow_name, source_table_identifier)
+		DO UPDATE SET cursor_text = excluded.cursor_text, updated_at = now()
+		WHERE `+cdcTableReplicationStateTableName+`.cursor_text = ''
+			AND `+cdcTableReplicationStateTableName+`.synced_batch_id = 0
+			AND `+cdcTableReplicationStateTableName+`.normalized_batch_id = 0
+	`, jobName, sourceTableIdentifier, cursor); err != nil {
+		return fmt.Errorf("failed to initialize table replication state for %s: %w", sourceTableIdentifier, err)
+	}
+	return nil
+}
+
 // RecordTableReplicationAttempt records that a poll attempt for this table
 // started at attemptedAt, creating the row if this is the table's first poll.
 func (p *PostgresMetadata) RecordTableReplicationAttempt(
