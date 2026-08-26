@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
 CREATE TABLE IF NOT EXISTS cdc_table_avro_stage (
     flow_name text NOT NULL,
     source_table_identifier text NOT NULL,
+    -- per-table batch_id, matching cdc_table_replication_state.synced_batch_id /
+    -- normalized_batch_id - not the global batch_id used in the cdc_batches table.
     batch_id bigint NOT NULL,
     avro_file jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
