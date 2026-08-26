@@ -144,3 +144,25 @@ func DeleteTableAvroStage(ctx context.Context, flowJobName string, sourceTableId
 
 	return nil
 }
+
+// DeleteTableAvroStageRange removes a table's staged Avro records for every
+// batchID in (startBatchID, endBatchID] once they've been normalized. The
+// underlying S3/GCS objects are not removed here.
+func DeleteTableAvroStageRange(
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, startBatchID int64, endBatchID int64,
+) error {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx,
+		`DELETE FROM cdc_table_avro_stage
+		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id > $3 AND batch_id <= $4`,
+		flowJobName, sourceTableIdentifier, startBatchID, endBatchID,
+	); err != nil {
+		return fmt.Errorf("failed to delete table avro stage range: %w", err)
+	}
+
+	return nil
+}

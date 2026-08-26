@@ -81,12 +81,9 @@ func (g *gcsStagingStore) Upload(ctx context.Context, env map[string]string, key
 }
 
 func (g *gcsStagingStore) TableFunctionExpr(ctx context.Context, key string, format string) (string, error) {
-	signedURL, err := g.client.Bucket(g.bucket).SignedURL(key, &storage.SignedURLOptions{
-		Method:  "GET",
-		Expires: time.Now().Add(gcsSignedURLExpiry),
-	})
+	signedURL, err := g.signURL(key)
 	if err != nil {
-		return "", exceptions.NewGCSError(fmt.Errorf("failed to generate signed URL for gs://%s/%s: %w", g.bucket, key, err))
+		return "", err
 	}
 
 	var expr strings.Builder
@@ -96,6 +93,41 @@ func (g *gcsStagingStore) TableFunctionExpr(ctx context.Context, key string, for
 	expr.WriteString(peerdb_clickhouse.QuoteLiteral(format))
 	expr.WriteByte(')')
 	return expr.String(), nil
+}
+
+func (g *gcsStagingStore) MultiKeyTableFunctionExpr(ctx context.Context, keys []string, format string) (string, error) {
+	var locator strings.Builder
+	locator.WriteByte('[')
+	for i, key := range keys {
+		signedURL, err := g.signURL(key)
+		if err != nil {
+			return "", err
+		}
+		if i > 0 {
+			locator.WriteByte(',')
+		}
+		locator.WriteString(peerdb_clickhouse.QuoteLiteral(signedURL))
+	}
+	locator.WriteByte(']')
+
+	var expr strings.Builder
+	expr.WriteString("url(")
+	expr.WriteString(locator.String())
+	expr.WriteString(",")
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(format))
+	expr.WriteByte(')')
+	return expr.String(), nil
+}
+
+func (g *gcsStagingStore) signURL(key string) (string, error) {
+	signedURL, err := g.client.Bucket(g.bucket).SignedURL(key, &storage.SignedURLOptions{
+		Method:  "GET",
+		Expires: time.Now().Add(gcsSignedURLExpiry),
+	})
+	if err != nil {
+		return "", exceptions.NewGCSError(fmt.Errorf("failed to generate signed URL for gs://%s/%s: %w", g.bucket, key, err))
+	}
+	return signedURL, nil
 }
 
 func (g *gcsStagingStore) DeletePrefix(ctx context.Context, prefix string) error {

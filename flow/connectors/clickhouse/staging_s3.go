@@ -146,7 +146,29 @@ func (s *s3StagingStore) TableFunctionExpr(ctx context.Context, key string, form
 	endpoint := s.creds.GetEndpointURL()
 	region := s.creds.GetRegion()
 	fileURL := utils.FileURLForS3Service(endpoint, region, s.bucket, key)
+	return s.tableFunctionExprForLocator(ctx, peerdb_clickhouse.QuoteLiteral(fileURL), format)
+}
 
+func (s *s3StagingStore) MultiKeyTableFunctionExpr(ctx context.Context, keys []string, format string) (string, error) {
+	endpoint := s.creds.GetEndpointURL()
+	region := s.creds.GetRegion()
+
+	var locator strings.Builder
+	locator.WriteByte('[')
+	for i, key := range keys {
+		if i > 0 {
+			locator.WriteByte(',')
+		}
+		locator.WriteString(peerdb_clickhouse.QuoteLiteral(utils.FileURLForS3Service(endpoint, region, s.bucket, key)))
+	}
+	locator.WriteByte(']')
+
+	return s.tableFunctionExprForLocator(ctx, locator.String(), format)
+}
+
+// tableFunctionExprForLocator builds an s3() table function expression for
+// the given file locator, either a single quoted URL or a quoted-URL array.
+func (s *s3StagingStore) tableFunctionExprForLocator(ctx context.Context, locator string, format string) (string, error) {
 	creds, err := s.creds.Retrieve(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve S3 credentials: %w", err)
@@ -160,7 +182,7 @@ func (s *s3StagingStore) TableFunctionExpr(ctx context.Context, key string, form
 
 	var expr strings.Builder
 	expr.WriteString("s3(")
-	expr.WriteString(peerdb_clickhouse.QuoteLiteral(fileURL))
+	expr.WriteString(locator)
 	expr.WriteByte(',')
 	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
 	expr.WriteByte(',')
