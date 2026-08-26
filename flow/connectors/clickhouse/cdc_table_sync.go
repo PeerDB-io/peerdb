@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -11,6 +12,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func isDeletedColNameOrDefault(configuredSoftDeleteColName string) string {
+	if configuredSoftDeleteColName != "" {
+		return configuredSoftDeleteColName
+	}
+	return defaultIsDeletedColName
+}
 
 // typedCDCTableSchema builds the QRecordSchema for the isolated per-table CDC
 // path's typed Avro file
@@ -53,7 +61,8 @@ func typedCDCTableSchema(
 func (c *ClickHouseConnector) SyncTableCDC(
 	ctx context.Context, req *model.SyncTableCDCRequest,
 ) (*model.RecordTypeCounts, error) {
-	schema, sourceColumnByDest := typedCDCTableSchema(req.TableSchema, req.TableMapping, defaultIsDeletedColName, versionColName)
+	schema, sourceColumnByDest := typedCDCTableSchema(req.TableSchema, req.TableMapping,
+		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 
 	unboundedNumericAsString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, req.Env)
 	if err != nil {
@@ -102,7 +111,8 @@ func (c *ClickHouseConnector) SyncTableCDC(
 // table, one INSERT ... SELECT per batch from that batch's staged Avro file,
 // deleting each stage record once applied.
 func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) error {
-	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping, defaultIsDeletedColName, versionColName)
+	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
+		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 
 	var exclude []string
@@ -129,6 +139,12 @@ func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.
 	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
 		avroFile, err := GetTableAvroStage(ctx, req.FlowJobName, req.SourceTableIdentifier, batchID)
 		if err != nil {
+			if errors.Is(err, ErrNoAvroStage) {
+				// this function is the only thing that deletes stage rows, so a missing
+				// row here means a prior attempt already inserted and cleaned up this
+				// batch before its checkpoint was durably recorded; safe to skip
+				continue
+			}
 			return fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
 		}
 

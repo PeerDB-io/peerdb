@@ -188,6 +188,10 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 	wasLagging := false
 	for ctx.Err() == nil {
+		// captured before the state read so a concurrent normalize commit can't land in the
+		// gap between reading a stale state and waiting, which would wait on a channel that
+		// already fired (or never will) and stall this table's replication forever
+		normWaitCh := normResponses.Wait()
 		state, err := pgMetadata.GetTableReplicationState(ctx, flowName, sourceTable)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
@@ -198,7 +202,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 				slog.Int64("syncedBatchID", state.SyncedBatchID),
 				slog.Int64("normalizedBatchID", state.NormalizedBatchID), slog.Int64("normBufferSize", normBufferSize))
 			select {
-			case <-normResponses.Wait():
+			case <-normWaitCh:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -278,6 +282,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 					Version:                    config.Version,
 					Flags:                      config.Flags,
 					BatchID:                    nextBatchID,
+					SoftDeleteColName:          config.SoftDeleteColName,
 				})
 				if syncErr == nil {
 					logger.Info("[cdc] sync done",
@@ -401,6 +406,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 			Flags:                      config.Flags,
 			StartBatchID:               lastNormalized,
 			EndBatchID:                 reqBatchID,
+			SoftDeleteColName:          config.SoftDeleteColName,
 		})
 		dstClose(ctx)
 

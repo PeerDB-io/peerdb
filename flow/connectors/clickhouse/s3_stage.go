@@ -12,6 +12,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+// ErrNoAvroStage is returned by GetTableAvroStage when no stage row exists for
+// the requested batch.
+var ErrNoAvroStage = errors.New("no avro stage found")
+
 func SetAvroStage(
 	ctx context.Context,
 	flowJobName string,
@@ -114,7 +118,7 @@ func GetTableAvroStage(
 	).Scan(&avroFileJSON); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return utils.AvroFile{}, fmt.Errorf(
-				"no avro stage found for flow job %s, table %s, batch %d", flowJobName, sourceTableIdentifier, batchID)
+				"%w for flow job %s, table %s, batch %d", ErrNoAvroStage, flowJobName, sourceTableIdentifier, batchID)
 		}
 		return utils.AvroFile{}, fmt.Errorf("failed to get table avro stage: %w", err)
 	}

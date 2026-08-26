@@ -144,7 +144,8 @@ type SyncTableCDCRequest struct {
 	Flags                      []string
 	// BatchID is this table's own batch sequence number for the records being
 	// staged, persisted as its new synced_batch_id on success.
-	BatchID int64
+	BatchID           int64
+	SoftDeleteColName string
 }
 
 // NormalizeTableCDCRequest asks TableCDCSyncConnector.NormalizeTableCDC to
@@ -164,8 +165,9 @@ type NormalizeTableCDCRequest struct {
 	Flags                      []string
 	// StartBatchID is exclusive (the table's last normalized batch), EndBatchID
 	// is inclusive (the table's last synced batch as of this normalize call).
-	StartBatchID int64
-	EndBatchID   int64
+	StartBatchID      int64
+	EndBatchID        int64
+	SoftDeleteColName string
 }
 
 type ToJSONOptions struct {

@@ -310,11 +310,13 @@ func (c *BigQueryConnector) runPullQuery(
 		if len(missing) == 0 {
 			return nil, err
 		}
+		c.droppedExcludeColumnsMu.Lock()
 		dropped := c.droppedExcludeColumns[sourceTableIdentifier]
 		if dropped == nil {
 			dropped = make(map[string]struct{}, len(missing))
 			c.droppedExcludeColumns[sourceTableIdentifier] = dropped
 		}
+		c.droppedExcludeColumnsMu.Unlock()
 		next := make(map[string]struct{}, len(effective))
 		for col := range effective {
 			if _, gone := missing[col]; gone {
@@ -332,7 +334,9 @@ func (c *BigQueryConnector) runPullQuery(
 // effectiveExclude returns exclude minus any columns already known (from a prior
 // runPullQuery retry) to no longer exist on sourceTableIdentifier.
 func (c *BigQueryConnector) effectiveExclude(sourceTableIdentifier string, exclude map[string]struct{}) map[string]struct{} {
+	c.droppedExcludeColumnsMu.Lock()
 	dropped := c.droppedExcludeColumns[sourceTableIdentifier]
+	c.droppedExcludeColumnsMu.Unlock()
 	if len(dropped) == 0 {
 		return exclude
 	}
