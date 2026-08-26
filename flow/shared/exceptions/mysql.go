@@ -143,6 +143,10 @@ func NewMySQLExecuteError(err error) *MySQLExecuteError {
 		return &MySQLExecuteError{err, true}
 	}
 
+	if strings.Contains(err.Error(), "readInitialHandshake: invalid auth plugin data filler") {
+		return &MySQLExecuteError{err, true}
+	}
+
 	return &MySQLExecuteError{err, false}
 }
 

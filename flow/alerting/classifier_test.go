@@ -1445,6 +1445,18 @@ func TestMySQLExecuteError(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMySQLInvalidAuthPluginDataFillerShouldBeRecoverable(t *testing.T) {
+	authPluginDataLen := 21
+	err := exceptions.NewMySQLExecuteError(
+		fmt.Errorf("readInitialHandshake: %w", fmt.Errorf("invalid auth plugin data filler %d", authPluginDataLen)))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+}
+
 func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrTooManyParts),
