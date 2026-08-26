@@ -9,7 +9,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -78,7 +77,7 @@ func (c *ClickHouseConnector) SyncTableCDC(
 		return nil, err
 	}
 
-	batchIdentifier := fmt.Sprintf("%s_%s_%d", common.RandomString(16), req.DestinationTableIdentifier, req.BatchID)
+	batchIdentifier := fmt.Sprintf("%s_%d", req.DestinationTableIdentifier, req.BatchID)
 	avroFile, err := avroSyncer.writeToAvroFile(ctx, req.Env, stream, nil, avroSchema, batchIdentifier, req.FlowJobName, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write typed CDC avro file: %w", err)
@@ -100,9 +99,15 @@ func (c *ClickHouseConnector) SyncTableCDC(
 
 // NormalizeTableCDC inserts every batch in (req.StartBatchID, req.EndBatchID],
 // previously staged by SyncTableCDC, straight into the final destination
-// table, one INSERT ... SELECT per batch from that batch's staged Avro file,
-// deleting each stage record once applied.
+// table with a single INSERT ... SELECT reading all staged Avro files at
+// once, then deletes the stage records once applied. Batching every file
+// into one INSERT keeps MergeTree part creation to what that one statement
+// produces, instead of one part per batch.
 func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) error {
+	if req.EndBatchID <= req.StartBatchID {
+		return nil
+	}
+
 	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping, defaultIsDeletedColName, versionColName)
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 
@@ -127,32 +132,39 @@ func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.
 
 	chSettings := chinternal.NewInsertSettings(c.chVersion, req.Version)
 
+	avroFiles := make([]utils.AvroFile, 0, req.EndBatchID-req.StartBatchID)
+	keys := make([]string, 0, req.EndBatchID-req.StartBatchID)
 	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
 		avroFile, err := GetTableAvroStage(ctx, req.FlowJobName, req.SourceTableIdentifier, batchID)
 		if err != nil {
 			return fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
 		}
-
-		stagingTableFunction, err := c.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
-		if err != nil {
+		avroFiles = append(avroFiles, avroFile)
+		keys = append(keys, avroFile.FilePath)
+	}
+	defer func() {
+		for _, avroFile := range avroFiles {
 			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to build staging table function for batch %d: %w", batchID, err)
 		}
+	}()
 
-		query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
-		if err != nil {
-			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to build insert query for %s batch %d: %w", req.DestinationTableIdentifier, batchID, err)
-		}
-		if err := c.exec(ctx, query); err != nil {
-			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to insert into %s for batch %d: %w", req.DestinationTableIdentifier, batchID, err)
-		}
-		avroFile.Cleanup(ctx)
+	stagingTableFunction, err := c.staging.MultiKeyTableFunctionExpr(ctx, keys, stagingFormat)
+	if err != nil {
+		return fmt.Errorf("failed to build staging table function for batches (%d, %d]: %w", req.StartBatchID, req.EndBatchID, err)
+	}
 
-		if err := DeleteTableAvroStage(ctx, req.FlowJobName, req.SourceTableIdentifier, batchID); err != nil {
-			return fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
-		}
+	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
+	if err != nil {
+		return fmt.Errorf("failed to build insert query for %s batches (%d, %d]: %w",
+			req.DestinationTableIdentifier, req.StartBatchID, req.EndBatchID, err)
+	}
+	if err := c.exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to insert into %s for batches (%d, %d]: %w",
+			req.DestinationTableIdentifier, req.StartBatchID, req.EndBatchID, err)
+	}
+
+	if err := DeleteTableAvroStageRange(ctx, req.FlowJobName, req.SourceTableIdentifier, req.StartBatchID, req.EndBatchID); err != nil {
+		return fmt.Errorf("failed to delete table avro stage for batches (%d, %d]: %w", req.StartBatchID, req.EndBatchID, err)
 	}
 
 	return nil

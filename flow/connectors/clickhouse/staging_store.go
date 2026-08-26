@@ -24,6 +24,13 @@ type StagingStore interface {
 	// For GCS: url('signed_url', 'Avro')
 	TableFunctionExpr(ctx context.Context, key string, format string) (string, error)
 
+	// MultiKeyTableFunctionExpr returns a ClickHouse SQL expression that reads
+	// all given staged files as one relation, e.g. to insert several batches
+	// with a single INSERT SELECT instead of one per batch.
+	// For S3:  s3(['url1', 'url2'], 'access_key', 'secret_key', 'Avro')
+	// For GCS: url(['signed_url1', 'signed_url2'], 'Avro')
+	MultiKeyTableFunctionExpr(ctx context.Context, keys []string, format string) (string, error)
+
 	// DeletePrefix removes all objects whose key starts with prefix.
 	DeletePrefix(ctx context.Context, prefix string) error
 
