@@ -198,30 +198,28 @@ func (a *FlowableActivity) CreateRawTable(
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch flow config: %w", err))
 	}
 
-	if isIsolatedTableCDCPath(flowConfig, destinationType) {
-		// The isolated per-table CDC path writes typed Avro straight into each
-		// destination table, so there's no _peerdb_raw_* table to create.
-		if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
-			return nil, err
+	var rawTableIdentifier string
+	// The isolated per-table CDC path writes typed Avro straight into each
+	// destination table, so there's no _peerdb_raw_* table to create.
+	if !isIsolatedTableCDCPath(flowConfig, destinationType) {
+		dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 		}
-		return &protos.CreateRawTableOutput{TableIdentifier: ""}, nil
+		defer dstClose(ctx)
+
+		res, err := dstConn.CreateRawTable(ctx, config)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		}
+		rawTableIdentifier = res.TableIdentifier
 	}
 
-	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
-	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
-	}
-	defer dstClose(ctx)
-
-	res, err := dstConn.CreateRawTable(ctx, config)
-	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
 		return nil, err
 	}
 
-	return res, nil
+	return &protos.CreateRawTableOutput{TableIdentifier: rawTableIdentifier}, nil
 }
 
 // SetupTableSchema populates table_schema_mapping

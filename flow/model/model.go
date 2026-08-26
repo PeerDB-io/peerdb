@@ -112,7 +112,7 @@ type PullTableRecordsRequest struct {
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// Stream is where pulled records are pushed.
-	Stream *TableCDCStream
+	Stream *CDCStream[RecordItems]
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 }

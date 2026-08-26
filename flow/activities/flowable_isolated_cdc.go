@@ -226,7 +226,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		}
 
 		nextBatchID := state.SyncedBatchID + 1
-		stream := model.NewTableCDCStream(channelBufferSize)
+		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		pollGroup, pollCtx := errgroup.WithContext(ctx)
 		var pullResult model.PullTableRecordsResult
 		pollGroup.Go(func() error {
@@ -248,36 +248,46 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			return pullErr
 		})
 
-		var rowCounts *model.RecordTypeCounts
-		pollGroup.Go(func() error {
-			dstConn, dstClose, dstErr := connectors.GetByNameAs[connectors.TableCDCSyncConnector](
-				pollCtx, config.Env, a.CatalogPool, config.DestinationName)
-			if dstErr != nil {
-				return fmt.Errorf("failed to get destination connector: %w", dstErr)
-			}
-			defer dstClose(pollCtx)
+		// for query-based cdc schema delta is known once the first record is read
+		// so, we should apply schema deltas before starting the sync
+		hasRecords := !stream.WaitAndCheckEmpty()
+		if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
+			release()
+			return a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 
-			logger.Info("[cdc] starting sync")
-			rowCounts, dstErr = dstConn.SyncTableCDC(pollCtx, &model.SyncTableCDCRequest{
-				Env:                        config.Env,
-				FlowJobName:                flowName,
-				SourceTableIdentifier:      sourceTable,
-				DestinationTableIdentifier: destTable,
-				TableMapping:               tableMapping,
-				TableSchema:                tableNameSchemaMapping[destTable],
-				Records:                    stream.GetRecords(),
-				Version:                    config.Version,
-				Flags:                      config.Flags,
-				BatchID:                    nextBatchID,
+		var rowCounts *model.RecordTypeCounts
+		if hasRecords {
+			pollGroup.Go(func() error {
+				dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.TableCDCSyncConnector](
+					pollCtx, config.Env, a.CatalogPool, config.DestinationName)
+				if syncErr != nil {
+					return fmt.Errorf("failed to get destination connector: %w", syncErr)
+				}
+				defer dstClose(pollCtx)
+
+				logger.Info("[cdc] starting sync")
+				rowCounts, syncErr = dstConn.SyncTableCDC(pollCtx, &model.SyncTableCDCRequest{
+					Env:                        config.Env,
+					FlowJobName:                flowName,
+					SourceTableIdentifier:      sourceTable,
+					DestinationTableIdentifier: destTable,
+					TableMapping:               tableMapping,
+					TableSchema:                tableNameSchemaMapping[destTable],
+					Records:                    stream.GetRecords(),
+					Version:                    config.Version,
+					Flags:                      config.Flags,
+					BatchID:                    nextBatchID,
+				})
+				if syncErr == nil {
+					logger.Info("[cdc] sync done",
+						slog.Int("inserts", int(rowCounts.InsertCount.Load())),
+						slog.Int("updates", int(rowCounts.UpdateCount.Load())),
+						slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
+				}
+				return syncErr
 			})
-			if dstErr == nil {
-				logger.Info("[cdc] sync done",
-					slog.Int("inserts", int(rowCounts.InsertCount.Load())),
-					slog.Int("updates", int(rowCounts.UpdateCount.Load())),
-					slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
-			}
-			return dstErr
-		})
+		}
 
 		pollErr := pollGroup.Wait()
 		release()
@@ -299,7 +309,10 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
 		a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
 
-		numSynced := int64(rowCounts.InsertCount.Load() + rowCounts.UpdateCount.Load() + rowCounts.DeleteCount.Load())
+		var numSynced int64
+		if rowCounts != nil {
+			numSynced = int64(rowCounts.InsertCount.Load() + rowCounts.UpdateCount.Load() + rowCounts.DeleteCount.Load())
+		}
 		newBatchID := int64(0)
 		if numSynced > 0 {
 			newBatchID = nextBatchID

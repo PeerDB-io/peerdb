@@ -140,15 +140,29 @@ func (c *BigQueryConnector) PullTableRecords(
 		}
 	}
 
+	// The activity waits on this signal before starting sync for this poll, so
+	// a query-based source's schema - known as soon as the first row is read
+	signaled := false
+	signalingAddRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
+		if !signaled {
+			signaled = true
+			req.Stream.SignalAsNotEmpty()
+		}
+		return req.Stream.AddRecord(addCtx, record)
+	}
+
 	var bytesProcessed int64
 	switch eventsFunction {
 	case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
-		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
+		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, signalingAddRecord)
 	default:
-		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
+		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, signalingAddRecord)
 	}
 	if err != nil {
 		return model.PullTableRecordsResult{}, err
+	}
+	if !signaled {
+		req.Stream.SignalAsEmpty()
 	}
 
 	return model.PullTableRecordsResult{
