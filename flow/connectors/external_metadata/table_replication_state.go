@@ -122,8 +122,7 @@ func (p *PostgresMetadata) RecordTableReplicationNormalize(
 }
 
 // PruneTableReplicationState deletes rows for source tables no longer in
-// activeSourceTables, mirroring how parseBigQueryCDCCheckpoint used to drop
-// tables no longer mapped to the mirror from its single JSON blob.
+// activeSourceTables
 func (p *PostgresMetadata) PruneTableReplicationState(
 	ctx context.Context, jobName string, activeSourceTables []string,
 ) error {

@@ -75,6 +75,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 	for _, tm := range options.TableMappings {
 		sourceTables = append(sourceTables, tm.SourceTableIdentifier)
 	}
+	// Prune removed mirror tables, otherwise the old state might be used if they are re-added later
 	if err := pgMetadata.PruneTableReplicationState(ctx, flowName, sourceTables); err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
@@ -84,9 +85,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return err
 	}
 
-	// Seeded from the highest batch_id ever recorded, not the last *finished*
-	// one. A crash between allocating an id and finishing its batch must not
-	// let this counter hand that id out again to a different table's batch.
+	// Seeded from the highest batch_id ever recorded
 	maxBatchID, err := monitoring.GetMaxCDCBatchID(ctx, a.CatalogPool, flowName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
