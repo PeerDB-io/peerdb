@@ -138,14 +138,30 @@ type CDCPullConnector interface {
 
 // TableCDCPullConnector is implemented by sources that poll each table
 // independently (no shared replication stream to isolate tables on top of),
-// letting the activity drive per-table isolation, parallelism, and
-// backpressure generically instead of each such connector reimplementing it.
+// letting the activity drive per-table isolation, parallelism, backpressure,
+// and poll-window computation generically instead of each such connector
+// reimplementing it.
 type TableCDCPullConnector interface {
 	CDCPullConnectorCore
 
+	// CurrentSourceTimestamp returns the source's own clock, used by the
+	// activity to compute each table's poll window and to seed a table's
+	// first-ever cursor.
+	CurrentSourceTimestamp(ctx context.Context) (time.Time, error)
+
+	// ParseCursor parses a cursor previously returned by FormatCursor into
+	// the timestamp it encodes, seeding from now if cursor is empty (table
+	// pulled for the first time).
+	ParseCursor(cursor string, now time.Time) (time.Time, error)
+
+	// FormatCursor formats t as the cursor text to persist as this table's
+	// next PullTableRecords cursor.
+	FormatCursor(t time.Time) string
+
 	// PullTableRecords pulls whatever is newly available for one source table
-	// and streams it into req.Stream. This method should be idempotent given
-	// the same req.Cursor.
+	// within [req.Start, req.End) and streams it into req.Stream. The caller
+	// only calls this once it has established that req.End is after
+	// req.Start. This method should be idempotent given the same window.
 	PullTableRecords(
 		ctx context.Context,
 		catalogPool shared.CatalogPool,

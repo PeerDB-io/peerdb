@@ -106,9 +106,9 @@ type PullTableRecordsRequest struct {
 	SourceTableIdentifier string
 	// NameAndExclude carries the destination table name and excluded columns.
 	NameAndExclude NameAndExclude
-	// Cursor is the opaque value previously returned for this table by
-	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
-	Cursor string
+	// Start and End bound the poll window to pull, computed by the caller from
+	// this table's last-persisted cursor and the source's current clock.
+	Start, End time.Time
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// Stream is where pulled records are pushed.
@@ -119,9 +119,6 @@ type PullTableRecordsRequest struct {
 
 // PullTableRecordsResult is returned by TableCDCPullConnector.PullTableRecords.
 type PullTableRecordsResult struct {
-	// NextCursor is persisted and passed back as PullTableRecordsRequest.Cursor
-	// on this table's next poll.
-	NextCursor string
 	// BytesProcessed is the number of bytes fetched from the source for this poll.
 	BytesProcessed int64
 }

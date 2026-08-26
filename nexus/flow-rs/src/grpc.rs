@@ -150,7 +150,7 @@ impl FlowGrpcClient {
             flags: Default::default(),
             skip_validation: Some(false),
             source_connector_config: None,
-            query_cdc_tables_parallelism: 0,
+            query_cdc_config: None,
         };
 
         if job.disable_peerdb_columns {

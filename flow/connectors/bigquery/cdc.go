@@ -63,26 +63,25 @@ func (c *BigQueryConnector) EnsurePullability(
 	return nil, nil
 }
 
-// pollWindow computes the upper bound of the next APPENDS()/CHANGES() poll window
-// given the last-scanned checkpoint and BigQuery's current clock (now).
-func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
-	upper := checkpoint.Add(maxQueryWindow)
-	if safe := now.Add(-safetyLag); safe.Before(upper) {
-		upper = safe
-	}
-	return upper, upper.After(checkpoint)
+// CurrentSourceTimestamp implements connectors.TableCDCPullConnector,
+// querying BigQuery's own clock (rather than local wall-clock) so the
+// returned timestamp is consistent with BigQuery's FOR SYSTEM_TIME AS OF and
+// APPENDS()/CHANGES() time-travel semantics.
+func (c *BigQueryConnector) CurrentSourceTimestamp(ctx context.Context) (time.Time, error) {
+	return c.currentBigQueryTimestamp(ctx)
 }
 
-// encodeBigQueryTableCursor formats a single table's synced-through timestamp as
-// the opaque cursor text persisted between PullTableRecords calls.
-func encodeBigQueryTableCursor(t time.Time) string {
+// FormatCursor implements connectors.TableCDCPullConnector, formatting a
+// table's synced-through timestamp as the opaque cursor text persisted
+// between PullTableRecords calls.
+func (c *BigQueryConnector) FormatCursor(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// decodeBigQueryTableCursor parses a cursor previously returned by
-// PullTableRecords. An empty cursor (table pulled for the first time) seeds
-// from now, matching newBigQueryCDCCheckpointPerTable's seeding behavior.
-func decodeBigQueryTableCursor(cursor string, now time.Time) (time.Time, error) {
+// ParseCursor implements connectors.TableCDCPullConnector. An empty cursor
+// (table pulled for the first time) seeds from now, matching
+// newBigQueryCDCCheckpointPerTable's seeding behavior.
+func (c *BigQueryConnector) ParseCursor(cursor string, now time.Time) (time.Time, error) {
 	if cursor == "" {
 		return now, nil
 	}
@@ -93,40 +92,15 @@ func decodeBigQueryTableCursor(cursor string, now time.Time) (time.Time, error) 
 	return t, nil
 }
 
-// PullTableRecords implements connectors.TableCDCPullConnector. It pulls a
-// single source table's due window, reusing the same window/dispatch logic
-// PullRecords uses across all its tables, scoped to just req.SourceTableIdentifier.
+// PullTableRecords implements connectors.TableCDCPullConnector, dispatching
+// to APPENDS() or CHANGES() for req.SourceTableIdentifier's [req.Start, req.End)
+// window, which the caller has already established is worth scanning.
 func (c *BigQueryConnector) PullTableRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullTableRecordsRequest,
 ) (model.PullTableRecordsResult, error) {
-	now, err := c.currentBigQueryTimestamp(ctx)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
-	}
-
-	start, err := decodeBigQueryTableCursor(req.Cursor, now)
-	if err != nil {
-		return model.PullTableRecordsResult{}, err
-	}
-
-	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
-	}
-	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
-	}
-
-	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
-	if !ok {
-		// No safe window to scan yet; cursor is unchanged.
-		return model.PullTableRecordsResult{NextCursor: encodeBigQueryTableCursor(start)}, nil
-	}
-
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
 	if err != nil {
 		return model.PullTableRecordsResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
@@ -154,9 +128,9 @@ func (c *BigQueryConnector) PullTableRecords(
 	var bytesProcessed int64
 	switch eventsFunction {
 	case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
-		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, signalingAddRecord)
+		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, req.Start, req.End, signalingAddRecord)
 	default:
-		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, signalingAddRecord)
+		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, req.Start, req.End, signalingAddRecord)
 	}
 	if err != nil {
 		return model.PullTableRecordsResult{}, err
@@ -165,10 +139,7 @@ func (c *BigQueryConnector) PullTableRecords(
 		req.Stream.SignalAsEmpty()
 	}
 
-	return model.PullTableRecordsResult{
-		NextCursor:     encodeBigQueryTableCursor(upper),
-		BytesProcessed: bytesProcessed,
-	}, nil
+	return model.PullTableRecordsResult{BytesProcessed: bytesProcessed}, nil
 }
 
 // pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one

@@ -70,6 +70,17 @@ message BigqueryCdcConfig {
   BigQueryReplicationMode replication_mode = 1;
 }
 
+// Tuning knobs for query-based CDC connectors.
+// Unset (zero) fields fall back to their PEERDB_CDC_* dynamic setting.
+message QueryCdcConfig {
+  // number of source tables to query in parallel; 0 or less removes the limit
+  int32 tables_parallelism = 1;
+  // keeps a poll window's upper bound this many seconds behind the source's clock
+  uint32 safety_lag_seconds = 2;
+  // caps how much time a single poll can cover
+  uint32 max_query_window_seconds = 3;
+}
+
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
 // When adding fields here, add them to FlowConnectionConfigsCore too
 message FlowConnectionConfigs {
@@ -124,8 +135,8 @@ message FlowConnectionConfigs {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
 
-  // number of tables to query in parallel for query-based CDC flows
-  int32 query_cdc_tables_parallelism = 30;
+  // tuning knobs for query-based CDC flows
+  optional QueryCdcConfig query_cdc_config = 30;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -183,8 +194,8 @@ message FlowConnectionConfigsCore {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
 
-  // number of tables to query in parallel for query-based CDC flows
-  int32 query_cdc_tables_parallelism = 30;
+  // tuning knobs for query-based CDC flows
+  optional QueryCdcConfig query_cdc_config = 30;
 }
 
 message RenameTableOption {
