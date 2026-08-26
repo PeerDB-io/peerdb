@@ -1250,6 +1250,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:                 chErrorInfo.Code,
 				AdditionalAttributes: additionalAttributes,
 			}
+		case chproto.ErrTooManyTables:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrUnknownUser:
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}
