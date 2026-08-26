@@ -1857,3 +1857,20 @@ func TestMySQLStaleConnectionErrorJoinedShouldBeNotifyConnectivity(t *testing.T)
 		Code:   "CONNECTION_STALE",
 	}, errInfo, "Unexpected error info")
 }
+
+func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
+	t.Parallel()
+
+	sdkErr := errors.New(
+		"upload multipart failed, upload id: id, cause: failed to abort multipart upload " +
+			"(operation error S3: AbortMultipartUpload, context canceled), " +
+			"triggered after multipart upload failed: operation error S3: UploadPart, context canceled")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: failed to upload file to S3: %w",
+		errors.Join(sdkErr, context.Canceled)))
+	assert.Equal(t, ErrorIgnoreContextCancelled, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "CONTEXT_CANCELLED",
+	}, errInfo)
+}
