@@ -100,8 +100,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		hasPK := tableHasPrimaryKey(metadata)
 		destinationHasOrderingKey := hasPK || tableHasOrderingKey(tableMapping)
 
-		switch tableMapping.GetBigqueryCdcEventsFunction() {
-		case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
+		if tableMapping.GetBigqueryCdcEventsFunction() == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 			if !destinationHasOrderingKey {
 				return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
 					"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
@@ -112,16 +111,6 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 			if !changeHistoryByTable[key] {
 				return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
 					"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
-					dstDatasetTable.string())
-			}
-		case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
-			if (tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
-				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE) && !destinationHasOrderingKey {
-				return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+
-					"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
-					"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
-					"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
-					"configured",
 					dstDatasetTable.string())
 			}
 		}
