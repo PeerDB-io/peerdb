@@ -542,11 +542,14 @@ func (c *BigQueryConnector) pullTableChanges(
 				BaseRecord: baseRecord, NewItems: items,
 				SourceTableName: sourceTableIdentifier, DestinationTableName: nameAndExclude.Name,
 			}
-		default: // bigQueryChangeTypeDelete, not flagged for update: a genuine delete
+		case bigQueryChangeTypeDelete:
+			// bigQueryChangeTypeDelete, not flagged for update: a genuine delete
 			record = &model.DeleteRecord[model.RecordItems]{
 				BaseRecord: baseRecord, Items: items,
 				SourceTableName: sourceTableIdentifier, DestinationTableName: nameAndExclude.Name,
 			}
+		default:
+			return 0, fmt.Errorf("unexpected _CHANGE_TYPE %q for table %s", changeType, sourceTableIdentifier)
 		}
 		if err := addRecord(ctx, record); err != nil {
 			return 0, err
