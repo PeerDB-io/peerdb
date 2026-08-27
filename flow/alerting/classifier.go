@@ -897,6 +897,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1827, // ER_PASSWORD_FORMAT
 			3032: // ER_SERVER_OFFLINE_MODE
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 9001:
+			// 9001 could be a ProxySQL connection timeout, or it could be something else from another
+			// middle entity that should fall through to other.
+			if strings.Contains(myErr.Message, "connect timeout reached") {
+				return ErrorNotifyConnectivity, myErrorInfo
+			}
+			return ErrorOther, myErrorInfo
 		case 3159: // ER_SECURE_TRANSPORT_REQUIRED
 			// The source rejects the handshake because the pipe connects without TLS while the server sets
 			// require_secure_transport=ON. https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_require_secure_transport

@@ -1352,6 +1352,51 @@ func TestMySQLServerOfflineModeShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLProxyMaxConnectTimeoutShouldBeConnectivity(t *testing.T) {
+	// ProxySQL reports 9001 when it cannot hand out a backend connection from the hostgroup
+	// within the connect timeout. This is not a native MySQL error code.
+	mysqlErr := &mysql.MyError{
+		Code:    9001,
+		State:   "HY000",
+		Message: "Max connect timeout reached while reaching hostgroup 1 after 5000ms",
+	}
+	err := fmt.Errorf("connection to source down: %w", exceptions.NewMySQLExecuteError(mysqlErr))
+	require.Equal(t, "connection to source down: MySQL execute error: "+
+		"ERROR 9001 (HY000): Max connect timeout reached while reaching hostgroup 1 after 5000ms",
+		err.Error(), "Unexpected error message")
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "9001 must notify the user, not page telemetry")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "9001",
+	}, errInfo, "Unexpected error info")
+
+	var appErr *temporal.ApplicationError
+	assert.NotErrorAs(t, err, &appErr, "Error should not be a non-retryable application error")
+}
+
+func TestMySQLUnrelated9001ShouldFallThroughToOther(t *testing.T) {
+	// 9001 sits outside MySQL's own error-number space, so a different middle entity may reuse it
+	// for something that is not a connectivity blip. Without the connect-timeout wording those must
+	// stay unclassified instead of reaching the user as a bogus connectivity notification.
+	mysqlErr := &mysql.MyError{
+		Code:    9001,
+		State:   "HY000",
+		Message: "Unable to parse query",
+	}
+	err := fmt.Errorf("failed in pull records: %w", exceptions.NewMySQLExecuteError(mysqlErr))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyTelemetry, errorClass.ErrorAction(), "an unrelated 9001 should stay on telemetry")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "9001",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	// Error 1236 caused by a binlog event larger than max_allowed_packet should be
 	// classified separately from generic binlog invalidation.
