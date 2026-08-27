@@ -252,7 +252,7 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 		{
 			name:     "record",
 			field:    &bigquery.FieldSchema{Type: bigquery.RecordFieldType},
-			expected: types.QValueKindString,
+			expected: types.QValueKindJSON,
 		},
 		// repeated (array) types
 		{

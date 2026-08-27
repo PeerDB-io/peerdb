@@ -121,11 +121,11 @@ var bqTypeKinds = map[bigquery.FieldType]struct{ scalar, array types.QValueKind 
 // BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
 func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKind {
 	if fieldSchema.Type == bigquery.RecordFieldType {
-		// Preserve field names and values as JSON text in STRING or ARRAY<STRING> values.
+		// currently no support for Array(JSON) in QValueKind
 		if fieldSchema.Repeated {
 			return types.QValueKindArrayString
 		}
-		return types.QValueKindString
+		return types.QValueKindJSON
 	}
 
 	kinds, ok := bqTypeKinds[fieldSchema.Type]
@@ -349,7 +349,7 @@ func qvalueFromBigQueryValue(
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode record column %s: %w", qfield.Name, err)
 		}
-		return types.QValueString{Val: jsonValue}, nil
+		return types.QValueJSON{Val: jsonValue}, nil
 	default:
 		return nil, fmt.Errorf("unsupported BigQuery field type %s for column %s", field.Type, qfield.Name)
 	}
