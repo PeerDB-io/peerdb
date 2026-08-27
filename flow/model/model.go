@@ -106,6 +106,8 @@ type PullTableRecordsRequest struct {
 	SourceTableIdentifier string
 	// NameAndExclude carries the destination table name and excluded columns.
 	NameAndExclude NameAndExclude
+	// TableSchema is the schema of the destination table.
+	TableSchema *protos.TableSchema
 	// Cursor is the opaque value previously returned for this table by
 	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
 	Cursor string

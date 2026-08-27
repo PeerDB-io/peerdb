@@ -300,6 +300,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_BIGQUERY_CDC_MISSING_COLUMN_RETRY_SECONDS",
+		Description: "BigQuery CDC only: once a mirrored column is found missing from the source table, " +
+			"how long to stop selecting it before retrying, in case the customer re-adds it under the same name",
+		DefaultValue:     "3600",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+	},
+	{
 		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
 		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
 			"used when a mirror does not set query_cdc_pull_sync_parallelism; 0 or less removes the limit",
@@ -743,6 +752,14 @@ func PeerDBBigQueryCDCSafetyLag(ctx context.Context, env map[string]string) (tim
 
 func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string) (time.Duration, error) {
 	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBBigQueryCDCMissingColumnRetryAfter(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_MISSING_COLUMN_RETRY_SECONDS")
 	if err != nil {
 		return 0, err
 	}
