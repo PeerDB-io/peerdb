@@ -318,6 +318,116 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 	RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Source_Column_Dropped_Mid_CDC covers a table mapping whose
+// cached schema still has a column the customer later drops from the source
+// table.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Source_Column_Dropped_Mid_CDC() {
+	for _, scenario := range []struct {
+		name            string
+		tableSuffix     string // kept short: gets baked into BigQuery table/flow names, which feed into a
+		nullableEnabled bool   // Temporal child-workflow ID that has a 255-char limit (QRep clone workflow).
+		dropColumn      string
+		wantNull        bool
+	}{
+		{
+			name: "nullable_column_with_nullable_enabled_lands_as_null", tableSuffix: "null_true",
+			nullableEnabled: true, dropColumn: "val", wantNull: true,
+		},
+		{
+			name: "nullable_column_without_nullable_enabled_lands_as_zero_value", tableSuffix: "null_false",
+			nullableEnabled: false, dropColumn: "val", wantNull: false,
+		},
+		{
+			name: "non_nullable_column_lands_as_zero_value_regardless", tableSuffix: "req_note",
+			nullableEnabled: false, dropColumn: "required_note", wantNull: false,
+		},
+	} {
+		s.T().Run(scenario.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			source := s.Source().(*bigQuerySource)
+			srcTable := AddSuffix(s, "cdc_coldrop_"+scenario.tableSuffix)
+			dstTable := srcTable + "_dst"
+			tableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, srcTable)
+
+			require.NoError(t, source.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s (
+				id INT64 NOT NULL,
+				val STRING,
+				required_note STRING NOT NULL,
+				PRIMARY KEY(id) NOT ENFORCED
+			)`, quoteBigQueryTableFQN(tableFQN))), "should create BigQuery CDC source table %s", srcTable)
+			t.Cleanup(func() {
+				table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+				if err := table.Delete(context.Background()); err != nil {
+					t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+				}
+			})
+
+			// present before the mirror exists - must land via the initial snapshot,
+			// with the table mapping's schema capturing all three columns.
+			require.NoError(t, source.Exec(ctx, fmt.Sprintf(
+				"INSERT INTO %s (id, val, required_note) VALUES (1, %s, %s)",
+				quoteBigQueryTableFQN(tableFQN), bqQuoteStringLiteral("initial-1"), bqQuoteStringLiteral("note-1"))),
+				"should insert the initial row")
+
+			flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+				eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+				replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+			})
+			if scenario.nullableEnabled {
+				flowConnConfig.Env["PEERDB_NULLABLE"] = "true"
+			}
+
+			tc := NewTemporalClient(t)
+			env := ExecutePeerflow(t, tc, flowConnConfig)
+			SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+			EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val,required_note")
+
+			require.NoError(t, source.Exec(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s",
+				quoteBigQueryTableFQN(tableFQN), scenario.dropColumn)),
+				"should drop %s from the source table", scenario.dropColumn)
+
+			remainingCol := "val"
+			if scenario.dropColumn == "val" {
+				remainingCol = "required_note"
+			}
+			require.NoError(t, source.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, %s) VALUES (2, %s)",
+				quoteBigQueryTableFQN(tableFQN), remainingCol, bqQuoteStringLiteral("row-2"))),
+				"should insert a row without %s after it was dropped", scenario.dropColumn)
+
+			EnvWaitFor(t, env, 4*time.Minute, "row inserted after the column drop is picked up by CDC", func() bool {
+				rows, err := s.GetRows(dstTable, "id")
+				if err != nil {
+					t.Log(err)
+					return false
+				}
+				return len(rows.Records) == 2
+			})
+
+			rows, err := s.GetRows(dstTable, "id,"+scenario.dropColumn)
+			require.NoError(t, err)
+			var found bool
+			var landedIsNull bool
+			for _, rec := range rows.Records {
+				if rec[0].Value().(int64) == 2 {
+					found = true
+					landedIsNull = rec[1].Value() == nil
+				}
+			}
+			require.True(t, found, "row inserted after %s was dropped should not be lost or block replication", scenario.dropColumn)
+			require.Equal(t, scenario.wantNull, landedIsNull,
+				"row inserted after %s was dropped should land with the expected NULL-ness", scenario.dropColumn)
+
+			require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t),
+				"dropping a mapped column must not affect the mirror's running state")
+
+			env.Cancel(ctx)
+			RequireEnvCanceled(t, env)
+		})
+	}
+}
+
 // Test_BigQuery_CDC_All_Types inserts its row only after replication setup, so
 // every value must travel through APPENDS(), qvalueFromBigQueryValue, and the CDC
 // destination path. This complements Test_Types, which exercises snapshot export.
