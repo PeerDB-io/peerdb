@@ -35,6 +35,7 @@ func createBigQueryCdcSourceTable(
 		Schema: bigquery.Schema{
 			{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
 			{Name: "val", Type: bigquery.StringFieldType, Required: false},
+			{Name: "updated_at", Type: bigquery.TimestampFieldType, Required: true, DefaultValueExpression: "CURRENT_TIMESTAMP"},
 		},
 		TableConstraints: &bigquery.TableConstraints{
 			PrimaryKey: &bigquery.PrimaryKey{Columns: []string{"id"}},
@@ -142,8 +143,14 @@ func quoteBigQueryTableFQN(fqn string) string {
 	return "`" + strings.ReplaceAll(fqn, "`", "\\`") + "`"
 }
 
+type bqCdcFlowParams struct {
+	eventsFunction  protos.BigqueryCdcEventsFunction
+	replicationMode protos.BigQueryReplicationMode
+	watermarkColumn string
+}
+
 func bqCdcFlowConnectionConfig(
-	s BigQueryClickhouseSuite, srcTable, dstTable string, eventsFunction protos.BigqueryCdcEventsFunction,
+	s BigQueryClickhouseSuite, srcTable, dstTable string, params bqCdcFlowParams,
 ) *protos.FlowConnectionConfigs {
 	source := s.Source().(*bigQuerySource)
 	connectionGen := FlowConnectionGenerationConfig{
@@ -152,7 +159,8 @@ func bqCdcFlowConnectionConfig(
 			{
 				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
 				DestinationTableIdentifier: s.DestinationTable(dstTable),
-				BigqueryCdcEventsFunction:  eventsFunction,
+				BigqueryCdcEventsFunction:  params.eventsFunction,
+				WatermarkColumn:            params.watermarkColumn,
 			},
 		},
 		Destination: s.Peer().Name,
@@ -163,7 +171,7 @@ func bqCdcFlowConnectionConfig(
 	flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable)
 	flowConnConfig.SourceConnectorConfig = &protos.FlowConnectionConfigs_BigqueryCdcConfig{
 		BigqueryCdcConfig: &protos.BigqueryCdcConfig{
-			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+			ReplicationMode: params.replicationMode,
 		},
 	}
 	flowConnConfig.IdleTimeoutSeconds = 5
@@ -186,7 +194,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_To_CDC_Handoff() {
 	// present before the mirror exists - must land via the initial snapshot.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}, {ID: 2, Val: "pre-snapshot-2"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -223,7 +234,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -258,6 +272,52 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 	RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Query_Mode covers BIGQUERY_REPLICATION_MODE_QUERY: a plain
+// SELECT ... WHERE watermark_column > lower AND watermark_column <= upper scan,
+// rather than APPENDS()/CHANGES(). The initial snapshot is bounded by the
+// watermark column's max value at setup time instead of FOR SYSTEM_TIME AS OF.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_query_mode")
+	dstTable := srcTable + "_dst"
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+
+	// present before the mirror exists - must land via the initial snapshot.
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
+		watermarkColumn: "updated_at",
+	})
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	// inserted strictly after the snapshot's watermark bound - must arrive via the
+	// watermark-column CDC poll, not the snapshot.
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "post-snapshot-1"}, {ID: 3, Val: "post-snapshot-2"}})
+
+	EnvWaitFor(t, env, 4*time.Minute, "post-snapshot insert picked up via watermark-column query", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 3
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
 // Test_BigQuery_CDC_All_Types inserts its row only after replication setup, so
 // every value must travel through APPENDS(), qvalueFromBigQueryValue, and the CDC
 // destination path. This complements Test_Types, which exercises snapshot export.
@@ -271,7 +331,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	tableFQN := createBigQueryAllTypesCdcSourceTable(ctx, t, source, srcTable)
 
 	flowConnConfig := bqCdcFlowConnectionConfig(
-		s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		s, srcTable, dstTable, bqCdcFlowParams{
+			eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+			replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+		},
 	)
 	flowConnConfig.DoInitialSnapshot = false
 
@@ -371,7 +434,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 		{ID: 3, Val: "initial-3"},
 	})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 	flowConnConfig.Env = map[string]string{"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5"}
 
 	tc := NewTemporalClient(t)
@@ -428,7 +494,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
 
-	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -517,7 +586,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 1, Val: "healthy-initial"}})
 
 	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
-	flowConnConfig := bqCdcFlowConnectionConfig(s, failedSrc, failedDst, appends)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, failedSrc, failedDst, bqCdcFlowParams{
+		eventsFunction:  appends,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, &protos.TableMapping{
 		SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, healthySrc),
 		DestinationTableIdentifier: s.DestinationTable(healthyDst),
@@ -591,7 +663,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_D
 	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 1, Val: "healthy-initial"}})
 
 	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
-	flowConnConfig := bqCdcFlowConnectionConfig(s, stuckSrc, stuckDst, appends)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, stuckSrc, stuckDst, bqCdcFlowParams{
+		eventsFunction:  appends,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, &protos.TableMapping{
 		SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, healthySrc),
 		DestinationTableIdentifier: s.DestinationTable(healthyDst),
@@ -686,7 +761,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	bqInsertRows(ctx, t, source, removedFQN, []bqCdcRow{{ID: 1, Val: "removed-initial"}})
 
 	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
-	flowConnConfig := bqCdcFlowConnectionConfig(s, retainedSrc, retainedDst, appends)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, retainedSrc, retainedDst, bqCdcFlowParams{
+		eventsFunction:  appends,
+		replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+	})
 	removedMapping := &protos.TableMapping{
 		SourceTableIdentifier:      removedSourceID,
 		DestinationTableIdentifier: s.DestinationTable(removedDst),
