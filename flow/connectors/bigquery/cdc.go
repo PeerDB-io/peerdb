@@ -251,8 +251,8 @@ func (c *BigQueryConnector) pullTableAppends(
 
 		// _CHANGE_TIMESTAMP is APPENDS()'s own commit-time signal for the row;
 		// used as this record's CommitTimeNano. Falls back to the poll window's
-		// end if, unexpectedly, the column isn't present.
-		commitTimeNano := end.UnixNano()
+		// start if, unexpectedly, the column isn't present.
+		commitTimeNano := start.UnixNano()
 		if changeCols.changeTimestamp >= 0 {
 			if ts, ok := row[changeCols.changeTimestamp].(time.Time); ok {
 				commitTimeNano = ts.UnixNano()
@@ -510,9 +510,9 @@ func (c *BigQueryConnector) pullTableChanges(
 		}
 
 		// _CHANGE_TIMESTAMP is CHANGES()'s own commit-time signal for the row; used
-		// as this record's CommitTimeNano. Falls back to the poll window's end if,
+		// as this record's CommitTimeNano. Falls back to the poll window's start if,
 		// unexpectedly, the column isn't present.
-		commitTimeNano := end.UnixNano()
+		commitTimeNano := start.UnixNano()
 		if changeCols.changeTimestamp >= 0 {
 			if ts, ok := row[changeCols.changeTimestamp].(time.Time); ok {
 				commitTimeNano = ts.UnixNano()
