@@ -55,7 +55,6 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.idleTimeoutSeconds || defaultIdleTimeout,
     additionalTables: [],
     removedTables: [],
-    numberOfSyncs: 0,
     updatedEnv: {},
     snapshotNumRowsPerPartition:
       res.cdcStatus?.config?.snapshotNumRowsPerPartition ||

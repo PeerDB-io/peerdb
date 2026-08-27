@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -860,6 +861,7 @@ func newProcessRowTestState() *changefeedPullState {
 		},
 		sourceByEmitted: make(map[string]string),
 		schemas:         make(map[string]*changefeedTableSchema),
+		buffer:          make(map[string]*bufferedChangefeedRecord),
 	}
 	state.indexSource("defaultdb.public.users", "public.users")
 	state.finishIndexing()
@@ -881,23 +883,102 @@ func TestProcessChangefeedRowFailureThenReplay(t *testing.T) {
 		After:   map[string]json.RawMessage{"id": json.RawMessage(`"not an int"`)},
 		Updated: updated,
 	}
-	err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), poisoned)
+	err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), poisoned, 10)
 	require.Error(t, err)
 	require.True(t, isPermanentChangefeedError(err), "conversion failures recur on replay and must be permanent")
 	require.Zero(t, state.recordCount)
+	require.Empty(t, state.buffer)
 
-	// the replay delivers a processable version: it must go through
+	// the replay delivers a processable version: it must be buffered
 	valid := &changefeedEnvelope{
 		After:   map[string]json.RawMessage{"id": json.RawMessage(`1`)},
 		Updated: updated,
 	}
-	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), valid))
-	require.Equal(t, uint32(1), state.recordCount)
+	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), valid, 10))
+	require.Zero(t, state.recordCount, "records wait in the buffer until a resolved timestamp covers them")
+	require.Len(t, state.buffer, 1)
 
-	// a replay of an already processed message is passed through again:
-	// PeerDB delivers at least once and the destination absorbs duplicates
-	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), valid))
-	require.Equal(t, uint32(2), state.recordCount)
+	// a replay of an already buffered message overwrites its buffer slot
+	// instead of queueing a duplicate
+	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), valid, 10))
+	require.Len(t, state.buffer, 1)
+	require.Equal(t, int64(10), state.bufferedBytes, "overwrites must not double-count buffered bytes")
+
+	// a resolved timestamp past the row's commit timestamp flushes exactly one
+	// record and advances the cursor
+	resolved := fmt.Sprintf("%d.0000000000", time.Now().UnixNano())
+	done, err := c.handleResolved(ctx, om, state, resolved)
+	require.NoError(t, err)
+	require.False(t, done)
+	require.Equal(t, uint32(1), state.recordCount)
+	require.Empty(t, state.buffer)
+	require.Zero(t, state.bufferedBytes)
+}
+
+func TestChangefeedBufferHoldsRecordsPastResolved(t *testing.T) {
+	ctx := t.Context()
+	om, _ := newMetricsTestOtelManager(t)
+	c := &CockroachDBConnector{logger: log.NewStructuredLogger(slog.Default())}
+	state := newProcessRowTestState()
+
+	base := time.Now().UnixNano()
+	early := &changefeedEnvelope{
+		After:   map[string]json.RawMessage{"id": json.RawMessage(`1`)},
+		Updated: fmt.Sprintf("%d.0000000000", base),
+	}
+	late := &changefeedEnvelope{
+		After:   map[string]json.RawMessage{"id": json.RawMessage(`2`)},
+		Updated: fmt.Sprintf("%d.0000000000", base+2_000_000_000),
+	}
+	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), early, 10))
+	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[2]"), late, 10))
+
+	// a resolved between the two rows emits only the covered one; the other
+	// stays buffered for the next resolved (or gets re-read next batch)
+	resolved := fmt.Sprintf("%d.0000000000", base+1_000_000_000)
+	done, err := c.handleResolved(ctx, om, state, resolved)
+	require.NoError(t, err)
+	require.False(t, done)
+	require.Equal(t, uint32(1), state.recordCount)
+	require.Len(t, state.buffer, 1)
+
+	record := <-state.req.RecordStream.GetRecords()
+	id, err := record.GetItems().GetValueByColName("id")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, id.Value(), "the record at or before the resolved timestamp is the one emitted")
+}
+
+func TestChangefeedBufferForceEmitAtSizeLimit(t *testing.T) {
+	ctx := t.Context()
+	om, _ := newMetricsTestOtelManager(t)
+	c := &CockroachDBConnector{logger: log.NewStructuredLogger(slog.Default())}
+	state := newProcessRowTestState()
+
+	priorLimit := changefeedBufferSoftLimitBytes
+	changefeedBufferSoftLimitBytes = 25
+	t.Cleanup(func() { changefeedBufferSoftLimitBytes = priorLimit })
+
+	base := time.Now().UnixNano()
+	for i := range 3 {
+		envelope := &changefeedEnvelope{
+			After:   map[string]json.RawMessage{"id": json.RawMessage(strconv.Itoa(i + 1))},
+			Updated: fmt.Sprintf("%d.0000000000", base+int64(i)),
+		}
+		require.NoError(t, c.processChangefeedRow(ctx, om, state,
+			"defaultdb.public.users", fmt.Appendf(nil, "[%d]", i+1), envelope, 10))
+	}
+
+	// the third stash crossed the 25-byte limit and force-emitted everything,
+	// past the checkpoint, in commit-timestamp order
+	require.Equal(t, uint32(3), state.recordCount)
+	require.Empty(t, state.buffer)
+	require.Zero(t, state.bufferedBytes)
+	for want := range int64(3) {
+		record := <-state.req.RecordStream.GetRecords()
+		id, err := record.GetItems().GetValueByColName("id")
+		require.NoError(t, err)
+		require.EqualValues(t, want+1, id.Value(), "force-emit must preserve commit-timestamp order")
+	}
 }
 
 func TestProcessChangefeedRowDropPathsFailLoudly(t *testing.T) {
@@ -912,7 +993,7 @@ func TestProcessChangefeedRowDropPathsFailLoudly(t *testing.T) {
 			After:   map[string]json.RawMessage{"id": json.RawMessage(`1`)},
 			Updated: updated,
 		}
-		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.renamed", []byte("[1]"), envelope)
+		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.renamed", []byte("[1]"), envelope, 10)
 		require.ErrorContains(t, err, "maps to no source table")
 		require.True(t, isPermanentChangefeedError(err))
 	})
@@ -924,7 +1005,7 @@ func TestProcessChangefeedRowDropPathsFailLoudly(t *testing.T) {
 			After:   map[string]json.RawMessage{"id": json.RawMessage(`1`)},
 			Updated: updated,
 		}
-		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), envelope)
+		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), envelope, 10)
 		require.ErrorContains(t, err, "no cached schema")
 		require.True(t, isPermanentChangefeedError(err))
 	})
@@ -932,7 +1013,7 @@ func TestProcessChangefeedRowDropPathsFailLoudly(t *testing.T) {
 	t.Run("delete with unusable key", func(t *testing.T) {
 		state := newProcessRowTestState()
 		envelope := &changefeedEnvelope{Updated: updated}
-		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte(`[1, 2]`), envelope)
+		err := c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte(`[1, 2]`), envelope, 10)
 		require.ErrorContains(t, err, "key is unusable")
 		require.True(t, isPermanentChangefeedError(err))
 	})
@@ -954,6 +1035,7 @@ func TestChangefeedMetricsRecording(t *testing.T) {
 		},
 		sourceByEmitted: make(map[string]string),
 		schemas:         make(map[string]*changefeedTableSchema),
+		buffer:          make(map[string]*bufferedChangefeedRecord),
 	}
 	state.indexSource("defaultdb.public.users", "public.users")
 	state.finishIndexing()
@@ -962,12 +1044,15 @@ func TestChangefeedMetricsRecording(t *testing.T) {
 		PrimaryKeyColumns: []string{"id"},
 	}, nil)
 
-	updated := fmt.Sprintf("%d.0000000000", time.Now().Add(-time.Minute).UnixNano())
+	// older than the resolved timestamp below so handleResolved flushes the
+	// buffered record (recordCount > 0) instead of taking the idle-mirror
+	// direct-persist path, which needs a real metadata store
+	updated := fmt.Sprintf("%d.0000000000", time.Now().Add(-2*time.Minute).UnixNano())
 	envelope := &changefeedEnvelope{
 		After:   map[string]json.RawMessage{"id": json.RawMessage("1")},
 		Updated: updated,
 	}
-	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), envelope))
+	require.NoError(t, c.processChangefeedRow(ctx, om, state, "defaultdb.public.users", []byte("[1]"), envelope, 10))
 
 	recordsMetric, found := collectMetric(t, ctx, reader, otel_metrics.CockroachDBRecordsReceivedName)
 	require.True(t, found, "records received counter should be collected")

@@ -985,7 +985,9 @@ func (s APITestSuite) TestCancelAddCancel() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
+// Zero table OIDs in the catalog (flows created before OIDs were stored there)
+// are repaired from the live source during cancellation.
+func (s APITestSuite) TestCancelRepairsPostgresZeroOIDs() {
 	var cols string
 	tables := []string{AttachSchema(s, "t1"), AttachSchema(s, "t2")}
 	s.createSourceTables(tables)
@@ -1112,12 +1114,20 @@ func (s APITestSuite) TestCancelErrorOnPostgresZeroOIDs() {
 		CurrentlyReplicatingTables: flowConnConfig.TableMappings,
 		IdempotencyKey:             s.suffix,
 	})
+	require.NoError(s.t, err)
 
 	if _, ok := s.source.(*PostgresSource); ok {
-		require.ErrorContains(s.t, err, "PostgreSQL schema has zero OID for table")
-	} else {
+		repairedSchemas, err := internal.LoadTableSchemasFromCatalog(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, []string{"t1"})
 		require.NoError(s.t, err)
+		require.NotNil(s.t, repairedSchemas["t1"])
+		require.NotZero(s.t, repairedSchemas["t1"].TableOid,
+			"expected table OID for t1 to be repaired from source")
 	}
+
+	// CDC continue to work
+	s.insertIntoSourceTables([]string{AttachSchema(s, "t1")}, 2, "second")
+	EnvWaitForEqualTables(env, s.ch, "cdc after cancellation t1", "t1", cols)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
