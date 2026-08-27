@@ -275,6 +275,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					FlowJobName:           flowName,
 					SourceTableIdentifier: sourceTable,
 					NameAndExclude:        nameAndExclude,
+					TableSchema:           tableNameSchemaMapping[destTable],
 					Cursor:                state.CursorText,
 					Stream:                stream,
 				})
