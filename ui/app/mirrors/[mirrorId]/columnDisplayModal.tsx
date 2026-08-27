@@ -1,6 +1,6 @@
 'use client';
 import { TableMapping } from '@/grpc_generated/flow';
-import { TableColumnsResponse } from '@/grpc_generated/route';
+import { ColumnsItem, TableColumnsResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -25,7 +25,7 @@ export default function ColumnDisplayModal({
   tableMapping,
   sourcePeerName,
 }: ColumnDisplayModalProps) {
-  const [columns, setColumns] = useState<any[]>([]);
+  const [columns, setColumns] = useState<ColumnsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -179,7 +179,7 @@ export default function ColumnDisplayModal({
                         {column.nullable ? 'Yes' : 'No'}
                       </TableCell>
                       <TableCell className={isExcluded ? 'line-through' : ''}>
-                        {column.primaryKey ? 'Yes' : 'No'}
+                        {column.isKey ? 'Yes' : 'No'}
                       </TableCell>
                       <TableCell>
                         {isExcluded ? (
