@@ -296,9 +296,9 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 			expected: types.QValueKindArrayTimestamp,
 		},
 		{
-			name:     "repeated time uses canonical strings",
+			name:     "repeated time",
 			field:    &bigquery.FieldSchema{Type: bigquery.TimeFieldType, Repeated: true},
-			expected: types.QValueKindArrayString,
+			expected: types.QValueKindArrayTime,
 		},
 		{
 			name:     "repeated numeric",
@@ -594,13 +594,15 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 			assert.Equal(t, types.QValueArrayString{Val: []string{"aGk=", "/w=="}}, v)
 		})
 
-		t.Run("array time uses canonical strings", func(t *testing.T) {
+		t.Run("array time", func(t *testing.T) {
 			f := qfield(bigquery.TimeFieldType, true, 0, 0)
 			v, err := convert(f, []bigquery.Value{
 				civil.Time{Hour: 1, Minute: 2, Second: 3, Nanosecond: 4000},
 			})
 			require.NoError(t, err)
-			assert.Equal(t, types.QValueArrayString{Val: []string{"01:02:03.000004"}}, v)
+			assert.Equal(t, types.QValueArrayTime{
+				Val: []time.Duration{time.Hour + 2*time.Minute + 3*time.Second + 4000*time.Nanosecond},
+			}, v)
 		})
 
 		t.Run("array geography uses WKT strings", func(t *testing.T) {

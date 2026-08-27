@@ -56,6 +56,7 @@ const (
 	QValueKindArrayString      QValueKind = "array_string"
 	QValueKindArrayEnum        QValueKind = "array_enum"
 	QValueKindArrayDate        QValueKind = "array_date"
+	QValueKindArrayTime        QValueKind = "array_time"
 	QValueKindArrayInterval    QValueKind = "array_interval"
 	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
 	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
@@ -112,6 +113,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayString:      "VARIANT",
 	QValueKindArrayEnum:        "VARIANT",
 	QValueKindArrayDate:        "VARIANT",
+	QValueKindArrayTime:        "VARIANT",
 	QValueKindArrayInterval:    "VARIANT",
 	QValueKindArrayTimestamp:   "VARIANT",
 	QValueKindArrayTimestampTZ: "VARIANT",
@@ -161,6 +163,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayEnum:        "Array(LowCardinality(String))",
 	QValueKindArrayBoolean:     "Array(Bool)",
 	QValueKindArrayDate:        "Array(Date)",
+	QValueKindArrayTime:        "Array(DateTime64(6))",
 	QValueKindArrayInterval:    "Array(String)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",

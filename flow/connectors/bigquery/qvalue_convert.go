@@ -57,6 +57,9 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Type = bigquery.DateFieldType
 	case types.QValueKindTime, types.QValueKindTimeTZ:
 		bqField.Type = bigquery.TimeFieldType
+	case types.QValueKindArrayTime:
+		bqField.Type = bigquery.TimeFieldType
+		bqField.Repeated = true
 	// bytes
 	case types.QValueKindBytes:
 		bqField.Type = bigquery.BytesFieldType
@@ -106,7 +109,7 @@ var bqTypeKinds = map[bigquery.FieldType]struct{ scalar, array types.QValueKind 
 	bigquery.TimestampFieldType:  {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
 	bigquery.DateTimeFieldType:   {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
 	bigquery.DateFieldType:       {types.QValueKindDate, types.QValueKindArrayDate},
-	bigquery.TimeFieldType:       {types.QValueKindTime, types.QValueKindArrayString},
+	bigquery.TimeFieldType:       {types.QValueKindTime, types.QValueKindArrayTime},
 	bigquery.NumericFieldType:    {types.QValueKindNumeric, types.QValueKindArrayNumeric},
 	bigquery.BigNumericFieldType: {types.QValueKindNumeric, types.QValueKindArrayNumeric},
 	bigquery.GeographyFieldType:  {types.QValueKindGeography, types.QValueKindArrayString},
@@ -136,18 +139,19 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 }
 
 // numericRoundingScale fallback to default scale if precision and scale are not set.
-func numericRoundingScale(qfield types.QField) int16 {
+func numericRoundingScale(qfield types.QField) (int16, error) {
 	if qfield.Precision == 0 && qfield.Scale == 0 {
 		switch bigquery.FieldType(qfield.OriginalType) {
 		case bigquery.NumericFieldType:
-			return bigquery.NumericScaleDigits
+			return bigquery.NumericScaleDigits, nil
 		case bigquery.BigNumericFieldType:
-			return bigquery.BigNumericScaleDigits
+			return bigquery.BigNumericScaleDigits, nil
 		default:
-			return datatypes.PeerDBBigQueryScale
+			return 0, fmt.Errorf("unexpected OriginalType %q for numeric column %s, expected NUMERIC or BIGNUMERIC",
+				qfield.OriginalType, qfield.Name)
 		}
 	}
-	return qfield.Scale
+	return qfield.Scale, nil
 }
 
 func fieldNormalizedTypeName(field *bigquery.FieldSchema) string {
@@ -315,8 +319,12 @@ func qvalueFromBigQueryValue(
 		if !ok {
 			return nil, unexpectedBigQueryValueType(qfield, value)
 		}
+		scale, err := numericRoundingScale(qfield)
+		if err != nil {
+			return nil, err
+		}
 		return types.QValueNumeric{
-			Val:       decimal.NewFromBigRat(v, int32(numericRoundingScale(qfield))),
+			Val:       decimal.NewFromBigRat(v, int32(scale)),
 			Precision: qfield.Precision,
 			Scale:     qfield.Scale,
 		}, nil
@@ -387,14 +395,28 @@ func qvalueArrayFromBigQueryValues(
 			arr[i] = d.In(time.UTC)
 		}
 		return types.QValueArrayDate{Val: arr}, nil
+	case types.QValueKindArrayTime:
+		times, err := castBigQueryArray[civil.Time](qfield, values)
+		if err != nil {
+			return nil, err
+		}
+		arr := make([]time.Duration, len(times))
+		for i, t := range times {
+			arr[i] = civilTimeToDuration(t)
+		}
+		return types.QValueArrayTime{Val: arr}, nil
 	case types.QValueKindArrayNumeric:
 		rats, err := castBigQueryArray[*big.Rat](qfield, values)
 		if err != nil {
 			return nil, err
 		}
+		scale, err := numericRoundingScale(qfield)
+		if err != nil {
+			return nil, err
+		}
 		arr := make([]decimal.Decimal, len(rats))
 		for i, r := range rats {
-			arr[i] = decimal.NewFromBigRat(r, int32(numericRoundingScale(qfield)))
+			arr[i] = decimal.NewFromBigRat(r, int32(scale))
 		}
 		return types.QValueArrayNumeric{Val: arr, Precision: qfield.Precision, Scale: qfield.Scale}, nil
 	case types.QValueKindArrayInterval:
@@ -448,12 +470,6 @@ func bigQueryStringArray(
 				return nil, fmt.Errorf("array column %s: element %d has unexpected type %T", qfield.Name, i, value)
 			}
 			arr[i] = base64.StdEncoding.EncodeToString(v)
-		case bigquery.TimeFieldType:
-			v, ok := value.(civil.Time)
-			if !ok {
-				return nil, fmt.Errorf("array column %s: element %d has unexpected type %T", qfield.Name, i, value)
-			}
-			arr[i] = bigquery.CivilTimeString(v)
 		case bigquery.RangeFieldType:
 			v, ok := value.(*bigquery.RangeValue)
 			if !ok {
