@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -213,10 +214,13 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 
 		nullable := !field.Required
 
+		precision, scale := bigQueryNumericPrecisionAndScale(field)
+
 		columns = append(columns, &protos.FieldDescription{
-			Name:     field.Name,
-			Type:     colType,
-			Nullable: nullable,
+			Name:         field.Name,
+			Type:         colType,
+			Nullable:     nullable,
+			TypeModifier: datatypes.MakeNumericTypmod(int32(precision), int32(scale)),
 		})
 	}
 
