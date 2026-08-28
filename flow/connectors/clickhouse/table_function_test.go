@@ -57,3 +57,25 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 			query)
 	}
 }
+
+func TestBuildInsertFromTableFunctionQueryArrayTime(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema: types.QRecordSchema{Fields: []types.QField{
+			{Name: "array_time", Type: types.QValueKindArrayTime},
+		}},
+		config: &protos.QRepConfig{Env: map[string]string{
+			"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+		}},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`array_time`) SELECT "+
+			"arrayMap(x -> fromUnixTimestamp64Micro(toInt64(x)), `array_time`) "+
+			"FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}
