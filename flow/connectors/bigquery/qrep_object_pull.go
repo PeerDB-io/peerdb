@@ -294,18 +294,9 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 	fields := make([]types.QField, 0, len(schema))
 
 	for _, field := range schema {
-		qValueKind := BigQueryTypeToQValueKind(field)
-		if qValueKind == types.QValueKindInvalid {
+		qField := BigQueryFieldToQField(field)
+		if qField.Type == types.QValueKindInvalid {
 			return types.QRecordSchema{}, fmt.Errorf("unsupported BigQuery field type: %s for field %s", field.Type, field.Name)
-		}
-
-		qField := types.QField{
-			Name:         field.Name,
-			Type:         qValueKind,
-			OriginalType: string(field.Type),
-			Nullable:     !field.Required,
-			Precision:    int16(field.Precision),
-			Scale:        int16(field.Scale),
 		}
 
 		fields = append(fields, qField)

@@ -162,6 +162,13 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
 			}
 			jsonStruct[col] = formattedDateArr
+		case types.QValueArrayTime:
+			timeArr := v.Val
+			formattedTimeArr := make([]string, 0, len(timeArr))
+			for _, val := range timeArr {
+				formattedTimeArr = append(formattedTimeArr, types.FormatExtendedTimeDuration(val))
+			}
+			jsonStruct[col] = formattedTimeArr
 		case types.QValueNumeric:
 			jsonStruct[col] = v.Val.String()
 		case types.QValueArrayNumeric:

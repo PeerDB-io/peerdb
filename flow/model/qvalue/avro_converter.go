@@ -134,6 +134,11 @@ func GetAvroSchemaFromQValueKind(
 			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 		}
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))), nil
+	case types.QValueKindArrayTime:
+		if targetDWH == protos.DBType_SNOWFLAKE {
+			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+		}
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros))), nil
 	case types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
@@ -344,6 +349,9 @@ func QValueToAvro(
 		return val, size, nil
 	case types.QValueArrayDate:
 		val, size := c.processArrayDate(v.Val, sizeOpt)
+		return val, size, nil
+	case types.QValueArrayTime:
+		val, size := c.processArrayTimeOfDay(v.Val, sizeOpt)
 		return val, size, nil
 	case types.QValueUUID:
 		val, size := c.processUUID(v.Val, sizeOpt)
@@ -616,6 +624,31 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time, so sizeOpt
 	}
 
 	return arrayTime, fixedArraySize(len(arrayTime), 8, so)
+}
+
+func (c *QValueAvroConverter) processArrayTimeOfDay(arrayTime []time.Duration, so sizeOpt) (any, int64) {
+	if c.Nullable && arrayTime == nil {
+		return nil, so.nullableSize()
+	}
+
+	if c.TargetDWH == protos.DBType_SNOWFLAKE {
+		// Snowflake TIME must be in range [0, 24h)
+		transformedTimeArr := make([]string, 0, len(arrayTime))
+		totalElemSize := int64(0)
+		for _, t := range arrayTime {
+			t = max(min(t, 86399999999*time.Microsecond), 0)
+			s := time.Time{}.Add(t).Format("15:04:05.999999")
+			transformedTimeArr = append(transformedTimeArr, s)
+			totalElemSize += stringSize(s, sizePlain)
+		}
+		return transformedTimeArr, arraySize(len(arrayTime), totalElemSize, so)
+	}
+
+	totalElemSize := int64(0)
+	for _, t := range arrayTime {
+		totalElemSize += varIntSize(int64(t/time.Microsecond), sizePlain)
+	}
+	return arrayTime, arraySize(len(arrayTime), totalElemSize, so)
 }
 
 func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time, so sizeOpt) (any, int64) {

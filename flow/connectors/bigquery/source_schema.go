@@ -70,10 +70,11 @@ func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, dataset st
 		qkind := string(BigQueryTypeToQValueKind(field))
 
 		columns = append(columns, &protos.ColumnsItem{
-			Name:  field.Name,
-			Type:  fieldNormalizedTypeName(field),
-			IsKey: slices.Contains(primaryKeys, field.Name),
-			Qkind: qkind,
+			Name:     field.Name,
+			Type:     fieldNormalizedTypeName(field),
+			IsKey:    slices.Contains(primaryKeys, field.Name),
+			Qkind:    qkind,
+			Nullable: !field.Required,
 		})
 	}
 
@@ -213,11 +214,13 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 
 		nullable := !field.Required
 
+		precision, scale := bigQueryNumericPrecisionAndScale(field)
+
 		columns = append(columns, &protos.FieldDescription{
 			Name:         field.Name,
 			Type:         colType,
 			Nullable:     nullable,
-			TypeModifier: datatypes.MakeNumericTypmod(int32(field.Precision), int32(field.Scale)),
+			TypeModifier: datatypes.MakeNumericTypmod(int32(precision), int32(scale)),
 		})
 	}
 
