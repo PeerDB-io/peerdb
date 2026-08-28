@@ -5,7 +5,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestBuildBigQueryExportSQL(t *testing.T) {
@@ -79,4 +82,40 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 			require.Equal(t, tt.expected, sql)
 		})
 	}
+}
+
+func TestBigQuerySchemaToQRecordSchema(t *testing.T) {
+	t.Run("numeric columns carry BigQuery's implicit precision and scale", func(t *testing.T) {
+		schema, err := bigQuerySchemaToQRecordSchema(bigquery.Schema{
+			{Name: "num", Type: bigquery.NumericFieldType},
+			{Name: "bignum", Type: bigquery.BigNumericFieldType},
+			{Name: "declared", Type: bigquery.NumericFieldType, Precision: 10, Scale: 2},
+			{Name: "name", Type: bigquery.StringFieldType},
+		})
+		require.NoError(t, err)
+
+		byName := make(map[string]types.QField, len(schema.Fields))
+		for _, field := range schema.Fields {
+			byName[field.Name] = field
+		}
+		require.Len(t, byName, 4)
+
+		// 0/0 would mean "unbounded numeric" downstream, widening or stringifying
+		// the destination column.
+		assert.Equal(t, int16(38), byName["num"].Precision)
+		assert.Equal(t, int16(9), byName["num"].Scale)
+		assert.Equal(t, int16(76), byName["bignum"].Precision)
+		assert.Equal(t, int16(38), byName["bignum"].Scale)
+		assert.Equal(t, int16(10), byName["declared"].Precision)
+		assert.Equal(t, int16(2), byName["declared"].Scale)
+		assert.Equal(t, int16(0), byName["name"].Precision)
+		assert.Equal(t, int16(0), byName["name"].Scale)
+	})
+
+	t.Run("unsupported field type errors", func(t *testing.T) {
+		_, err := bigQuerySchemaToQRecordSchema(bigquery.Schema{
+			{Name: "mystery", Type: bigquery.FieldType("NOT_A_TYPE")},
+		})
+		require.Error(t, err)
+	})
 }

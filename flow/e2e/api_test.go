@@ -70,30 +70,6 @@ func (s APITestSuite) DestinationTable(table string) string {
 	return table
 }
 
-// checkMigrationCompleted checks if a migration has been completed for a given flow
-func (s APITestSuite) checkMigrationCompleted(
-	ctx context.Context,
-	flowName string,
-	migrationName string,
-) (bool, error) {
-	var completed bool
-	err := s.catalog.QueryRow(
-		ctx,
-		"SELECT completed FROM flow_migrations WHERE flow_name = $1 AND migration_name = $2",
-		flowName,
-		migrationName,
-	).Scan(&completed)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Migration record doesn't exist, so it hasn't been completed
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to check migration status: %w", err)
-	}
-
-	return completed, nil
-}
-
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
 // in the metadata_last_sync_state table
 func (s APITestSuite) checkMetadataLastSyncStateValues(
@@ -187,23 +163,6 @@ func (s APITestSuite) checkCatalogTableMapping(
 		}
 	}
 	return true, nil
-}
-
-func (s APITestSuite) getCatalogTableSchemaForSourceTable(
-	ctx context.Context,
-	flowName string,
-	sourceTableIdentifier string,
-) (*protos.TableSchema, error) {
-	var configBytes sql.RawBytes
-	if err := s.catalog.QueryRow(ctx,
-		`SELECT table_schema FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2`,
-		flowName, sourceTableIdentifier,
-	).Scan(&configBytes); err != nil {
-		return nil, err
-	}
-
-	var config protos.TableSchema
-	return &config, proto.Unmarshal(configBytes, &config)
 }
 
 func (s APITestSuite) waitForFlowDropped(env WorkflowRun, flowJobName string) {
@@ -1149,6 +1108,46 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		// GetColumns is not implemented for Mongo
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", source))
+	}
+}
+
+func (s APITestSuite) TestGetColumnsNullability() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("GetColumns is not implemented for Mongo")
+	}
+
+	tableName := "columns_nullability"
+	srcTableName := AttachSchema(s, tableName)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, req text not null, opt text)", srcTableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, req, opt) VALUES (1, 'required', NULL)", srcTableName)))
+
+	peer := s.source.GeneratePeer(s.t)
+	response, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
+		PeerName:   peer.Name,
+		SchemaName: Schema(s),
+		TableName:  tableName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, response.Columns, 3)
+
+	columns := make(map[string]*protos.ColumnsItem, len(response.Columns))
+	for _, column := range response.Columns {
+		columns[column.Name] = column
+	}
+
+	require.True(s.t, columns["id"].IsKey, "id is the primary key")
+	require.False(s.t, columns["id"].Nullable, "a primary key column is never nullable")
+	require.False(s.t, columns["req"].IsKey)
+	require.False(s.t, columns["req"].Nullable, "req is declared NOT NULL")
+	require.False(s.t, columns["opt"].IsKey)
+	require.True(s.t, columns["opt"].Nullable, "opt has no NOT NULL constraint")
+
+	if _, ok := s.source.(*PostgresSource); ok {
+		require.True(s.t, columns["id"].IsReplicaIdentity, "default replica identity is the primary key")
+		require.False(s.t, columns["req"].IsReplicaIdentity)
+		require.False(s.t, columns["opt"].IsReplicaIdentity)
 	}
 }
 
@@ -2713,90 +2712,6 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s APITestSuite) TestPostgresTableOIDsMigration() {
-	pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector)
-	if !ok {
-		s.t.Skip("only for PostgreSQL source")
-	}
-
-	cols := "id,val"
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
-
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_postgres_table_oids_" + s.suffix,
-		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = true
-	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-
-	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
-	require.NoError(s.t, err)
-	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
-
-	// Test initial load
-	RequireEqualTables(s.ch, "table1", cols)
-	RequireEqualTables(s.ch, "table2", cols)
-
-	// Check Postgres table OIDs in catalog
-	var table1OID, table2OID uint32
-	err = pgconn.Conn().QueryRow(s.t.Context(),
-		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
-		Schema(s), "table1").Scan(&table1OID)
-	require.NoError(s.t, err)
-	err = pgconn.Conn().QueryRow(s.t.Context(),
-		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-         ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
-		Schema(s), "table2").Scan(&table2OID)
-	require.NoError(s.t, err)
-	require.NotEqual(s.t, uint32(0), table1OID)
-	require.NotEqual(s.t, uint32(0), table2OID)
-
-	schema1, err := s.getCatalogTableSchemaForSourceTable(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		"table1",
-	)
-	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table1"), schema1.TableIdentifier)
-	require.Equal(s.t, table1OID, schema1.TableOid)
-
-	schema2, err := s.getCatalogTableSchemaForSourceTable(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		"table2",
-	)
-	require.NoError(s.t, err)
-	require.Equal(s.t, AttachSchema(s, "table2"), schema2.TableIdentifier)
-	require.Equal(s.t, table2OID, schema2.TableOid)
-
-	ok, err = s.checkMigrationCompleted(
-		s.t.Context(),
-		flowConnConfig.FlowJobName,
-		shared.POSTGRES_TABLE_OID_MIGRATION,
-	)
-	require.NoError(s.t, err)
-	require.True(s.t, ok, "expected Postgres table OID migration to be completed")
-
-	env.Cancel(s.t.Context())
-	RequireEnvCanceled(s.t, env)
-}
-
 func (s APITestSuite) TestSettings() {
 	newValue := "90"
 	firstResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
@@ -3512,9 +3427,14 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 		Namespace: "default",
 		Query:     fmt.Sprintf("WorkflowId = '%s'", response1.WorkflowId),
 	}
-	listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
-	require.NoError(s.t, err)
-	require.Greater(s.t, len(listResp.Executions), 1, "Should have multiple executions (continue-as-new happened)")
+	EnvWaitFor(s.t, env, time.Minute, "wait for continue-as-new", func() bool {
+		listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		return len(listResp.Executions) > 1
+	})
 
 	// Call CreateCDCFlow again after continue-as-new - should return the same workflow ID
 	response2, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{

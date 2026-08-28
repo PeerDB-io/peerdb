@@ -546,7 +546,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	relID, err := c.GetRelIDForTable(ctx, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
 	}
@@ -679,7 +679,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// check if the table exists by getting the relation ID
-		relID, err := c.getRelIDForTable(ctx, schemaTable)
+		relID, err := c.GetRelIDForTable(ctx, schemaTable)
 		if err != nil {
 			return nil, err
 		}
