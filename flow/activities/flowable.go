@@ -211,7 +211,10 @@ func (a *FlowableActivity) CreateRawTable(
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
-		rawTableIdentifier = res.TableIdentifier
+		// CreateRawTable return (nil, nil) for no-op destinations (S3/GCS/MinIO, Postgres)
+		if res != nil {
+			rawTableIdentifier = res.TableIdentifier
+		}
 	}
 
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
