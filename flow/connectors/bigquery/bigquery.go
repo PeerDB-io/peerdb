@@ -52,6 +52,7 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 	return &serviceAccount, nil
 }
 
+//nolint:govet // logically grouped, fieldalignment confuses things
 type BigQueryConnector struct {
 	// droppedExcludeColumns remembers, per source table, excluded columns that
 	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
