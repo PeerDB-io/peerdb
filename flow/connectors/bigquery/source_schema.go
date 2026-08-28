@@ -214,11 +214,13 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 
 		nullable := !field.Required
 
+		precision, scale := bigQueryNumericPrecisionAndScale(field)
+
 		columns = append(columns, &protos.FieldDescription{
 			Name:         field.Name,
 			Type:         colType,
 			Nullable:     nullable,
-			TypeModifier: datatypes.MakeNumericTypmod(int32(field.Precision), int32(field.Scale)),
+			TypeModifier: datatypes.MakeNumericTypmod(int32(precision), int32(scale)),
 		})
 	}
 

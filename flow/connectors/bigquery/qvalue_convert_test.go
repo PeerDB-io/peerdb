@@ -207,10 +207,10 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 		{
 			name:     "timestamp",
 			field:    &bigquery.FieldSchema{Type: bigquery.TimestampFieldType},
-			expected: types.QValueKindTimestamp,
+			expected: types.QValueKindTimestampTZ,
 		},
 		{
-			name:     "datetime",
+			name:     "datetime is zoneless",
 			field:    &bigquery.FieldSchema{Type: bigquery.DateTimeFieldType},
 			expected: types.QValueKindTimestamp,
 		},
@@ -283,7 +283,7 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 		{
 			name:     "repeated timestamp",
 			field:    &bigquery.FieldSchema{Type: bigquery.TimestampFieldType, Repeated: true},
-			expected: types.QValueKindArrayTimestamp,
+			expected: types.QValueKindArrayTimestampTZ,
 		},
 		{
 			name:     "repeated date",
@@ -291,7 +291,7 @@ func TestBigQueryTypeToQValueKind(t *testing.T) {
 			expected: types.QValueKindArrayDate,
 		},
 		{
-			name:     "repeated datetime",
+			name:     "repeated datetime is zoneless",
 			field:    &bigquery.FieldSchema{Type: bigquery.DateTimeFieldType, Repeated: true},
 			expected: types.QValueKindArrayTimestamp,
 		},
@@ -391,7 +391,7 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 				"POINT(1 1)",
 				types.QValueGeography{Val: "POINT(1 1)"},
 			},
-			{"timestamp", qfield(bigquery.TimestampFieldType, false, 0, 0), ts, types.QValueTimestamp{Val: ts}},
+			{"timestamp", qfield(bigquery.TimestampFieldType, false, 0, 0), ts, types.QValueTimestampTZ{Val: ts}},
 			{
 				"datetime carried as UTC timestamp",
 				qfield(bigquery.DateTimeFieldType, false, 0, 0),
@@ -565,7 +565,7 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 			f := qfield(bigquery.TimestampFieldType, true, 0, 0)
 			v, err := convert(f, []bigquery.Value{ts})
 			require.NoError(t, err)
-			assert.Equal(t, types.QValueArrayTimestamp{Val: []time.Time{ts}}, v)
+			assert.Equal(t, types.QValueArrayTimestampTZ{Val: []time.Time{ts}}, v)
 		})
 
 		t.Run("array datetime", func(t *testing.T) {
@@ -681,4 +681,45 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 		_, err := convert(f, []bigquery.Value{int64(1)})
 		require.Error(t, err)
 	})
+}
+
+func TestBigQueryNumericPrecisionAndScale(t *testing.T) {
+	tests := []struct {
+		name             string
+		field            *bigquery.FieldSchema
+		precision, scale int16
+	}{
+		{
+			name:      "unparameterized numeric uses BigQuery default",
+			field:     &bigquery.FieldSchema{Type: bigquery.NumericFieldType},
+			precision: 38, scale: 9,
+		},
+		{
+			name:      "unparameterized bignumeric uses BigQuery default",
+			field:     &bigquery.FieldSchema{Type: bigquery.BigNumericFieldType},
+			precision: 76, scale: 38,
+		},
+		{
+			name:      "declared precision and scale win",
+			field:     &bigquery.FieldSchema{Type: bigquery.NumericFieldType, Precision: 10, Scale: 2},
+			precision: 10, scale: 2,
+		},
+		{
+			name:      "declared precision with implicit zero scale is kept",
+			field:     &bigquery.FieldSchema{Type: bigquery.BigNumericFieldType, Precision: 40},
+			precision: 40, scale: 0,
+		},
+		{
+			name:      "non-numeric field has no precision or scale",
+			field:     &bigquery.FieldSchema{Type: bigquery.StringFieldType},
+			precision: 0, scale: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			precision, scale := bigQueryNumericPrecisionAndScale(tt.field)
+			assert.Equal(t, tt.precision, precision)
+			assert.Equal(t, tt.scale, scale)
+		})
+	}
 }
