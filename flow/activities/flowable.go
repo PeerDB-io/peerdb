@@ -350,10 +350,30 @@ func (a *FlowableActivity) SyncFlow(
 	})
 	defer shutdown()
 
+	ctx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
+
+	var shutDown atomic.Bool
+	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		go func() {
+			select {
+			case <-workerStopChan:
+				logger.Info("worker is stopping, shutting down SyncFlow")
+				shutDown.Store(true)
+				// when worker begins to shut down, worker stop channel is closed immediately,
+				// but it does not cancel the activity context until after WorkerStopTimeout.
+				// so we explicitly call cancelCtx() to gracefully terminate sync and normalize
+				cancelCtx()
+			case <-ctx.Done():
+				// exit guard to prevent goroutine leak
+			}
+		}()
+	}
 
 	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
@@ -450,6 +470,10 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses.Close()
 	<-normDone
 
+	if shutDown.Load() {
+		logger.Info("SyncFlow shutdown")
+		return nil
+	}
 	if ctx.Err() != nil {
 		logger.Info("SyncFlow canceled", slog.Any("error", ctx.Err()))
 		return ctx.Err()
