@@ -199,10 +199,7 @@ func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, 
 }
 
 // bigQueryNumericPrecisionAndScale returns the field's precision and scale, filling in
-// BigQuery's implicit defaults for an unparameterized NUMERIC/BIGNUMERIC column. BigQuery
-// reports those as 0/0 even though the types are bounded (NUMERIC is (38,9), BIGNUMERIC is
-// (76,38)), and 0/0 means "unbounded" everywhere downstream -- see MakeNumericTypmod and
-// GetNumericDestinationType. Returns 0, 0 for non-numeric fields.
+// BigQuery's implicit defaults for an unparameterized NUMERIC/BIGNUMERIC column.
 func bigQueryNumericPrecisionAndScale(bqField *bigquery.FieldSchema) (int16, int16) {
 	precision := int16(bqField.Precision)
 	scale := int16(bqField.Scale)
