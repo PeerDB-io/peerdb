@@ -18,8 +18,8 @@ import (
 	"io"
 	"slices"
 
+	"github.com/PeerDB-io/peerdb/flow/internal/ssh/internal/poly1305"
 	"golang.org/x/crypto/chacha20"
-	"golang.org/x/crypto/internal/poly1305"
 )
 
 const (
