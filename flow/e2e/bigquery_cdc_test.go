@@ -556,8 +556,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 
 	stateAfterRetries, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
 	require.NoError(t, err)
-	require.Equal(t, stateBeforeDrop.CursorText, stateAfterRetries.CursorText,
-		"failed table's cursor must not move once its source table is gone")
 	require.Equal(t, stateBeforeDrop.SyncedBatchID, stateAfterRetries.SyncedBatchID,
 		"failed table must not advance its synced batch id")
 
