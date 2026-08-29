@@ -531,7 +531,7 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 
-		items := model.NewMongoRecordItems(2)
+		items := model.NewRecordItems(2)
 		switch operationType(changeEvent.OperationType) {
 		case operationTypeInsert:
 			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {

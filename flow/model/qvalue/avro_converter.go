@@ -259,7 +259,7 @@ func QValueToAvro(
 		types.QValueGeography, types.QValueGeometry, types.QValuePoint:
 		size := stringSize(v.Value().(string), sizeOpt)
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
-			(len(v.Value().(string)) > 15*1024*1024) {
+			(len(v.Value().(string)) > shared.SnowflakeClearValueThresholdBytes) {
 			slog.WarnContext(ctx, "Clearing TEXT value > 15MB for Snowflake!")
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 
@@ -577,7 +577,7 @@ func (c *QValueAvroConverter) processBytes(byteData []byte, so sizeOpt) (any, in
 
 func (c *QValueAvroConverter) processJSON(jsonString string) any {
 	if c.Nullable {
-		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > shared.SnowflakeClearValueThresholdBytes {
 			c.logger.Warn("Clearing JSON value > 15MB for Snowflake!")
 			c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil
@@ -585,7 +585,7 @@ func (c *QValueAvroConverter) processJSON(jsonString string) any {
 		return &jsonString
 	}
 
-	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > shared.SnowflakeClearValueThresholdBytes {
 		c.logger.Warn("Clearing JSON value > 15MB for Snowflake!")
 		c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return ""
@@ -650,7 +650,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
 	}
 
 	if c.Nullable {
-		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
+		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > shared.SnowflakeClearValueThresholdBytes {
 			c.logger.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
 			c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil, nil
@@ -658,7 +658,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
 		return &jsonString, nil
 	}
 
-	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
+	if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > shared.SnowflakeClearValueThresholdBytes {
 		c.logger.Warn("Clearing HStore equivalent JSON value > 15MB for Snowflake!")
 		c.logger.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil

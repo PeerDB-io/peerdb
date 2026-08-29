@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -86,13 +87,14 @@ func recordToQRecordOrError(
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
+	jsonOpts := rawTableJSONOptions(targetDWH)
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
-		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		itemsJSON, err := preprocessedItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 		}
@@ -106,11 +108,11 @@ func recordToQRecordOrError(
 		preprocessedItems := truncateNumerics(
 			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
-		newItemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		newItemsJSON, err := preprocessedItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 		}
-		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
+		oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 		}
@@ -121,7 +123,7 @@ func recordToQRecordOrError(
 		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	case *model.DeleteRecord[model.RecordItems]:
-		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
+		itemsJSON, err := typedRecord.Items.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
@@ -144,6 +146,14 @@ func recordToQRecordOrError(
 	entries[6] = types.QValueInt64{Val: batchID}
 
 	return entries[:], nil
+}
+
+func rawTableJSONOptions(target protos.DBType) model.ToJSONOptions {
+	opts := model.NewToJSONOptions(nil, true)
+	if target == protos.DBType_SNOWFLAKE {
+		opts.ClearValuesOverBytes = shared.SnowflakeClearValueThresholdBytes
+	}
+	return opts
 }
 
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {
