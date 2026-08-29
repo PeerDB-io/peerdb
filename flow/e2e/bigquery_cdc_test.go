@@ -772,6 +772,76 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Table_Replication_State_Handler checks that the
+// GetTableReplicationState API (flow/cmd/mirror_status.go) reports the same
+// per-table sync/normalize progress as the underlying
+// cdc_table_replication_state row it's read from.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handler() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_repl_state_handler")
+	dstTable := srcTable + "_dst"
+	sourceTableIdentifier := fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable)
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "wave-1"}})
+	EnvWaitFor(t, env, 4*time.Minute, "CDC wave picked up", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 2
+	})
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	pool, err := catalogTestAccessPool()
+	require.NoError(t, err)
+
+	var handlerState *protos.TableReplicationState
+	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports normalized progress", func() bool {
+		resp, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, table := range resp.Tables {
+			if table.SourceTableIdentifier == sourceTableIdentifier {
+				handlerState = table
+				break
+			}
+		}
+		return handlerState != nil && handlerState.NormalizedBatchId > 0 && handlerState.LastNormalizedAt != nil
+	})
+
+	dbState, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
+	require.NoError(t, err)
+
+	require.Equal(t, dbState.CursorText, handlerState.CursorText)
+	require.Equal(t, dbState.SyncedBatchID, handlerState.SyncedBatchId)
+	require.Equal(t, dbState.NormalizedBatchID, handlerState.NormalizedBatchId)
+	require.WithinDuration(t, dbState.LastSyncedAt, handlerState.LastSyncedAt.AsTime(), time.Second)
+	require.WithinDuration(t, dbState.LastNormalizedAt, handlerState.LastNormalizedAt.AsTime(), time.Second)
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
 func readBigQueryTableCursor(t *testing.T, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string) time.Time {
 	t.Helper()
 	var cursorText string
