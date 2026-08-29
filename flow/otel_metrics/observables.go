@@ -210,6 +210,16 @@ func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options
 	a.Int64Counter.Add(ctx, value, newOptions...)
 }
 
+type ContextAwareInt64Histogram struct {
+	metric.Int64Histogram
+	attrsCache contextAttributesCache
+}
+
+func (a *ContextAwareInt64Histogram) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
+	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
+	a.Int64Histogram.Record(ctx, value, newOptions...)
+}
+
 func Int64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
 	return NewInt64SyncGauge(meter, name,
@@ -253,4 +263,22 @@ func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric
 	}
 
 	return &ContextAwareInt64Counter{Int64Counter: counter}, nil
+}
+
+func NewContextAwareInt64Histogram(
+	meter metric.Meter,
+	name string,
+	opts ...metric.Int64HistogramOption,
+) (metric.Int64Histogram, error) {
+	histogramConfig := metric.NewInt64HistogramConfig(opts...)
+	histogram, err := meter.Int64Histogram(name,
+		metric.WithDescription(histogramConfig.Description()),
+		metric.WithUnit(histogramConfig.Unit()),
+		metric.WithExplicitBucketBoundaries(histogramConfig.ExplicitBucketBoundaries()...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ContextAwareInt64Histogram{Int64Histogram: histogram}, nil
 }

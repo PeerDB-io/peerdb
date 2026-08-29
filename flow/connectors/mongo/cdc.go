@@ -500,6 +500,7 @@ func (c *MongoConnector) PullRecords(
 		changeEventSize := int64(len(current))
 		deltaBytesProcessed.Add(changeEventSize)
 		cumulativeBytesProcessed.Add(changeEventSize)
+		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
 
 		var changeEvent ChangeEvent
 		if err := decodeEvent(current, &changeEvent); err != nil {
