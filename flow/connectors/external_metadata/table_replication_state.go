@@ -33,6 +33,9 @@ type TableReplicationState struct {
 	// final destination table. SyncedBatchID-NormalizedBatchID is this table's
 	// own sync/normalize lag, used for per-table backpressure.
 	NormalizedBatchID int64
+	// LastNormalizedAt is when this table last completed a normalize
+	// successfully, zero if never normalized.
+	LastNormalizedAt time.Time
 }
 
 // GetTableReplicationState reads a table's durable progress, defaulting to an
@@ -41,12 +44,12 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string,
 ) (TableReplicationState, error) {
 	var state TableReplicationState
-	var lastAttemptAt, lastSyncedAt *time.Time
+	var lastAttemptAt, lastSyncedAt, lastNormalizedAt *time.Time
 	if err := p.pool.QueryRow(ctx,
-		`SELECT cursor_text, last_attempt_at, last_synced_at, synced_batch_id, normalized_batch_id
+		`SELECT cursor_text, last_attempt_at, last_synced_at, synced_batch_id, normalized_batch_id, last_normalized_at
 		FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1 AND source_table_identifier = $2`,
 		jobName, sourceTableIdentifier,
-	).Scan(&state.CursorText, &lastAttemptAt, &lastSyncedAt, &state.SyncedBatchID, &state.NormalizedBatchID); err != nil {
+	).Scan(&state.CursorText, &lastAttemptAt, &lastSyncedAt, &state.SyncedBatchID, &state.NormalizedBatchID, &lastNormalizedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return TableReplicationState{}, nil
 		}
@@ -57,6 +60,9 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	}
 	if lastSyncedAt != nil {
 		state.LastSyncedAt = *lastSyncedAt
+	}
+	if lastNormalizedAt != nil {
+		state.LastNormalizedAt = *lastNormalizedAt
 	}
 	return state, nil
 }
@@ -121,17 +127,19 @@ func (p *PostgresMetadata) RecordTableReplicationSync(
 	return nil
 }
 
-// RecordTableReplicationNormalize advances a table's normalized_batch_id after
-// batches up through normalizedBatchID have been inserted into its final
-// destination table.
+// RecordTableReplicationNormalize advances a table's normalized_batch_id
+// after batches up through normalizedBatchID have been inserted into its
+// final destination table, and records normalizedAt as the completion time.
 func (p *PostgresMetadata) RecordTableReplicationNormalize(
-	ctx context.Context, jobName string, sourceTableIdentifier string, normalizedBatchID int64,
+	ctx context.Context, jobName string, sourceTableIdentifier string, normalizedBatchID int64, normalizedAt time.Time,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
 		UPDATE `+cdcTableReplicationStateTableName+`
-		SET normalized_batch_id = GREATEST(normalized_batch_id, $3), updated_at = now()
+		SET normalized_batch_id = GREATEST(normalized_batch_id, $3),
+			last_normalized_at = CASE WHEN $3 > normalized_batch_id THEN $4 ELSE last_normalized_at END,
+			updated_at = now()
 		WHERE flow_name = $1 AND source_table_identifier = $2
-	`, jobName, sourceTableIdentifier, normalizedBatchID); err != nil {
+	`, jobName, sourceTableIdentifier, normalizedBatchID, normalizedAt); err != nil {
 		p.logger.Error("failed to record table replication normalize", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication normalize for %s: %w", sourceTableIdentifier, err)
 	}

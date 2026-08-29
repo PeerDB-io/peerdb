@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
     -- backpressure in flow/activities/flowable_isolated_cdc.go.
     synced_batch_id bigint NOT NULL DEFAULT 0,
     normalized_batch_id bigint NOT NULL DEFAULT 0,
+    last_normalized_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (flow_name, source_table_identifier)
 );
