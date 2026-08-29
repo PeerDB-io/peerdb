@@ -73,18 +73,13 @@ func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Durati
 	return upper, upper.After(checkpoint)
 }
 
-// encodeBigQueryTableCursor formats a single table's synced-through timestamp as
-// the opaque cursor text persisted between PullTableRecords calls.
-func encodeBigQueryTableCursor(t time.Time) string {
+func EncodeBigQueryTableCursor(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// decodeBigQueryTableCursor parses a cursor previously returned by
-// PullTableRecords. An empty cursor (table pulled for the first time) seeds
-// from now, matching newBigQueryCDCCheckpointPerTable's seeding behavior.
-func decodeBigQueryTableCursor(cursor string, now time.Time) (time.Time, error) {
+func DecodeBigQueryTableCursor(cursor string) (time.Time, error) {
 	if cursor == "" {
-		return now, nil
+		return time.Time{}, nil
 	}
 	t, err := time.Parse(time.RFC3339Nano, cursor)
 	if err != nil {
@@ -114,9 +109,13 @@ func (c *BigQueryConnector) PullTableRecords(
 		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
 	}
 
-	start, err := decodeBigQueryTableCursor(req.Cursor, now)
+	start, err := DecodeBigQueryTableCursor(req.Cursor)
 	if err != nil {
 		return model.PullTableRecordsResult{}, err
+	}
+	if start.IsZero() {
+		// seed from now if cursor is empty (first poll for this table).
+		start = now
 	}
 
 	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
@@ -131,7 +130,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
 	if !ok {
 		// No safe window to scan yet; cursor is unchanged.
-		return model.PullTableRecordsResult{NextCursor: encodeBigQueryTableCursor(start)}, nil
+		return model.PullTableRecordsResult{NextCursor: req.Cursor}, nil
 	}
 
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
@@ -169,7 +168,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	return model.PullTableRecordsResult{
-		NextCursor:     encodeBigQueryTableCursor(upper),
+		NextCursor:     EncodeBigQueryTableCursor(upper),
 		BytesProcessed: bytesProcessed,
 	}, nil
 }
