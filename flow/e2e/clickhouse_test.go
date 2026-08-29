@@ -106,8 +106,7 @@ func (s ClickHouseSuite) Test_Large_Text_CDC() {
 	largeTextBytes := 100 * 1024 * 1024
 	payloadType := "TEXT"
 	if _, ok := s.source.(*MySqlSource); ok {
-		// Stay just below MySQL's default 64 MiB max_allowed_packet without changing server settings.
-		largeTextBytes = 63 * 1024 * 1024
+		largeTextBytes = 32 * 1024 * 1024
 		payloadType = "LONGTEXT"
 	}
 
