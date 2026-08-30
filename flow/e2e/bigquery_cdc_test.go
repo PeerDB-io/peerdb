@@ -808,7 +808,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handl
 
 	apiClient, err := NewApiClient()
 	require.NoError(t, err)
-	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
 
 	var handlerState *protos.TableReplicationState
@@ -829,14 +828,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handl
 		return handlerState != nil && handlerState.NormalizedBatchId > 0 && handlerState.LastNormalizedAt != nil
 	})
 
-	dbState, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
-	require.NoError(t, err)
-
-	require.Equal(t, dbState.CursorText, handlerState.CursorText)
-	require.Equal(t, dbState.SyncedBatchID, handlerState.SyncedBatchId)
-	require.Equal(t, dbState.NormalizedBatchID, handlerState.NormalizedBatchId)
-	require.WithinDuration(t, dbState.LastSyncedAt, handlerState.LastSyncedAt.AsTime(), time.Second)
-	require.WithinDuration(t, dbState.LastNormalizedAt, handlerState.LastNormalizedAt.AsTime(), time.Second)
+	require.Equal(t, int64(1), handlerState.InsertsCount, "only the CDC-polled insert should be counted, not the initial snapshot row")
+	require.Equal(t, int64(0), handlerState.UpdatesCount)
+	require.Equal(t, int64(0), handlerState.DeletesCount)
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)

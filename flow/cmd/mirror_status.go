@@ -763,7 +763,10 @@ func (h *FlowRequestHandler) GetTableReplicationState(
 			last_synced_at,
 			synced_batch_id,
 			normalized_batch_id,
-			last_normalized_at
+			last_normalized_at,
+			inserts_count,
+			updates_count,
+			deletes_count
 		FROM cdc_table_replication_state
 		WHERE flow_name = $1
 		ORDER BY source_table_identifier`, req.FlowJobName)
@@ -782,6 +785,9 @@ func (h *FlowRequestHandler) GetTableReplicationState(
 			&table.SyncedBatchId,
 			&table.NormalizedBatchId,
 			&lastNormalizedAt,
+			&table.InsertsCount,
+			&table.UpdatesCount,
+			&table.DeletesCount,
 		); err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to scan table replication state: %w", err))
 		}

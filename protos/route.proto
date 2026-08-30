@@ -158,6 +158,9 @@ message TableReplicationState {
   int64 synced_batch_id = 5;
   int64 normalized_batch_id = 6;
   google.protobuf.Timestamp last_normalized_at = 7;
+  int64 inserts_count = 8;
+  int64 updates_count = 9;
+  int64 deletes_count = 10;
 }
 
 message GetTableReplicationStateRequest { string flow_job_name = 1; }

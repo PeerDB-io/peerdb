@@ -106,7 +106,9 @@ func (c *ClickHouseConnector) SyncTableCDC(
 		return rowCounts, nil
 	}
 
-	if err := SetTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFile); err != nil {
+	if err := SetTableAvroStage(
+		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFile, rowCounts,
+	); err != nil {
 		return nil, fmt.Errorf("failed to set table avro stage: %w", err)
 	}
 
@@ -116,8 +118,11 @@ func (c *ClickHouseConnector) SyncTableCDC(
 // NormalizeTableCDC inserts every batch in (req.StartBatchID, req.EndBatchID],
 // previously staged by SyncTableCDC, straight into the final destination
 // table, one INSERT ... SELECT per batch from that batch's staged Avro file,
-// deleting each stage record once applied.
-func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) error {
+// deleting each stage record once applied. Returns the summed
+// insert/update/delete counts across every batch actually applied.
+func (c *ClickHouseConnector) NormalizeTableCDC(
+	ctx context.Context, req *model.NormalizeTableCDCRequest,
+) (*model.RecordTypeCounts, error) {
 	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
@@ -143,8 +148,9 @@ func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.
 
 	chSettings := chinternal.NewInsertSettings(c.chVersion, req.Version)
 
+	rowCounts := &model.RecordTypeCounts{}
 	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
-		avroFile, err := GetTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
+		avroFile, batchCounts, err := GetTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
 		if err != nil {
 			if errors.Is(err, ErrNoAvroStage) {
 				// this function is the only thing that deletes stage rows, so a missing
@@ -152,30 +158,34 @@ func (c *ClickHouseConnector) NormalizeTableCDC(ctx context.Context, req *model.
 				// batch before its checkpoint was durably recorded; safe to skip
 				continue
 			}
-			return fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
+			return nil, fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
 		}
 
 		stagingTableFunction, err := c.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
 		if err != nil {
 			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to build staging table function for batch %d: %w", batchID, err)
+			return nil, fmt.Errorf("failed to build staging table function for batch %d: %w", batchID, err)
 		}
 
 		query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
 		if err != nil {
 			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to build insert query for %s batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
+			return nil, fmt.Errorf("failed to build insert query for %s batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
 		}
 		if err := c.exec(ctx, query); err != nil {
 			avroFile.Cleanup(ctx)
-			return fmt.Errorf("failed to insert into %s for batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
+			return nil, fmt.Errorf("failed to insert into %s for batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
 		}
 		avroFile.Cleanup(ctx)
 
 		if err := DeleteTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID); err != nil {
-			return fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
+			return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
 		}
+
+		rowCounts.InsertCount.Add(batchCounts.InsertCount.Load())
+		rowCounts.UpdateCount.Add(batchCounts.UpdateCount.Load())
+		rowCounts.DeleteCount.Add(batchCounts.DeleteCount.Load())
 	}
 
-	return nil
+	return rowCounts, nil
 }

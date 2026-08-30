@@ -390,7 +390,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		}
 		logger.Info("[cdc] starting normalize",
 			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
-		normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
+		normCounts, normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
 			Env:               config.Env,
 			FlowJobName:       flowName,
 			TableMapping:      tableMapping,
@@ -423,7 +423,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		wasLagging = false
 		retryInterval = time.Minute
 
-		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID, time.Now()); err != nil {
+		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
