@@ -157,7 +157,9 @@ func buildInsertFromTableFunctionQuery(
 	// On a clustered target, INSERT into the local _shard ReplicatedMergeTree rather than the
 	// Distributed front (CH #97557: Distributed + insert_quorum_parallel=0 silently drops the part).
 	targetTable := config.destinationTable
-	if config.connector != nil && config.connector.Config.Cluster != "" {
+	if config.connector.Config.Cluster != "" {
+		// Do NOT silently fall back to the Distributed target when clustered — that is the
+		// #97557 data-loss path. Resolve the shard name and hard-error if we cannot.
 		shardTable, err := config.connector.getDistributedShardTable(ctx, config.destinationTable)
 		if err != nil {
 			return "", err
