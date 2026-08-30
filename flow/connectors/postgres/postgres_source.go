@@ -105,7 +105,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		c.logger.Info("not setting wal_sender_timeout")
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)

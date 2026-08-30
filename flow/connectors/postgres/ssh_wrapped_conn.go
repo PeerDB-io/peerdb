@@ -15,7 +15,6 @@ import (
 func NewPostgresConnFromConfig(
 	ctx context.Context,
 	connConfig *pgx.ConnConfig,
-	tlsHost string,
 	rdsAuth *utils.RDSAuth,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
@@ -29,16 +28,18 @@ func NewPostgresConnFromConfig(
 	}
 	logger := internal.LoggerFromCtx(ctx)
 	if rdsAuth != nil {
-		host := connConfig.Host
-		if tlsHost != "" {
-			host = tlsHost
+		if rdsAuth.ConnectionConfig.Host == "" {
+			rdsAuth.ConnectionConfig.Host = connConfig.Host
 		}
+		if rdsAuth.ConnectionConfig.Port == 0 {
+			rdsAuth.ConnectionConfig.Port = uint32(connConfig.Port)
+		}
+		if rdsAuth.ConnectionConfig.User == "" {
+			rdsAuth.ConnectionConfig.User = connConfig.User
+		}
+
 		logger.Info("Setting up IAM auth for Postgres")
-		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: host,
-			Port: uint32(connConfig.Port),
-			User: connConfig.User,
-		}, rdsAuth, "POSTGRES")
+		token, err := utils.GetRDSToken(ctx, rdsAuth, "POSTGRES")
 		if err != nil {
 			return nil, err
 		}
