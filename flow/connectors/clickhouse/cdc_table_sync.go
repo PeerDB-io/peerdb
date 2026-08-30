@@ -170,7 +170,8 @@ func (c *ClickHouseConnector) NormalizeTableCDC(
 		query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
 		if err != nil {
 			avroFile.Cleanup(ctx)
-			return nil, fmt.Errorf("failed to build insert query for %s batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
+			return nil, fmt.Errorf("failed to build insert query for %s batch %d: %w", req.TableMapping.DestinationTableIdentifier,
+				batchID, err)
 		}
 		if err := c.exec(ctx, query); err != nil {
 			avroFile.Cleanup(ctx)
