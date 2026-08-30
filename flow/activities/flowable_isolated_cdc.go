@@ -235,14 +235,12 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		pollGroup.Go(func() error {
 			var pullErr error
 			pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-				Env:                    config.Env,
-				FlowJobName:            flowName,
-				SourceTableIdentifier:  sourceTable,
-				NameAndExclude:         nameAndExclude,
-				Cursor:                 state.CursorText,
-				TableNameSchemaMapping: tableNameSchemaMapping,
-				Stream:                 stream,
-				IdleTimeout:            idleTimeout,
+				Env:                   config.Env,
+				FlowJobName:           flowName,
+				SourceTableIdentifier: sourceTable,
+				NameAndExclude:        nameAndExclude,
+				Cursor:                state.CursorText,
+				Stream:                stream,
 			})
 			stream.Close()
 			if pullErr == nil {

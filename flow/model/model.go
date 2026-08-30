@@ -109,12 +109,8 @@ type PullTableRecordsRequest struct {
 	// Cursor is the opaque value previously returned for this table by
 	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
 	Cursor string
-	// tablename to schema mapping
-	TableNameSchemaMapping map[string]*protos.TableSchema
 	// Stream is where pulled records are pushed.
 	Stream *CDCStream[RecordItems]
-	// IdleTimeout is the timeout to wait for new records.
-	IdleTimeout time.Duration
 }
 
 // PullTableRecordsResult is returned by TableCDCPullConnector.PullTableRecords.
