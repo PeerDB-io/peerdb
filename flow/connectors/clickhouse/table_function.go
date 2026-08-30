@@ -154,8 +154,19 @@ func buildInsertFromTableFunctionQuery(
 		settingsStr = chSettings.String()
 	}
 
+	// On a clustered target, INSERT into the local _shard ReplicatedMergeTree rather than the
+	// Distributed front (CH #97557: Distributed + insert_quorum_parallel=0 silently drops the part).
+	targetTable := config.destinationTable
+	if config.connector != nil && config.connector.Config.Cluster != "" {
+		shardTable, err := config.connector.getDistributedShardTable(ctx, config.destinationTable)
+		if err != nil {
+			return "", err
+		}
+		targetTable = shardTable
+	}
+
 	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s%s",
-		peerdb_clickhouse.QuoteIdentifier(config.destinationTable), insertedStr, selectorStr, tableFunctionExpr, settingsStr), nil
+		peerdb_clickhouse.QuoteIdentifier(targetTable), insertedStr, selectorStr, tableFunctionExpr, settingsStr), nil
 }
 
 // buildInsertFromTableFunctionQueryWithPartitioning builds an INSERT query with hash-based partitioning

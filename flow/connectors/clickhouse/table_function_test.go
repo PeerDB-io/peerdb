@@ -26,6 +26,9 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 	config := &insertFromTableFunctionConfig{
 		destinationTable: "t1",
 		schema:           schema,
+		// connector present but non-clustered (Cluster == "") must leave the INSERT target
+		// as the plain destination table — no _shard resolution, no DB I/O.
+		connector: &ClickHouseConnector{Config: &protos.ClickhouseConfig{}},
 		config: &protos.QRepConfig{
 			Env: map[string]string{
 				"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
