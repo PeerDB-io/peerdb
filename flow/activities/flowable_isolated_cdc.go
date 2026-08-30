@@ -262,18 +262,16 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 				logger.Info("[cdc] starting sync")
 				rowCounts, syncErr = dstConn.SyncTableCDC(pollCtx, &model.SyncTableCDCRequest{
-					Env:                        config.Env,
-					FlowJobName:                flowName,
-					SourceTableIdentifier:      sourceTable,
-					DestinationTableIdentifier: destTable,
-					TableMapping:               tableMapping,
-					TableSchema:                tableNameSchemaMapping[destTable],
-					Records:                    stream.GetRecords(),
-					Version:                    config.Version,
-					Flags:                      config.Flags,
-					SchemaDeltas:               stream.SchemaDeltas,
-					BatchID:                    nextBatchID,
-					SoftDeleteColName:          config.SoftDeleteColName,
+					Env:               config.Env,
+					FlowJobName:       flowName,
+					TableMapping:      tableMapping,
+					TableSchema:       tableNameSchemaMapping[destTable],
+					Records:           stream.GetRecords(),
+					Version:           config.Version,
+					Flags:             config.Flags,
+					SchemaDeltas:      stream.SchemaDeltas,
+					BatchID:           nextBatchID,
+					SoftDeleteColName: config.SoftDeleteColName,
 				})
 				if syncErr == nil {
 					logger.Info("[cdc] sync done",
@@ -393,17 +391,15 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		logger.Info("[cdc] starting normalize",
 			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
 		normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
-			Env:                        config.Env,
-			FlowJobName:                flowName,
-			SourceTableIdentifier:      sourceTable,
-			DestinationTableIdentifier: destTable,
-			TableMapping:               tableMapping,
-			TableSchema:                tableNameSchemaMapping[destTable],
-			Version:                    config.Version,
-			Flags:                      config.Flags,
-			StartBatchID:               lastNormalized,
-			EndBatchID:                 reqBatchID,
-			SoftDeleteColName:          config.SoftDeleteColName,
+			Env:               config.Env,
+			FlowJobName:       flowName,
+			TableMapping:      tableMapping,
+			TableSchema:       tableNameSchemaMapping[destTable],
+			Version:           config.Version,
+			Flags:             config.Flags,
+			StartBatchID:      lastNormalized,
+			EndBatchID:        reqBatchID,
+			SoftDeleteColName: config.SoftDeleteColName,
 		})
 		dstClose(ctx)
 
