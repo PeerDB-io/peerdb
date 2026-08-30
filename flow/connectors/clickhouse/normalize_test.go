@@ -260,6 +260,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		"",
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -315,6 +316,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		"",
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -367,12 +369,72 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		"",
 	)
 
 	query, err := g.BuildQuery(ctx)
 	require.NoError(t, err)
 	require.Contains(t, query, " AS `_peerdb_source_schema`")
 	require.Contains(t, query, "parallel_distributed_insert_select=0")
+}
+
+func TestBuildQuery_InsertTargetTableOverride(t *testing.T) {
+	ctx := t.Context()
+	tableName := "my_table"
+	rawTableName := "raw_my_table"
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
+	env := map[string]string{}
+
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+		},
+		NullableEnabled: false,
+	}
+	tableNameSchemaMapping := map[string]*protos.TableSchema{
+		tableName: tableSchema,
+	}
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      "public.my_table",
+			DestinationTableIdentifier: tableName,
+		},
+	}
+
+	newGen := func(insertTargetTable string) *NormalizeQueryGenerator {
+		return NewNormalizeQueryGenerator(
+			tableName,
+			tableNameSchemaMapping,
+			tableMappings,
+			endBatchID,
+			lastNormBatchID,
+			false,
+			false,
+			env,
+			rawTableName,
+			nil,
+			false,
+			"",
+			shared.InternalVersion_Latest,
+			nil,
+			insertTargetTable,
+		)
+	}
+
+	// Override present: physical INSERT target is the shard table, but the
+	// metadata literal still references the logical (Distributed) table name.
+	query, err := newGen("my_table_shard").BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `my_table_shard`")
+	require.NotContains(t, query, "INSERT INTO `my_table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'my_table'")
+
+	// Empty override: falls back to TableName.
+	query, err = newGen("").BuildQuery(ctx)
+	require.NoError(t, err)
+	require.Contains(t, query, "INSERT INTO `my_table`")
+	require.Contains(t, query, "_peerdb_destination_table_name = 'my_table'")
 }
 
 func TestGetOrderedPartitionByColumns(t *testing.T) {

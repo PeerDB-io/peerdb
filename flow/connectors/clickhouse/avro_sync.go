@@ -49,8 +49,22 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		return fmt.Errorf("failed to build staging table function: %w", err)
 	}
 
+	// On clustered replicated targets, route the INSERT directly to the local
+	// _shard ReplicatedMergeTree table (where insert_quorum is actually
+	// contracted). Inserting into the Distributed table with insert_quorum
+	// silently drops the part (ClickHouse #97557). Reads still go through the
+	// Distributed table.
+	insertTarget := s.config.DestinationTableIdentifier
+	if s.Config.Cluster != "" {
+		shardTable, err := s.getDistributedShardTable(ctx, s.config.DestinationTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("failed to resolve shard table for %s: %w", s.config.DestinationTableIdentifier, err)
+		}
+		insertTarget = shardTable
+	}
+
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), stagingTableFunction)
+		peerdb_clickhouse.QuoteIdentifier(insertTarget), stagingTableFunction)
 	return s.exec(ctx, query)
 }
 

@@ -24,7 +24,13 @@ type NormalizeQueryGenerator struct {
 	chVersion                       *chproto.Version
 	Query                           string
 	TableName                       string
-	rawTableName                    string
+	// insertTargetTable overrides the physical INSERT INTO target. When set
+	// (clustered targets), the INSERT goes directly to the local _shard
+	// ReplicatedMergeTree table where insert_quorum is actually contracted;
+	// empty falls back to TableName (the Distributed table). Metadata/raw
+	// filtering still keys off TableName, not this.
+	insertTargetTable string
+	rawTableName      string
 	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
 	lastNormBatchID                 int64
@@ -51,6 +57,7 @@ func NewNormalizeQueryGenerator(
 	configuredSoftDeleteColName string,
 	version uint32,
 	flags []string,
+	insertTargetTable string,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := defaultIsDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -71,6 +78,7 @@ func NewNormalizeQueryGenerator(
 		isDeletedColName:                isDeletedColumn,
 		version:                         version,
 		flags:                           flags,
+		insertTargetTable:               insertTargetTable,
 	}
 }
 
@@ -366,8 +374,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
+	// Physical INSERT target: on clustered replicated targets this is the
+	// resolved local _shard table (insert_quorum is contracted there);
+	// otherwise the Distributed table (== TableName). Reads still go through
+	// the Distributed table.
+	insertTarget := t.TableName
+	if t.insertTargetTable != "" {
+		insertTarget = t.insertTargetTable
+	}
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), chSettings.String())
+		peerdb_clickhouse.QuoteIdentifier(insertTarget), colSelector.String(), selectQuery.String(), chSettings.String())
 
 	t.Query = insertIntoSelectQuery
 

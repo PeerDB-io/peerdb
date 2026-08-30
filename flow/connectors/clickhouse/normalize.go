@@ -577,6 +577,20 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				continue
 			}
 
+			// On clustered replicated targets, route the physical INSERT
+			// directly to the local _shard ReplicatedMergeTree table (where
+			// insert_quorum is actually contracted). Empty => normalize writes
+			// to the Distributed table as before.
+			var insertTargetTable string
+			if c.Config.Cluster != "" {
+				insertTargetTable, err = c.getDistributedShardTable(ctx, tbl)
+				if err != nil {
+					c.logger.Error("[clickhouse] error while resolving shard table for INSERT target",
+						slog.String("table", tbl), slog.Any("error", err))
+					return fmt.Errorf("error while resolving shard table for %s: %w", tbl, err)
+				}
+			}
+
 			queryGenerator := NewNormalizeQueryGenerator(
 				tbl,
 				req.TableNameSchemaMapping,
@@ -592,6 +606,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.SoftDeleteColName,
 				req.Version,
 				req.Flags,
+				insertTargetTable,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
