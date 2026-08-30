@@ -1,6 +1,7 @@
 'use client';
 import useHydrated from '@/app/utils/useHydrated';
 import useLocalStorage from '@/app/utils/useLocalStorage';
+import { DBType } from '@/grpc_generated/peers';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
@@ -10,6 +11,7 @@ import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
 import { TabListStyle, TabsRootStyle } from './styles/tab.styles';
+import TableReplicationState from './tableReplicationState';
 
 const StyledTabTrigger = styled(TabsTrigger)`
   &[data-state='active'] {
@@ -37,6 +39,10 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
     );
   }
 
+  const isBigQuerySource =
+    status.cdcStatus?.sourceType?.toString() ===
+    DBType[DBType.BIGQUERY].toString();
+
   if (!hydrated) {
     return (
       <div style={{ marginTop: '1rem' }}>
@@ -60,6 +66,9 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
         </StyledTabTrigger>
         <StyledTabTrigger value='1'>Sync Status</StyledTabTrigger>
         <StyledTabTrigger value='2'>Initial Copy</StyledTabTrigger>
+        {isBigQuerySource && (
+          <StyledTabTrigger value='3'>Table Replication State</StyledTabTrigger>
+        )}
       </TabsList>
       <TabsContent className='TabsContent' value='0'>
         <CdcDetails
@@ -74,6 +83,11 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       <TabsContent className='TabsContent' value='2'>
         {snapshot}
       </TabsContent>
+      {isBigQuerySource && (
+        <TabsContent className='TabsContent' value='3'>
+          <TableReplicationState flowJobName={status.flowJobName} />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
