@@ -1952,3 +1952,31 @@ func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
 		Code:   "CONTEXT_CANCELLED",
 	}, errInfo)
 }
+
+func TestClickHouseFatalShutdownAbortShouldBeNotifyClickHouseError(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    236,
+		Message: "The server is shutting down due to a fatal error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "236",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseGenericAbortShouldBeInternalClickHouse(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    236,
+		Message: "Query was cancelled",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to push records: %w", err))
+	assert.Equal(t, ErrorInternalClickHouse, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "236",
+	}, errInfo, "Unexpected error info")
+}
