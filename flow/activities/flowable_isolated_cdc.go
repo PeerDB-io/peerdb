@@ -318,14 +318,14 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			a.recordSyncMetrics(ctx, flowName, destTable, rowCounts)
+			a.recordSyncMetrics(ctx, destTable, rowCounts)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, flowName string, destTable string, rowCounts *model.RecordTypeCounts) {
+func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts) {
 	opAndCount := []struct {
 		op    string
 		count int64
