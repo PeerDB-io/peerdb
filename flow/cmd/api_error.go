@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/gogo/googleapis/google/rpc"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -114,10 +115,11 @@ func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
 	}
 }
 
-func NewSourceTableMissingErrorInfo() *rpc.ErrorInfo {
+func NewSourceTableMissingErrorInfo(tableCount int) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason: common.ErrorInfoReasonSourceTableMissing,
-		Domain: common.ErrorInfoDomain,
+		Reason:   common.ErrorInfoReasonSourceTableMissing,
+		Domain:   common.ErrorInfoDomain,
+		Metadata: map[string]string{common.ErrorMetadataTableCount: strconv.Itoa(tableCount)},
 	}
 }
 
@@ -143,11 +145,22 @@ func NewSourceTableMissingPreconditionFailure(tables []common.QualifiedTable) pr
 	return protoadapt.MessageV1Of(&errdetails.PreconditionFailure{Violations: violations})
 }
 
-func NewTablesNotInPublicationErrorInfo(publication string) *rpc.ErrorInfo {
+func NewSourceTableMissingErrorDetails(tables []common.QualifiedTable) []protoadapt.MessageV1 {
+	displayedTables := tables[:min(len(tables), common.MaxTablesInErrorDetails)]
+	return []protoadapt.MessageV1{
+		NewSourceTableMissingErrorInfo(len(tables)),
+		NewSourceTableMissingPreconditionFailure(displayedTables),
+	}
+}
+
+func NewTablesNotInPublicationErrorInfo(publication string, tableCount int) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
-		Reason:   common.ErrorInfoReasonTablesNotInPublication,
-		Domain:   common.ErrorInfoDomain,
-		Metadata: map[string]string{common.ErrorMetadataPublication: publication},
+		Reason: common.ErrorInfoReasonTablesNotInPublication,
+		Domain: common.ErrorInfoDomain,
+		Metadata: map[string]string{
+			common.ErrorMetadataPublication: publication,
+			common.ErrorMetadataTableCount:  strconv.Itoa(tableCount),
+		},
 	}
 }
 
@@ -164,6 +177,17 @@ func NewTablesNotInPublicationPreconditionFailure(publication string, tables []c
 		}
 	}
 	return protoadapt.MessageV1Of(&errdetails.PreconditionFailure{Violations: violations})
+}
+
+func NewTablesNotInPublicationErrorDetails(
+	publication string,
+	tables []common.QualifiedTable,
+) []protoadapt.MessageV1 {
+	displayedTables := tables[:min(len(tables), common.MaxTablesInErrorDetails)]
+	return []protoadapt.MessageV1{
+		NewTablesNotInPublicationErrorInfo(publication, len(tables)),
+		NewTablesNotInPublicationPreconditionFailure(publication, displayedTables),
+	}
 }
 
 var ErrUnderMaintenance = errors.New("PeerDB is under maintenance. Please retry in a few minutes")
