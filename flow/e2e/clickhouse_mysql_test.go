@@ -1497,6 +1497,51 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
+	if _, ok := s.source.(*MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_add_excluded_col"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_add_excluded_col_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"secret"},
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN secret TEXT", srcFullName)))
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, secret) VALUES (1, 'do not replicate')", srcFullName)))
+
+	EnvWaitForCount(env, s, "waiting on cdc add excluded column", dstTableName, "id", 1)
+
+	rows, err := s.GetRows(dstTableName, "*")
+	require.NoError(s.t, err)
+	for _, field := range rows.Schema.Fields {
+		require.NotEqual(s.t, "secret", field.Name, "excluded column added during CDC reached the destination schema")
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Test_MySQL_AlterTableAddColumnDefault covers rows that existed before an ADD COLUMN with a
 // DEFAULT.
 func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
