@@ -259,7 +259,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 					FlowJobName:       flowName,
 					TableMapping:      tableMapping,
 					TableSchema:       tableNameSchemaMapping[destTable],
-					Records:           stream.GetRecords(),
+					Stream:            stream,
 					Version:           config.Version,
 					Flags:             config.Flags,
 					SchemaDeltas:      stream.SchemaDeltas,
@@ -323,6 +323,23 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		}
 	}
 	return ctx.Err()
+}
+
+// recordIsolatedDeliveryLag reports destination and end-to-end lag for one
+// table's just-finished normalize call
+func (a *FlowableActivity) recordIsolatedDeliveryLag(
+	ctx context.Context, flowName string, destTable string, normResult *model.NormalizeTableCDCResult,
+) {
+	if normResult.FirstRowReceivedAt == nil || normResult.FirstRowCommitTime == nil {
+		return
+	}
+	now := time.Now().UTC()
+	attrs := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, flowName),
+		attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+	))
+	a.OtelManager.Metrics.DestinationLagGauge.Record(ctx, now.Sub(*normResult.FirstRowReceivedAt).Milliseconds(), attrs)
+	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(*normResult.FirstRowCommitTime).Milliseconds(), attrs)
 }
 
 func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, flowName string, destTable string, rowCounts *model.RecordTypeCounts) {
@@ -400,7 +417,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		}
 		logger.Info("[cdc] starting normalize",
 			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
-		normCounts, normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
+		normResult, normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
 			Env:               config.Env,
 			FlowJobName:       flowName,
 			TableMapping:      tableMapping,
@@ -433,9 +450,12 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		wasLagging = false
 		retryInterval = time.Minute
 
-		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
+		if err := pgMetadata.RecordTableReplicationNormalize(
+			ctx, flowName, sourceTable, reqBatchID, normResult.RowCounts, time.Now(),
+		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+		a.recordIsolatedDeliveryLag(ctx, flowName, destTable, normResult)
 		normResponses.Update(reqBatchID)
 		logger.Info("[cdc] normalize done", slog.Int64("normalizedBatchID", reqBatchID))
 	}

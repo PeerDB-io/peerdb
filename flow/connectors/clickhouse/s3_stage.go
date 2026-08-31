@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -76,9 +77,12 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 // per-table CDC path (see flow/activities/flowable_isolated_cdc.go). Unlike
 // SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
 // flow-wide sync batch ID, one row per (flow, table, table's own batch).
+// firstRowReceivedAt/firstRowCommitTime are the batch's first row event's
+// received/commit timestamps (nil if the batch had no row events), read back
+// at normalize time for per-table destination/e2e lag.
 func SetTableAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
-	rowCounts *model.RecordTypeCounts,
+	rowCounts *model.RecordTypeCounts, firstRowReceivedAt *time.Time, firstRowCommitTime *time.Time,
 ) error {
 	avroFileJSON, err := json.Marshal(avroFile)
 	if err != nil {
@@ -91,12 +95,15 @@ func SetTableAvroStage(
 	}
 
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count,
+			first_row_received_at, first_row_commit_time)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (flow_name, source_table_identifier, batch_id)
-		DO UPDATE SET avro_file = $4, inserts_count = $5, updates_count = $6, deletes_count = $7, created_at = CURRENT_TIMESTAMP`,
+		DO UPDATE SET avro_file = $4, inserts_count = $5, updates_count = $6, deletes_count = $7, created_at = CURRENT_TIMESTAMP,
+			first_row_received_at = $8, first_row_commit_time = $9`,
 		flowJobName, sourceTableIdentifier, batchID, avroFileJSON,
 		rowCounts.InsertCount.Load(), rowCounts.UpdateCount.Load(), rowCounts.DeleteCount.Load(),
+		firstRowReceivedAt, firstRowCommitTime,
 	); err != nil {
 		return fmt.Errorf("failed to set table avro stage: %w", err)
 	}
@@ -105,32 +112,35 @@ func SetTableAvroStage(
 }
 
 // GetTableAvroStage retrieves a table's staged Avro file for batchID, along
-// with the insert/update/delete counts staged with it.
+// with the insert/update/delete counts and first row received/commit times
+// staged with it (the latter two nil if the batch had no row events).
 func GetTableAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
-) (utils.AvroFile, *model.RecordTypeCounts, error) {
+) (utils.AvroFile, *model.RecordTypeCounts, *time.Time, *time.Time, error) {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to get connection: %w", err)
+		return utils.AvroFile{}, nil, nil, nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
 	var avroFileJSON []byte
 	var insertsCount, updatesCount, deletesCount int64
+	var firstRowReceivedAt, firstRowCommitTime *time.Time
 	if err := conn.QueryRow(ctx, `
-		SELECT avro_file, inserts_count, updates_count, deletes_count FROM cdc_table_avro_stage
+		SELECT avro_file, inserts_count, updates_count, deletes_count, first_row_received_at, first_row_commit_time
+		FROM cdc_table_avro_stage
 		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
 		flowJobName, sourceTableIdentifier, batchID,
-	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount); err != nil {
+	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount, &firstRowReceivedAt, &firstRowCommitTime); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return utils.AvroFile{}, nil, fmt.Errorf(
+			return utils.AvroFile{}, nil, nil, nil, fmt.Errorf(
 				"%w for flow job %s, table %s, batch %d", ErrNoAvroStage, flowJobName, sourceTableIdentifier, batchID)
 		}
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to get table avro stage: %w", err)
+		return utils.AvroFile{}, nil, nil, nil, fmt.Errorf("failed to get table avro stage: %w", err)
 	}
 
 	var avroFile utils.AvroFile
 	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
+		return utils.AvroFile{}, nil, nil, nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
 	}
 
 	rowCounts := &model.RecordTypeCounts{}
@@ -138,7 +148,7 @@ func GetTableAvroStage(
 	rowCounts.UpdateCount.Store(int32(updatesCount))
 	rowCounts.DeleteCount.Store(int32(deletesCount))
 
-	return avroFile, rowCounts, nil
+	return avroFile, rowCounts, firstRowReceivedAt, firstRowCommitTime, nil
 }
 
 // DeleteTableAvroStage removes a table's staged Avro record for batchID once

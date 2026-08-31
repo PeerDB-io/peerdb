@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -79,7 +80,7 @@ func (c *ClickHouseConnector) SyncTableCDC(
 
 	rowCounts := &model.RecordTypeCounts{}
 	stream, err := utils.RecordsToTypedCDCStream(
-		req.Records, req.TableMapping.DestinationTableIdentifier, schema, sourceColumnByDest,
+		req.Stream.GetRecords(), req.TableMapping.DestinationTableIdentifier, schema, sourceColumnByDest,
 		protos.DBType_CLICKHOUSE, unboundedNumericAsString, numericTruncator, rowCounts,
 	)
 	if err != nil {
@@ -99,15 +100,20 @@ func (c *ClickHouseConnector) SyncTableCDC(
 		return nil, fmt.Errorf("failed to write typed CDC avro file: %w", err)
 	}
 
-	// rowCounts is fully populated once writeToAvroFile (which drains stream to
-	// completion) returns.
+	// rowCounts is fully populated, and req.Stream.FirstRowTimes() is safe to
+	// read, once writeToAvroFile (which drains req.Stream to completion) returns.
 	if avroFile.NumRecords == 0 {
 		avroFile.Cleanup(ctx)
 		return rowCounts, nil
 	}
 
+	var firstRowReceivedAt, firstRowCommitTime *time.Time
+	if receivedAt, commitTime, ok := req.Stream.FirstRowTimes(); ok {
+		firstRowReceivedAt, firstRowCommitTime = &receivedAt, &commitTime
+	}
 	if err := SetTableAvroStage(
 		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFile, rowCounts,
+		firstRowReceivedAt, firstRowCommitTime,
 	); err != nil {
 		return nil, fmt.Errorf("failed to set table avro stage: %w", err)
 	}
@@ -122,7 +128,7 @@ func (c *ClickHouseConnector) SyncTableCDC(
 // insert/update/delete counts across every batch actually applied.
 func (c *ClickHouseConnector) NormalizeTableCDC(
 	ctx context.Context, req *model.NormalizeTableCDCRequest,
-) (*model.RecordTypeCounts, error) {
+) (*model.NormalizeTableCDCResult, error) {
 	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
@@ -149,8 +155,14 @@ func (c *ClickHouseConnector) NormalizeTableCDC(
 	chSettings := chinternal.NewInsertSettings(c.chVersion, req.Version)
 
 	rowCounts := &model.RecordTypeCounts{}
+	// firstRowReceivedAt/firstRowCommitTime capture the earliest (lowest
+	// batchID) staged batch's first row times in this range, since a table's
+	// own batches are strictly ordered - used for this normalize call's
+	// destination/e2e lag.
+	var firstRowReceivedAt, firstRowCommitTime *time.Time
 	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
-		avroFile, batchCounts, err := GetTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
+		avroFile, batchCounts, batchReceivedAt, batchCommitTime, err := GetTableAvroStage(
+			ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
 		if err != nil {
 			if errors.Is(err, ErrNoAvroStage) {
 				// this function is the only thing that deletes stage rows, so a missing
@@ -159,6 +171,9 @@ func (c *ClickHouseConnector) NormalizeTableCDC(
 				continue
 			}
 			return nil, fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
+		}
+		if firstRowReceivedAt == nil {
+			firstRowReceivedAt, firstRowCommitTime = batchReceivedAt, batchCommitTime
 		}
 
 		stagingTableFunction, err := c.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
@@ -188,5 +203,9 @@ func (c *ClickHouseConnector) NormalizeTableCDC(
 		rowCounts.DeleteCount.Add(batchCounts.DeleteCount.Load())
 	}
 
-	return rowCounts, nil
+	return &model.NormalizeTableCDCResult{
+		RowCounts:          rowCounts,
+		FirstRowReceivedAt: firstRowReceivedAt,
+		FirstRowCommitTime: firstRowCommitTime,
+	}, nil
 }

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -148,11 +150,15 @@ func (c *BigQueryConnector) PullTableRecords(
 
 	// The activity waits on this signal before starting sync for this poll, so
 	// a query-based source's schema - known as soon as the first row is read
+	destTableAttrs := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.DestinationTableNameKey, req.NameAndExclude.Name)))
 	addRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
 		if !signaledNotEmpty {
 			signaledNotEmpty = true
 			req.Stream.SignalAsNotEmpty()
 		}
+		otelManager.Metrics.SourceLagGauge.Record(addCtx,
+			time.Now().UTC().Sub(record.GetCommitTime().UTC()).Milliseconds(), destTableAttrs)
 		return req.Stream.AddRecord(addCtx, record)
 	}
 

@@ -133,7 +133,7 @@ type SyncTableCDCRequest struct {
 	FlowJobName  string
 	TableMapping *protos.TableMapping
 	TableSchema  *protos.TableSchema
-	Records      <-chan Record[RecordItems]
+	Stream       *CDCStream[RecordItems]
 	Version      uint32
 	Flags        []string
 	SchemaDeltas []*protos.TableSchemaDelta
@@ -161,6 +161,16 @@ type NormalizeTableCDCRequest struct {
 	StartBatchID      int64
 	EndBatchID        int64
 	SoftDeleteColName string
+}
+
+type NormalizeTableCDCResult struct {
+	RowCounts *RecordTypeCounts
+	// FirstRowReceivedAt/FirstRowCommitTime are the received/commit timestamps
+	// staged alongside the earliest batch in (StartBatchID, EndBatchID] that had
+	// row events, used for per-table destination/e2e lag. nil if no batch in
+	// range had any (e.g. schema-delta-only batches).
+	FirstRowReceivedAt *time.Time
+	FirstRowCommitTime *time.Time
 }
 
 type ToJSONOptions struct {
