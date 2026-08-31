@@ -165,6 +165,9 @@ type SourceTableConfig struct {
 	SourceTableIdentifier string
 	// WatermarkColumn is required when the mirror's ReplicationMode is ReplicationModeQuery.
 	WatermarkColumn string
+	// Include, if non-empty, restricts replication to these column names
+	// ("selected_columns"). Mutually exclusive with Exclude.
+	Include []string
 	// Exclude lists column names excluded from replication for this table.
 	Exclude           []string
 	CDCEventsFunction CDCEventsFunction
@@ -202,8 +205,10 @@ func (e *ExternalError) Unwrap() error {
 	return e.error
 }
 
-// ValidateSourceTables checks that every configured source table exists and
-// returns their columns for reuse by ValidateSourceCDC.
+// ValidateSourceTables checks that every configured source table exists, that
+// its column selection (Include/Exclude) resolves to a non-empty set of real
+// columns, and that the client can read data from it. It returns the tables'
+// columns for reuse by ValidateSourceCDC.
 func ValidateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
 	validateTables := make([]DatasetTable, 0, len(cfg.Tables))
 	for _, t := range cfg.Tables {
@@ -229,7 +234,57 @@ func ValidateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTab
 		return nil, common.NewSourceTablesMissingError(missingTables)
 	}
 
+	for i, t := range cfg.Tables {
+		key := validateTables[i]
+
+		if err := validateColumnSelection(key, tablesByKey[key], t.Include, t.Exclude); err != nil {
+			return nil, err
+		}
+
+		if err := validateTableDataAccess(ctx, cfg.Client, cfg.ProjectID, key); err != nil {
+			return nil, err
+		}
+	}
+
 	return tablesByKey, nil
+}
+
+// validateColumnSelection checks that Include/Exclude reference real columns
+// on the table and that at least one column remains for replication.
+func validateColumnSelection(key DatasetTable, info TableInfo, include, exclude []string) error {
+	switch {
+	case len(include) > 0:
+		for _, col := range include {
+			if _, ok := info.Columns[col]; !ok {
+				return fmt.Errorf("column %s does not exist in table %s", col, key)
+			}
+		}
+	case len(exclude) > 0:
+		for _, col := range exclude {
+			if _, ok := info.Columns[col]; !ok {
+				return fmt.Errorf("excluded column %s does not exist in table %s", col, key)
+			}
+		}
+		if len(info.Columns) == len(exclude) {
+			return fmt.Errorf("all columns are excluded for table %s, at least one column must remain", key)
+		}
+	default:
+		if len(info.Columns) == 0 {
+			return fmt.Errorf("table %s has no columns", key)
+		}
+	}
+	return nil
+}
+
+// validateTableDataAccess checks bigquery.tables.getData permission via a
+// zero-row dry-run query, without actually executing it.
+func validateTableDataAccess(ctx context.Context, client *bigquery.Client, projectID string, key DatasetTable) error {
+	query := client.Query(fmt.Sprintf("SELECT * FROM `%s.%s.%s` LIMIT 0", projectID, key.Dataset, key.Table))
+	query.DryRun = true
+	if _, err := query.Run(ctx); err != nil {
+		return fmt.Errorf("failed to validate data access for table %s: %w", key, &ExternalError{err})
+	}
+	return nil
 }
 
 // ValidateSourceCDC checks that every configured source table meets the
