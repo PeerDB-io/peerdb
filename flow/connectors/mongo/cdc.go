@@ -577,6 +577,7 @@ func (c *MongoConnector) PullRecords(
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
+		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
 		checkpoint()
 	}
 
