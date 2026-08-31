@@ -129,10 +129,14 @@ func GetTables(
 			if err != nil {
 				return nil, err
 			}
+			var primaryKeyColumns []string
+			if tableMeta.TableConstraints != nil && tableMeta.TableConstraints.PrimaryKey != nil {
+				primaryKeyColumns = tableMeta.TableConstraints.PrimaryKey.Columns
+			}
 			for _, col := range tableMeta.Schema {
 				tableInfo.Columns[col.Name] = ColumnInfo{
 					Type: col.Type,
-					IsPK: slices.Contains(tableMeta.TableConstraints.PrimaryKey.Columns, col.Name),
+					IsPK: slices.Contains(primaryKeyColumns, col.Name),
 				}
 			}
 
