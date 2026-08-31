@@ -1498,8 +1498,18 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddColumnTypes() {
 }
 
 func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
-	if _, ok := s.source.(*MySqlSource); !ok {
+	mysource, ok := s.source.(*MySqlSource)
+	if !ok {
 		s.t.Skip("only applies to mysql")
+	}
+	minVersion := mysql_validation.MySQLMinVersionForBinlogRowMetadata
+	if mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		minVersion = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
+	}
+	cmp, err := mysource.CompareServerVersion(s.t.Context(), minVersion)
+	require.NoError(s.t, err)
+	if cmp < 0 {
+		s.t.Skip("column exclusion requires binlog row metadata")
 	}
 
 	srcTableName := "test_add_excluded_col"
@@ -1515,6 +1525,7 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"secret"},
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1526,11 +1537,15 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
+	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id", 1)
+
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN secret TEXT", srcFullName)))
 	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (id, secret) VALUES (1, 'do not replicate')", srcFullName)))
+		fmt.Sprintf("INSERT INTO %s (id, secret) VALUES (2, 'do not replicate')", srcFullName)))
 
-	EnvWaitForCount(env, s, "waiting on cdc add excluded column", dstTableName, "id", 1)
+	EnvWaitForCount(env, s, "waiting on cdc add excluded column", dstTableName, "id", 2)
 
 	rows, err := s.GetRows(dstTableName, "*")
 	require.NoError(s.t, err)
