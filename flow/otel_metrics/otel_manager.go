@@ -87,6 +87,7 @@ const (
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
 	UnchangedToastValuesCounterName      = "unchanged_toast_values"
+	DuplicateJsonKeysCounterName         = "duplicate_json_keys"
 	CodeNotificationCounterName          = "code_notification"
 	ServerWalEndLagGaugeName             = "wal_end_lag"
 	UsedMySQLCharsetsName                = "used_mysql_charsets"
@@ -156,6 +157,7 @@ type Metrics struct {
 	LatestConsumedLogEventGauge       metric.Int64Gauge
 	LogRetentionGauge                 metric.Float64Gauge
 	UnchangedToastValuesCounter       metric.Int64Counter
+	DuplicateJsonKeysCounter          metric.Int64Counter
 	ServerWalEndLagGauge              metric.Int64Gauge
 	UsedMySQLCharsetsCounter          metric.Int64Counter
 	ColumnTypeChangesCounter          metric.Int64Counter
@@ -687,6 +689,13 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
 		metric.WithDescription(
 			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.DuplicateJsonKeysCounter, err = om.GetOrInitInt64Counter(BuildMetricName(DuplicateJsonKeysCounterName),
+		metric.WithDescription(
+			"Counter of duplicate JSON object keys seen while unmarshaling JSON/JSONB columns (Postgres only)"),
 	); err != nil {
 		return err
 	}
