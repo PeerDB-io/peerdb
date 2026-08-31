@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -551,7 +552,8 @@ func (c *BigQueryConnector) pullTableQuery(
 		return -1
 	}
 
-	it, err := c.runPullQuery(ctx, sourceTableIdentifier, nameAndExclude.Exclude, start, end,
+	var bytesTransferred atomic.Int64
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
 		func(exclude map[string]struct{}) string {
 			return buildQueryModePullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
 		})
@@ -561,12 +563,11 @@ func (c *BigQueryConnector) pullTableQuery(
 
 	var qfields []types.QField
 	watermarkColIdx := -1
-	var bytesForwarded int64
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return bytesForwarded, nil
+				return bytesTransferred.Load(), nil
 			}
 			return 0, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
 		}
@@ -597,11 +598,6 @@ func (c *BigQueryConnector) pullTableQuery(
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
-		itemBytes, err := recordItemsApproxBytes(items)
-		if err != nil {
-			return 0, fmt.Errorf("failed to size row for table %s: %w", sourceTableIdentifier, err)
-		}
-		bytesForwarded += itemBytes
 
 		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
