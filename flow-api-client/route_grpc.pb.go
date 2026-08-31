@@ -34,6 +34,7 @@ const (
 	FlowService_PostScript_FullMethodName               = "/peerdb_route.FlowService/PostScript"
 	FlowService_DeleteScript_FullMethodName             = "/peerdb_route.FlowService/DeleteScript"
 	FlowService_CDCTableTotalCounts_FullMethodName      = "/peerdb_route.FlowService/CDCTableTotalCounts"
+	FlowService_GetTableReplicationState_FullMethodName = "/peerdb_route.FlowService/GetTableReplicationState"
 	FlowService_GetSchemas_FullMethodName               = "/peerdb_route.FlowService/GetSchemas"
 	FlowService_GetPublications_FullMethodName          = "/peerdb_route.FlowService/GetPublications"
 	FlowService_GetTablesInSchema_FullMethodName        = "/peerdb_route.FlowService/GetTablesInSchema"
@@ -87,6 +88,7 @@ type FlowServiceClient interface {
 	PostScript(ctx context.Context, in *PostScriptRequest, opts ...grpc.CallOption) (*PostScriptResponse, error)
 	DeleteScript(ctx context.Context, in *DeleteScriptRequest, opts ...grpc.CallOption) (*DeleteScriptResponse, error)
 	CDCTableTotalCounts(ctx context.Context, in *CDCTableTotalCountsRequest, opts ...grpc.CallOption) (*CDCTableTotalCountsResponse, error)
+	GetTableReplicationState(ctx context.Context, in *GetTableReplicationStateRequest, opts ...grpc.CallOption) (*GetTableReplicationStateResponse, error)
 	GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error)
 	GetPublications(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerPublicationsResponse, error)
 	GetTablesInSchema(ctx context.Context, in *SchemaTablesRequest, opts ...grpc.CallOption) (*SchemaTablesResponse, error)
@@ -273,6 +275,16 @@ func (c *flowServiceClient) CDCTableTotalCounts(ctx context.Context, in *CDCTabl
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CDCTableTotalCountsResponse)
 	err := c.cc.Invoke(ctx, FlowService_CDCTableTotalCounts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetTableReplicationState(ctx context.Context, in *GetTableReplicationStateRequest, opts ...grpc.CallOption) (*GetTableReplicationStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTableReplicationStateResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetTableReplicationState_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -618,6 +630,7 @@ type FlowServiceServer interface {
 	PostScript(context.Context, *PostScriptRequest) (*PostScriptResponse, error)
 	DeleteScript(context.Context, *DeleteScriptRequest) (*DeleteScriptResponse, error)
 	CDCTableTotalCounts(context.Context, *CDCTableTotalCountsRequest) (*CDCTableTotalCountsResponse, error)
+	GetTableReplicationState(context.Context, *GetTableReplicationStateRequest) (*GetTableReplicationStateResponse, error)
 	GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error)
 	GetPublications(context.Context, *PostgresPeerActivityInfoRequest) (*PeerPublicationsResponse, error)
 	GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error)
@@ -704,6 +717,9 @@ func (UnimplementedFlowServiceServer) DeleteScript(context.Context, *DeleteScrip
 }
 func (UnimplementedFlowServiceServer) CDCTableTotalCounts(context.Context, *CDCTableTotalCountsRequest) (*CDCTableTotalCountsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CDCTableTotalCounts not implemented")
+}
+func (UnimplementedFlowServiceServer) GetTableReplicationState(context.Context, *GetTableReplicationStateRequest) (*GetTableReplicationStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTableReplicationState not implemented")
 }
 func (UnimplementedFlowServiceServer) GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSchemas not implemented")
@@ -1088,6 +1104,24 @@ func _FlowService_CDCTableTotalCounts_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).CDCTableTotalCounts(ctx, req.(*CDCTableTotalCountsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetTableReplicationState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTableReplicationStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetTableReplicationState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetTableReplicationState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetTableReplicationState(ctx, req.(*GetTableReplicationStateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1734,6 +1768,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CDCTableTotalCounts",
 			Handler:    _FlowService_CDCTableTotalCounts_Handler,
+		},
+		{
+			MethodName: "GetTableReplicationState",
+			Handler:    _FlowService_GetTableReplicationState_Handler,
 		},
 		{
 			MethodName: "GetSchemas",

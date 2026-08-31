@@ -476,6 +476,45 @@ func local_request_FlowService_CDCTableTotalCounts_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
+func request_FlowService_GetTableReplicationState_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetTableReplicationStateRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["flow_job_name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "flow_job_name")
+	}
+	protoReq.FlowJobName, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "flow_job_name", err)
+	}
+	msg, err := client.GetTableReplicationState(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_FlowService_GetTableReplicationState_0(ctx context.Context, marshaler runtime.Marshaler, server FlowServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetTableReplicationStateRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["flow_job_name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "flow_job_name")
+	}
+	protoReq.FlowJobName, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "flow_job_name", err)
+	}
+	msg, err := server.GetTableReplicationState(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 var filter_FlowService_GetSchemas_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_FlowService_GetSchemas_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -1810,6 +1849,26 @@ func RegisterFlowServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_FlowService_CDCTableTotalCounts_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodGet, pattern_FlowService_GetTableReplicationState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/peerdb_route.FlowService/GetTableReplicationState", runtime.WithHTTPPathPattern("/v1/mirrors/cdc/table_replication_state/{flow_job_name}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_FlowService_GetTableReplicationState_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_FlowService_GetTableReplicationState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_FlowService_GetSchemas_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2745,6 +2804,23 @@ func RegisterFlowServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_FlowService_CDCTableTotalCounts_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodGet, pattern_FlowService_GetTableReplicationState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/peerdb_route.FlowService/GetTableReplicationState", runtime.WithHTTPPathPattern("/v1/mirrors/cdc/table_replication_state/{flow_job_name}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_FlowService_GetTableReplicationState_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_FlowService_GetTableReplicationState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_FlowService_GetSchemas_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -3308,6 +3384,7 @@ var (
 	pattern_FlowService_PostScript_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "scripts"}, ""))
 	pattern_FlowService_DeleteScript_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "scripts", "id"}, ""))
 	pattern_FlowService_CDCTableTotalCounts_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "table_total_counts", "flow_job_name"}, ""))
+	pattern_FlowService_GetTableReplicationState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "table_replication_state", "flow_job_name"}, ""))
 	pattern_FlowService_GetSchemas_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "schemas"}, ""))
 	pattern_FlowService_GetPublications_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "publications"}, ""))
 	pattern_FlowService_GetTablesInSchema_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "tables"}, ""))
@@ -3358,6 +3435,7 @@ var (
 	forward_FlowService_PostScript_0               = runtime.ForwardResponseMessage
 	forward_FlowService_DeleteScript_0             = runtime.ForwardResponseMessage
 	forward_FlowService_CDCTableTotalCounts_0      = runtime.ForwardResponseMessage
+	forward_FlowService_GetTableReplicationState_0 = runtime.ForwardResponseMessage
 	forward_FlowService_GetSchemas_0               = runtime.ForwardResponseMessage
 	forward_FlowService_GetPublications_0          = runtime.ForwardResponseMessage
 	forward_FlowService_GetTablesInSchema_0        = runtime.ForwardResponseMessage
