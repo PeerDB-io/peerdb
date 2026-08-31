@@ -602,7 +602,7 @@ func (c *BigQueryConnector) SetupReplication(
 	if cfg.GetBigqueryCdcConfig() != nil {
 		for sourceTableIdentifier, checkpoint := range checkpointByTable {
 			if err := c.InitializeTableReplicationState(
-				ctx, req.FlowJobName, sourceTableIdentifier, encodeBigQueryTableCursor(checkpoint),
+				ctx, req.FlowJobName, sourceTableIdentifier, EncodeBigQueryTableCursor(checkpoint),
 			); err != nil {
 				return model.SetupReplicationResult{}, fmt.Errorf(
 					"failed to initialize CDC checkpoint for table %s: %w", sourceTableIdentifier, err)

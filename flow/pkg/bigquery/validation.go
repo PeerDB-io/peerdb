@@ -80,8 +80,8 @@ func TablesHaveChangeHistoryEnabled(
 
 // ColumnInfo describes a single column of a BigQuery table.
 type ColumnInfo struct {
-	Type string // BigQuery data type, e.g. "TIMESTAMP"
-	IsPK bool   // part of a real (NOT ENFORCED) primary key constraint
+	Type bigquery.FieldType // BigQuery data type, e.g. "TIMESTAMP"
+	IsPK bool               // part of a real (NOT ENFORCED) primary key constraint
 }
 
 // TableInfo describes a BigQuery table's columns, keyed by column name.
@@ -131,7 +131,7 @@ func GetTables(
 			}
 			for _, col := range tableMeta.Schema {
 				tableInfo.Columns[col.Name] = ColumnInfo{
-					Type: string(col.Type),
+					Type: col.Type,
 					IsPK: slices.Contains(tableMeta.TableConstraints.PrimaryKey.Columns, col.Name),
 				}
 			}
@@ -271,7 +271,7 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 			if !ok {
 				return fmt.Errorf("watermark column %s does not exist on table %s", t.WatermarkColumn, key)
 			}
-			if column.Type != string(bigquery.TimestampFieldType) {
+			if column.Type != bigquery.TimestampFieldType {
 				return fmt.Errorf("watermark column %s on table %s must be TIMESTAMP, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}

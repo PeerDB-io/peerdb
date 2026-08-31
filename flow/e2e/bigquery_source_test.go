@@ -186,6 +186,18 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		require.NoError(t, err, "CDC should be allowed now that chunk 3 replaced the blanket rejection")
 	})
 
+	t.Run("CDC-only mirror does not require a staging bucket", func(t *testing.T) {
+		flowConfig.SnapshotStagingPath = ""
+		flowConfig.DoInitialSnapshot = false
+		defer func() {
+			flowConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, "test")
+			flowConfig.DoInitialSnapshot = true
+		}()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.NoError(t, err, "CDC-only mirrors don't stage to GCS, so no staging bucket should be required")
+	})
+
 	t.Run("CHANGES mode requires enable_change_history", func(t *testing.T) {
 		for _, tableMapping := range flowConfig.TableMappings {
 			tableMapping.BigqueryCdcEventsFunction = protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES
