@@ -667,7 +667,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_D
 // Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CDC runs CDC on two tables,
 // pauses the mirror, removes one table from the mirror config
 // and checks that: the removed table's per-table state is pruned, it stops receiving updates, the retained
-// table is unaffected, and the CDC batches API keeps working correctly.
+// table is unaffected, and the table replication state API keeps working correctly.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CDC() {
 	t := s.T()
 	ctx := t.Context()
@@ -679,6 +679,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	removedDst := removedSrc + "_dst"
 	retainedFQN := createBigQueryCdcSourceTable(ctx, t, source, retainedSrc, false)
 	removedFQN := createBigQueryCdcSourceTable(ctx, t, source, removedSrc, false)
+	retainedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, retainedSrc)
 	removedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, removedSrc)
 
 	bqInsertRows(ctx, t, source, retainedFQN, []bqCdcRow{{ID: 1, Val: "retained-initial"}})
@@ -711,12 +712,18 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
 
-	batchesBeforeRemoval, err := apiClient.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
-		FlowJobName: flowConnConfig.FlowJobName, Limit: 1,
+	stateBeforeRemoval, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, batchesBeforeRemoval.CdcBatches, "at least one CDC batch should be recorded before removal")
-	maxBatchIDBeforeRemoval := batchesBeforeRemoval.CdcBatches[0].BatchId
+	var maxBatchIDBeforeRemoval int64
+	for _, table := range stateBeforeRemoval.Tables {
+		if table.SourceTableIdentifier == retainedSourceID {
+			maxBatchIDBeforeRemoval = table.SyncedBatchId
+			break
+		}
+	}
+	require.Positive(t, maxBatchIDBeforeRemoval, "retained table should have a synced CDC batch recorded before removal")
 
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
@@ -752,18 +759,22 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	}, 20*time.Second, 2*time.Second,
 		"removed table must stop receiving CDC updates once dropped from the mirror")
 
-	// GetCDCBatches keeps working after a table removal - new batches from the
-	// retained table's continued sync still show up.
-	EnvWaitFor(t, env, 2*time.Minute, "CDC batches handler reports new batches from the retained table after removal", func() bool {
-		response, err := apiClient.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{
-			FlowJobName: flowConnConfig.FlowJobName, Limit: 1,
+	// GetTableReplicationState keeps working after a table removal - the
+	// retained table's continued sync still shows up.
+	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports new batches from the retained table after removal", func() bool {
+		response, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
 		})
 		if err != nil {
 			t.Log(err)
 			return false
 		}
-		return len(response.CdcBatches) == 1 && response.CdcBatches[0].BatchId > maxBatchIDBeforeRemoval &&
-			response.CdcBatches[0].NumRows > 0 && response.CdcBatches[0].EndTime != nil
+		for _, table := range response.Tables {
+			if table.SourceTableIdentifier == retainedSourceID {
+				return table.SyncedBatchId > maxBatchIDBeforeRemoval && table.LastSyncedAt != nil
+			}
+		}
+		return false
 	})
 
 	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))

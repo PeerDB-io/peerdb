@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
@@ -325,15 +328,34 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			if err := a.recordIsolatedTableBatch(
-				ctx, flowName, destTable, batchIDCounter, attemptedAt, numSynced, rowCounts, pullResult.NextCursor,
-			); err != nil {
-				return a.Alerter.LogFlowError(ctx, flowName, err)
-			}
+			a.recordSyncMetrics(ctx, flowName, destTable, rowCounts)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
+}
+
+func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, flowName string, destTable string, rowCounts *model.RecordTypeCounts) {
+	opAndCount := []struct {
+		op    string
+		count int64
+	}{
+		{count: int64(rowCounts.InsertCount.Load()), op: "insert"},
+		{count: int64(rowCounts.UpdateCount.Load()), op: "update"},
+		{count: int64(rowCounts.DeleteCount.Load()), op: "delete"},
+	}
+	for _, oc := range opAndCount {
+		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
+		)))
+		a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
+		)))
+	}
 }
 
 // isolatedTableNormalizeLoop inserts one source table's staged batches
@@ -429,44 +451,4 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		normResponses.Update(reqBatchID)
 		logger.Info("[cdc] normalize done", slog.Int64("normalizedBatchID", reqBatchID))
 	}
-}
-
-// recordIsolatedTableBatch records one table's completed sync as its own tiny
-// CDC batch, reusing the same catalog bookkeeping the shared-stream pipeline
-// uses, so the mirror status UI and lag metrics keep working for this path too.
-func (a *FlowableActivity) recordIsolatedTableBatch(
-	ctx context.Context,
-	flowName string,
-	destTable string,
-	batchIDCounter *atomic.Int64,
-	attemptedAt time.Time,
-	numSynced int64,
-	rowCounts *model.RecordTypeCounts,
-	nextCursor string,
-) error {
-	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), a.CatalogPool)
-	batchID := batchIDCounter.Add(1)
-
-	if err := monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
-		BatchID:     batchID,
-		RowsInBatch: uint32(numSynced),
-		StartTime:   attemptedAt,
-	}); err != nil {
-		return err
-	}
-	checkpoint := model.CdcCheckpoint{Text: nextCursor}
-	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
-		ctx, a.CatalogPool, flowName, batchID, uint32(numSynced), checkpoint, &attemptedAt, &attemptedAt,
-	); err != nil {
-		return err
-	}
-	if err := monitoring.AddCDCBatchTablesForFlow(
-		ctx, a.CatalogPool, flowName, batchID, map[string]*model.RecordTypeCounts{destTable: rowCounts}, a.OtelManager,
-	); err != nil {
-		return err
-	}
-	if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, flowName, batchID); err != nil {
-		return err
-	}
-	return pgMetadata.FinishBatch(ctx, flowName, batchID, checkpoint)
 }
