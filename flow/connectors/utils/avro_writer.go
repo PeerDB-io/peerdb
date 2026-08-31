@@ -194,13 +194,13 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	}, nil
 }
 
-func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() ([]string, error) {
+func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() []string {
 	fields := p.avroSchema.Schema.Fields()
 	avroFieldNames := make([]string, len(fields))
 	for i, field := range fields {
 		avroFieldNames[i] = field.Name()
 	}
-	return avroFieldNames, nil
+	return avroFieldNames
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
@@ -212,10 +212,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	avroFieldNames, err := p.getAvroFieldNamesFromSchema()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get Avro field names from schema: %w", err)
-	}
+	avroFieldNames := p.getAvroFieldNamesFromSchema()
 	avroConverter, err := model.NewQRecordAvroConverter(
 		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
 	)

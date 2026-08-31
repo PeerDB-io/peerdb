@@ -752,7 +752,7 @@ func PullCdcRecords[Items model.Items](
 					waitingForCommit = true
 				}
 			} else {
-				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
+				logger.Info("standby deadline reached, no records accumulated, continuing to wait")
 			}
 			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 		}
