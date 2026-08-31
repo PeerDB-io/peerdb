@@ -98,7 +98,8 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	db := c.client.Database(parseWatermarkTable.Namespace)
 
-	stream.SetSchema(GetDefaultSchema(config.Version))
+	projections := buildProjections(config.Columns)
+	stream.SetSchema(GetDefaultSchema(config.Version, projections))
 
 	c.totalBytesRead.Store(0)
 	c.deltaBytesRead.Store(0)
@@ -147,7 +148,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
-		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
+		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable, projections)
 		if err != nil {
 			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
@@ -188,12 +189,12 @@ func (c *MongoConnector) PullQRepRecords(
 	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
-func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
+func GetDefaultSchema(internalVersion uint32, projections []mongoProjection) types.QRecordSchema {
 	fullDocumentColumnName := DefaultFullDocumentColumnName
 	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
-	schema := make([]types.QField, 0, 2)
+	schema := make([]types.QField, 0, 2+len(projections))
 	schema = append(schema,
 		types.QField{
 			Name:     DefaultDocumentKeyColumnName,
@@ -205,6 +206,7 @@ func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 			Type:     types.QValueKindJSON,
 			Nullable: false,
 		})
+	schema = append(schema, projectedQFields(projections)...)
 	return types.QRecordSchema{Fields: schema}
 }
 
@@ -253,9 +255,16 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 	}
 }
 
-// QValuesFromBsonRaw converts a raw BSON document to QValues, extracting the _id
-// and producing JSON for the full document using the provided converter.
-func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConverter, tableName string) ([]types.QValue, error) {
+// QValuesFromBsonRaw converts a raw BSON document to QValues, extracting the _id,
+// producing JSON for the full document, and appending any user-configured typed
+// projections (in projection order) using the provided converter.
+func QValuesFromBsonRaw(
+	raw bson.Raw,
+	version uint32,
+	converter BsonToQValueConverter,
+	tableName string,
+	projections []mongoProjection,
+) ([]types.QValue, error) {
 	rv := raw.Lookup(DefaultDocumentKeyColumnName)
 	if rv.IsZero() || rv.Type == bson.TypeNull {
 		return nil, exceptions.NewInvalidIdValueError(tableName)
@@ -270,5 +279,7 @@ func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConv
 		return nil, fmt.Errorf("failed to convert document %s: %w", DefaultFullDocumentColumnName, err)
 	}
 
-	return []types.QValue{idQValue, docQValue}, nil
+	values := make([]types.QValue, 0, 2+len(projections))
+	values = append(values, idQValue, docQValue)
+	return appendProjectedValues(values, raw, projections, converter)
 }

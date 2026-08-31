@@ -161,16 +161,15 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		columns := []*protos.FieldDescription{idFieldDescription, dataFieldDescription}
+		columns = append(columns, projectedFieldDescriptions(buildProjections(tm.Columns))...)
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
 			NullableEnabled:       false,
-			Columns: []*protos.FieldDescription{
-				idFieldDescription,
-				dataFieldDescription,
-			},
+			Columns:               columns,
 		}
 	}
 
@@ -378,6 +377,10 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	converter := NewDirectBsonConverter()
+	projectionsByTable := make(map[string][]mongoProjection, len(req.TableNameMapping))
+	for src, nae := range req.TableNameMapping {
+		projectionsByTable[src] = buildProjections(nae.Columns)
+	}
 	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
 		if len(documentKey) > 0 {
 			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
@@ -406,6 +409,22 @@ func (c *MongoConnector) PullRecords(
 			// 3) update changes the values for at least one of the fields in that collection's
 			//    shard key (although sharding is not supported today)
 			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+		}
+
+		// user-configured typed columns; absent when there is no full document (e.g. deletes),
+		// in which case each projected column resolves to a typed NULL.
+		if projections := projectionsByTable[tableName]; len(projections) > 0 {
+			var doc bson.Raw
+			if maybeFullDocument != nil {
+				doc = *maybeFullDocument
+			}
+			for _, p := range projections {
+				qValue, err := projectValue(doc, p, converter)
+				if err != nil {
+					return fmt.Errorf("failed to project column %s: %w", p.DestName, err)
+				}
+				items.AddColumn(p.DestName, qValue)
+			}
 		}
 		return nil
 	}

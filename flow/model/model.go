@@ -16,6 +16,9 @@ import (
 type NameAndExclude struct {
 	Exclude map[string]struct{}
 	Name    string
+	// Columns carries per-column settings (e.g. typed projections) from the
+	// table mapping, used by connectors that project typed columns.
+	Columns []*protos.ColumnSetting
 }
 
 func NewNameAndExclude(name string, exclude []string) NameAndExclude {
