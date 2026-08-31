@@ -66,7 +66,9 @@ type PostgresCDCSource struct {
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	jsonApi                                  jsoniter.API
+	jsonExt                                  *RelaxedNumberExtension
 	flowJobName                              string
+	fastProcessJsonColumns                   bool
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
@@ -83,6 +85,7 @@ type PostgresCDCConfig struct {
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
+	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
@@ -158,7 +161,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
-	jsonApi := createExtendedJSONUnmarshaler()
+	jsonApi, jsonExt := createExtendedJSONUnmarshaler()
 
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
@@ -179,7 +182,9 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		jsonApi:                                  jsonApi,
+		jsonExt:                                  jsonExt,
 		flowJobName:                              cdcConfig.FlowJobName,
+		fastProcessJsonColumns:                   cdcConfig.FastProcessJsonColumns,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
@@ -399,13 +404,26 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, fmt.Errorf("failed to scan json: %w", err)
 		}
 		if text.Valid {
-			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
-				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
-				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
-			}
-			if parsedData == nil {
-				// avoid confusing SQL null & JSON null by using pre-marshaled value
-				parsedData = json.RawMessage("null")
+			if p.fastProcessJsonColumns {
+				convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))
+				if err != nil {
+					p.logger.Error("[pg_cdc] failed to process json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to process json: %w", err)
+				}
+				if len(convertedData) == 0 {
+					// avoid confusing SQL null & JSON null by using pre-marshaled value
+					convertedData = jsonNullLiteral
+				}
+				parsedData = convertedData
+			} else {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+				}
+				if parsedData == nil {
+					// avoid confusing SQL null & JSON null by using pre-marshaled value
+					parsedData = json.RawMessage("null")
+				}
 			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 				parsedData, customTypeMapping, p.internalVersion)
@@ -418,18 +436,37 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, fmt.Errorf("failed to scan json array: %w", err)
 		}
 
-		arr := make([]any, len(textArr))
-		for j, text := range textArr {
-			if text.Valid {
-				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
-					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
-					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+		if p.fastProcessJsonColumns {
+			arr := make([][]byte, len(textArr))
+			for j, text := range textArr {
+				if text.Valid {
+					convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))
+					if err != nil {
+						p.logger.Error("[pg_cdc] failed to process json array element", slog.Any("error", err))
+						return nil, fmt.Errorf("failed to process json array element: %w", err)
+					}
+					arr[j] = convertedData
+				} else {
+					arr[j] = nil
 				}
-			} else {
-				arr[j] = nil
 			}
+			parsedData = arr
+		} else {
+			arr := make([]any, len(textArr))
+			for j, text := range textArr {
+				if text.Valid {
+					if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+						p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+						return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+					}
+				} else {
+					arr[j] = nil
+				}
+			}
+			parsedData = arr
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN, arr, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			parsedData, customTypeMapping, p.internalVersion)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -620,6 +657,7 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		p.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, p.jsonExt.duplicateKeys.Swap(0))
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
@@ -627,6 +665,7 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		p.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, p.jsonExt.duplicateKeys.Swap(0))
 
 		if lastXLogDataServerWALEnd.Load() > 0 {
 			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,

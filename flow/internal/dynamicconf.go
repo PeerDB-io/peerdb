@@ -594,6 +594,17 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS",
+		Description: "Process JSON/JSONB columns by iterating on JSON tokens instead of a full " +
+			"unmarshal/marshal roundtrip. Faster as it avoids wasted CPU cycles on a full JSON " +
+			"marshal/unmarshal, and it still converts out-of-float64-range numbers to strings like the " +
+			"classic path.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_POSTGRES,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -1074,4 +1085,8 @@ func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]
 
 func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
+}
+
+func PeerDBPostgresFastProcessJsonColumns(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS")
 }

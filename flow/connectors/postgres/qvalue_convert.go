@@ -487,17 +487,45 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil
 	case types.QValueKindJSON, types.QValueKindJSONB:
-		tmp, err := parseJSON(value, false)
+		if preMarshalled, ok := value.([]byte); ok {
+			// value is a pre-marshalled JSON document, see convertWithRelaxedNumbers.
+			if len(preMarshalled) == 0 {
+				preMarshalled = jsonNullLiteral
+			}
+			return types.QValueJSON{Val: string(preMarshalled), IsArray: false}, nil
+		}
+		parsed, err := parseJSON(value, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
-		return tmp, nil
+		return parsed, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-		tmp, err := parseJSON(value, true)
+		if valArr, ok := value.([][]byte); ok {
+			// value is an array of pre-marshalled JSON documents; incrementally marshal
+			// the array instead of round-tripping the whole array through json.Marshal.
+			var builder strings.Builder
+			builder.WriteByte('[')
+			for i, elem := range valArr {
+				if i > 0 {
+					builder.WriteByte(',')
+				}
+				// A NULL array element, as opposed to a JSON null one, still has to
+				// occupy its slot for the array to stay well-formed.
+				if len(elem) == 0 {
+					elem = jsonNullLiteral
+				}
+				if _, err := builder.Write(elem); err != nil {
+					return nil, fmt.Errorf("failed to write JSON array element: %w", err)
+				}
+			}
+			builder.WriteByte(']')
+			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil
+		}
+		parsed, err := parseJSON(value, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
 		}
-		return tmp, nil
+		return parsed, nil
 	case types.QValueKindInt16:
 		intVal := value.(int16)
 		return types.QValueInt16{Val: intVal}, nil
