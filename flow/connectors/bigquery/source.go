@@ -14,20 +14,24 @@ import (
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	if cfg.SnapshotStagingPath == "" {
-		return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
-	}
+	// CDC-only mirrors (no initial snapshot) never stage data in GCS, so skip
+	// the staging bucket requirement entirely.
+	if cfg.DoInitialSnapshot {
+		if cfg.SnapshotStagingPath == "" {
+			return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
+		}
 
-	stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
-	if err != nil {
-		return fmt.Errorf("invalid snapshot bucket: %w", err)
-	}
+		stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
+		if err != nil {
+			return fmt.Errorf("invalid snapshot bucket: %w", err)
+		}
 
-	bucket := c.storageClient.Bucket(stagingPath.Bucket())
+		bucket := c.storageClient.Bucket(stagingPath.Bucket())
 
-	it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
-	if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("failed to access staging bucket: %w", exceptions.NewBigQueryError(err))
+		it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
+		if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
+			return fmt.Errorf("failed to access staging bucket: %w", exceptions.NewBigQueryError(err))
+		}
 	}
 
 	tables := make([]bqvalidate.SourceTableConfig, 0, len(cfg.TableMappings))
