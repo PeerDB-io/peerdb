@@ -1502,13 +1502,9 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
 	if !ok {
 		s.t.Skip("only applies to mysql")
 	}
-	minVersion := mysql_validation.MySQLMinVersionForBinlogRowMetadata
-	if mysource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		minVersion = mysql_validation.MariaDBMinVersionForBinlogRowMetadata
-	}
-	cmp, err := mysource.CompareServerVersion(s.t.Context(), minVersion)
+	supportsBinlogRowMetadata, err := mysource.IsBinlogRowMetadataSupported(s.t.Context())
 	require.NoError(s.t, err)
-	if cmp < 0 {
+	if !supportsBinlogRowMetadata {
 		s.t.Skip("column exclusion requires binlog row metadata")
 	}
 
@@ -1537,15 +1533,11 @@ func (s ClickHouseSuite) Test_MySQL_AlterTableAddExcludedColumn() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
-	EnvWaitForCount(env, s, "waiting for CDC to start", dstTableName, "id", 1)
-
-	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN secret TEXT", srcFullName)))
 	EnvNoError(s.t, env, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s (id, secret) VALUES (2, 'do not replicate')", srcFullName)))
+		fmt.Sprintf("INSERT INTO %s (id, secret) VALUES (1, 'do not replicate')", srcFullName)))
 
-	EnvWaitForCount(env, s, "waiting on cdc add excluded column", dstTableName, "id", 2)
+	EnvWaitForCount(env, s, "waiting on cdc add excluded column", dstTableName, "id", 1)
 
 	rows, err := s.GetRows(dstTableName, "*")
 	require.NoError(s.t, err)
