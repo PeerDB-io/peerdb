@@ -44,6 +44,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		tables = append(tables, bqvalidate.SourceTableConfig{
 			SourceTableIdentifier: tableMapping.SourceTableIdentifier,
 			WatermarkColumn:       tableMapping.GetWatermarkColumn(),
+			Exclude:               tableMapping.Exclude,
 			CDCEventsFunction:     cdcEventsFunction,
 			HasOrderingKey:        tableHasOrderingKey(tableMapping),
 			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
