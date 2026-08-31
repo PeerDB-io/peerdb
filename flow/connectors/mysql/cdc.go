@@ -594,6 +594,8 @@ func (c *MySqlConnector) PullRecords(
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	var receiveTime, processTime, addRecordTime atomic.Int64
+	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -617,10 +619,16 @@ func (c *MySqlConnector) PullRecords(
 	defer func() {
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 		c.logger.Info("[mysql] pulling records",
 			slog.Uint64("records", uint64(recordCount)),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -641,9 +649,13 @@ func (c *MySqlConnector) PullRecords(
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
+		addStart := time.Now()
+		processTime.Add(int64(addStart.Sub(processStart)))
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 			return err
 		}
+		processStart = time.Now()
+		addRecordTime.Add(int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
 			resetTimeout(req.IdleTimeout)
@@ -1052,7 +1064,9 @@ func (c *MySqlConnector) PullRecords(
 		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
 		err := timeoutCtx.Err()
 		if err == nil {
+			receiveStart := time.Now()
 			event, err = mystream.GetEvent(timeoutCtx)
+			receiveTime.Add(int64(time.Since(receiveStart)))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1098,6 +1112,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		lastEventAt = time.Now()
+		processStart = lastEventAt
 
 		allFetchedBytes.Add(int64(len(event.RawData)))
 
@@ -1115,6 +1130,7 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
+		processTime.Add(int64(time.Since(processStart)))
 	}
 	return nil
 }
