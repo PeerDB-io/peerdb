@@ -93,8 +93,9 @@ type PullRecordsRequest[T Items] struct {
 }
 
 type ToJSONOptions struct {
-	UnnestColumns map[string]struct{}
-	HStoreAsJSON  bool
+	UnnestColumns        map[string]struct{}
+	HStoreAsJSON         bool
+	ClearValuesOverBytes int // 0 means preserve values
 }
 
 func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {

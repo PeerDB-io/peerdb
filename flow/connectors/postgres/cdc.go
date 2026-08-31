@@ -855,8 +855,13 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
-					fetchedBytes.Add(int64(len(msg.Data)))
-					totalFetchedBytes.Add(int64(len(msg.Data)))
+					eventSize := int64(len(msg.Data))
+					fetchedBytes.Add(eventSize)
+					totalFetchedBytes.Add(eventSize)
+					switch rec.(type) {
+					case *model.InsertRecord[Items], *model.UpdateRecord[Items], *model.DeleteRecord[Items]:
+						p.otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
+					}
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:

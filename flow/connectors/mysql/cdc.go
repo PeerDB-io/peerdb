@@ -859,8 +859,10 @@ func (c *MySqlConnector) PullRecords(
 					c.logger.Error(e.Error())
 					return e
 				}
-				fetchedBytes.Add(int64(len(event.RawData)))
-				totalFetchedBytes.Add(int64(len(event.RawData)))
+				eventSize := int64(len(event.RawData))
+				fetchedBytes.Add(eventSize)
+				totalFetchedBytes.Add(eventSize)
+				otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()

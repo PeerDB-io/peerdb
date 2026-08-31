@@ -135,6 +135,7 @@ services:
     image: ${MYSQL_GTID_IMAGE}
     command:
       - "--binlog-row-metadata=FULL"
+      - "--max-allowed-packet=128M"
     restart: unless-stopped
     volumes:
       - mysql_gtid_data:/var/lib/mysql
@@ -153,7 +154,7 @@ services:
   mysql-pos:
     container_name: peerdb-mysql-pos
     image: ${MYSQL_POS_IMAGE}
-    command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::"]
+    command: ["--log_bin=mysql-bin", "--server-id=1", "--bind-address=::", "--max-allowed-packet=128M"]
     restart: unless-stopped
     volumes:
       - mysql_pos_data:/var/lib/mysql
@@ -176,6 +177,7 @@ services:
       - "--log-bin=maria"
       - "--binlog-format=ROW"
       - "--binlog-row-metadata=FULL"
+      - "--max-allowed-packet=128M"
     restart: unless-stopped
     volumes:
       - mariadb_data:/var/lib/mysql
