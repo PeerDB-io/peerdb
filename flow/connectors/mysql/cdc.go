@@ -1314,6 +1314,13 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		if spec.NewColumns != nil {
 			// these are added columns
 			for _, col := range spec.NewColumns {
+				columnName := col.Name.OrigColName()
+				if _, excluded := req.TableNameMapping[sourceTableName].Exclude[columnName]; excluded {
+					c.logger.Warn("added column detected but not propagating because excluded",
+						slog.String("columnName", columnName),
+						slog.String("tableName", sourceTableName))
+					continue
+				}
 				if col.Tp == nil {
 					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
 					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
