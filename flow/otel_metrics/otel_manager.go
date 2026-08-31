@@ -57,6 +57,9 @@ const (
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
 	FetchedEventSizeHistogramName        = "fetched_event_size"
+	CDCReceiveTimeCounterName            = "cdc_receive_time"
+	CDCProcessTimeCounterName            = "cdc_process_time"
+	CDCAddRecordTimeCounterName          = "cdc_add_record_time"
 	SourceLagGaugeName                   = "source_lag"
 	DestinationLagGaugeName              = "destination_lag"
 	E2ELagGaugeName                      = "e2e_lag"
@@ -123,6 +126,9 @@ type Metrics struct {
 	AllFetchedBytesCounter            metric.Int64Counter
 	FetchedBytesCounter               metric.Int64Counter
 	FetchedEventSizeHistogram         metric.Int64Histogram
+	CDCReceiveTimeCounter             metric.Int64Counter
+	CDCProcessTimeCounter             metric.Int64Counter
+	CDCAddRecordTimeCounter           metric.Int64Counter
 	SourceLagGauge                    metric.Int64Gauge
 	DestinationLagGauge               metric.Int64Gauge
 	E2ELagGauge                       metric.Int64Gauge
@@ -477,6 +483,27 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 			100_000_000, 200_000_000, 500_000_000,
 			1_000_000_000,
 		),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCReceiveTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCReceiveTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent in the receive call waiting for the next replication message"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCProcessTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCProcessTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent handling received replication messages, excluding time in AddRecord"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCAddRecordTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCAddRecordTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent in AddRecord passing records to the record stream"),
 	); err != nil {
 		return err
 	}
