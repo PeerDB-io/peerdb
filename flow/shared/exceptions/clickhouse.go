@@ -19,7 +19,7 @@ func (e *ClickHouseQRepSyncError) Unwrap() error {
 }
 
 type ClickHouseNormalizedTableCreationError struct {
-	error
+	err              error
 	DestinationTable string
 }
 
@@ -27,6 +27,10 @@ func NewClickHouseNormalizedTableCreationError(err error, destinationTable strin
 	return &ClickHouseNormalizedTableCreationError{err, destinationTable}
 }
 
+func (e *ClickHouseNormalizedTableCreationError) Error() string {
+	return e.err.Error()
+}
+
 func (e *ClickHouseNormalizedTableCreationError) Unwrap() error {
-	return e.error
+	return e.err
 }
