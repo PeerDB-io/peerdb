@@ -1171,6 +1171,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 		case chproto.ErrAborted:
+			// The destination server aborts in-flight queries while it restarts after a fatal error.
+			if strings.Contains(chException.Message, "The server is shutting down due to a fatal error") {
+				return ErrorNotifyClickHouseError, chErrorInfo
+			}
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
