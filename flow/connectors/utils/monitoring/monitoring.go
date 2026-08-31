@@ -274,7 +274,6 @@ func AddCDCBatchTablesForFlow(
 	for destinationTableName, operations := range tableNameOperations {
 		for _, opAndCount := range operations {
 			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, flowJobName),
 				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
 				attribute.String(otel_metrics.RecordOperationTypeKey, opAndCount.op),
 			)))

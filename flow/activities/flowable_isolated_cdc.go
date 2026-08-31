@@ -336,12 +336,10 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, flowName strin
 	}
 	for _, oc := range opAndCount {
 		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
 			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 		a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
 			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
