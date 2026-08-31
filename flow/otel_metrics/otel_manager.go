@@ -486,7 +486,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	); err != nil {
 		return err
 	}
-  
+
 	if om.Metrics.CDCReceiveTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCReceiveTimeCounterName),
 		metric.WithUnit("ns"),
 		metric.WithDescription("Time the CDC pull loop spent in the receive call waiting for the next replication message"),
