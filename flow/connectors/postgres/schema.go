@@ -107,7 +107,8 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
     atttypid AS oid,
     format_type(atttypid, atttypmod) AS data_type,
     (pg_constraint.contype = 'p') AS is_primary_key,
-    (idx.indkey IS NOT NULL) AS is_replica_identity
+    (idx.indkey IS NOT NULL) AS is_replica_identity,
+    NOT pg_attribute.attnotnull AS nullable
 	FROM pg_attribute
 	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
 	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
@@ -133,7 +134,8 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
 		var isReplicaIdentity pgtype.Bool
-		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey, &isReplicaIdentity); err != nil {
+		var nullable pgtype.Bool
+		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey, &isReplicaIdentity, &nullable); err != nil {
 			return nil, err
 		}
 		return &protos.ColumnsItem{
@@ -142,6 +144,7 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
 			IsKey:             isPkey.Bool,
 			Qkind:             string(c.postgresOIDToQValueKind(oid, c.customTypeMapping, version)),
 			IsReplicaIdentity: isReplicaIdentity.Bool,
+			Nullable:          nullable.Bool,
 		}, nil
 	})
 	if err != nil {

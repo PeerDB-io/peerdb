@@ -60,8 +60,8 @@ var trips1kExpectedBQColumns = map[string]string{
 var trips1kExpectedQValueColumns = map[string]types.QValueKind{
 	"trip_id":           types.QValueKindInt64,
 	"vendor_id":         types.QValueKindInt64,
-	"pickup_datetime":   types.QValueKindTimestamp,
-	"dropoff_datetime":  types.QValueKindTimestamp,
+	"pickup_datetime":   types.QValueKindTimestampTZ,
+	"dropoff_datetime":  types.QValueKindTimestampTZ,
 	"passenger_count":   types.QValueKindInt64,
 	"trip_distance":     types.QValueKindFloat64,
 	"pickup_longitude":  types.QValueKindFloat64,

@@ -109,12 +109,8 @@ type PullTableRecordsRequest struct {
 	// Cursor is the opaque value previously returned for this table by
 	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
 	Cursor string
-	// tablename to schema mapping
-	TableNameSchemaMapping map[string]*protos.TableSchema
 	// Stream is where pulled records are pushed.
 	Stream *CDCStream[RecordItems]
-	// IdleTimeout is the timeout to wait for new records.
-	IdleTimeout time.Duration
 }
 
 // PullTableRecordsResult is returned by TableCDCPullConnector.PullTableRecords.
@@ -133,16 +129,14 @@ type PullTableRecordsResult struct {
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
 type SyncTableCDCRequest struct {
-	Env                        map[string]string
-	FlowJobName                string
-	SourceTableIdentifier      string
-	DestinationTableIdentifier string
-	TableMapping               *protos.TableMapping
-	TableSchema                *protos.TableSchema
-	Records                    <-chan Record[RecordItems]
-	Version                    uint32
-	Flags                      []string
-	SchemaDeltas               []*protos.TableSchemaDelta
+	Env          map[string]string
+	FlowJobName  string
+	TableMapping *protos.TableMapping
+	TableSchema  *protos.TableSchema
+	Records      <-chan Record[RecordItems]
+	Version      uint32
+	Flags        []string
+	SchemaDeltas []*protos.TableSchemaDelta
 	// BatchID is this table's own batch sequence number for the records being
 	// staged, persisted as its new synced_batch_id on success.
 	BatchID           int64
@@ -156,14 +150,12 @@ type SyncTableCDCRequest struct {
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
 type NormalizeTableCDCRequest struct {
-	Env                        map[string]string
-	FlowJobName                string
-	SourceTableIdentifier      string
-	DestinationTableIdentifier string
-	TableMapping               *protos.TableMapping
-	TableSchema                *protos.TableSchema
-	Version                    uint32
-	Flags                      []string
+	Env          map[string]string
+	FlowJobName  string
+	TableMapping *protos.TableMapping
+	TableSchema  *protos.TableSchema
+	Version      uint32
+	Flags        []string
 	// StartBatchID is exclusive (the table's last normalized batch), EndBatchID
 	// is inclusive (the table's last synced batch as of this normalize call).
 	StartBatchID      int64

@@ -57,6 +57,9 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Type = bigquery.DateFieldType
 	case types.QValueKindTime, types.QValueKindTimeTZ:
 		bqField.Type = bigquery.TimeFieldType
+	case types.QValueKindArrayTime:
+		bqField.Type = bigquery.TimeFieldType
+		bqField.Repeated = true
 	// bytes
 	case types.QValueKindBytes:
 		bqField.Type = bigquery.BytesFieldType
@@ -103,28 +106,22 @@ var bqTypeKinds = map[bigquery.FieldType]struct{ scalar, array types.QValueKind 
 	bigquery.IntegerFieldType:    {types.QValueKindInt64, types.QValueKindArrayInt64},
 	bigquery.FloatFieldType:      {types.QValueKindFloat64, types.QValueKindArrayFloat64},
 	bigquery.BooleanFieldType:    {types.QValueKindBoolean, types.QValueKindArrayBoolean},
-	bigquery.TimestampFieldType:  {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
+	bigquery.TimestampFieldType:  {types.QValueKindTimestampTZ, types.QValueKindArrayTimestampTZ},
 	bigquery.DateTimeFieldType:   {types.QValueKindTimestamp, types.QValueKindArrayTimestamp},
 	bigquery.DateFieldType:       {types.QValueKindDate, types.QValueKindArrayDate},
-	bigquery.TimeFieldType:       {types.QValueKindTime, types.QValueKindArrayString},
+	bigquery.TimeFieldType:       {types.QValueKindTime, types.QValueKindArrayTime},
 	bigquery.NumericFieldType:    {types.QValueKindNumeric, types.QValueKindArrayNumeric},
 	bigquery.BigNumericFieldType: {types.QValueKindNumeric, types.QValueKindArrayNumeric},
 	bigquery.GeographyFieldType:  {types.QValueKindGeography, types.QValueKindArrayString},
 	bigquery.JSONFieldType:       {types.QValueKindJSON, types.QValueKindArrayJSON},
 	bigquery.IntervalFieldType:   {types.QValueKindInterval, types.QValueKindArrayInterval},
 	bigquery.RangeFieldType:      {types.QValueKindString, types.QValueKindArrayString},
+	// currently no support for Array(JSON) in QValueKind
+	bigquery.RecordFieldType: {scalar: types.QValueKindJSON, array: types.QValueKindArrayString},
 }
 
 // BigQueryTypeToQValueKind converts a bigquery.FieldType to a QValueKind
 func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKind {
-	if fieldSchema.Type == bigquery.RecordFieldType {
-		// Preserve field names and values as JSON text in STRING or ARRAY<STRING> values.
-		if fieldSchema.Repeated {
-			return types.QValueKindArrayString
-		}
-		return types.QValueKindString
-	}
-
 	kinds, ok := bqTypeKinds[fieldSchema.Type]
 	if !ok {
 		return types.QValueKindInvalid
@@ -136,18 +133,19 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 }
 
 // numericRoundingScale fallback to default scale if precision and scale are not set.
-func numericRoundingScale(qfield types.QField) int16 {
+func numericRoundingScale(qfield types.QField) (int16, error) {
 	if qfield.Precision == 0 && qfield.Scale == 0 {
 		switch bigquery.FieldType(qfield.OriginalType) {
 		case bigquery.NumericFieldType:
-			return bigquery.NumericScaleDigits
+			return bigquery.NumericScaleDigits, nil
 		case bigquery.BigNumericFieldType:
-			return bigquery.BigNumericScaleDigits
+			return bigquery.BigNumericScaleDigits, nil
 		default:
-			return datatypes.PeerDBBigQueryScale
+			return 0, fmt.Errorf("unexpected OriginalType %q for numeric column %s, expected NUMERIC or BIGNUMERIC",
+				qfield.OriginalType, qfield.Name)
 		}
 	}
-	return qfield.Scale
+	return qfield.Scale, nil
 }
 
 func fieldNormalizedTypeName(field *bigquery.FieldSchema) string {
@@ -200,7 +198,9 @@ func qValueKindToBigQueryTypeString(columnDescription *protos.FieldDescription, 
 	return bqType
 }
 
-func BigQueryFieldToQField(bqField *bigquery.FieldSchema) types.QField {
+// bigQueryNumericPrecisionAndScale returns the field's precision and scale, filling in
+// BigQuery's implicit defaults for an unparameterized NUMERIC/BIGNUMERIC column.
+func bigQueryNumericPrecisionAndScale(bqField *bigquery.FieldSchema) (int16, int16) {
 	precision := int16(bqField.Precision)
 	scale := int16(bqField.Scale)
 	if precision == 0 && scale == 0 {
@@ -213,6 +213,11 @@ func BigQueryFieldToQField(bqField *bigquery.FieldSchema) types.QField {
 			scale = bigquery.BigNumericScaleDigits
 		}
 	}
+	return precision, scale
+}
+
+func BigQueryFieldToQField(bqField *bigquery.FieldSchema) types.QField {
+	precision, scale := bigQueryNumericPrecisionAndScale(bqField)
 
 	return types.QField{
 		Name:         bqField.Name,
@@ -287,7 +292,9 @@ func qvalueFromBigQueryValue(
 		if !ok {
 			return nil, unexpectedBigQueryValueType(qfield, value)
 		}
-		return types.QValueTimestamp{Val: v}, nil
+		// BigQuery TIMESTAMP is an absolute instant, so it carries a zone --
+		// QValueKindTimestampTZ, unlike DATETIME below.
+		return types.QValueTimestampTZ{Val: v}, nil
 	case bigquery.DateFieldType:
 		v, ok := value.(civil.Date)
 		if !ok {
@@ -299,10 +306,9 @@ func qvalueFromBigQueryValue(
 		if !ok {
 			return nil, unexpectedBigQueryValueType(qfield, value)
 		}
-		// BigQuery DATETIME is timezone-unaware; BigQueryTypeToQValueKind maps it
-		// to QValueKindTimestamp (same as TIMESTAMP -- see the snapshot-export
-		// path's CAST(... AS TIMESTAMP) treatment for the same reasoning), so it's
-		// carried as a UTC time.Time here too.
+		// BigQuery DATETIME is timezone-unaware, so BigQueryTypeToQValueKind maps it
+		// to the zoneless QValueKindTimestamp. The wall-clock reading is carried as a
+		// UTC time.Time, matching the snapshot-export path's CAST(... AS TIMESTAMP).
 		return types.QValueTimestamp{Val: v.In(time.UTC)}, nil
 	case bigquery.TimeFieldType:
 		v, ok := value.(civil.Time)
@@ -315,8 +321,12 @@ func qvalueFromBigQueryValue(
 		if !ok {
 			return nil, unexpectedBigQueryValueType(qfield, value)
 		}
+		scale, err := numericRoundingScale(qfield)
+		if err != nil {
+			return nil, err
+		}
 		return types.QValueNumeric{
-			Val:       decimal.NewFromBigRat(v, int32(numericRoundingScale(qfield))),
+			Val:       decimal.NewFromBigRat(v, int32(scale)),
 			Precision: qfield.Precision,
 			Scale:     qfield.Scale,
 		}, nil
@@ -341,7 +351,7 @@ func qvalueFromBigQueryValue(
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode record column %s: %w", qfield.Name, err)
 		}
-		return types.QValueString{Val: jsonValue}, nil
+		return types.QValueJSON{Val: jsonValue}, nil
 	default:
 		return nil, fmt.Errorf("unsupported BigQuery field type %s for column %s", field.Type, qfield.Name)
 	}
@@ -364,19 +374,20 @@ func qvalueArrayFromBigQueryValues(
 		arr, err := castBigQueryArray[bool](qfield, values)
 		return types.QValueArrayBoolean{Val: arr}, err
 	case types.QValueKindArrayTimestamp:
-		if field.Type == bigquery.DateTimeFieldType {
-			dateTimes, err := castBigQueryArray[civil.DateTime](qfield, values)
-			if err != nil {
-				return nil, err
-			}
-			arr := make([]time.Time, len(dateTimes))
-			for i, dateTime := range dateTimes {
-				arr[i] = dateTime.In(time.UTC)
-			}
-			return types.QValueArrayTimestamp{Val: arr}, nil
+		// Only ARRAY<DATETIME> reaches this kind -- ARRAY<TIMESTAMP> is zone-aware and
+		// maps to QValueKindArrayTimestampTZ below -- so the elements are civil.DateTime.
+		dateTimes, err := castBigQueryArray[civil.DateTime](qfield, values)
+		if err != nil {
+			return nil, err
 		}
+		arr := make([]time.Time, len(dateTimes))
+		for i, dateTime := range dateTimes {
+			arr[i] = dateTime.In(time.UTC)
+		}
+		return types.QValueArrayTimestamp{Val: arr}, nil
+	case types.QValueKindArrayTimestampTZ:
 		arr, err := castBigQueryArray[time.Time](qfield, values)
-		return types.QValueArrayTimestamp{Val: arr}, err
+		return types.QValueArrayTimestampTZ{Val: arr}, err
 	case types.QValueKindArrayDate:
 		dates, err := castBigQueryArray[civil.Date](qfield, values)
 		if err != nil {
@@ -387,14 +398,28 @@ func qvalueArrayFromBigQueryValues(
 			arr[i] = d.In(time.UTC)
 		}
 		return types.QValueArrayDate{Val: arr}, nil
+	case types.QValueKindArrayTime:
+		times, err := castBigQueryArray[civil.Time](qfield, values)
+		if err != nil {
+			return nil, err
+		}
+		arr := make([]time.Duration, len(times))
+		for i, t := range times {
+			arr[i] = civilTimeToDuration(t)
+		}
+		return types.QValueArrayTime{Val: arr}, nil
 	case types.QValueKindArrayNumeric:
 		rats, err := castBigQueryArray[*big.Rat](qfield, values)
 		if err != nil {
 			return nil, err
 		}
+		scale, err := numericRoundingScale(qfield)
+		if err != nil {
+			return nil, err
+		}
 		arr := make([]decimal.Decimal, len(rats))
 		for i, r := range rats {
-			arr[i] = decimal.NewFromBigRat(r, int32(numericRoundingScale(qfield)))
+			arr[i] = decimal.NewFromBigRat(r, int32(scale))
 		}
 		return types.QValueArrayNumeric{Val: arr, Precision: qfield.Precision, Scale: qfield.Scale}, nil
 	case types.QValueKindArrayInterval:
@@ -448,12 +473,6 @@ func bigQueryStringArray(
 				return nil, fmt.Errorf("array column %s: element %d has unexpected type %T", qfield.Name, i, value)
 			}
 			arr[i] = base64.StdEncoding.EncodeToString(v)
-		case bigquery.TimeFieldType:
-			v, ok := value.(civil.Time)
-			if !ok {
-				return nil, fmt.Errorf("array column %s: element %d has unexpected type %T", qfield.Name, i, value)
-			}
-			arr[i] = bigquery.CivilTimeString(v)
 		case bigquery.RangeFieldType:
 			v, ok := value.(*bigquery.RangeValue)
 			if !ok {

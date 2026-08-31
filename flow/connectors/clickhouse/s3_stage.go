@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 // ErrNoAvroStage is returned by GetTableAvroStage when no stage row exists for
@@ -77,6 +78,7 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 // flow-wide sync batch ID, one row per (flow, table, table's own batch).
 func SetTableAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
+	rowCounts *model.RecordTypeCounts,
 ) error {
 	avroFileJSON, err := json.Marshal(avroFile)
 	if err != nil {
@@ -89,11 +91,12 @@ func SetTableAvroStage(
 	}
 
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (flow_name, source_table_identifier, batch_id)
-		DO UPDATE SET avro_file = $4, created_at = CURRENT_TIMESTAMP`,
+		DO UPDATE SET avro_file = $4, inserts_count = $5, updates_count = $6, deletes_count = $7, created_at = CURRENT_TIMESTAMP`,
 		flowJobName, sourceTableIdentifier, batchID, avroFileJSON,
+		rowCounts.InsertCount.Load(), rowCounts.UpdateCount.Load(), rowCounts.DeleteCount.Load(),
 	); err != nil {
 		return fmt.Errorf("failed to set table avro stage: %w", err)
 	}
@@ -101,34 +104,41 @@ func SetTableAvroStage(
 	return nil
 }
 
-// GetTableAvroStage retrieves a table's staged Avro file for batchID.
+// GetTableAvroStage retrieves a table's staged Avro file for batchID, along
+// with the insert/update/delete counts staged with it.
 func GetTableAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
-) (utils.AvroFile, error) {
+) (utils.AvroFile, *model.RecordTypeCounts, error) {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to get connection: %w", err)
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
 	var avroFileJSON []byte
+	var insertsCount, updatesCount, deletesCount int64
 	if err := conn.QueryRow(ctx, `
-		SELECT avro_file FROM cdc_table_avro_stage
+		SELECT avro_file, inserts_count, updates_count, deletes_count FROM cdc_table_avro_stage
 		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
 		flowJobName, sourceTableIdentifier, batchID,
-	).Scan(&avroFileJSON); err != nil {
+	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return utils.AvroFile{}, fmt.Errorf(
+			return utils.AvroFile{}, nil, fmt.Errorf(
 				"%w for flow job %s, table %s, batch %d", ErrNoAvroStage, flowJobName, sourceTableIdentifier, batchID)
 		}
-		return utils.AvroFile{}, fmt.Errorf("failed to get table avro stage: %w", err)
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to get table avro stage: %w", err)
 	}
 
 	var avroFile utils.AvroFile
 	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
-		return utils.AvroFile{}, fmt.Errorf("failed to unmarshal avro file: %w", err)
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
 	}
 
-	return avroFile, nil
+	rowCounts := &model.RecordTypeCounts{}
+	rowCounts.InsertCount.Store(int32(insertsCount))
+	rowCounts.UpdateCount.Store(int32(updatesCount))
+	rowCounts.DeleteCount.Store(int32(deletesCount))
+
+	return avroFile, rowCounts, nil
 }
 
 // DeleteTableAvroStage removes a table's staged Avro record for batchID once

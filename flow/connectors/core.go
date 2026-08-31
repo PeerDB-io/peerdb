@@ -235,7 +235,7 @@ type TableCDCSyncConnector interface {
 	SyncTableCDC(ctx context.Context, req *model.SyncTableCDCRequest) (*model.RecordTypeCounts, error)
 
 	// NormalizeTableCDC should be idempotent given the same batch range.
-	NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) error
+	NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) (*model.RecordTypeCounts, error)
 }
 
 type CDCSyncPgConnector interface {

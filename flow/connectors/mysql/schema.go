@@ -90,7 +90,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 	}
 
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
-		SELECT column_name, column_type, column_key
+		SELECT column_name, column_type, column_key, is_nullable
 		FROM information_schema.columns
 		WHERE table_schema = '%s'
 		  AND table_name = '%s'
@@ -114,15 +114,20 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
+		isNullable, err := rs.GetString(idx, 3)
+		if err != nil {
+			return nil, err
+		}
 		qkind, err := QkindFromMysqlColumnType(columnType, binlogRowMetadataSupported, version)
 		if err != nil {
 			return nil, err
 		}
 		columns = append(columns, &protos.ColumnsItem{
-			Name:  columnName,
-			Type:  columnType,
-			IsKey: columnKey == "PRI",
-			Qkind: string(qkind),
+			Name:     columnName,
+			Type:     columnType,
+			IsKey:    columnKey == "PRI",
+			Qkind:    string(qkind),
+			Nullable: isNullable == "YES",
 		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil

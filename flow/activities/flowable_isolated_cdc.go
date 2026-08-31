@@ -235,14 +235,12 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		pollGroup.Go(func() error {
 			var pullErr error
 			pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-				Env:                    config.Env,
-				FlowJobName:            flowName,
-				SourceTableIdentifier:  sourceTable,
-				NameAndExclude:         nameAndExclude,
-				Cursor:                 state.CursorText,
-				TableNameSchemaMapping: tableNameSchemaMapping,
-				Stream:                 stream,
-				IdleTimeout:            idleTimeout,
+				Env:                   config.Env,
+				FlowJobName:           flowName,
+				SourceTableIdentifier: sourceTable,
+				NameAndExclude:        nameAndExclude,
+				Cursor:                state.CursorText,
+				Stream:                stream,
 			})
 			stream.Close()
 			if pullErr == nil {
@@ -264,18 +262,16 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 				logger.Info("[cdc] starting sync")
 				rowCounts, syncErr = dstConn.SyncTableCDC(pollCtx, &model.SyncTableCDCRequest{
-					Env:                        config.Env,
-					FlowJobName:                flowName,
-					SourceTableIdentifier:      sourceTable,
-					DestinationTableIdentifier: destTable,
-					TableMapping:               tableMapping,
-					TableSchema:                tableNameSchemaMapping[destTable],
-					Records:                    stream.GetRecords(),
-					Version:                    config.Version,
-					Flags:                      config.Flags,
-					SchemaDeltas:               stream.SchemaDeltas,
-					BatchID:                    nextBatchID,
-					SoftDeleteColName:          config.SoftDeleteColName,
+					Env:               config.Env,
+					FlowJobName:       flowName,
+					TableMapping:      tableMapping,
+					TableSchema:       tableNameSchemaMapping[destTable],
+					Records:           stream.GetRecords(),
+					Version:           config.Version,
+					Flags:             config.Flags,
+					SchemaDeltas:      stream.SchemaDeltas,
+					BatchID:           nextBatchID,
+					SoftDeleteColName: config.SoftDeleteColName,
 				})
 				if syncErr == nil {
 					logger.Info("[cdc] sync done",
@@ -394,18 +390,16 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		}
 		logger.Info("[cdc] starting normalize",
 			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
-		normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
-			Env:                        config.Env,
-			FlowJobName:                flowName,
-			SourceTableIdentifier:      sourceTable,
-			DestinationTableIdentifier: destTable,
-			TableMapping:               tableMapping,
-			TableSchema:                tableNameSchemaMapping[destTable],
-			Version:                    config.Version,
-			Flags:                      config.Flags,
-			StartBatchID:               lastNormalized,
-			EndBatchID:                 reqBatchID,
-			SoftDeleteColName:          config.SoftDeleteColName,
+		normCounts, normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
+			Env:               config.Env,
+			FlowJobName:       flowName,
+			TableMapping:      tableMapping,
+			TableSchema:       tableNameSchemaMapping[destTable],
+			Version:           config.Version,
+			Flags:             config.Flags,
+			StartBatchID:      lastNormalized,
+			EndBatchID:        reqBatchID,
+			SoftDeleteColName: config.SoftDeleteColName,
 		})
 		dstClose(ctx)
 
@@ -429,7 +423,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		wasLagging = false
 		retryInterval = time.Minute
 
-		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID); err != nil {
+		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)

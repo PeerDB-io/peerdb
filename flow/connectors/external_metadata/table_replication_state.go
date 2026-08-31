@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 const cdcTableReplicationStateTableName = "cdc_table_replication_state"
@@ -33,6 +35,14 @@ type TableReplicationState struct {
 	// final destination table. SyncedBatchID-NormalizedBatchID is this table's
 	// own sync/normalize lag, used for per-table backpressure.
 	NormalizedBatchID int64
+	// LastNormalizedAt is when this table last completed a normalize
+	// successfully, zero if never normalized.
+	LastNormalizedAt time.Time
+	// InsertsCount, UpdatesCount, DeletesCount are this table's cumulative
+	// row counts normalized into its final destination table.
+	InsertsCount int64
+	UpdatesCount int64
+	DeletesCount int64
 }
 
 // GetTableReplicationState reads a table's durable progress, defaulting to an
@@ -41,12 +51,14 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string,
 ) (TableReplicationState, error) {
 	var state TableReplicationState
-	var lastAttemptAt, lastSyncedAt *time.Time
+	var lastAttemptAt, lastSyncedAt, lastNormalizedAt *time.Time
 	if err := p.pool.QueryRow(ctx,
-		`SELECT cursor_text, last_attempt_at, last_synced_at, synced_batch_id, normalized_batch_id
+		`SELECT cursor_text, last_attempt_at, last_synced_at, synced_batch_id, normalized_batch_id, last_normalized_at,
+			inserts_count, updates_count, deletes_count
 		FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1 AND source_table_identifier = $2`,
 		jobName, sourceTableIdentifier,
-	).Scan(&state.CursorText, &lastAttemptAt, &lastSyncedAt, &state.SyncedBatchID, &state.NormalizedBatchID); err != nil {
+	).Scan(&state.CursorText, &lastAttemptAt, &lastSyncedAt, &state.SyncedBatchID, &state.NormalizedBatchID, &lastNormalizedAt,
+		&state.InsertsCount, &state.UpdatesCount, &state.DeletesCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return TableReplicationState{}, nil
 		}
@@ -57,6 +69,9 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	}
 	if lastSyncedAt != nil {
 		state.LastSyncedAt = *lastSyncedAt
+	}
+	if lastNormalizedAt != nil {
+		state.LastNormalizedAt = *lastNormalizedAt
 	}
 	return state, nil
 }
@@ -121,17 +136,27 @@ func (p *PostgresMetadata) RecordTableReplicationSync(
 	return nil
 }
 
-// RecordTableReplicationNormalize advances a table's normalized_batch_id after
-// batches up through normalizedBatchID have been inserted into its final
-// destination table.
+// RecordTableReplicationNormalize advances a table's normalized_batch_id
+// after batches up through normalizedBatchID have been inserted into its
+// final destination table, records normalizedAt as the completion time, and
+// adds rowCounts to the table's cumulative insert/update/delete counts. The
+// count increment is skipped alongside last_normalized_at if normalizedBatchID
+// was already applied, so a retry replaying the same range doesn't double count.
 func (p *PostgresMetadata) RecordTableReplicationNormalize(
 	ctx context.Context, jobName string, sourceTableIdentifier string, normalizedBatchID int64,
+	rowCounts *model.RecordTypeCounts, normalizedAt time.Time,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
 		UPDATE `+cdcTableReplicationStateTableName+`
-		SET normalized_batch_id = GREATEST(normalized_batch_id, $3), updated_at = now()
+		SET normalized_batch_id = GREATEST(normalized_batch_id, $3),
+			last_normalized_at = CASE WHEN $3 > normalized_batch_id THEN $4 ELSE last_normalized_at END,
+			inserts_count = CASE WHEN $3 > normalized_batch_id THEN inserts_count + $5 ELSE inserts_count END,
+			updates_count = CASE WHEN $3 > normalized_batch_id THEN updates_count + $6 ELSE updates_count END,
+			deletes_count = CASE WHEN $3 > normalized_batch_id THEN deletes_count + $7 ELSE deletes_count END,
+			updated_at = now()
 		WHERE flow_name = $1 AND source_table_identifier = $2
-	`, jobName, sourceTableIdentifier, normalizedBatchID); err != nil {
+	`, jobName, sourceTableIdentifier, normalizedBatchID, normalizedAt,
+		rowCounts.InsertCount.Load(), rowCounts.UpdateCount.Load(), rowCounts.DeleteCount.Load()); err != nil {
 		p.logger.Error("failed to record table replication normalize", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication normalize for %s: %w", sourceTableIdentifier, err)
 	}

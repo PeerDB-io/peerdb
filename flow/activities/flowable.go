@@ -21,7 +21,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -212,7 +211,10 @@ func (a *FlowableActivity) CreateRawTable(
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
-		rawTableIdentifier = res.TableIdentifier
+		// CreateRawTable return (nil, nil) for no-op destinations (S3/GCS/MinIO, Postgres)
+		if res != nil {
+			rawTableIdentifier = res.TableIdentifier
+		}
 	}
 
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
@@ -375,10 +377,30 @@ func (a *FlowableActivity) SyncFlow(
 	})
 	defer shutdown()
 
+	ctx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
+
+	var shutDown atomic.Bool
+	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		go func() {
+			select {
+			case <-workerStopChan:
+				logger.Info("worker is stopping, shutting down SyncFlow")
+				shutDown.Store(true)
+				// when worker begins to shut down, worker stop channel is closed immediately,
+				// but it does not cancel the activity context until after WorkerStopTimeout.
+				// so we explicitly call cancelCtx() to gracefully terminate sync and normalize
+				cancelCtx()
+			case <-ctx.Done():
+				// exit guard to prevent goroutine leak
+			}
+		}()
+	}
 
 	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
@@ -406,10 +428,10 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	// syncDone will be closed by SyncFlow,
-	// whereas normalizeDone will be closed by normalizing goroutine
-	// Wait on normalizeDone at end to not interrupt final normalize
+	// syncDone is closed by SyncFlow to signal the normalize goroutine that no more batches
+	// are coming, whereas normDone is closed by the normalize goroutine upon exit.
 	syncDone := make(chan struct{})
+	normDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
 
@@ -437,40 +459,31 @@ func (a *FlowableActivity) SyncFlow(
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
-		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
+	go func() {
+		defer close(normDone)
+		normalizeCtx := internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
-		return nil
-	})
+	}()
 
-	for groupCtx.Err() == nil {
+	var syncErr error
+	for ctx.Err() == nil {
 		syncNum := currentSyncFlowNum.Add(1)
 		logger.Info("executing sync flow", slog.Int64("count", int64(syncNum)))
 
 		var syncResponse *model.SyncResponse
-		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
-		if syncErr != nil {
-			if groupCtx.Err() != nil {
-				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
-				break
-			}
+		if syncErr != nil && ctx.Err() == nil {
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
-			syncState.Store(new("cleanup"))
-			close(syncDone)
-			normRequests.Close()
-			normResponses.Close()
-			return errors.Join(syncErr, group.Wait())
-		} else if syncResponse != nil {
+			break
+		}
+		if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
@@ -486,15 +499,21 @@ func (a *FlowableActivity) SyncFlow(
 	close(syncDone)
 	normRequests.Close()
 	normResponses.Close()
+	<-normDone
 
-	waitErr := group.Wait()
-	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled", slog.Any("error", err))
-		return err
-	} else if waitErr != nil {
-		logger.Error("sync failed", slog.Any("error", waitErr))
-		return waitErr
+	if shutDown.Load() {
+		logger.Info("SyncFlow shutdown")
+		return nil
 	}
+	if ctx.Err() != nil {
+		logger.Info("SyncFlow canceled", slog.Any("error", ctx.Err()))
+		return ctx.Err()
+	}
+	if syncErr != nil {
+		logger.Error("SyncFlow failed", slog.Any("error", syncErr))
+		return syncErr
+	}
+	logger.Info("SyncFlow returned")
 	return nil
 }
 
@@ -2150,64 +2169,6 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 		attribute.String(otel_metrics.FlowStatusKey, status.String()),
 		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 	)))
-	return nil
-}
-
-/**
- * MigratePostgresTableOIDs migrates the OIDs for source Postgres tables to the catalog's table_schema_mapping
- */
-func (a *FlowableActivity) MigratePostgresTableOIDs(
-	ctx context.Context,
-	flowName string,
-	oidToTableNameMapping map[uint32]string,
-	tableMappings []*protos.TableMapping,
-) error {
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return "migrating oids to table schema"
-	})
-	defer shutdown()
-
-	logger := internal.LoggerFromCtx(ctx)
-	migrationName := shared.POSTGRES_TABLE_OID_MIGRATION
-
-	if err := internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
-		logger.Info("starting PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		sourceToDestTableMap := make(map[string]string, len(tableMappings))
-		for _, tm := range tableMappings {
-			sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
-		}
-		destinationTableOidMap := make(map[string]uint32, len(oidToTableNameMapping))
-		for oid, tableName := range oidToTableNameMapping {
-			destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
-			if !ok {
-				return fmt.Errorf("destination table identifier not found for source table %s", tableName)
-			}
-			destinationTableOidMap[destinationTableIdentifier] = oid
-		}
-
-		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
-			ctx,
-			a.CatalogPool,
-			logger,
-			flowName,
-			destinationTableOidMap,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
-		}
-
-		logger.Info("successfully completed PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		return nil
-	}); err != nil {
-		return a.Alerter.LogFlowError(ctx, flowName, err)
-	}
-
 	return nil
 }
 

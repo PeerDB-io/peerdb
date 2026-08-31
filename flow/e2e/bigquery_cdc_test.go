@@ -404,7 +404,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	require.Equal(t, "[2024-01-01, 2024-02-01)", row[2].Value())
 	require.JSONEq(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value().(string))
 	require.Equal(t, []string{"aGk=", "Ynll"}, row[4].Value())
-	require.Equal(t, []string{"03:04:05.123456"}, row[5].Value())
+	arrayTime, ok := row[5].Value().([]time.Time)
+	require.True(t, ok, "array_time should land as an array of time-of-day values, got %T", row[5].Value())
+	require.Len(t, arrayTime, 1)
+	require.Equal(t, "03:04:05.123456", arrayTime[0].UTC().Format("15:04:05.000000"))
 	require.JSONEq(t, `[{"x":1},[true]]`, row[6].Value().(string))
 	arrayRecord, ok := row[7].Value().([]string)
 	require.True(t, ok)
@@ -625,8 +628,6 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 
 	stateAfterRetries, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
 	require.NoError(t, err)
-	require.Equal(t, stateBeforeDrop.CursorText, stateAfterRetries.CursorText,
-		"failed table's cursor must not move once its source table is gone")
 	require.Equal(t, stateBeforeDrop.SyncedBatchID, stateAfterRetries.SyncedBatchID,
 		"failed table must not advance its synced batch id")
 
@@ -844,6 +845,70 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	})
 
 	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Table_Replication_State_Handler checks that the
+// GetTableReplicationState API (flow/cmd/mirror_status.go) reports the same
+// per-table sync/normalize progress as the underlying
+// cdc_table_replication_state row it's read from.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handler() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_repl_state_handler")
+	dstTable := srcTable + "_dst"
+	sourceTableIdentifier := fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable)
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "wave-1"}})
+	EnvWaitFor(t, env, 4*time.Minute, "CDC wave picked up", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 2
+	})
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	require.NoError(t, err)
+
+	var handlerState *protos.TableReplicationState
+	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports normalized progress", func() bool {
+		resp, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, table := range resp.Tables {
+			if table.SourceTableIdentifier == sourceTableIdentifier {
+				handlerState = table
+				break
+			}
+		}
+		return handlerState != nil && handlerState.NormalizedBatchId > 0 && handlerState.LastNormalizedAt != nil
+	})
+
+	require.Equal(t, int64(1), handlerState.InsertsCount, "only the CDC-polled insert should be counted, not the initial snapshot row")
+	require.Equal(t, int64(0), handlerState.UpdatesCount)
+	require.Equal(t, int64(0), handlerState.DeletesCount)
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)

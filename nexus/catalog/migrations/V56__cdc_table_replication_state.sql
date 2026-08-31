@@ -9,7 +9,11 @@ CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
     -- backpressure in flow/activities/flowable_isolated_cdc.go.
     synced_batch_id bigint NOT NULL DEFAULT 0,
     normalized_batch_id bigint NOT NULL DEFAULT 0,
+    last_normalized_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now(),
+    inserts_count bigint NOT NULL DEFAULT 0,
+    updates_count bigint NOT NULL DEFAULT 0,
+    deletes_count bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (flow_name, source_table_identifier)
 );
 
@@ -23,5 +27,9 @@ CREATE TABLE IF NOT EXISTS cdc_table_avro_stage (
     batch_id bigint NOT NULL,
     avro_file jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
+    -- insert/update/delete counts for this batch
+    inserts_count bigint NOT NULL DEFAULT 0,
+    updates_count bigint NOT NULL DEFAULT 0,
+    deletes_count bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (flow_name, source_table_identifier, batch_id)
 );

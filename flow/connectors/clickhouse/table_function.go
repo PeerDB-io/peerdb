@@ -82,9 +82,26 @@ func timeFieldExpressionConverter(
 	return fmt.Sprintf("toTime64(toDecimal64(%s, 6) / 1000000, 6)", sourceFieldIdentifier), nil
 }
 
+func arrayTimeFieldExpressionConverter(
+	_ context.Context,
+	config *insertFromTableFunctionConfig,
+	sourceFieldIdentifier string,
+	field types.QField,
+) (string, error) {
+	if field.Type != types.QValueKindArrayTime || config.parquetStaged {
+		return sourceFieldIdentifier, nil
+	}
+
+	// Avro TIME-MICROS exposes array elements to ClickHouse as integer
+	// microseconds since midnight. The destination representation is
+	// Array(DateTime64(6)); its implicit cast treats those integers as seconds.
+	return fmt.Sprintf("arrayMap(x -> fromUnixTimestamp64Micro(toInt64(x)), %s)", sourceFieldIdentifier), nil
+}
+
 var defaultFieldExpressionConverters = []fieldExpressionConverter{
 	jsonFieldExpressionConverter,
 	timeFieldExpressionConverter,
+	arrayTimeFieldExpressionConverter,
 }
 
 // buildInsertFromTableFunctionQuery builds a complete INSERT query from a table function expression
