@@ -1,13 +1,14 @@
 package connpostgres
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestRelaxedNumberExtension(t *testing.T) {
+func testRelaxedNumber(t *testing.T, useJsonMarshaller bool) {
 	relaxedNumberStr := "1" + strings.Repeat("0", 1000)
 	negRelaxedNumberStr := "-" + relaxedNumberStr
 
@@ -78,12 +79,19 @@ func TestRelaxedNumberExtension(t *testing.T) {
 		},
 	}
 
-	jsonApi := createExtendedJSONUnmarshaler()
+	jsonApi, _ := createExtendedJSONUnmarshaler()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var result map[string]any
-			err := jsonApi.UnmarshalFromString(tc.input, &result)
+			var err error
+			if useJsonMarshaller {
+				err = jsonApi.UnmarshalFromString(tc.input, &result)
+			} else {
+				transformed, err2 := convertWithRelaxedNumbers(strings.NewReader(tc.input), len(tc.input))
+				require.NoError(t, err2)
+				err = json.Unmarshal(transformed, &result)
+			}
 			require.NoError(t, err)
 
 			actual := result["value"]
@@ -103,4 +111,43 @@ func TestRelaxedNumberExtension(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRelaxedNumberExtension(t *testing.T) {
+	testRelaxedNumber(t, true)
+}
+
+func TestConvertRelaxedNumber(t *testing.T) {
+	testRelaxedNumber(t, false)
+}
+
+func TestDuplicateJsonKeysCounter(t *testing.T) {
+	t.Parallel()
+	jsonApi, ext := createExtendedJSONUnmarshaler()
+
+	testCases := []struct {
+		name  string
+		input string
+		want  int64
+	}{
+		{name: "no duplicates", input: `{"a":1,"b":2}`, want: 0},
+		{name: "top level duplicate", input: `{"a":1,"a":2}`, want: 1},
+		{name: "nested duplicates", input: `{"o":{"k":1,"k":2,"k":3}}`, want: 2},
+		{name: "duplicate inside array element", input: `[{"x":1,"x":2}]`, want: 1},
+		{name: "duplicate keys with distinct values elsewhere", input: `{"a":{"b":1},"a":{"b":2},"c":3}`, want: 1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := ext.duplicateKeys.Load()
+			var result any
+			require.NoError(t, jsonApi.UnmarshalFromString(tc.input, &result))
+			require.Equal(t, tc.want, ext.duplicateKeys.Load()-before)
+		})
+	}
+
+	// last occurrence wins, matching encoding/json
+	var result any
+	require.NoError(t, jsonApi.UnmarshalFromString(`{"a":1,"a":2}`, &result))
+	require.Equal(t, float64(2), result.(map[string]any)["a"])
 }
