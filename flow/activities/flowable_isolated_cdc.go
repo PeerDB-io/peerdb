@@ -14,7 +14,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -88,14 +87,6 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return err
 	}
 
-	// Seeded from the highest batch_id ever recorded
-	maxBatchID, err := monitoring.GetMaxCDCBatchID(ctx, a.CatalogPool, flowName)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, flowName, err)
-	}
-	batchIDCounter := &atomic.Int64{}
-	batchIDCounter.Store(maxBatchID)
-
 	var totalRecordsSynced atomic.Int64
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("isolated CDC: %d tables, totalRecordsSynced:%d", len(sourceTables), totalRecordsSynced.Load())
@@ -112,7 +103,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		})
 		group.Go(func() error {
 			return a.isolatedTablePullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
-				channelBufferSize, idleTimeout, normBufferSize, pullSem, batchIDCounter, &totalRecordsSynced, normRequests, normResponses)
+				channelBufferSize, idleTimeout, normBufferSize, pullSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
 	return group.Wait()
@@ -177,7 +168,6 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 	idleTimeout time.Duration,
 	normBufferSize int64,
 	pullSem chan struct{},
-	batchIDCounter *atomic.Int64,
 	totalRecordsSynced *atomic.Int64,
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
