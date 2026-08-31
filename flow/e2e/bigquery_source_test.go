@@ -242,6 +242,23 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			require.Contains(t, err.Error(), "must be TIMESTAMP")
 		})
 
+		t.Run("rejects a watermark column that is excluded from replication", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.WatermarkColumn = "pickup_datetime"
+				tableMapping.Exclude = []string{"pickup_datetime"}
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.WatermarkColumn = ""
+					tableMapping.Exclude = nil
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a watermark column excluded from replication")
+			require.Contains(t, err.Error(), "excluded from replication")
+		})
+
 		t.Run("accepts a TIMESTAMP watermark column", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
 				tableMapping.WatermarkColumn = "pickup_datetime"

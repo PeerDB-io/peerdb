@@ -164,7 +164,9 @@ type SourceTableConfig struct {
 	// SourceTableIdentifier is "table", "dataset.table", or "project.dataset.table".
 	SourceTableIdentifier string
 	// WatermarkColumn is required when the mirror's ReplicationMode is ReplicationModeQuery.
-	WatermarkColumn   string
+	WatermarkColumn string
+	// Exclude lists column names excluded from replication for this table.
+	Exclude           []string
 	CDCEventsFunction CDCEventsFunction
 	// HasOrderingKey reports whether the table mapping configures an explicit
 	// ordering key (a PK substitute) via column settings.
@@ -266,6 +268,11 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %s has no watermark_column configured; QUERY replication mode requires "+
 					"one TIMESTAMP column per table to incrementally scan", key)
+			}
+			if slices.Contains(t.Exclude, t.WatermarkColumn) {
+				return fmt.Errorf("watermark column %s on table %s is excluded from replication; "+
+					"QUERY replication mode requires the watermark column to be synced so per-row "+
+					"commit times can be tracked", t.WatermarkColumn, key)
 			}
 			column, ok := tablesByKey[key].Columns[t.WatermarkColumn]
 			if !ok {
