@@ -161,7 +161,7 @@ func TestGCSStagingStoreValidate_HappyPath(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Logf("GCS request: %s %s", r.Method, r.URL.Path)
 		switch {
-		case r.Method == http.MethodPost && (strings.Contains(r.URL.Path, "/b/my-bucket/o")):
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/b/my-bucket/o"):
 			uploads.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

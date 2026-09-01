@@ -56,6 +56,10 @@ const (
 	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
+	FetchedEventSizeHistogramName        = "fetched_event_size"
+	CDCReceiveTimeCounterName            = "cdc_receive_time"
+	CDCProcessTimeCounterName            = "cdc_process_time"
+	CDCAddRecordTimeCounterName          = "cdc_add_record_time"
 	SourceLagGaugeName                   = "source_lag"
 	DestinationLagGaugeName              = "destination_lag"
 	E2ELagGaugeName                      = "e2e_lag"
@@ -121,6 +125,10 @@ type Metrics struct {
 	IntervalSinceLastNormalizeGauge   metric.Float64Gauge
 	AllFetchedBytesCounter            metric.Int64Counter
 	FetchedBytesCounter               metric.Int64Counter
+	FetchedEventSizeHistogram         metric.Int64Histogram
+	CDCReceiveTimeCounter             metric.Int64Counter
+	CDCProcessTimeCounter             metric.Int64Counter
+	CDCAddRecordTimeCounter           metric.Int64Counter
 	SourceLagGauge                    metric.Int64Gauge
 	DestinationLagGauge               metric.Int64Gauge
 	E2ELagGauge                       metric.Int64Gauge
@@ -189,14 +197,15 @@ func BuildMetricName(baseName string) string {
 }
 
 type OtelManager struct {
-	Metrics            Metrics
-	MetricsProvider    metric.MeterProvider
-	Meter              metric.Meter
-	Tracer             trace.Tracer
-	Float64GaugesCache map[string]metric.Float64Gauge
-	Int64GaugesCache   map[string]metric.Int64Gauge
-	Int64CountersCache map[string]metric.Int64Counter
-	Enabled            bool
+	Metrics              Metrics
+	MetricsProvider      metric.MeterProvider
+	Meter                metric.Meter
+	Tracer               trace.Tracer
+	Float64GaugesCache   map[string]metric.Float64Gauge
+	Int64GaugesCache     map[string]metric.Int64Gauge
+	Int64CountersCache   map[string]metric.Int64Counter
+	Int64HistogramsCache map[string]metric.Int64Histogram
+	Enabled              bool
 }
 
 func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
@@ -206,13 +215,14 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	}
 
 	otelManager := OtelManager{
-		Enabled:            enabled,
-		MetricsProvider:    metricsProvider,
-		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
-		Tracer:             Tracer(),
-		Float64GaugesCache: make(map[string]metric.Float64Gauge),
-		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
-		Int64CountersCache: make(map[string]metric.Int64Counter),
+		Enabled:              enabled,
+		MetricsProvider:      metricsProvider,
+		Meter:                metricsProvider.Meter("io.peerdb." + serviceName),
+		Tracer:               Tracer(),
+		Float64GaugesCache:   make(map[string]metric.Float64Gauge),
+		Int64GaugesCache:     make(map[string]metric.Int64Gauge),
+		Int64CountersCache:   make(map[string]metric.Int64Counter),
+		Int64HistogramsCache: make(map[string]metric.Int64Histogram),
 	}
 	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
@@ -259,6 +269,13 @@ func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+}
+
+func (om *OtelManager) GetOrInitInt64Histogram(
+	name string,
+	opts ...metric.Int64HistogramOption,
+) (metric.Int64Histogram, error) {
+	return getOrInitMetric(NewContextAwareInt64Histogram, om.Meter, om.Int64HistogramsCache, name, opts...)
 }
 
 // CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
@@ -447,6 +464,46 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes received of CopyData over replication protocol for mapped tables only"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.FetchedEventSizeHistogram, err = om.GetOrInitInt64Histogram(
+		BuildMetricName(FetchedEventSizeHistogramName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Size of each fetched CDC event for mapped tables"),
+		metric.WithExplicitBucketBoundaries(
+			10, 20, 50,
+			100, 200, 500,
+			1_000, 2_000, 5_000,
+			10_000, 20_000, 50_000,
+			100_000, 200_000, 500_000,
+			1_000_000, 2_000_000, 5_000_000,
+			10_000_000, 20_000_000, 50_000_000,
+			100_000_000, 200_000_000, 500_000_000,
+			1_000_000_000,
+		),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCReceiveTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCReceiveTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent in the receive call waiting for the next replication message"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCProcessTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCProcessTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent handling received replication messages, excluding time in AddRecord"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCAddRecordTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCAddRecordTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time the CDC pull loop spent in AddRecord passing records to the record stream"),
 	); err != nil {
 		return err
 	}
