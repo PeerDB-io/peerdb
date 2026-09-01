@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,86 @@ func (nopLogger) Error(string, ...any) {}
 
 func init() {
 	testutil.LoadEnv()
+}
+
+func TestProjectedPeakTableCount(t *testing.T) {
+	tests := []struct {
+		name                 string
+		currentTables        uint64
+		tableNames           []string
+		existingTables       map[string]struct{}
+		additionalTableCount uint64
+		isResync             bool
+		want                 uint64
+	}{
+		{
+			name:                 "creation counts raw and missing destinations",
+			currentTables:        10,
+			tableNames:           []string{"existing", "missing"},
+			existingTables:       map[string]struct{}{"existing": {}},
+			additionalTableCount: 1,
+			want:                 12,
+		},
+		{
+			name:           "creation deduplicates destinations",
+			currentTables:  10,
+			tableNames:     []string{"missing", "missing"},
+			existingTables: map[string]struct{}{},
+			want:           11,
+		},
+		{
+			name:           "resync counts absent tables persistently",
+			currentTables:  10,
+			tableNames:     []string{"first_resync", "second_resync"},
+			existingTables: map[string]struct{}{},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync existing null table needs transient slot",
+			currentTables:  10,
+			tableNames:     []string{"null_table"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           11,
+		},
+		{
+			name:           "resync reserves transient slot after persistent tables",
+			currentTables:  10,
+			tableNames:     []string{"new_resync", "null_table"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync calculation is conservative regardless of mapping order",
+			currentTables:  10,
+			tableNames:     []string{"null_table", "new_resync"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync duplicate becomes replacement",
+			currentTables:  10,
+			tableNames:     []string{"new_resync", "new_resync"},
+			existingTables: map[string]struct{}{},
+			isResync:       true,
+			want:           12,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, projectedPeakTableCount(
+				tt.currentTables,
+				tt.tableNames,
+				maps.Clone(tt.existingTables),
+				tt.additionalTableCount,
+				tt.isResync,
+			))
+		})
+	}
 }
 
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
