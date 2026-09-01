@@ -123,14 +123,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		if missing, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
 			return nil, NewFailedPreconditionApiError(
 				missing,
-				NewSourceTableMissingErrorInfo(),
-				NewSourceTableMissingPreconditionFailure(missing.Tables))
+				NewSourceTableMissingErrorDetails(missing.Tables)...)
 		}
 		if notInPub, ok := errors.AsType[*common.TablesNotInPublicationError](err); ok {
 			return nil, NewFailedPreconditionApiError(
 				notInPub,
-				NewTablesNotInPublicationErrorInfo(notInPub.Publication),
-				NewTablesNotInPublicationPreconditionFailure(notInPub.Publication, notInPub.Tables))
+				NewTablesNotInPublicationErrorDetails(notInPub.Publication, notInPub.Tables)...)
 		}
 		if replicaIdErr, ok := errors.AsType[*common.ReplicaIdentifierInUseError](err); ok {
 			// Beyond other PeerDB mirrors, a replica id must not be already
