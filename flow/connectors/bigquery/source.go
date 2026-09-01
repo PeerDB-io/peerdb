@@ -69,13 +69,13 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		return nil
 	}
 
-	switch cfg.GetBigqueryCdcConfig().GetReplicationMode() {
-	case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY:
+	switch cfg.GetBigqueryCdcConfig().GetReplicationMethod() {
+	case protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY:
 		sourceConfig.ReplicationMode = bqvalidate.ReplicationModeQuery
-	case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS:
+	case protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS:
 		sourceConfig.ReplicationMode = bqvalidate.ReplicationModeEvents
 	default:
-		return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMode())
+		return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMethod())
 	}
 
 	if err := bqvalidate.ValidateSourceCDC(ctx, sourceConfig, tablesByKey); err != nil {

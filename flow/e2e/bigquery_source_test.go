@@ -216,7 +216,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 	t.Run("QUERY replication mode", func(t *testing.T) {
 		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
-				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
+				ReplicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
 			},
 		}
 		defer func() { flowConfig.SourceConnectorConfig = nil }()

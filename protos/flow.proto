@@ -35,8 +35,9 @@ message ColumnSetting {
 // EVENTS-mode CDC polling (see BigQueryReplicationMode) for one table:
 // APPENDS() (insert-only) or CHANGES() (insert/update/delete).
 enum BigqueryCdcEventsFunction {
-  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 0;
-  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 1;
+  BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED = 0;
+  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 1;
+  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 2;
 }
 
 message TableMapping {
@@ -49,11 +50,11 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
-  // Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
+  // Only meaningful when the mirror's BigqueryCdcConfig.replication_method is
   // BIGQUERY_REPLICATION_MODE_EVENTS.
   BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
   // the column to use as a cursor for query-based CDC replication
-  // required if replication_mode is BIGQUERY_REPLICATION_MODE_QUERY
+  // required if replication_method is BIGQUERY_REPLICATION_MODE_QUERY
   string watermark_column = 11;
 }
 
@@ -63,14 +64,14 @@ message SetupInput {
   string peer_name = 3;
 }
 
-enum BigQueryReplicationMode {
-  // Default: table-valued function (APPENDS()/CHANGES()) based CDC polling.
-  BIGQUERY_REPLICATION_MODE_EVENTS = 0;
-  BIGQUERY_REPLICATION_MODE_QUERY = 1;
+enum BigQueryReplicationMethod {
+  BIGQUERY_REPLICATION_METHOD_UNSPECIFIED = 0;
+  BIGQUERY_REPLICATION_METHOD_EVENTS = 1;
+  BIGQUERY_REPLICATION_METHOD_QUERY = 2;
 }
 
 message BigqueryCdcConfig {
-  BigQueryReplicationMode replication_mode = 1;
+  BigQueryReplicationMethod replication_method = 1;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
