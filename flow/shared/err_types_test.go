@@ -23,7 +23,7 @@ func TestWrapErrorKeepsIntermediateWraps(t *testing.T) {
 
 	message := fmt.Sprintf("%+v", err)
 	assert.Contains(t, message, `"public"."whois_scans"`, "Error message lost the table name")
-	assert.ErrorIs(t, err, ErrTableDoesNotExist, "Error no longer unwraps to the sentinel")
+	require.ErrorIs(t, err, ErrTableDoesNotExist, "Error no longer unwraps to the sentinel")
 
 	applicationErr, ok := errors.AsType[*temporal.ApplicationError](err)
 	require.True(t, ok, "Expected an ApplicationError")
@@ -39,5 +39,5 @@ func TestWrapErrorWithoutApplicationError(t *testing.T) {
 	err := WrapError("failed to sync records", cause)
 
 	assert.Equal(t, "failed to sync records: connection reset by peer", err.Error(), "Unexpected error message")
-	assert.ErrorIs(t, err, cause, "Error no longer unwraps to its cause")
+	require.ErrorIs(t, err, cause, "Error no longer unwraps to its cause")
 }
