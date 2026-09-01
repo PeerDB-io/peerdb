@@ -33,7 +33,7 @@ func ResolveDatasetTable(identifier, defaultDataset string) (DatasetTable, error
 	case 3:
 		return DatasetTable{Dataset: parts[1], Table: parts[2]}, nil
 	default:
-		return DatasetTable{}, fmt.Errorf("invalid BigQuery table name: %s", identifier)
+		return DatasetTable{}, fmt.Errorf("invalid BigQuery table name: %q", identifier)
 	}
 }
 
@@ -262,21 +262,21 @@ func validateColumnSelection(key DatasetTable, info TableInfo, include, exclude 
 	case len(include) > 0:
 		for _, col := range include {
 			if _, ok := info.Columns[col]; !ok {
-				return fmt.Errorf("column %s does not exist in table %s", col, key)
+				return fmt.Errorf("column %q does not exist in table %q", col, key)
 			}
 		}
 	case len(exclude) > 0:
 		for _, col := range exclude {
 			if _, ok := info.Columns[col]; !ok {
-				return fmt.Errorf("excluded column %s does not exist in table %s", col, key)
+				return fmt.Errorf("excluded column %q does not exist in table %q", col, key)
 			}
 		}
 		if len(info.Columns) == len(exclude) {
-			return fmt.Errorf("all columns are excluded for table %s, at least one column must remain", key)
+			return fmt.Errorf("all columns are excluded for table %q, at least one column must remain", key)
 		}
 	default:
 		if len(info.Columns) == 0 {
-			return fmt.Errorf("table %s has no columns", key)
+			return fmt.Errorf("table %q has no columns", key)
 		}
 	}
 	return nil
@@ -288,7 +288,7 @@ func validateTableDataAccess(ctx context.Context, client *bigquery.Client, proje
 	query := client.Query(fmt.Sprintf("SELECT * FROM `%s.%s.%s` LIMIT 0", projectID, key.Dataset, key.Table))
 	query.DryRun = true
 	if _, err := query.Run(ctx); err != nil {
-		return fmt.Errorf("failed to validate data access for table %s: %w", key, &ExternalError{err})
+		return fmt.Errorf("failed to validate data access for table %q: %w", key, &ExternalError{err})
 	}
 	return nil
 }
@@ -328,20 +328,20 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		switch cfg.ReplicationMode {
 		case ReplicationModeQuery:
 			if t.WatermarkColumn == "" {
-				return fmt.Errorf("table %s has no watermark_column configured; QUERY replication mode requires "+
+				return fmt.Errorf("table %q has no watermark_column configured; QUERY replication mode requires "+
 					"one TIMESTAMP column per table to incrementally scan", key)
 			}
 			if slices.Contains(t.Exclude, t.WatermarkColumn) {
-				return fmt.Errorf("watermark column %s on table %s is excluded from replication; "+
+				return fmt.Errorf("watermark column %q on table %q is excluded from replication; "+
 					"QUERY replication mode requires the watermark column to be synced so per-row "+
 					"commit times can be tracked", t.WatermarkColumn, key)
 			}
 			column, ok := tablesByKey[key].Columns[t.WatermarkColumn]
 			if !ok {
-				return fmt.Errorf("watermark column %s does not exist on table %s", t.WatermarkColumn, key)
+				return fmt.Errorf("watermark column %q does not exist on table %q", t.WatermarkColumn, key)
 			}
 			if column.Type != bigquery.TimestampFieldType {
-				return fmt.Errorf("watermark column %s on table %s must be TIMESTAMP, got %s",
+				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
 		case ReplicationModeEvents:
@@ -350,25 +350,25 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 			switch t.CDCEventsFunction {
 			case CDCEventsFunctionChanges:
 				if !destinationHasOrderingKey {
-					return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
+					return fmt.Errorf("table %q has no primary key constraint configured on BigQuery; "+
 						"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
 						"or an explicit ordering key configured via column settings on the table mapping", key)
 				}
 				if !changeHistoryByTable[key] {
-					return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
+					return fmt.Errorf("table %q does not have enable_change_history=TRUE set; "+
 						"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
 						key)
 				}
 			case CDCEventsFunctionAppends:
 				if t.RequiresOrderingKey && !destinationHasOrderingKey {
-					return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+
+					return fmt.Errorf("table %q has no primary key configured on BigQuery and no ordering key configured "+
 						"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
 						"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
 						"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
 						"configured", key)
 				}
 			default:
-				return fmt.Errorf("table %s has no cdc_events_function configured; "+
+				return fmt.Errorf("table %q has no cdc_events_function configured; "+
 					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",
 					key)
 			}
