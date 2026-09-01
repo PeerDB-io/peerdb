@@ -51,10 +51,10 @@ message TableMapping {
   string policy_name = 8;
   string partition_by_expr = 9;
   // Only meaningful when the mirror's BigqueryCdcConfig.replication_method is
-  // BIGQUERY_REPLICATION_MODE_EVENTS.
+  // BIGQUERY_REPLICATION_METHOD_EVENTS.
   BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
   // the column to use as a cursor for query-based CDC replication
-  // required if replication_method is BIGQUERY_REPLICATION_MODE_QUERY
+  // required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
   string watermark_column = 11;
 }
 
