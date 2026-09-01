@@ -35,8 +35,9 @@ message ColumnSetting {
 // EVENTS-mode CDC polling (see BigQueryReplicationMode) for one table:
 // APPENDS() (insert-only) or CHANGES() (insert/update/delete).
 enum BigqueryCdcEventsFunction {
-  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 0;
-  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 1;
+  BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED = 0;
+  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 1;
+  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 2;
 }
 
 message TableMapping {
@@ -64,9 +65,11 @@ message SetupInput {
 }
 
 enum BigQueryReplicationMode {
-  // Default: table-valued function (APPENDS()/CHANGES()) based CDC polling.
-  BIGQUERY_REPLICATION_MODE_EVENTS = 0;
-  BIGQUERY_REPLICATION_MODE_QUERY = 1;
+  BIGQUERY_REPLICATION_MODE_UNSPECIFIED = 0;
+  // table-valued function (APPENDS()/CHANGES()) based CDC polling.
+  BIGQUERY_REPLICATION_MODE_EVENTS = 1;
+  // query-based CDC polling. (e.g. SELECT * FROM table WHERE watermark_column > last_watermark)
+  BIGQUERY_REPLICATION_MODE_QUERY = 2;
 }
 
 message BigqueryCdcConfig {
