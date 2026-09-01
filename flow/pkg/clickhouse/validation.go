@@ -58,10 +58,11 @@ func validateDatabaseEngine(ctx context.Context, logger log.Logger, conn clickho
 func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger log.Logger,
 	conn clickhouse.Conn,
 ) error {
-	// this is to indicate ClickHouse Cloud service is now creating tables with Shared* by default
+	// cloud_mode_engine 2, 3 and 4 all create tables with Shared* engines by default (3/4 only add
+	// carve-outs for explicit remote disks / Distributed); accept any of them as SMT-enabled
 	var cloudModeEngine bool
 	if err := QueryRow(ctx, logger, conn,
-		"SELECT value='2' AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").
+		"SELECT value IN ('2','3','4') AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").
 		Scan(&cloudModeEngine); err != nil {
 		return fmt.Errorf("failed to validate cloud_mode_engine setting: %w", err)
 	}

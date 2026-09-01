@@ -86,6 +86,9 @@ const (
 
 const CDCResyncTableSuffix = "_resync"
 
+// SnowflakeClearValueThresholdBytes leaves headroom below Snowflake's 16 MiB value limit.
+const SnowflakeClearValueThresholdBytes = 15 * 1024 * 1024
+
 func Val[T any](p *T) T {
 	if p == nil {
 		var zero T

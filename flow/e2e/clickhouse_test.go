@@ -100,6 +100,60 @@ func (s ClickHouseSuite) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.suffix)
 }
 
+func (s ClickHouseSuite) Test_Large_Text_CDC() {
+	const srcTable = "test_large_text_cdc"
+	const dstTable = "test_large_text_cdc"
+	largeTextBytes := 100 * 1024 * 1024
+	payloadType := "TEXT"
+	if _, ok := s.source.(*MySqlSource); ok {
+		largeTextBytes = 32 * 1024 * 1024
+		payloadType = "LONGTEXT"
+	}
+
+	srcSchemaTable := s.attachSchemaSuffix(srcTable)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT PRIMARY KEY,
+			payload %s NOT NULL
+		)`, srcSchemaTable, payloadType)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_large_text_cdc"),
+		TableNameMapping: map[string]string{srcSchemaTable: dstTable},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 1
+	flowConnConfig.IdleTimeoutSeconds = 1
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	defer func() {
+		env.Cancel(s.t.Context())
+		RequireEnvCanceled(s.t, env)
+	}()
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		"INSERT INTO %s (id, payload) VALUES (1, REPEAT('x', %d))", srcSchemaTable, largeTextBytes,
+	)))
+
+	var payloadLength any
+	EnvWaitFor(s.t, env, 2*time.Minute, "normalize large CDC string", func() bool {
+		rows, err := s.GetRows(dstTable, "id, length(payload) AS payload_length")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		if len(rows.Records) != 1 {
+			return false
+		}
+		payloadLength = rows.Records[0][1].Value()
+		return true
+	})
+	require.EqualValues(s.t, largeTextBytes, payloadLength)
+}
+
 func (s ClickHouseSuite) Test_Addition_Removal() {
 	tc := NewTemporalClient(s.t)
 

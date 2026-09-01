@@ -693,6 +693,7 @@ var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
 	_ CDCPullConnector = &connmongo.MongoConnector{}
+	_ CDCPullConnector = &connbigquery.BigQueryConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 

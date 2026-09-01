@@ -282,6 +282,24 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
 	{
+		Name: "PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS",
+		Description: "BigQuery CDC only: keeps a poll window's upper bound this many seconds behind BigQuery's " +
+			"clock, since APPENDS()/CHANGES() consistency for very recent writes is undocumented",
+		DefaultValue:     "60",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS",
+		Description: "BigQuery CDC only: caps how much time a single APPENDS()/CHANGES() poll can cover, " +
+			"bounding one BigQuery job's row-scan cost even if a mirror falls far behind",
+		DefaultValue:     "86400",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
 		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
 		DefaultValue:     "false",
@@ -311,6 +329,17 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Divide tables in batch into N insert selects. Helps distribute load to multiple nodes",
 		DefaultValue:     "0",
 		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_CLICKHOUSE_ENABLE_REPLICATED_QUORUM",
+		Description: "On Replicated ClickHouse clusters, write raw/normalize inserts with quorum " +
+			"(insert_quorum=auto, insert_quorum_parallel=0) so that select_sequential_consistency reads " +
+			"see them regardless of which replica serves the read. Prevents normalize silently dropping " +
+			"rows when the read hits a replica that has not yet replicated the just-written raw parts.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
@@ -686,6 +715,22 @@ func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
 }
 
+func PeerDBBigQueryCDCSafetyLag(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS")
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(x) * time.Second, nil
+}
+
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
@@ -797,6 +842,10 @@ func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]
 
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
+}
+
+func PeerDBClickHouseEnableReplicatedQuorum(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_REPLICATED_QUORUM")
 }
 
 func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]string) (bool, error) {

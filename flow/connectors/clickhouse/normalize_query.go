@@ -232,19 +232,40 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			}
 		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
-			fmt.Fprintf(&projection,
-				`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
-				clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
-				peerdb_clickhouse.QuoteLiteral(colName),
-				peerdb_clickhouse.QuoteIdentifier(dstColName),
-			)
-			if t.enablePrimaryUpdate {
-				fmt.Fprintf(&projectionUpdate,
-					`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+			if colType == types.QValueKindArrayTime {
+				// Array-of-TIME shares ClickHouse's Array(DateTime64(6)) representation with
+				// Array-of-TIMESTAMP, so it needs the same extended-time parsing as the
+				// scalar TIME case above, not the timestamp best-effort parser.
+				time64Supported := slices.Contains(t.flags, shared.Flag_ClickHouseTime64Enabled)
+				fmt.Fprintf(&projection,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+					extendedTimeToDateTime("x", time64Supported),
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+						extendedTimeToDateTime("x", time64Supported),
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
+			} else {
+				fmt.Fprintf(&projection,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
 					clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+						clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
 			}
 		case "JSON", "Nullable(JSON)":
 			fmt.Fprintf(&projection,

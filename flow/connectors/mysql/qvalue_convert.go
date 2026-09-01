@@ -428,7 +428,7 @@ func binaryColumnLength(mytype byte, meta uint16) int {
 	borrowedBitsMask := uint8(0x30)
 	extraBits := higherMetaByte & borrowedBitsMask
 	if extraBits != borrowedBitsMask { // More than 255 bytes
-		return int(lowerMetaByte) | (int((extraBits)^borrowedBitsMask) << 4)
+		return int(lowerMetaByte) | (int(extraBits^borrowedBitsMask) << 4)
 	}
 	return int(meta & 0xFF)
 }

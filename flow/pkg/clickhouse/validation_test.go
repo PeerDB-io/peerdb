@@ -239,6 +239,90 @@ func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
 	}
 }
 
+func TestCheckIfClickHouseCloudHasSharedMergeTreeEnabled(t *testing.T) {
+	ctx := t.Context()
+	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
+	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Close())
+	})
+	require.NoError(t, adminConn.Ping(ctx))
+
+	tests := []struct {
+		name            string
+		profileSettings string
+		wantErr         string
+	}{
+		{
+			name:            "cloud_mode_engine 2 accepted",
+			profileSettings: "cloud_mode_engine = 2 READONLY",
+		},
+		{
+			name:            "cloud_mode_engine 3 accepted",
+			profileSettings: "cloud_mode_engine = 3 READONLY",
+		},
+		{
+			name:            "cloud_mode_engine 4 accepted",
+			profileSettings: "cloud_mode_engine = 4 READONLY",
+		},
+		{
+			name:            "cloud_mode_engine 1 rejected",
+			profileSettings: "cloud_mode_engine = 1 READONLY",
+			wantErr:         "not migrated to use SharedMergeTree",
+		},
+		{
+			name:            "non-readonly cloud_mode_engine rejected",
+			profileSettings: "cloud_mode_engine = 2",
+			wantErr:         "not migrated to use SharedMergeTree",
+		},
+		{
+			name:    "default cloud_mode_engine rejected",
+			wantErr: "not migrated to use SharedMergeTree",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			username := "smt_user_" + strings.ToLower(common.RandomString(8))
+			require.NoError(t, adminConn.Exec(ctx,
+				fmt.Sprintf("CREATE USER %s IDENTIFIED BY 'testpassword'", username)))
+			t.Cleanup(func() {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				require.NoError(t, adminConn.Exec(cleanupCtx, "DROP USER IF EXISTS "+username))
+			})
+			if tt.profileSettings != "" {
+				profile := username + "_profile"
+				require.NoError(t, adminConn.Exec(ctx,
+					fmt.Sprintf("CREATE SETTINGS PROFILE %s SETTINGS %s TO %s", profile, tt.profileSettings, username)))
+				t.Cleanup(func() {
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					require.NoError(t, adminConn.Exec(cleanupCtx, "DROP SETTINGS PROFILE IF EXISTS "+profile))
+				})
+			}
+
+			conn, err := clickhouse.Open(&clickhouse.Options{
+				Addr: []string{addr},
+				Auth: clickhouse.Auth{Username: username, Password: "testpassword"},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, conn.Close())
+			})
+			require.NoError(t, conn.Ping(ctx))
+
+			err = CheckIfClickHouseCloudHasSharedMergeTreeEnabled(t.Context(), nopLogger{}, conn)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateClickHouseHost(t *testing.T) {
 	tests := []struct {
 		name           string

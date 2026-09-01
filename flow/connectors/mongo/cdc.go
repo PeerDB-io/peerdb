@@ -531,7 +531,7 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 
-		items := model.NewMongoRecordItems(2)
+		items := model.NewRecordItems(2)
 		switch operationType(changeEvent.OperationType) {
 		case operationTypeInsert:
 			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
@@ -577,6 +577,7 @@ func (c *MongoConnector) PullRecords(
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 			continue
 		}
+		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
 		checkpoint()
 	}
 

@@ -350,10 +350,30 @@ func (a *FlowableActivity) SyncFlow(
 	})
 	defer shutdown()
 
+	ctx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := internal.LoggerFromCtx(ctx)
+
+	var shutDown atomic.Bool
+	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		go func() {
+			select {
+			case <-workerStopChan:
+				logger.Info("worker is stopping, shutting down SyncFlow")
+				shutDown.Store(true)
+				// when worker begins to shut down, worker stop channel is closed immediately,
+				// but it does not cancel the activity context until after WorkerStopTimeout.
+				// so we explicitly call cancelCtx() to gracefully terminate sync and normalize
+				cancelCtx()
+			case <-ctx.Done():
+				// exit guard to prevent goroutine leak
+			}
+		}()
+	}
 
 	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
@@ -450,6 +470,10 @@ func (a *FlowableActivity) SyncFlow(
 	normResponses.Close()
 	<-normDone
 
+	if shutDown.Load() {
+		logger.Info("SyncFlow shutdown")
+		return nil
+	}
 	if ctx.Err() != nil {
 		logger.Info("SyncFlow canceled", slog.Any("error", ctx.Err()))
 		return ctx.Err()
@@ -2105,64 +2129,6 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 		attribute.String(otel_metrics.FlowStatusKey, status.String()),
 		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 	)))
-	return nil
-}
-
-/**
- * MigratePostgresTableOIDs migrates the OIDs for source Postgres tables to the catalog's table_schema_mapping
- */
-func (a *FlowableActivity) MigratePostgresTableOIDs(
-	ctx context.Context,
-	flowName string,
-	oidToTableNameMapping map[uint32]string,
-	tableMappings []*protos.TableMapping,
-) error {
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return "migrating oids to table schema"
-	})
-	defer shutdown()
-
-	logger := internal.LoggerFromCtx(ctx)
-	migrationName := shared.POSTGRES_TABLE_OID_MIGRATION
-
-	if err := internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
-		logger.Info("starting PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		sourceToDestTableMap := make(map[string]string, len(tableMappings))
-		for _, tm := range tableMappings {
-			sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
-		}
-		destinationTableOidMap := make(map[string]uint32, len(oidToTableNameMapping))
-		for oid, tableName := range oidToTableNameMapping {
-			destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
-			if !ok {
-				return fmt.Errorf("destination table identifier not found for source table %s", tableName)
-			}
-			destinationTableOidMap[destinationTableIdentifier] = oid
-		}
-
-		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
-			ctx,
-			a.CatalogPool,
-			logger,
-			flowName,
-			destinationTableOidMap,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
-		}
-
-		logger.Info("successfully completed PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		return nil
-	}); err != nil {
-		return a.Alerter.LogFlowError(ctx, flowName, err)
-	}
-
 	return nil
 }
 

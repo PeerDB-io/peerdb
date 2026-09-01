@@ -77,6 +77,39 @@ func TestFlowConnectionConfigsRoundTrip(t *testing.T) {
 	require.Truef(t, proto.Equal(api, roundTripped), "round trip mismatch:\nbefore: %v\nafter:  %v", api, roundTripped)
 }
 
+// TestFlowConnectionConfigsOneof covers the one field kind a per-field copy
+// can't handle generically: protoc-gen-go scopes oneof wrapper types to their
+// parent message, so the variant must be rebuilt against the destination's own
+// type rather than assigned across.
+func TestFlowConnectionConfigsOneof(t *testing.T) {
+	api := &protos.FlowConnectionConfigs{
+		FlowJobName: "oneof_test",
+		SourceConnectorConfig: &protos.FlowConnectionConfigs_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+			},
+		},
+	}
+
+	core := FlowConnectionConfigsToCore(api)
+	coreVariant, ok := core.SourceConnectorConfig.(*protos.FlowConnectionConfigsCore_BigqueryCdcConfig)
+	require.Truef(t, ok, "expected *FlowConnectionConfigsCore_BigqueryCdcConfig, got %T", core.SourceConnectorConfig)
+	require.Equal(t, protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS, coreVariant.BigqueryCdcConfig.ReplicationMode)
+
+	roundTripped := &protos.FlowConnectionConfigs{}
+	copyFieldsByNumber(core.ProtoReflect(), roundTripped.ProtoReflect())
+	apiVariant, ok := roundTripped.SourceConnectorConfig.(*protos.FlowConnectionConfigs_BigqueryCdcConfig)
+	require.Truef(t, ok, "expected *FlowConnectionConfigs_BigqueryCdcConfig, got %T", roundTripped.SourceConnectorConfig)
+	require.Equal(t, protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS, apiVariant.BigqueryCdcConfig.ReplicationMode)
+
+	// mirrors with no connector-specific config leave the oneof unset
+	unset := FlowConnectionConfigsToCore(&protos.FlowConnectionConfigs{FlowJobName: "no_oneof_test"})
+	require.Nil(t, unset.SourceConnectorConfig)
+	unsetAPI := &protos.FlowConnectionConfigs{}
+	copyFieldsByNumber(unset.ProtoReflect(), unsetAPI.ProtoReflect())
+	require.Nil(t, unsetAPI.SourceConnectorConfig)
+}
+
 func TestFlowConnectionConfigsNil(t *testing.T) {
 	require.Nil(t, FlowConnectionConfigsToCore(nil))
 }

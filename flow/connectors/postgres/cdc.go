@@ -567,6 +567,8 @@ func PullCdcRecords[Items model.Items](
 	warnedReplIdentTables := make(map[string]struct{})
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	var receiveTime, processTime, addRecordTime atomic.Int64
+	var processStart time.Time
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
@@ -615,10 +617,16 @@ func PullCdcRecords[Items model.Items](
 	defer func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 
 		if lastXLogDataServerWALEnd.Load() > 0 {
 			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
@@ -645,9 +653,13 @@ func PullCdcRecords[Items model.Items](
 				return err
 			}
 		}
+		addStart := time.Now()
+		processTime.Add(int64(addStart.Sub(processStart)))
 		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
+		processStart = time.Now()
+		addRecordTime.Add(int64(processStart.Sub(addStart)))
 
 		totalRecords++
 
@@ -752,7 +764,7 @@ func PullCdcRecords[Items model.Items](
 					waitingForCommit = true
 				}
 			} else {
-				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
+				logger.Info("standby deadline reached, no records accumulated, continuing to wait")
 			}
 			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 		}
@@ -765,11 +777,13 @@ func PullCdcRecords[Items model.Items](
 			receiveDeadline = nextRecordDeadline
 		}
 		receiveCtx, cancel := context.WithDeadline(ctx, receiveDeadline)
+		receiveStart := time.Now()
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
 			return conn.ReceiveMessage(receiveCtx)
 		}()
+		receiveTime.Add(int64(time.Since(receiveStart)))
 		cancel()
 
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -795,6 +809,7 @@ func PullCdcRecords[Items model.Items](
 			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
+		processStart = time.Now()
 		switch msg := rawMsg.(type) {
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
@@ -840,8 +855,13 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
-					fetchedBytes.Add(int64(len(msg.Data)))
-					totalFetchedBytes.Add(int64(len(msg.Data)))
+					eventSize := int64(len(msg.Data))
+					fetchedBytes.Add(eventSize)
+					totalFetchedBytes.Add(eventSize)
+					switch rec.(type) {
+					case *model.InsertRecord[Items], *model.UpdateRecord[Items], *model.DeleteRecord[Items]:
+						p.otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
+					}
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
@@ -956,13 +976,20 @@ func PullCdcRecords[Items model.Items](
 									return err
 								}
 							}
-						} else if err := records.AddRecord(ctx, rec); err != nil {
-							return err
+						} else {
+							addStart := time.Now()
+							processTime.Add(int64(addStart.Sub(processStart)))
+							if err := records.AddRecord(ctx, rec); err != nil {
+								return err
+							}
+							processStart = time.Now()
+							addRecordTime.Add(int64(processStart.Sub(addStart)))
 						}
 					}
 				}
 			}
 		}
+		processTime.Add(int64(time.Since(processStart)))
 	}
 }
 

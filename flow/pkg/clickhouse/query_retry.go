@@ -74,7 +74,11 @@ func Exec(ctx context.Context, logger log.Logger,
 		}
 		logger.Info("[exec] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second * time.Duration(i*5+1)):
+			}
 		}
 	}
 	if ex, ok := errors.AsType[*clickhouse.Exception](err); ok {
@@ -101,7 +105,11 @@ func Query(ctx context.Context, logger log.Logger,
 		}
 		logger.Info("[query] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Second * time.Duration(i*5+1)):
+			}
 		}
 	}
 	return rows, err
@@ -119,7 +127,11 @@ func QueryRow(ctx context.Context, logger log.Logger,
 		}
 		logger.Info("[queryRow] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
+			select {
+			case <-ctx.Done():
+				return row
+			case <-time.After(time.Second * time.Duration(i*5+1)):
+			}
 		}
 	}
 	return row
