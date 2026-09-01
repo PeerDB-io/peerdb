@@ -151,8 +151,8 @@ func validateStagingAccessGrant(ctx context.Context, logger log.Logger, conn cli
 	if err := QueryRow(ctx, logger, conn, "CHECK GRANT READ ON "+accessMethod).Scan(&grantExists); err != nil {
 		// Do not return an error on syntax error; this could mean we're on a
 		// CH version that does not support this syntax.
-		var chException *clickhouse.Exception
-		if !errors.As(err, &chException) || chproto.Error(chException.Code) != chproto.ErrSyntaxError {
+		if chException, ok := errors.AsType[*clickhouse.Exception](err); !ok ||
+			chproto.Error(chException.Code) != chproto.ErrSyntaxError {
 			return fmt.Errorf("failed to validate %s read grant: %w", accessMethod, err)
 		}
 		// NB: syntax error falls through to the next check.
@@ -167,8 +167,8 @@ func validateStagingAccessGrant(ctx context.Context, logger log.Logger, conn cli
 	// Eg. CHECK GRANT S3 on *.*.
 	if err := QueryRow(ctx, logger, conn, fmt.Sprintf("CHECK GRANT %s ON *.*", accessMethod)).Scan(&grantExists); err != nil {
 		// Similarly, do not error on syntax errors; instead, just log that the check failed.
-		var chException *clickhouse.Exception
-		if !errors.As(err, &chException) || chproto.Error(chException.Code) != chproto.ErrSyntaxError {
+		if chException, ok := errors.AsType[*clickhouse.Exception](err); !ok ||
+			chproto.Error(chException.Code) != chproto.ErrSyntaxError {
 			return fmt.Errorf("failed to validate %s read grant: %w", accessMethod, err)
 		}
 		logger.Warn("[clickhouse] CHECK GRANT not supported by this ClickHouse version, skipping grant validation")
@@ -220,8 +220,8 @@ func ValidateClickHousePeer(
 				if err == nil {
 					break
 				}
-				var chException *clickhouse.Exception
-				if errors.As(err, &chException) && chproto.Error(chException.Code) == chproto.ErrUnfinished {
+				if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
+					chproto.Error(chException.Code) == chproto.ErrUnfinished {
 					logger.Warn("validation drop table blocked by in-flight DDL, retrying",
 						slog.String("table", table), slog.Int("attempt", attempt+1))
 					continue
@@ -299,14 +299,30 @@ func ValidateTableCapacity(
 
 	var maxTables uint64
 	err := QueryRow(ctx, logger, conn,
-		"SELECT toUInt64(value) FROM system.server_settings WHERE name = 'max_table_num_to_throw'",
+		"SELECT toUInt64(getServerSetting('max_table_num_to_throw'))",
 	).Scan(&maxTables)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Older ClickHouse versions do not expose this setting.
-		return nil
-	}
 	if err != nil {
-		return fmt.Errorf("failed to query max_table_num_to_throw: %w", err)
+		if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
+			chproto.Error(chException.Code) == chproto.ErrUnknownFunction {
+			// Older ClickHouse versions do not expose getServerSetting.
+			err = QueryRow(ctx, logger, conn,
+				"SELECT toUInt64(value) FROM system.server_settings WHERE name = 'max_table_num_to_throw'",
+			).Scan(&maxTables)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					// Older ClickHouse versions do not expose this setting.
+					return nil
+				}
+				if fallbackException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
+					chproto.Error(fallbackException.Code) == chproto.ErrAccessDenied {
+					logger.Warn("skipping ClickHouse table capacity validation: user cannot read system.server_settings")
+					return nil
+				}
+				return fmt.Errorf("failed to query max_table_num_to_throw: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to query max_table_num_to_throw: %w", err)
+		}
 	}
 	if maxTables == 0 {
 		return nil
@@ -316,6 +332,11 @@ func ValidateTableCapacity(
 	if err := QueryRow(ctx, logger, conn,
 		"SELECT toUInt64(value) FROM system.metrics WHERE metric = 'AttachedTable'",
 	).Scan(&currentTables); err != nil {
+		if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
+			chproto.Error(chException.Code) == chproto.ErrAccessDenied {
+			logger.Warn("skipping ClickHouse table capacity validation: user cannot read system.metrics")
+			return nil
+		}
 		return fmt.Errorf("failed to query current number of ClickHouse tables: %w", err)
 	}
 

@@ -145,6 +145,38 @@ func TestValidateTableCapacity(t *testing.T) {
 		require.NoError(t, ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:1], 0, false))
 	})
 
+	restrictedUser := "capacity_user_" + strings.ToLower(common.RandomString(8))
+	restrictedPassword := common.RandomString(16)
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"CREATE USER %s IDENTIFIED WITH plaintext_password BY %s",
+		QuoteIdentifier(restrictedUser), QuoteLiteral(restrictedPassword),
+	)))
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Exec(context.Background(), "DROP USER IF EXISTS "+QuoteIdentifier(restrictedUser)))
+	})
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"GRANT ALL ON %s.* TO %s", QuoteIdentifier(database), QuoteIdentifier(restrictedUser),
+	)))
+	restrictedConn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{
+			Database: database,
+			Username: restrictedUser,
+			Password: restrictedPassword,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, restrictedConn.Close())
+	})
+	require.NoError(t, restrictedConn.Ping(ctx))
+
+	t.Run("missing system table privileges skips validation", func(t *testing.T) {
+		require.NoError(t, ValidateTableCapacity(
+			t.Context(), nopLogger{}, restrictedConn, tableNames[:maxTables], 1, false,
+		))
+	})
+
 	t.Run("missing tables and raw table exceed limit", func(t *testing.T) {
 		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:maxTables], 1, false)
 		var capacityErr *TableCapacityExceededError
