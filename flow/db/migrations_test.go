@@ -2,13 +2,15 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,14 +30,17 @@ import (
 func TestGooseBootstrapFromRefinery(t *testing.T) {
 	ctx := context.Background()
 	cfg := internal.GetCatalogPostgresConfigFromEnv(ctx)
-	require.NotEmpty(t, cfg.Host, "PEERDB_CATALOG_HOST not set")
 
-	refineryMigrations := readRefineryMigrations(t)
-	refineryMaxVersion := refineryMigrations[len(refineryMigrations)-1].version
+	nexusContainer := os.Getenv("CI_NEXUS_CONTAINER")
+	require.NotEmpty(t, nexusContainer, "missing CI_NEXUS_CONTAINER environment variable")
+	catalogContainer := os.Getenv("CI_CATALOG_CONTAINER")
+	require.NotEmpty(t, catalogContainer, "missing CI_CATALOG_CONTAINER environment variable")
+
+	refineryVersions := readRefineryVersions(t)
+	refineryMaxVersion := refineryVersions[len(refineryVersions)-1]
 	gooseVersions := readGooseVersions(t)
 	gooseMaxVersion := gooseVersions[len(gooseVersions)-1]
-	require.GreaterOrEqual(t, gooseMaxVersion, refineryMaxVersion,
-		"embedded goose migrations must include every refinery migration")
+	require.Equal(t, gooseMaxVersion, refineryMaxVersion)
 
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
 	admin, err := pgx.Connect(ctx, connStr(ctx, cfg.Database))
@@ -44,8 +49,8 @@ func TestGooseBootstrapFromRefinery(t *testing.T) {
 
 	baseDB := "test_db_migration_" + suffix
 	createTestDB(t, admin, baseDB)
-	applyRefineryMigrations(t, ctx, connStr(ctx, baseDB), refineryMigrations, refineryMaxVersion)
-	baseSchema := schemaFingerprint(t, ctx, connStr(ctx, baseDB))
+	applyRefineryMigrations(t, ctx, nexusContainer, baseDB, refineryMaxVersion)
+	baseSchema := pgSchemaDump(t, ctx, catalogContainer, baseDB)
 	require.NotEmpty(t, baseSchema)
 
 	scenarios := []struct {
@@ -64,22 +69,26 @@ func TestGooseBootstrapFromRefinery(t *testing.T) {
 			require.NoError(t, err)
 			defer conn.Close(ctx)
 
-			applyRefineryMigrations(t, ctx, connStr(ctx, compDB), refineryMigrations, scenario.refineryCutoff)
+			// apply refinery migration up to cutoff
+			applyRefineryMigrations(t, ctx, nexusContainer, compDB, scenario.refineryCutoff)
 			var refineryRows int
 			require.NoError(t, conn.QueryRow(ctx,
 				"SELECT count(*) FROM refinery_schema_history").Scan(&refineryRows))
 			require.Equal(t, scenario.refineryCutoff, refineryRows)
 
+			// apply remaining migration with goose
 			require.NoError(t, Apply(ctx, connStr(ctx, compDB)))
-			require.Equal(t, baseSchema, schemaFingerprint(t, ctx, connStr(ctx, compDB)),
-				"goose result diverged from refinery schema")
 
+			// expect all rows to be applied
 			var ledgerRows, maxVersionId int
 			require.NoError(t, conn.QueryRow(ctx,
 				`SELECT count(*) FILTER (WHERE version_id > 0), max(version_id) FROM goose_db_version`,
 			).Scan(&ledgerRows, &maxVersionId))
-			require.Equal(t, gooseMaxVersion, ledgerRows, "goose ledger rows after Apply")
-			require.Equal(t, gooseMaxVersion, maxVersionId, "highest recorded version after Apply")
+			require.Equal(t, gooseMaxVersion, ledgerRows, "unexpected ledge row count")
+			require.Equal(t, gooseMaxVersion, maxVersionId, "unexpected max version")
+
+			// expect same pg schema
+			require.Equal(t, baseSchema, pgSchemaDump(t, ctx, catalogContainer, compDB))
 		})
 	}
 
@@ -113,26 +122,20 @@ func TestGooseBootstrapFromRefinery(t *testing.T) {
 // must be duplicate-free and gap-free starting at version 1, and while the
 // refinery and goose directories coexist they must contain the same versions.
 func TestMigrationVersions(t *testing.T) {
-	sortedGooseVersion := readGooseVersions(t)
-	for i, version := range sortedGooseVersion {
+	gooseVersions := readGooseVersions(t)
+	for i, version := range gooseVersions {
 		require.Equal(t, i+1, version, "gap in flow/db/migrations: missing version %d", i+1)
 	}
 
-	sortedRefineryVersions := readRefineryMigrations(t)
-	for i, migration := range sortedRefineryVersions {
-		require.Equal(t, i+1, migration.version,
+	refineryVersions := readRefineryVersions(t)
+	for i, version := range refineryVersions {
+		require.Equal(t, i+1, version,
 			"gap in nexus/catalog/migrations: missing version %d", i+1)
 	}
 
-	require.Len(t, sortedRefineryVersions, len(sortedGooseVersion),
+	require.Len(t, refineryVersions, len(gooseVersions),
 		"nexus/catalog/migrations and flow/db/migrations must contain the same versions; "+
 			"while both coexist, every migration is added to both directories")
-}
-
-type migrationFile struct {
-	filename string
-	name     string // descriptive part of the filename, if the pattern captures one
-	version  int
 }
 
 func createTestDB(t *testing.T, admin *pgx.Conn, name string) {
@@ -151,35 +154,25 @@ func connStr(ctx context.Context, database string) string {
 	return internal.GetPGConnectionString(cfg, "catalog_migrations_test")
 }
 
-type refineryMigration struct {
-	name    string
-	sql     string
-	version int
-}
-
-// readMigrationFiles parses a migration directory listing: every entry must match fileRE
-// and no two entries may claim the same version. Returns entries sorted by version.
-func readMigrationFiles(t *testing.T, entries []fs.DirEntry, fileRE *regexp.Regexp, dirLabel string) []migrationFile {
+// readMigrationVersions parses a migration directory listing: every entry must match the provided
+// regex and no two entries may claim the same version. Returns the versions sorted ascending.
+func readMigrationVersions(t *testing.T, entries []fs.DirEntry, regex *regexp.Regexp, migrationDir string) []int {
 	t.Helper()
 	seen := make(map[int]string, len(entries))
-	files := make([]migrationFile, 0, len(entries))
+	versions := make([]int, 0, len(entries))
 	for _, entry := range entries {
-		m := fileRE.FindStringSubmatch(entry.Name())
-		require.NotNil(t, m, "unexpected file in %s: %s", dirLabel, entry.Name())
+		m := regex.FindStringSubmatch(entry.Name())
+		require.NotNil(t, m, "unexpected file in %s: %s", migrationDir, entry.Name())
 		version, err := strconv.Atoi(m[1])
 		require.NoError(t, err)
 		require.NotContains(t, seen, version,
-			"%s and %s claim the same version in %s", entry.Name(), seen[version], dirLabel)
+			"%s and %s claim the same version in %s", entry.Name(), seen[version], migrationDir)
 		seen[version] = entry.Name()
-		name := entry.Name()
-		if len(m) > 2 {
-			name = m[2]
-		}
-		files = append(files, migrationFile{filename: entry.Name(), name: name, version: version})
+		versions = append(versions, version)
 	}
-	require.NotEmpty(t, files, "no migration files found in %s", dirLabel)
-	sort.Slice(files, func(i, j int) bool { return files[i].version < files[j].version })
-	return files
+	require.NotEmpty(t, versions, "no migration files found in %s", migrationDir)
+	sort.Ints(versions)
+	return versions
 }
 
 // readGooseVersions returns the sorted, unique versions of the embedded goose migration files.
@@ -187,141 +180,49 @@ func readGooseVersions(t *testing.T) []int {
 	t.Helper()
 	entries, err := migrationsFS.ReadDir("migrations")
 	require.NoError(t, err)
-	files := readMigrationFiles(t, entries, regexp.MustCompile(`^(\d+)_.*\.sql$`), "flow/db/migrations")
-	versions := make([]int, len(files))
-	for i, file := range files {
-		require.Less(t, file.version, 100_000,
-			"%s: version looks like a timestamp; create migrations with `goose create -s`", file.filename)
-		versions[i] = file.version
-	}
-	return versions
+	return readMigrationVersions(t, entries, regexp.MustCompile(`^(\d+)_.*\.sql$`), "flow/db/migrations")
 }
 
-// readRefineryMigrations loads the original migration files that shipped with Nexus.
-func readRefineryMigrations(t *testing.T) []refineryMigration {
+// readRefineryVersions returns the sorted, unique versions of the refinery migration files.
+func readRefineryVersions(t *testing.T) []int {
 	t.Helper()
-	dir := filepath.Join("..", "..", "nexus", "catalog", "migrations")
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err, "nexus refinery migrations not found; if they were removed, delete this test")
-	files := readMigrationFiles(t, entries, regexp.MustCompile(`^V(\d+)__(.+)\.sql$`), "nexus/catalog/migrations")
-	migrations := make([]refineryMigration, len(files))
-	for i, file := range files {
-		sql, err := os.ReadFile(filepath.Join(dir, file.filename))
-		require.NoError(t, err)
-		migrations[i] = refineryMigration{version: file.version, name: file.name, sql: string(sql)}
-	}
-	return migrations
+	entries, err := os.ReadDir(filepath.Join("..", "..", "nexus", "catalog", "migrations"))
+	require.NoError(t, err)
+	return readMigrationVersions(t, entries, regexp.MustCompile(`^V(\d+)__(.+)\.sql$`), "nexus/catalog/migrations")
 }
 
-// applyRefineryMigrations replicates refinery's runner: each migration file is
-// executed as a single multi-statement batch inside its own transaction and
-// recorded in refinery_schema_history.
-func applyRefineryMigrations(t *testing.T, ctx context.Context, connStr string, files []refineryMigration, upToVersion int) {
+func applyRefineryMigrations(t *testing.T, ctx context.Context, container string, database string, upToVersion int) {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, connStr)
-	require.NoError(t, err)
-	defer conn.Close(ctx)
-
-	_, err = conn.Exec(ctx, `CREATE TABLE refinery_schema_history(
-		version INT4 PRIMARY KEY,
-		name VARCHAR(255),
-		applied_on VARCHAR(255),
-		checksum VARCHAR(255))`)
-	require.NoError(t, err)
-
-	for _, migration := range files {
-		if migration.version > upToVersion {
-			break
-		}
-		tx, err := conn.Begin(ctx)
-		require.NoError(t, err)
-		_, err = tx.Exec(ctx, migration.sql)
-		require.NoError(t, err, "refinery-style apply of V%d__%s failed", migration.version, migration.name)
-		_, err = tx.Exec(ctx,
-			"INSERT INTO refinery_schema_history (version, name, applied_on, checksum) VALUES ($1, $2, $3, $4)",
-			migration.version, migration.name, time.Now().UTC().Format(time.RFC3339), "0")
-		require.NoError(t, err)
-		require.NoError(t, tx.Commit(ctx))
-	}
+	// #nosec G702: test-controlled inputs
+	cmd := exec.CommandContext(ctx,
+		"docker", "exec", container,
+		"./peerdb-server",
+		"--migrations-only",
+		"--catalog-database", database,
+		"--migrations-target", strconv.Itoa(upToVersion))
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "running nexus migrations:\n%s", output)
 }
 
-// schemaFingerprint returns a sorted snapshot of the database schema objects and table row counts.
-//
-// Example fingerprint:
-//
-//	schema: public
-//	column: public.flows.id num=1 type=bigint notnull=true default=-
-//	constraint: public.flows flows_pkey PRIMARY KEY (id)
-//	index: public.flows CREATE UNIQUE INDEX flows_pkey ON public.flows USING btree (id)
-//	sequence: public.flows_id_seq
-//	rows: public.flows 3
-func schemaFingerprint(t *testing.T, ctx context.Context, connStr string) []string {
+func pgSchemaDump(t *testing.T, ctx context.Context, container string, database string) string {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, connStr)
-	require.NoError(t, err)
-	defer conn.Close(ctx)
+	// #nosec G702: test-controlled inputs
+	cmd := exec.CommandContext(ctx,
+		"docker", "exec", container,
+		"pg_dump",
+		"--no-owner",
+		"--schema-only",
+		"--exclude-table=public.refinery_schema_history",
+		"--exclude-table=public.goose_db_version",
+		"--exclude-table=public.goose_db_version_id_seq",
+		"--dbname", database)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "pg_dump failed:\n%s", output)
 
-	const excludedTables = `('goose_db_version', 'refinery_schema_history', 'goose_db_version_id_seq')`
-	queries := []string{
-		// schema
-		`SELECT 'schema: ' || nspname FROM pg_namespace
-		 WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'`,
-		// columns
-		`SELECT format('column: %s.%s.%s num=%s type=%s notnull=%s default=%s',
-			n.nspname, c.relname, a.attname, a.attnum,
-			format_type(a.atttypid, a.atttypmod), a.attnotnull,
-			coalesce(pg_get_expr(d.adbin, d.adrelid), '-'))
-		 FROM pg_attribute a
-		 JOIN pg_class c ON c.oid = a.attrelid
-		 JOIN pg_namespace n ON n.oid = c.relnamespace
-		 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-		 WHERE a.attnum > 0 AND NOT a.attisdropped AND c.relkind IN ('r', 'p', 'v', 'm')
-		   AND n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'
-		   AND c.relname NOT IN ` + excludedTables,
-		// constraints
-		`SELECT format('constraint: %s.%s %s %s',
-			n.nspname, c.relname, con.conname, pg_get_constraintdef(con.oid))
-		 FROM pg_constraint con
-		 JOIN pg_class c ON c.oid = con.conrelid
-		 JOIN pg_namespace n ON n.oid = c.relnamespace
-		 WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'
-		   AND c.relname NOT IN ` + excludedTables,
-		// indexes
-		`SELECT format('index: %s.%s %s', schemaname, tablename, indexdef) FROM pg_indexes
-		 WHERE schemaname NOT LIKE 'pg\_%' AND schemaname <> 'information_schema'
-		   AND tablename NOT IN ` + excludedTables,
-		// sequences
-		`SELECT format('sequence: %s.%s', schemaname, sequencename) FROM pg_sequences
-		 WHERE schemaname NOT LIKE 'pg\_%' AND schemaname <> 'information_schema'
-		   AND sequencename NOT IN ` + excludedTables,
-	}
-
-	var fingerprint []string
-	for _, query := range queries {
-		rows, err := conn.Query(ctx, query)
-		require.NoError(t, err)
-		lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		require.NoError(t, err)
-		fingerprint = append(fingerprint, lines...)
-	}
-
-	// row counts
-	rows, err := conn.Query(ctx,
-		`SELECT format('%I.%I', n.nspname, c.relname)
-		 FROM pg_class c
-		 JOIN pg_namespace n ON n.oid = c.relnamespace
-		 WHERE c.relkind IN ('r', 'p', 'v', 'm')
-		   AND n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'
-		   AND c.relname NOT IN `+excludedTables)
-	require.NoError(t, err)
-	tables, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	require.NoError(t, err)
-	for _, table := range tables {
-		var count int64
-		require.NoError(t, conn.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
-		fingerprint = append(fingerprint, fmt.Sprintf("rows: %s %d", table, count))
-	}
-
-	sort.Strings(fingerprint)
-	return fingerprint
+	// pg_dump 18+ wraps the dump in \restrict/\unrestrict guards with a randomized token per invocation;
+	// strip them so dumps are comparable.
+	lines := slices.DeleteFunc(strings.Split(string(output), "\n"), func(line string) bool {
+		return strings.HasPrefix(line, `\restrict `) || strings.HasPrefix(line, `\unrestrict `)
+	})
+	return strings.Join(lines, "\n")
 }

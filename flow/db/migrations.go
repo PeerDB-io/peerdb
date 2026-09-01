@@ -26,7 +26,6 @@ const bootstrapLockID int64 = 311574919
 
 const (
 	defaultRefineryTableName = "refinery_schema_history"
-	defaultGooseTableName    = "goose_db_version"
 )
 
 func Run(ctx context.Context) error {
@@ -88,7 +87,7 @@ func bootstrapFromRefinery(ctx context.Context, db *sql.DB) error {
 	var gooseExists, refineryExists bool
 	if err := tx.QueryRowContext(ctx,
 		`SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`,
-		defaultGooseTableName, defaultRefineryTableName,
+		goose.DefaultTablename, defaultRefineryTableName,
 	).Scan(&gooseExists, &refineryExists); err != nil {
 		return err
 	}
@@ -98,7 +97,7 @@ func bootstrapFromRefinery(ctx context.Context, db *sql.DB) error {
 	}
 
 	slog.InfoContext(ctx, "Bootstrapping goose ledger from refinery")
-	store, err := database.NewStore(database.DialectPostgres, defaultGooseTableName)
+	store, err := database.NewStore(database.DialectPostgres, goose.DefaultTablename)
 	if err != nil {
 		return err
 	}
@@ -111,13 +110,32 @@ func bootstrapFromRefinery(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	// Insert the refinery schema history into the goose ledger.
-	if _, err := tx.ExecContext(ctx,
-		fmt.Sprintf(`INSERT INTO %s (version_id, is_applied)
-		 SELECT version, true
-		 FROM %s ORDER BY version`,
-			defaultGooseTableName, defaultRefineryTableName),
-	); err != nil {
+	if versions, err := getRefineryVersions(ctx, tx); err != nil {
 		return err
+	} else {
+		for _, version := range versions {
+			if err := store.Insert(ctx, tx, database.InsertRequest{Version: version}); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit()
+}
+
+func getRefineryVersions(ctx context.Context, tx *sql.Tx) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT version FROM "+defaultRefineryTableName+" ORDER BY version")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var versions []int64
+	for rows.Next() {
+		var version int64
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		versions = append(versions, version)
+	}
+	return versions, rows.Err()
 }
