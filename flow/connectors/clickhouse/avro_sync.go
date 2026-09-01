@@ -281,6 +281,11 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
 		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
 	}
+	if config.Version >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDates, "0")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimes, "1")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
+	}
 
 	// Process each chunk file individually
 	for chunkIdx, avroFile := range avroFiles {

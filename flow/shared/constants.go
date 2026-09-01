@@ -41,6 +41,10 @@ const (
 	InternalVersion_MySQLConvertBitToUInt64
 	// MySQL: convert sets to integers for older versions without binlog row metadata support
 	InternalVersion_MySQL5ConvertSetsToInts
+	// All: infer date-like and timestamp-like string fields in JSON columns as DateTime64 when
+	// inserting into ClickHouse. Otherwise inference is indeterministic depending on initial
+	// input data, and can silently corrupts out-of-range values (e,g, pre-1970 date becomes 1970-01-01).
+	InternalVersion_AlwaysUseDateTime64Inference
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
