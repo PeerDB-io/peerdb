@@ -151,7 +151,8 @@ func GetTables(
 type ReplicationMode int
 
 const (
-	ReplicationModeEvents ReplicationMode = iota
+	ReplicationModeUnspecified ReplicationMode = iota
+	ReplicationModeEvents
 	ReplicationModeQuery
 )
 
@@ -159,7 +160,8 @@ const (
 type CDCEventsFunction int
 
 const (
-	CDCEventsFunctionAppends CDCEventsFunction = iota
+	CDCEventsFunctionUnspecified CDCEventsFunction = iota
+	CDCEventsFunctionAppends
 	CDCEventsFunctionChanges
 )
 
@@ -323,7 +325,8 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
 
-		if cfg.ReplicationMode == ReplicationModeQuery {
+		switch cfg.ReplicationMode {
+		case ReplicationModeQuery:
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %s has no watermark_column configured; QUERY replication mode requires "+
 					"one TIMESTAMP column per table to incrementally scan", key)
@@ -341,29 +344,33 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 				return fmt.Errorf("watermark column %s on table %s must be TIMESTAMP, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
-		}
+		case ReplicationModeEvents:
+			destinationHasOrderingKey := tablesByKey[key].HasPrimaryKey() || t.HasOrderingKey
 
-		destinationHasOrderingKey := tablesByKey[key].HasPrimaryKey() || t.HasOrderingKey
-
-		switch t.CDCEventsFunction {
-		case CDCEventsFunctionChanges:
-			if !destinationHasOrderingKey {
-				return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
-					"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
-					"or an explicit ordering key configured via column settings on the table mapping", key)
-			}
-			if !changeHistoryByTable[key] {
-				return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
-					"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
+			switch t.CDCEventsFunction {
+			case CDCEventsFunctionChanges:
+				if !destinationHasOrderingKey {
+					return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
+						"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
+						"or an explicit ordering key configured via column settings on the table mapping", key)
+				}
+				if !changeHistoryByTable[key] {
+					return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
+						"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
+						key)
+				}
+			case CDCEventsFunctionAppends:
+				if t.RequiresOrderingKey && !destinationHasOrderingKey {
+					return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+
+						"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
+						"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
+						"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
+						"configured", key)
+				}
+			default:
+				return fmt.Errorf("table %s has no cdc_events_function configured; "+
+					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",
 					key)
-			}
-		case CDCEventsFunctionAppends:
-			if t.RequiresOrderingKey && !destinationHasOrderingKey {
-				return fmt.Errorf("table %s has no primary key configured on BigQuery and no ordering key configured "+
-					"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
-					"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
-					"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
-					"configured", key)
 			}
 		}
 	}

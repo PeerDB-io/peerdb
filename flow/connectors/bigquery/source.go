@@ -36,20 +36,27 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 
 	tables := make([]bqvalidate.SourceTableConfig, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		cdcEventsFunction := bqvalidate.CDCEventsFunctionAppends
-		if tableMapping.GetBigqueryCdcEventsFunction() == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-			cdcEventsFunction = bqvalidate.CDCEventsFunctionChanges
-		}
-
-		tables = append(tables, bqvalidate.SourceTableConfig{
+		t := bqvalidate.SourceTableConfig{
 			SourceTableIdentifier: tableMapping.SourceTableIdentifier,
 			WatermarkColumn:       tableMapping.GetWatermarkColumn(),
 			Exclude:               tableMapping.Exclude,
-			CDCEventsFunction:     cdcEventsFunction,
 			HasOrderingKey:        tableHasOrderingKey(tableMapping),
 			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
 				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
-		})
+		}
+		if cfg.GetBigqueryCdcConfig().GetReplicationMode() == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS {
+			switch tableMapping.GetBigqueryCdcEventsFunction() {
+			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
+				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionAppends
+			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
+				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionChanges
+			default:
+				return fmt.Errorf("table %s has no cdc_events_function configured; "+
+					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",
+					tableMapping.SourceTableIdentifier)
+			}
+		}
+		tables = append(tables, t)
 	}
 
 	sourceConfig := bqvalidate.SourceConfig{
