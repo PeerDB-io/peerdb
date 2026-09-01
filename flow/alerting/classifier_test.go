@@ -130,6 +130,22 @@ func TestUnwrappedPgErrorShouldKeepPostgresSource(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestQRepMissingWatermarkTableShouldBeSourceTableMissing(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the QRep partition-planning chain: classifyTable finds no pg_class row for the
+	// watermark table, and the connector and activity wrappers each add context on the way out.
+	err := shared.WrapError("failed to get partitions from source",
+		fmt.Errorf("failed to get partitions: %w",
+			fmt.Errorf(`table "public"."whois_scans" not found in pg_class: %w`, shared.ErrTableDoesNotExist)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifySourceTableMissing, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "TABLE_DOES_NOT_EXIST",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
@@ -1164,6 +1180,20 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
 				Code:   exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableMissingTables: {
+			errorClass: ErrorNotifySourceTableMissing,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableMissingTables.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableExistingSlot: {
+			errorClass: ErrorNotifyConnectivity,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(),
 			},
 		},
 	} {
