@@ -176,9 +176,13 @@ func (c *BigQueryConnector) PullRecords(
 		bytesProcessed += tableBytesProcessed
 	}
 
-	// All tables queried here are mapped tables
-	otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
-	otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+	if recordCount > 0 {
+		// if no records were pulled, we don't want to bill for the bytes processed
+		// our http client based bytes meter can still accumulate some bytes even
+		// if no records were pulled
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+	}
 
 	latestCheckpointText := upper.Format(time.RFC3339Nano)
 

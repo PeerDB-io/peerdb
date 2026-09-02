@@ -54,14 +54,14 @@ func (c *countingReadCloser) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// newMeteredBigQueryHTTPClient builds an authenticated HTTP client for the
+// newMeteredClient builds an authenticated HTTP client for the
 // BigQuery client whose RoundTripper reports consumed response body bytes via
 // withByteCounter.
-func newMeteredBigQueryHTTPClient(ctx context.Context, creds *auth.Credentials) (*http.Client, error) {
-	transport, err := htransport.NewTransport(ctx, &meteredRoundTripper{base: http.DefaultTransport},
-		option.WithAuthCredentials(creds))
+func newMeteredClient(ctx context.Context, creds *auth.Credentials) (*http.Client, error) {
+	client, _, err := htransport.NewClient(ctx, option.WithAuthCredentials(creds))
 	if err != nil {
 		return nil, err
 	}
-	return &http.Client{Transport: transport}, nil
+	client.Transport = &meteredRoundTripper{base: client.Transport}
+	return client, nil
 }

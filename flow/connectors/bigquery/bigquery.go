@@ -104,7 +104,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create credentials: %v", err)
 	}
 
-	meteredHTTPClient, err := newMeteredBigQueryHTTPClient(ctx, creds)
+	meteredHTTPClient, err := newMeteredClient(ctx, creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metered BigQuery HTTP client: %v", err)
 	}
