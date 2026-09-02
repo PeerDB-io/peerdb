@@ -103,7 +103,14 @@ func (a *SnapshotActivity) SetupReplication(
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flowName string, peer string, env map[string]string) error {
+func (a *SnapshotActivity) MaintainTx(
+	ctx context.Context,
+	sessionID string,
+	flowName string,
+	peer string,
+	tableMappings []*protos.TableMapping,
+	env map[string]string,
+) error {
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"
 	})
@@ -114,7 +121,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 	}
 	defer connClose(ctx)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, env)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, tableMappings, env)
 	if err != nil {
 		return err
 	}

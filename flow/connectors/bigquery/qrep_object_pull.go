@@ -308,6 +308,7 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
+	tableMappings []*protos.TableMapping,
 	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
@@ -333,8 +334,19 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
 	}
 
-	if err := c.exportTablesAsOf(ctx, flowName, cfg.TableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
+	// tableMappings, not cfg.TableMappings: a table addition exports through this path with a
+	// flow config scoped to the tables being added, while the catalog still holds the mirror's
+	// pre-addition table list.
+	if err := c.exportTablesAsOf(ctx, flowName, tableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
 		return nil, nil, err
+	}
+
+	// Table additions never run SetupReplication -- an InitialSnapshotOnly flow skips it (see
+	// SnapshotFlowWorkflow) -- so this is where added tables get their first CDC cursor.
+	if cfg.GetBigqueryCdcConfig() != nil {
+		if err := c.initializeQueryCDCCheckpoints(ctx, flowName, tableMappings, snapshotTime); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
@@ -552,24 +564,35 @@ func (c *BigQueryConnector) SetupReplication(
 		}
 	}
 
-	// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc),
-	// but the snapshot export's FOR SYSTEM_TIME AS OF snapshotTime already includes rows
-	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
-	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
-	// keeps CDC's first window from re-pulling what the snapshot already captured.
-	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
 	if cfg.GetBigqueryCdcConfig() != nil {
-		for _, tableMapping := range cfg.TableMappings {
-			if err := c.InitializeQueryCDCReplicationState(
-				ctx, req.FlowJobName, tableMapping.SourceTableIdentifier, checkpoint,
-			); err != nil {
-				return model.SetupReplicationResult{}, fmt.Errorf(
-					"failed to initialize CDC checkpoint for table %s: %w",
-					tableMapping.SourceTableIdentifier, err,
-				)
-			}
+		if err := c.initializeQueryCDCCheckpoints(ctx, req.FlowJobName, cfg.TableMappings, snapshotTime); err != nil {
+			return model.SetupReplicationResult{}, err
 		}
 	}
 
 	return model.SetupReplicationResult{}, nil
+}
+
+// initializeQueryCDCCheckpoints hands the snapshot's end position to query-based CDC as the
+// starting cursor of every table the snapshot covered, so CDC resumes where the snapshot
+// stopped instead of seeding itself from whenever its first poll happens to run.
+//
+// The checkpoint sits one microsecond past snapshotTime: APPENDS()/CHANGES()'s start_timestamp
+// is inclusive (see cdc.go's pollWindow doc) and FOR SYSTEM_TIME AS OF snapshotTime already
+// includes rows committed exactly at snapshotTime, so the nudge keeps CDC's first window from
+// re-pulling what the snapshot captured. A microsecond is BigQuery TIMESTAMP's finest
+// granularity, so it cannot step over a row.
+func (c *BigQueryConnector) initializeQueryCDCCheckpoints(
+	ctx context.Context, flowName string, tableMappings []*protos.TableMapping, snapshotTime time.Time,
+) error {
+	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
+	for _, tableMapping := range tableMappings {
+		if err := c.InitializeQueryCDCReplicationState(
+			ctx, flowName, tableMapping.SourceTableIdentifier, checkpoint,
+		); err != nil {
+			return fmt.Errorf("failed to initialize CDC checkpoint for table %s: %w",
+				tableMapping.SourceTableIdentifier, err)
+		}
+	}
+	return nil
 }

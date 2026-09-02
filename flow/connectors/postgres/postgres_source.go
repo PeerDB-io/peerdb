@@ -716,6 +716,7 @@ func (c *PostgresConnector) EnsurePullability(
 func (c *PostgresConnector) ExportTxSnapshot(
 	ctx context.Context,
 	_ string,
+	_ []*protos.TableMapping,
 	env map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
