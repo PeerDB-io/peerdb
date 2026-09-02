@@ -135,10 +135,15 @@ func TestEffectiveColumns(t *testing.T) {
 func TestBuildPullQuery(t *testing.T) {
 	assert.Equal(t,
 		"SELECT `id`, `name` FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
-		buildPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}, ""),
+		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}, ""),
 	)
 	assert.Equal(t,
 		"SELECT `id`, `name` FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
-		buildPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}, "`_CHANGE_TIMESTAMP`"),
+		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}, "`_CHANGE_TIMESTAMP`"),
+	)
+	assert.Equal(t,
+		"SELECT `id`, `name` FROM `ds`.`tbl` "+
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end ORDER BY `updated_at`",
+		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
 	)
 }
