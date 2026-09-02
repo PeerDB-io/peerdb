@@ -52,6 +52,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/table-limit.xml:/etc/clickhouse-server/config.d/table-limit.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node1/config.d/tls.xml:/etc/clickhouse-server/config.d/tls.xml:ro
@@ -113,6 +114,7 @@ services:
     volumes:
       - clickhouse_02_data:/var/lib/clickhouse/
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./local_provision_scripts/clickhouse-cluster-config/node-common/config.d/table-limit.xml:/etc/clickhouse-server/config.d/table-limit.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node-common/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
       - ./local_provision_scripts/clickhouse-cluster-config/node2/config.d/macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
     depends_on:

@@ -88,6 +88,8 @@ const (
 	QRepChannelSize = 1024
 )
 
+const CDCResyncTableSuffix = "_resync"
+
 // SnowflakeClearValueThresholdBytes leaves headroom below Snowflake's 16 MiB value limit.
 const SnowflakeClearValueThresholdBytes = 15 * 1024 * 1024
 

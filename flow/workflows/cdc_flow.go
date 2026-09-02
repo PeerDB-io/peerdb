@@ -641,7 +641,7 @@ func startSetupAndSnapshot(
 	if cfg.Resync {
 		for _, mapping := range state.SyncFlowOptions.TableMappings {
 			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-				mapping.DestinationTableIdentifier += "_resync"
+				mapping.DestinationTableIdentifier += shared.CDCResyncTableSuffix
 			}
 		}
 		// because we have renamed the tables.
@@ -759,7 +759,7 @@ func startSetupAndSnapshot(
 		for _, mapping := range state.SyncFlowOptions.TableMappings {
 			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
 				oldName := mapping.DestinationTableIdentifier
-				newName := strings.TrimSuffix(oldName, "_resync")
+				newName := strings.TrimSuffix(oldName, shared.CDCResyncTableSuffix)
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 					CurrentName: oldName,
 					NewName:     newName,
