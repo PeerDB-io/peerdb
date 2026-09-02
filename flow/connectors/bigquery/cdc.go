@@ -216,7 +216,7 @@ func (c *BigQueryConnector) pullTableAppends(
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, missingColumnRetryAfter,
 		start, end, func(cols []string) string {
 			selectCols := append(slices.Clone(cols), bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn)
-			return buildPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
+			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
@@ -276,14 +276,22 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 	bigQueryChangeIsForUpdateColumn: {},
 }
 
-// buildPullQuery renders "SELECT col1, col2, ... FROM fn(TABLE dsTable, @start, @end)
+// buildEventsPullQuery renders "SELECT col1, col2, ... FROM fn(TABLE dsTable, @start, @end)
 // [ORDER BY orderBy]" for the APPENDS()/CHANGES() table-valued functions.
-func buildPullQuery(fn string, dsTable string, columns []string, orderBy string) string {
+func buildEventsPullQuery(fn string, dsTable string, columns []string, orderBy string) string {
 	q := fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", quotedColumnList(columns), fn, dsTable)
 	if orderBy != "" {
 		q += " ORDER BY " + orderBy
 	}
 	return q
+}
+
+// buildWatermarkPullQuery renders "SELECT col1, col2, ... FROM dsTable WHERE
+// watermarkColumn > @start AND watermarkColumn <= @end ORDER BY watermarkColumn"
+func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []string) string {
+	col := quotedIdentifier(watermarkColumn)
+	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
+		quotedColumnList(columns), dsTable, col, col, col)
 }
 
 // quotedColumnList renders columns as a comma-separated list of quoted identifiers.
@@ -308,6 +316,8 @@ func pullColumnNames(tableSchema *protos.TableSchema, exclude map[string]struct{
 	return columns
 }
 
+type pullQueryBuilder func(columns []string) string
+
 // runPullQuery runs buildQuery(columns) for the [start, end) window, retrying with a
 // shrunk column list if BigQuery rejects a column that no longer exists on the source
 // table (BigQuery reports one such column per error, so this may loop more than once).
@@ -316,7 +326,7 @@ func pullColumnNames(tableSchema *protos.TableSchema, exclude map[string]struct{
 func (c *BigQueryConnector) runPullQuery(
 	ctx context.Context, sourceTableIdentifier string, columns []string, missingColumnRetryAfter time.Duration,
 	start, end time.Time,
-	buildQuery func(columns []string) string,
+	buildQuery pullQueryBuilder,
 ) (*bigquery.RowIterator, error) {
 	effective := c.effectiveColumns(sourceTableIdentifier, columns, missingColumnRetryAfter)
 	for {
@@ -468,7 +478,8 @@ func (c *BigQueryConnector) pullTableChanges(
 		start, end, func(cols []string) string {
 			selectCols := append(slices.Clone(cols),
 				bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn, bigQueryChangeIsForUpdateColumn)
-			return buildPullQuery("CHANGES", dsTable.stringQuoted(), selectCols, quotedIdentifier(bigQueryChangeTimestampColumn))
+			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), selectCols,
+				quotedIdentifier(bigQueryChangeTimestampColumn))
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
@@ -571,13 +582,10 @@ func (c *BigQueryConnector) pullTableQuery(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	col := quotedIdentifier(watermarkColumn)
-
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, missingColumnRetryAfter,
 		start, end, func(cols []string) string {
-			return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
-				quotedColumnList(cols), dsTable.stringQuoted(), col, col, col)
+			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, cols)
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
