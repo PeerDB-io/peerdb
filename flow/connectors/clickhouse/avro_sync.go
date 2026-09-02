@@ -276,7 +276,6 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	numParts = max(numParts, 1)
 
 	chSettings := clickhouse.NewInsertSettings(s.chVersion, config.Version)
-
 	// Process each chunk file individually
 	for chunkIdx, avroFile := range avroFiles {
 		s.logger.Info("processing chunk",

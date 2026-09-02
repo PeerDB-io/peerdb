@@ -299,9 +299,6 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			}
 		}
 
-		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
-		a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, pullResult.BytesProcessed)
-
 		var numSynced int64
 		if rowCounts != nil {
 			numSynced = int64(rowCounts.InsertCount.Load() + rowCounts.UpdateCount.Load() + rowCounts.DeleteCount.Load())
@@ -318,14 +315,15 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			a.recordSyncMetrics(ctx, destTable, rowCounts)
+			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts) {
+func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts,
+	bytesProcessed int64) {
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -344,6 +342,9 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 	}
+	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
+	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+
 }
 
 // isolatedTableNormalizeLoop inserts one source table's staged batches

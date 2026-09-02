@@ -381,6 +381,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	if t.cluster {
 		chSettings.Add(clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
+	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if t.version >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDates, "0")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimes, "1")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
+	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
 		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), chSettings.String())

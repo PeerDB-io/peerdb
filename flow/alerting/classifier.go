@@ -573,7 +573,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
-		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+		case exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+			return ErrorNotifySourceTableMissing, ErrorInfo{
+				Source: pgErrSource,
+				Code:   temporalErr.Type(),
+			}
+		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot:
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: pgErrSource,
 				Code:   temporalErr.Type(),

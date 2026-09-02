@@ -1,0 +1,67 @@
+package connbigquery
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"sync/atomic"
+
+	"cloud.google.com/go/auth"
+	"google.golang.org/api/option"
+	htransport "google.golang.org/api/transport/http"
+)
+
+type byteCounterCtxKey struct{}
+
+// withByteCounter returns a context that meteredRoundTripper accumulates response
+// body bytes into, for HTTP calls made using that context (including paginated
+// follow-up requests, which BigQuery's RowIterator issues against the same ctx it
+// was created with).
+func withByteCounter(ctx context.Context, counter *atomic.Int64) context.Context {
+	return context.WithValue(ctx, byteCounterCtxKey{}, counter)
+}
+
+// meteredRoundTripper counts response body bytes consumed by the BigQuery client
+// for requests whose context carries a byte counter (see withByteCounter), so
+// BigQuery CDC pull can report bytes read instead of an approximation of the
+// converted row size. net/http may transparently decompress the body before it
+// reaches this wrapper.
+type meteredRoundTripper struct {
+	base http.RoundTripper
+}
+
+func (t *meteredRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if resp == nil {
+		return nil, err
+	}
+	if counter, ok := req.Context().Value(byteCounterCtxKey{}).(*atomic.Int64); ok {
+		resp.Body = &countingReadCloser{ReadCloser: resp.Body, counter: counter}
+	}
+	return resp, err
+}
+
+// countingReadCloser adds each Read's returned byte count to counter as the
+// response body is consumed.
+type countingReadCloser struct {
+	io.ReadCloser
+	counter *atomic.Int64
+}
+
+func (c *countingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	c.counter.Add(int64(n))
+	return n, err
+}
+
+// newMeteredClient builds an authenticated HTTP client for the
+// BigQuery client whose RoundTripper reports consumed response body bytes via
+// withByteCounter.
+func newMeteredClient(ctx context.Context, creds *auth.Credentials) (*http.Client, error) {
+	client, _, err := htransport.NewClient(ctx, option.WithAuthCredentials(creds))
+	if err != nil {
+		return nil, err
+	}
+	client.Transport = &meteredRoundTripper{base: client.Transport}
+	return client, nil
+}

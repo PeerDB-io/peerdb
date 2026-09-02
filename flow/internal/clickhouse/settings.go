@@ -16,20 +16,26 @@ import (
 // Important: if the setting causes breaking changes to existing PeerDB flows (not just ClickHouse compatibility),
 // it must also be gated by PeerDB's internal version.
 const (
-	SettingAllowNullableKey                   CHSetting = "allow_nullable_key"
-	SettingJsonTypeEscapeDotsInKeys           CHSetting = "json_type_escape_dots_in_keys"
-	SettingTypeJsonSkipDuplicatedPaths        CHSetting = "type_json_skip_duplicated_paths"
-	SettingThrowOnMaxPartitionsPerInsertBlock CHSetting = "throw_on_max_partitions_per_insert_block"
-	SettingParallelDistributedInsertSelect    CHSetting = "parallel_distributed_insert_select"
-	SettingMaxTableSizeToDrop                 CHSetting = "max_table_size_to_drop"
+	SettingAllowNullableKey                           CHSetting = "allow_nullable_key"
+	SettingInputFormatTryInferDates                   CHSetting = "input_format_try_infer_dates"
+	SettingInputFormatTryInferDatetimes               CHSetting = "input_format_try_infer_datetimes"
+	SettingInputFormatTryInferDatetimesOnlyDatetime64 CHSetting = "input_format_try_infer_datetimes_only_datetime64"
+	SettingJsonTypeEscapeDotsInKeys                   CHSetting = "json_type_escape_dots_in_keys"
+	SettingTypeJsonSkipDuplicatedPaths                CHSetting = "type_json_skip_duplicated_paths"
+	SettingThrowOnMaxPartitionsPerInsertBlock         CHSetting = "throw_on_max_partitions_per_insert_block"
+	SettingParallelDistributedInsertSelect            CHSetting = "parallel_distributed_insert_select"
+	SettingMaxTableSizeToDrop                         CHSetting = "max_table_size_to_drop"
 )
 
 // CHSettingMinVersions maps setting names to their minimum required ClickHouse versions that PeerDB supports.
 // If minimum version is not specified, we assume the setting is available to all ClickHouse versions
 var CHSettingMinVersions = map[CHSetting]chproto.Version{
-	SettingJsonTypeEscapeDotsInKeys:    {Major: 25, Minor: 8, Patch: 0},
-	SettingTypeJsonSkipDuplicatedPaths: {Major: 24, Minor: 8, Patch: 0},
-	SettingMaxTableSizeToDrop:          {Major: 23, Minor: 12, Patch: 0},
+	SettingInputFormatTryInferDates:                   {Major: 22, Minor: 8, Patch: 0},
+	SettingInputFormatTryInferDatetimes:               {Major: 22, Minor: 8, Patch: 0},
+	SettingInputFormatTryInferDatetimesOnlyDatetime64: {Major: 24, Minor: 8, Patch: 0},
+	SettingJsonTypeEscapeDotsInKeys:                   {Major: 25, Minor: 8, Patch: 0},
+	SettingTypeJsonSkipDuplicatedPaths:                {Major: 24, Minor: 8, Patch: 0},
+	SettingMaxTableSizeToDrop:                         {Major: 23, Minor: 12, Patch: 0},
 }
 
 type CHSetting string
@@ -79,6 +85,12 @@ func NewInsertSettings(chVersion *chproto.Version, internalVersion uint32) *CHSe
 	if internalVersion >= shared.InternalVersion_JsonEscapeDotsInKeys {
 		sg.Add(SettingJsonTypeEscapeDotsInKeys, "1")
 	}
+	if internalVersion >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		sg.Add(SettingInputFormatTryInferDates, "0")
+		sg.Add(SettingInputFormatTryInferDatetimes, "1")
+		sg.Add(SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
+	}
+
 	return sg
 }
 

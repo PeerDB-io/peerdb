@@ -1320,3 +1320,88 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }
+
+// Verifies that date/datetime string inference in JSON columns is order-independent. Previously,
+// the first value in an insert block determines the inferred type, so a post-1970 date infers Date
+// type and clamps subsequent pre-1970 dates as 1970-01-01; while a pre-1970 value arriving first
+// infers DateTime64 type. With InternalVersion_AlwaysUseDateTime64Inference, test ensures both
+// date-like and datetime-like strings will infer as DateTime64 regardless of row order.
+func (s MongoClickhouseSuite) Test_Json_Date_Field_Inference_Consistency() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable1 := "test_json_date_infer_t1"
+	dstTable1 := "test_json_date_infer_t1_dst"
+	srcTable2 := "test_json_date_infer_t2"
+	dstTable2 := "test_json_date_infer_t2_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "test_json_date_infer"),
+		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection1 := adminClient.Database(srcDatabase).Collection(srcTable1)
+	collection2 := adminClient.Database(srcDatabase).Collection(srcTable2)
+
+	post1970Date := "1981-01-01"
+	pre1970Date := "1911-01-01"
+	// DateTime64 JSON paths are scanned as time.Time by clickhouse-go and re-marshaled as RFC3339 on readback
+	expectedDocTemplate := `{"_id":%d,"date_str":"%sT00:00:00Z","datetime_str":"%sT00:00:00Z"}`
+
+	insert := func(collection *mongo.Collection, id int, date string) {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: id},
+			{Key: "date_str", Value: date},
+			{Key: "datetime_str", Value: date + " 00:00:00"},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	validate := func(dstTable string, id int, date string) {
+		rows, err := s.GetRows(dstTable, "_id,doc")
+		require.NoError(t, err)
+		for _, record := range rows.Records {
+			if record[0].Value().(string) == strconv.Itoa(id) {
+				require.Equal(t, fmt.Sprintf(expectedDocTemplate, id, date, date), record[1].Value().(string))
+				return
+			}
+		}
+		require.Failf(t, "row not found", "_id %d not found in %s", id, dstTable)
+	}
+
+	insert(collection1, 1, post1970Date)
+	insert(collection1, 2, pre1970Date)
+	insert(collection2, 1, pre1970Date)
+	insert(collection2, 2, post1970Date)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load t1", dstTable1, "_id,doc", 2)
+	EnvWaitForCount(env, s, "initial load t2", dstTable2, "_id,doc", 2)
+	validate(dstTable1, 1, post1970Date)
+	validate(dstTable1, 2, pre1970Date)
+	validate(dstTable2, 1, pre1970Date)
+	validate(dstTable2, 2, post1970Date)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insert(collection1, 3, post1970Date)
+	insert(collection1, 4, pre1970Date)
+	insert(collection2, 3, pre1970Date)
+	insert(collection2, 4, post1970Date)
+
+	EnvWaitForCount(env, s, "cdc t1", dstTable1, "_id,doc", 4)
+	EnvWaitForCount(env, s, "cdc t2", dstTable2, "_id,doc", 4)
+	validate(dstTable1, 3, post1970Date)
+	validate(dstTable1, 4, pre1970Date)
+	validate(dstTable2, 3, pre1970Date)
+	validate(dstTable2, 4, post1970Date)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}

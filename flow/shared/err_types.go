@@ -29,7 +29,10 @@ type QRepWarnings []error
 
 func WrapError(s string, err error) error {
 	if applicationError, ok := errors.AsType[*temporal.ApplicationError](err); ok {
-		return temporal.NewNonRetryableApplicationError(s, applicationError.Type(), applicationError)
+		// Keep err, not applicationError, as the cause: the ApplicationError may sit several
+		// wraps deep, and using it directly would drop every intermediate message (such as the
+		// name of the table that went missing) from the user-facing error.
+		return temporal.NewNonRetryableApplicationError(s, applicationError.Type(), err)
 	} else {
 		return fmt.Errorf("%s: %w", s, err)
 	}

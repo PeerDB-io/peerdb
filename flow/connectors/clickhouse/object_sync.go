@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -321,6 +322,13 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,
 		parquetStaged:             format == string(model.QObjectStreamBigQueryExportParquetFormat),
+	}
+
+	chSettings := chinternal.NewCHSettings(c.chVersion)
+	if config.Version >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		chSettings.Add(chinternal.SettingInputFormatTryInferDates, "0")
+		chSettings.Add(chinternal.SettingInputFormatTryInferDatetimes, "1")
+		chSettings.Add(chinternal.SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
 	}
 
 	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction, nil)

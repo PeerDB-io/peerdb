@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,187 @@ func (nopLogger) Error(string, ...any) {}
 
 func init() {
 	testutil.LoadEnv()
+}
+
+func TestProjectedPeakTableCount(t *testing.T) {
+	tests := []struct {
+		name                 string
+		currentTables        uint64
+		tableNames           []string
+		existingTables       map[string]struct{}
+		additionalTableCount uint64
+		isResync             bool
+		want                 uint64
+	}{
+		{
+			name:                 "creation counts raw and missing destinations",
+			currentTables:        10,
+			tableNames:           []string{"existing", "missing"},
+			existingTables:       map[string]struct{}{"existing": {}},
+			additionalTableCount: 1,
+			want:                 12,
+		},
+		{
+			name:           "creation deduplicates destinations",
+			currentTables:  10,
+			tableNames:     []string{"missing", "missing"},
+			existingTables: map[string]struct{}{},
+			want:           11,
+		},
+		{
+			name:           "resync counts absent tables persistently",
+			currentTables:  10,
+			tableNames:     []string{"first_resync", "second_resync"},
+			existingTables: map[string]struct{}{},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync existing null table needs transient slot",
+			currentTables:  10,
+			tableNames:     []string{"null_table"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           11,
+		},
+		{
+			name:           "resync reserves transient slot after persistent tables",
+			currentTables:  10,
+			tableNames:     []string{"new_resync", "null_table"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync calculation is conservative regardless of mapping order",
+			currentTables:  10,
+			tableNames:     []string{"null_table", "new_resync"},
+			existingTables: map[string]struct{}{"null_table": {}},
+			isResync:       true,
+			want:           12,
+		},
+		{
+			name:           "resync duplicate becomes replacement",
+			currentTables:  10,
+			tableNames:     []string{"new_resync", "new_resync"},
+			existingTables: map[string]struct{}{},
+			isResync:       true,
+			want:           12,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, projectedPeakTableCount(
+				tt.currentTables,
+				tt.tableNames,
+				maps.Clone(tt.existingTables),
+				tt.additionalTableCount,
+				tt.isResync,
+			))
+		})
+	}
+}
+
+func TestValidateTableCapacity(t *testing.T) {
+	ctx := t.Context()
+	addr := fmt.Sprintf("%s:%d", testutil.ClickHouseTestHost(), testutil.ClickHouseTestPort())
+	adminConn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Close())
+	})
+	require.NoError(t, adminConn.Ping(ctx))
+
+	database := "pkgch_capacity_" + strings.ToLower(common.RandomString(8))
+	require.NoError(t, adminConn.Exec(ctx, "CREATE DATABASE "+QuoteIdentifier(database)))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		require.NoError(t, adminConn.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+QuoteIdentifier(database)))
+	})
+
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: database},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, conn.Close())
+	})
+	require.NoError(t, conn.Ping(ctx))
+
+	const maxTables uint64 = 5000
+	tablePrefix := "table_capacity_" + strings.ToLower(common.RandomString(8))
+	tableNames := make([]string, int(maxTables)+1)
+	for i := range tableNames {
+		tableNames[i] = fmt.Sprintf("%s_%d", tablePrefix, i)
+	}
+
+	t.Run("one missing table fits", func(t *testing.T) {
+		require.NoError(t, ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:1], 0, false))
+	})
+
+	restrictedUser := "capacity_user_" + strings.ToLower(common.RandomString(8))
+	restrictedPassword := common.RandomString(16)
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"CREATE USER %s IDENTIFIED WITH plaintext_password BY %s",
+		QuoteIdentifier(restrictedUser), QuoteLiteral(restrictedPassword),
+	)))
+	t.Cleanup(func() {
+		require.NoError(t, adminConn.Exec(context.Background(), "DROP USER IF EXISTS "+QuoteIdentifier(restrictedUser)))
+	})
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"GRANT ALL ON %s.* TO %s", QuoteIdentifier(database), QuoteIdentifier(restrictedUser),
+	)))
+	restrictedConn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{
+			Database: database,
+			Username: restrictedUser,
+			Password: restrictedPassword,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, restrictedConn.Close())
+	})
+	require.NoError(t, restrictedConn.Ping(ctx))
+
+	t.Run("missing system table privileges skips validation", func(t *testing.T) {
+		require.NoError(t, ValidateTableCapacity(
+			t.Context(), nopLogger{}, restrictedConn, tableNames[:maxTables], 1, false,
+		))
+	})
+
+	t.Run("missing tables and raw table exceed limit", func(t *testing.T) {
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:maxTables], 1, false)
+		var capacityErr *TableCapacityExceededError
+		require.ErrorAs(t, err, &capacityErr)
+		require.Equal(t, maxTables, capacityErr.MaxTables)
+		require.Equal(t, maxTables+1, capacityErr.RequiredAdditionalTables)
+	})
+
+	require.NoError(t, conn.Exec(ctx, fmt.Sprintf(
+		"CREATE TABLE %s (id UInt64) ENGINE = MergeTree ORDER BY id",
+		QuoteIdentifier(tableNames[0]),
+	)))
+
+	t.Run("existing table is skipped", func(t *testing.T) {
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames, 0, false)
+		var capacityErr *TableCapacityExceededError
+		require.ErrorAs(t, err, &capacityErr)
+		require.Equal(t, maxTables, capacityErr.MaxTables)
+		require.Equal(t, maxTables, capacityErr.RequiredAdditionalTables)
+	})
+
+	t.Run("existing resync table reserves transient slot", func(t *testing.T) {
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames, 0, true)
+		var capacityErr *TableCapacityExceededError
+		require.ErrorAs(t, err, &capacityErr)
+		require.Equal(t, maxTables, capacityErr.MaxTables)
+		require.Equal(t, maxTables+1, capacityErr.RequiredAdditionalTables)
+	})
 }
 
 func TestCheckIfTablesEmptyAndEngine(t *testing.T) {
