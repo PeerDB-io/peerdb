@@ -324,7 +324,7 @@ func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassific
 		table).Scan(&classification.oid, &classification.qualifiedName, &classification.relkind, &classification.relhassubclass)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return classification, fmt.Errorf("table %s not found in pg_class", table)
+			return classification, fmt.Errorf("table %s not found in pg_class: %w", table, shared.ErrTableDoesNotExist)
 		}
 		return classification, fmt.Errorf("failed to classify table %s: %w", table, err)
 	}
