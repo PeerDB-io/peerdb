@@ -168,18 +168,34 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	eventsConfig := &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+		BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+		},
+	}
 	flowConfig := &protos.FlowConnectionConfigsCore{
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
 				DestinationTableIdentifier: "trips_1k_dst",
 				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+				BigqueryCdcEventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
 			},
 		},
-		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
-		DoInitialSnapshot:   true,
-		InitialSnapshotOnly: false,
+		SnapshotStagingPath:   bigQueryTestStagingPath(s, "test"),
+		DoInitialSnapshot:     true,
+		InitialSnapshotOnly:   false,
+		SourceConnectorConfig: eventsConfig,
 	}
+
+	t.Run("rejects an unspecified replication mode", func(t *testing.T) {
+		flowConfig.SourceConnectorConfig = nil
+		defer func() { flowConfig.SourceConnectorConfig = eventsConfig }()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.Error(t, err, "a CDC mirror must pick a replication mode explicitly")
+		require.Contains(t, err.Error(), "invalid replication mode")
+	})
 
 	t.Run("CDC now supported", func(t *testing.T) {
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -219,7 +235,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
 			},
 		}
-		defer func() { flowConfig.SourceConnectorConfig = nil }()
+		defer func() { flowConfig.SourceConnectorConfig = eventsConfig }()
 
 		t.Run("requires a watermark column", func(t *testing.T) {
 			err := bqConn.ValidateMirrorSource(ctx, flowConfig)

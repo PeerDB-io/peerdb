@@ -372,6 +372,9 @@ func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",
 					key)
 			}
+		default:
+			return fmt.Errorf("no replication mode configured for table %q; a CDC mirror must select "+
+				"either EVENTS or QUERY replication mode", key)
 		}
 	}
 
