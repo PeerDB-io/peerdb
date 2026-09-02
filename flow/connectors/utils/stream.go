@@ -206,8 +206,6 @@ func typedCDCRow(
 	case *model.DeleteRecord[model.RecordItems]:
 		items = typedRecord.Items
 		isDeleted = 1
-	case *model.MessageRecord[model.RecordItems]:
-		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
 	}
