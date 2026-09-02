@@ -306,7 +306,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "3600",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",

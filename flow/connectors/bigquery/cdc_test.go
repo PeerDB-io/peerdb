@@ -115,6 +115,44 @@ func TestMissingSourceColumn(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// The message shapes below were all captured from a live BigQuery table, driven through
+// both a plain SELECT and the CHANGES(TABLE ...) query pullTableChanges issues.
+func TestMissingSourceColumnMessageShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{{
+		name:    "bare name, no similarly-named column in scope",
+		message: "Unrecognized name: secret_column at [1:8]",
+		want:    "secret_column",
+	}, {
+		// A rename leaves a similarly-named column in scope, so BigQuery suggests it;
+		// the capture must not swallow the ";" that terminates the name.
+		name:    "bare name with Did you mean suggestion",
+		message: "Unrecognized name: secret_column; Did you mean secret_columns? at [1:8]",
+		want:    "secret_column",
+	}, {
+		// Names needing quoting are echoed back backtick-wrapped.
+		name:    "quoted name, no suggestion",
+		message: "Unrecognized name: `my secret column` at [1:8]",
+		want:    "my secret column",
+	}, {
+		name:    "quoted name with Did you mean suggestion",
+		message: "Unrecognized name: `my secret column`; Did you mean my secret columns? at [1:8]",
+		want:    "my secret column",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			col, ok := missingSourceColumn(
+				&googleapi.Error{Code: 400, Message: tc.message},
+				[]string{"id", tc.want},
+			)
+			assert.True(t, ok)
+			assert.Equal(t, tc.want, col)
+		})
+	}
+}
+
 func TestEffectiveColumns(t *testing.T) {
 	const retryAfter = time.Hour
 	c := &BigQueryConnector{missingSourceColumns: map[string]map[string]time.Time{
