@@ -117,18 +117,18 @@ func (p *PostgresMetadata) RecordTableReplicationAttempt(
 // is non-zero, advances its synced_batch_id after a successful poll that
 // produced records staged for normalize. newBatchID is zero for a poll that
 // found nothing new; the cursor still advances but there's no batch to
-// normalize.
+// normalize. The state row always exists by now, RecordTableReplicationAttempt
+// created it before the poll started.
 func (p *PostgresMetadata) RecordTableReplicationSync(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string, syncedAt time.Time, newBatchID int64,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+cdcTableReplicationStateTableName+
-		` (flow_name, source_table_identifier, cursor_text, last_attempt_at, last_synced_at, synced_batch_id)
-		VALUES ($1, $2, $3, $4, $4, $5)
-		ON CONFLICT (flow_name, source_table_identifier)
-		DO UPDATE SET cursor_text = excluded.cursor_text, last_synced_at = excluded.last_synced_at,
-			synced_batch_id = GREATEST(`+cdcTableReplicationStateTableName+`.synced_batch_id, excluded.synced_batch_id),
+		UPDATE `+cdcTableReplicationStateTableName+`
+		SET cursor_text = $3,
+			last_synced_at = $4,
+			synced_batch_id = GREATEST(synced_batch_id, $5),
 			updated_at = now()
+		WHERE flow_name = $1 AND source_table_identifier = $2
 	`, jobName, sourceTableIdentifier, cursor, syncedAt, newBatchID); err != nil {
 		p.logger.Error("failed to record table replication sync", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication sync for %s: %w", sourceTableIdentifier, err)
