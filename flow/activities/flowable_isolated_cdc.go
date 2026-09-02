@@ -322,8 +322,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts,
-	bytesProcessed int64) {
+func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts, bytesProcessed int64) {
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -342,9 +341,9 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 	}
+
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
-
 }
 
 // isolatedTableNormalizeLoop inserts one source table's staged batches
