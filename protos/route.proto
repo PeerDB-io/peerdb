@@ -148,7 +148,7 @@ message CDCTableTotalCountsResponse {
   repeated CDCTableRowCounts tables_data = 2;
 }
 
-// Isolated per-table CDC replication progress; see
+// Query-based CDC per-table replication progress; see
 // flow/connectors/external_metadata/table_replication_state.go.
 message TableReplicationState {
   string source_table_identifier = 1;

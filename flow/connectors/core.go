@@ -136,11 +136,11 @@ type CDCPullConnector interface {
 	) error
 }
 
-// TableCDCPullConnector is implemented by sources that poll each table
+// QueryCDCPullConnector is implemented by sources that poll each table
 // independently (no shared replication stream to isolate tables on top of),
 // letting the activity drive per-table isolation, parallelism, and
 // backpressure generically instead of each such connector reimplementing it.
-type TableCDCPullConnector interface {
+type QueryCDCPullConnector interface {
 	CDCPullConnectorCore
 
 	// PullTableRecords pulls whatever is newly available for one source table
@@ -224,18 +224,18 @@ type CDCSyncConnector interface {
 	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error)
 }
 
-// TableCDCSyncConnector is implemented by destinations that can stage one
-// table's CDC records (SyncTableCDC) and separately insert staged batches
-// straight into the final destination table (NormalizeTableCDC), skipping any
+// QueryCDCSyncConnector is implemented by destinations that can stage one
+// table's CDC records (SyncQueryCDC) and separately insert staged batches
+// straight into the final destination table (NormalizeQueryCDC), skipping any
 // raw-table hop.
-type TableCDCSyncConnector interface {
+type QueryCDCSyncConnector interface {
 	Connector
 
-	// SyncTableCDC should be idempotent given the same records and BatchID.
-	SyncTableCDC(ctx context.Context, req *model.SyncTableCDCRequest) (*model.RecordTypeCounts, error)
+	// SyncQueryCDC should be idempotent given the same records and BatchID.
+	SyncQueryCDC(ctx context.Context, req *model.SyncQueryCDCRequest) (*model.RecordTypeCounts, error)
 
-	// NormalizeTableCDC should be idempotent given the same batch range.
-	NormalizeTableCDC(ctx context.Context, req *model.NormalizeTableCDCRequest) (*model.RecordTypeCounts, error)
+	// NormalizeQueryCDC should be idempotent given the same batch range.
+	NormalizeQueryCDC(ctx context.Context, req *model.NormalizeQueryCDCRequest) (*model.RecordTypeCounts, error)
 }
 
 type CDCSyncPgConnector interface {
@@ -851,6 +851,6 @@ var (
 	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
 	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
 
-	_ TableCDCPullConnector = &connbigquery.BigQueryConnector{}
-	_ TableCDCSyncConnector = &connclickhouse.ClickHouseConnector{}
+	_ QueryCDCPullConnector = &connbigquery.BigQueryConnector{}
+	_ QueryCDCSyncConnector = &connclickhouse.ClickHouseConnector{}
 )

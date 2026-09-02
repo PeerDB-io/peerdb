@@ -22,19 +22,19 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
-// syncFlowIsolatedTables replaces pullAndSync/normalizeLoop for the isolated
-// per-table CDC path: each source table gets its own sync loop (pull +
-// stage-to-S3) and its own normalize loop (staged batches -> final table),
-// coupled only by that table's own synced/normalized batch counters. A
-// lagging or failing table never blocks its siblings, and a slow normalize
-// backpressures only that table's own sync loop. There is no shared
-// batch/backpressure state across tables at all, beyond the two semaphores
-// bounding how many tables may pull+sync and normalize concurrently.
-func (a *FlowableActivity) syncFlowIsolatedTables(
+// syncFlowQueryCDC replaces pullAndSync/normalizeLoop for the query-based CDC
+// path: each source table gets its own sync loop (pull + stage-to-S3) and its
+// own normalize loop (staged batches -> final table), coupled only by that
+// table's own synced/normalized batch counters. A lagging or failing table
+// never blocks its siblings, and a slow normalize backpressures only that
+// table's own sync loop. There is no shared batch/backpressure state across
+// tables at all, beyond the two semaphores bounding how many tables may
+// pull+sync and normalize concurrently.
+func (a *FlowableActivity) syncFlowQueryCDC(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
-	srcConn connectors.TableCDCPullConnector,
+	srcConn connectors.QueryCDCPullConnector,
 ) error {
 	flowName := config.FlowJobName
 	logger := internal.LoggerFromCtx(ctx)
@@ -50,9 +50,9 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 
-	pullSyncParallelism := int(config.GetQueryCdcTablesParallelism())
+	pullSyncParallelism := int(config.GetQueryCdcPullSyncParallelism())
 	if pullSyncParallelism <= 0 {
-		pullSyncParallelism, err = internal.PeerDBCDCTablePullSyncParallelism(ctx, config.Env)
+		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
 		if err != nil {
 			return fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
 		}
@@ -65,7 +65,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		pullSyncSem = make(chan struct{}, pullSyncParallelism)
 	}
 
-	normParallelism, err := internal.PeerDBCDCTableNormalizeParallelism(ctx, config.Env)
+	normParallelism, err := internal.PeerDBQueryCDCNormalizeParallelism(ctx, config.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get CDC table normalize parallelism: %w", err)
 	}
@@ -102,7 +102,7 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 
 	var totalRecordsSynced atomic.Int64
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("isolated CDC: %d tables, totalRecordsSynced:%d", len(sourceTables), totalRecordsSynced.Load())
+		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d", len(sourceTables), totalRecordsSynced.Load())
 	})
 	defer shutdown()
 
@@ -112,21 +112,21 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		normResponses := concurrency.NewLastChan()
 
 		group.Go(func() error {
-			return a.isolatedTableNormalizeLoop(groupCtx, config, tableMapping, tableNameSchemaMapping,
+			return a.queryCDCNormalizeLoop(groupCtx, config, tableMapping, tableNameSchemaMapping,
 				normSem, normRequests, normResponses)
 		})
 		group.Go(func() error {
-			return a.isolatedTablePullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
+			return a.queryCDCPullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
 				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
 	return group.Wait()
 }
 
-// isolatedTablePollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
+// queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once idleTimeout has
 // passed since its last poll attempt.
-func isolatedTablePollWait(lastAttemptAt time.Time, now time.Time, idleTimeout time.Duration) time.Duration {
+func queryCDCPollWait(lastAttemptAt time.Time, now time.Time, idleTimeout time.Duration) time.Duration {
 	if lastAttemptAt.IsZero() {
 		return 0
 	}
@@ -173,15 +173,15 @@ func acquire(ctx context.Context, sem chan struct{}, logger log.Logger, name str
 	}
 }
 
-// isolatedTablePullSyncLoop pulls and stages (but does not normalize) one
+// queryCDCPullSyncLoop pulls and stages (but does not normalize) one
 // source table's records until ctx is done. Backpressures itself, without
 // affecting any other table, once this table's own sync/normalize gap
 // reaches normBufferSize. A poll failure is alerted once per new lagging
 // episode and retried on the same idle-timeout cadence as a normal poll.
-func (a *FlowableActivity) isolatedTablePullSyncLoop(
+func (a *FlowableActivity) queryCDCPullSyncLoop(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
-	srcConn connectors.TableCDCPullConnector,
+	srcConn connectors.QueryCDCPullConnector,
 	pgMetadata *connmetadata.PostgresMetadata,
 	tableMapping *protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
@@ -211,7 +211,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		}
 
 		if state.SyncedBatchID-state.NormalizedBatchID >= normBufferSize {
-			logger.Warn("isolated CDC table waiting on its own normalize backpressure",
+			logger.Warn("query-based CDC table waiting on its own normalize backpressure",
 				slog.Int64("syncedBatchID", state.SyncedBatchID),
 				slog.Int64("normalizedBatchID", state.NormalizedBatchID), slog.Int64("normBufferSize", normBufferSize))
 			select {
@@ -222,7 +222,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			continue
 		}
 
-		if wait := isolatedTablePollWait(state.LastAttemptAt, time.Now(), idleTimeout); wait > 0 {
+		if wait := queryCDCPollWait(state.LastAttemptAt, time.Now(), idleTimeout); wait > 0 {
 			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
@@ -267,7 +267,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		var rowCounts *model.RecordTypeCounts
 		if hasRecords {
 			pollGroup.Go(func() error {
-				dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.TableCDCSyncConnector](
+				dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
 					pollCtx, config.Env, a.CatalogPool, config.DestinationName)
 				if syncErr != nil {
 					return fmt.Errorf("failed to get destination connector: %w", syncErr)
@@ -275,7 +275,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 				defer dstClose(pollCtx)
 
 				logger.Info("[cdc] starting sync")
-				rowCounts, syncErr = dstConn.SyncTableCDC(pollCtx, &model.SyncTableCDCRequest{
+				rowCounts, syncErr = dstConn.SyncQueryCDC(pollCtx, &model.SyncQueryCDCRequest{
 					Env:               config.Env,
 					FlowJobName:       flowName,
 					TableMapping:      tableMapping,
@@ -306,7 +306,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 			logger.Error("[cdc] table poll failed; will retry", slog.Any("error", pollErr))
 			if !wasLagging {
 				_ = a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf(
-					"isolated CDC failed to poll source table %s; replication for other tables will continue: %w",
+					"query-based CDC failed to poll source table %s; replication for other tables will continue: %w",
 					sourceTable, pollErr))
 				wasLagging = true
 			}
@@ -367,11 +367,11 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
 }
 
-// isolatedTableNormalizeLoop inserts one source table's staged batches
+// queryCDCNormalizeLoop inserts one source table's staged batches
 // straight into its final destination table as they become available,
 // independent of every other table's normalize progress. A normalize failure
 // is alerted once per new lagging episode and retried with backoff.
-func (a *FlowableActivity) isolatedTableNormalizeLoop(
+func (a *FlowableActivity) queryCDCNormalizeLoop(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	tableMapping *protos.TableMapping,
@@ -422,7 +422,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 			return err
 		}
 
-		dstConn, dstClose, err := connectors.GetByNameAs[connectors.TableCDCSyncConnector](ctx, config.Env,
+		dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
 			a.CatalogPool, config.DestinationName)
 		if err != nil {
 			release()
@@ -430,7 +430,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 		}
 		logger.Info("[cdc] starting normalize",
 			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
-		normCounts, normErr := dstConn.NormalizeTableCDC(ctx, &model.NormalizeTableCDCRequest{
+		normCounts, normErr := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
 			Env:               config.Env,
 			FlowJobName:       flowName,
 			TableMapping:      tableMapping,
@@ -451,7 +451,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 			logger.Error("[cdc] table normalize failed; will retry", slog.Any("error", normErr))
 			if !wasLagging {
 				_ = a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf(
-					"isolated CDC failed to normalize table %s; replication for other tables will continue: %w",
+					"query-based CDC failed to normalize table %s; replication for other tables will continue: %w",
 					sourceTable, normErr))
 				wasLagging = true
 			}

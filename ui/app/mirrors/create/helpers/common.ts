@@ -51,7 +51,7 @@ export const blankCDCSetting: CDCConfig = {
   version: 0,
   flags: [],
   skipValidation: false,
-  queryCdcTablesParallelism: 0,
+  queryCdcPullSyncParallelism: 0,
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {

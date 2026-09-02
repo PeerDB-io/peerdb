@@ -767,7 +767,7 @@ func (h *FlowRequestHandler) GetTableReplicationState(
 			inserts_count,
 			updates_count,
 			deletes_count
-		FROM cdc_table_replication_state
+		FROM query_cdc_replication_state
 		WHERE flow_name = $1
 		ORDER BY source_table_identifier`, req.FlowJobName)
 	if err != nil {

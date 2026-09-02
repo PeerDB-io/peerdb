@@ -72,8 +72,8 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 	return avroFile, nil
 }
 
-// SetTableAvroStage records a table's staged Avro file for the isolated
-// per-table CDC path (see flow/activities/flowable_isolated_cdc.go). Unlike
+// SetTableAvroStage records a table's staged Avro file for the query-based CDC
+// path (see flow/activities/flowable_query_cdc.go). Unlike
 // SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
 // flow-wide sync batch ID, one row per (flow, table, table's own batch).
 func SetTableAvroStage(
@@ -91,7 +91,7 @@ func SetTableAvroStage(
 	}
 
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO cdc_table_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count)
+		INSERT INTO query_cdc_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (flow_name, source_table_identifier, batch_id)
 		DO UPDATE SET avro_file = $4, inserts_count = $5, updates_count = $6, deletes_count = $7, created_at = CURRENT_TIMESTAMP`,
@@ -117,7 +117,7 @@ func GetTableAvroStage(
 	var avroFileJSON []byte
 	var insertsCount, updatesCount, deletesCount int64
 	if err := conn.QueryRow(ctx, `
-		SELECT avro_file, inserts_count, updates_count, deletes_count FROM cdc_table_avro_stage
+		SELECT avro_file, inserts_count, updates_count, deletes_count FROM query_cdc_avro_stage
 		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
 		flowJobName, sourceTableIdentifier, batchID,
 	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount); err != nil {
@@ -150,7 +150,7 @@ func DeleteTableAvroStage(ctx context.Context, flowJobName string, sourceTableId
 	}
 
 	if _, err := conn.Exec(ctx,
-		`DELETE FROM cdc_table_avro_stage WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
+		`DELETE FROM query_cdc_avro_stage WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
 		flowJobName, sourceTableIdentifier, batchID,
 	); err != nil {
 		return fmt.Errorf("failed to delete table avro stage: %w", err)

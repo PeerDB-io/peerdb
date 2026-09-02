@@ -20,7 +20,7 @@ func isDeletedColNameOrDefault(configuredSoftDeleteColName string) string {
 	return defaultIsDeletedColName
 }
 
-// typedCDCTableSchema builds the QRecordSchema for the isolated per-table CDC
+// typedCDCTableSchema builds the QRecordSchema for the query-based CDC
 // path's typed Avro file
 func typedCDCTableSchema(
 	tableSchema *protos.TableSchema, tableMapping *protos.TableMapping, isDeletedColName, versionColName string,
@@ -53,14 +53,14 @@ func typedCDCTableSchema(
 	return types.QRecordSchema{Fields: fields}, sourceColumnByDest
 }
 
-// SyncTableCDC replays any pending schema deltas onto the destination table,
+// SyncQueryCDC replays any pending schema deltas onto the destination table,
 // then converts one table's CDC records directly into a typed Avro file
 // staged to S3/GCS under req.BatchID, this table's own batch sequence,
-// without inserting into the final destination table. Used by the isolated
-// per-table CDC path, see flow/activities/flowable_isolated_cdc.go. Pair with
-// NormalizeTableCDC to insert staged batches into the final table.
-func (c *ClickHouseConnector) SyncTableCDC(
-	ctx context.Context, req *model.SyncTableCDCRequest,
+// without inserting into the final destination table. Used by the query-based
+// CDC path, see flow/activities/flowable_query_cdc.go. Pair with
+// NormalizeQueryCDC to insert staged batches into the final table.
+func (c *ClickHouseConnector) SyncQueryCDC(
+	ctx context.Context, req *model.SyncQueryCDCRequest,
 ) (*model.RecordTypeCounts, error) {
 	if err := c.ReplayTableSchemaDeltas(
 		ctx, req.Env, req.FlowJobName, []*protos.TableMapping{req.TableMapping}, req.SchemaDeltas, req.Flags,
@@ -115,13 +115,13 @@ func (c *ClickHouseConnector) SyncTableCDC(
 	return rowCounts, nil
 }
 
-// NormalizeTableCDC inserts every batch in (req.StartBatchID, req.EndBatchID],
-// previously staged by SyncTableCDC, straight into the final destination
+// NormalizeQueryCDC inserts every batch in (req.StartBatchID, req.EndBatchID],
+// previously staged by SyncQueryCDC, straight into the final destination
 // table, one INSERT ... SELECT per batch from that batch's staged Avro file,
 // deleting each stage record once applied. Returns the summed
 // insert/update/delete counts across every batch actually applied.
-func (c *ClickHouseConnector) NormalizeTableCDC(
-	ctx context.Context, req *model.NormalizeTableCDCRequest,
+func (c *ClickHouseConnector) NormalizeQueryCDC(
+	ctx context.Context, req *model.NormalizeQueryCDCRequest,
 ) (*model.RecordTypeCounts, error) {
 	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)

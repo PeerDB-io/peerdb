@@ -24,7 +24,7 @@ func TestInitializeTableReplicationState(t *testing.T) {
 	firstTable := "first_table"
 	secondTable := "second_table"
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1`, flowName)
+		_, _ = pool.Exec(ctx, `DELETE FROM `+queryCDCReplicationStateTableName+` WHERE flow_name = $1`, flowName)
 	})
 
 	require.NoError(t, metadata.InitializeTableReplicationState(ctx, flowName, firstTable, "snapshot-checkpoint"))

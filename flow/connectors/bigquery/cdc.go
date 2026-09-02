@@ -89,7 +89,7 @@ func DecodeBigQueryTableCursor(cursor string) (time.Time, error) {
 	return t, nil
 }
 
-// PullTableRecords implements connectors.TableCDCPullConnector. It pulls a
+// PullTableRecords implements connectors.QueryCDCPullConnector. It pulls a
 // single source table's due window, reusing the same window/dispatch logic
 // PullRecords uses across all its tables, scoped to just req.SourceTableIdentifier.
 func (c *BigQueryConnector) PullTableRecords(

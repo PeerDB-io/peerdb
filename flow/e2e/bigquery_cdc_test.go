@@ -412,8 +412,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 }
 
 // Test_BigQuery_CDC_Restart_Mid_Window_Resume covers resuming from the
-// persisted per-table cursor (cdc_table_replication_state, written by
-// RecordTableReplicationSync in the isolated per-table CDC path) rather than
+// persisted per-table cursor (query_cdc_replication_state, written by
+// RecordTableReplicationSync in the query-based CDC path) rather than
 // re-scanning already-synced rows or dropping rows written while the mirror
 // wasn't polling.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
@@ -497,8 +497,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 }
 
 // Test_BigQuery_CDC_Isolated_Table_Failure_Does_Not_Block_Sibling drops one
-// source table mid-CDC to force isolatedTablePullSyncLoop's poll-failure path
-// (flow/activities/flowable_isolated_cdc.go) and proves a sibling table keeps
+// source table mid-CDC to force queryCDCPullSyncLoop's poll-failure path
+// (flow/activities/flowable_query_cdc.go) and proves a sibling table keeps
 // replicating unaffected.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_Not_Block_Sibling() {
 	t := s.T()
@@ -570,9 +570,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 }
 
 // Test_BigQuery_CDC_Isolated_Table_Backpressure_Does_Not_Block_Sibling renames
-// away one table's ClickHouse destination so its own NormalizeTableCDC always
+// away one table's ClickHouse destination so its own NormalizeQueryCDC always
 // fails, then proves that table's own sync loop backpressures at
-// normBufferSize (flow/activities/flowable_isolated_cdc.go) without slowing
+// normBufferSize (flow/activities/flowable_query_cdc.go) without slowing
 // down a healthy sibling table at all.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_Does_Not_Block_Sibling() {
 	t := s.T()
@@ -786,7 +786,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 // Test_BigQuery_CDC_Table_Replication_State_Handler checks that the
 // GetTableReplicationState API (flow/cmd/mirror_status.go) reports the same
 // per-table sync/normalize progress as the underlying
-// cdc_table_replication_state row it's read from.
+// query_cdc_replication_state row it's read from.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handler() {
 	t := s.T()
 	ctx := t.Context()
@@ -852,7 +852,7 @@ func readBigQueryTableCursor(t *testing.T, pool *pgxpool.Pool, flowJobName strin
 	var cursorText string
 	require.NoError(t, pool.QueryRow(
 		t.Context(),
-		"SELECT cursor_text FROM cdc_table_replication_state WHERE flow_name = $1 AND source_table_identifier = $2",
+		"SELECT cursor_text FROM query_cdc_replication_state WHERE flow_name = $1 AND source_table_identifier = $2",
 		flowJobName, sourceTableIdentifier,
 	).Scan(&cursorText))
 	cursor, err := time.Parse(time.RFC3339Nano, cursorText)
@@ -872,7 +872,7 @@ func bigQueryTableReplicationStateExists(
 ) (bool, error) {
 	var exists bool
 	err := pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM cdc_table_replication_state WHERE flow_name = $1 AND source_table_identifier = $2)",
+		"SELECT EXISTS(SELECT 1 FROM query_cdc_replication_state WHERE flow_name = $1 AND source_table_identifier = $2)",
 		flowJobName, sourceTableIdentifier,
 	).Scan(&exists)
 	return exists, err
