@@ -28,7 +28,8 @@ import (
 // coupled only by that table's own synced/normalized batch counters. A
 // lagging or failing table never blocks its siblings, and a slow normalize
 // backpressures only that table's own sync loop. There is no shared
-// batch/backpressure state across tables at all.
+// batch/backpressure state across tables at all, beyond the two semaphores
+// bounding how many tables may pull+sync and normalize concurrently.
 func (a *FlowableActivity) syncFlowIsolatedTables(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
@@ -49,18 +50,30 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 
-	parallelism := int(config.GetQueryCdcTablesParallelism())
-	if parallelism <= 0 {
-		parallelism, err = internal.PeerDBCDCTableParallelism(ctx, config.Env)
+	pullSyncParallelism := int(config.GetQueryCdcTablesParallelism())
+	if pullSyncParallelism <= 0 {
+		pullSyncParallelism, err = internal.PeerDBCDCTablePullSyncParallelism(ctx, config.Env)
 		if err != nil {
-			return fmt.Errorf("failed to get CDC table parallelism: %w", err)
+			return fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
 		}
 	}
-	// Bounds concurrent pull+sync work only; each table's normalize loop runs
-	// independently of this limit.
-	var pullSem chan struct{}
-	if parallelism > 0 {
-		pullSem = make(chan struct{}, parallelism)
+	// Bounds concurrent pull+sync work only; normalize is bounded separately by
+	// normSem below, so a stalled destination can't be starved by pull work and
+	// vice versa.
+	var pullSyncSem chan struct{}
+	if pullSyncParallelism > 0 {
+		pullSyncSem = make(chan struct{}, pullSyncParallelism)
+	}
+
+	normParallelism, err := internal.PeerDBCDCTableNormalizeParallelism(ctx, config.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get CDC table normalize parallelism: %w", err)
+	}
+	// Bounds concurrent normalize work to ensure we don't overload the destination
+	// Especially when normalize needs to catch up after a downtime
+	var normSem chan struct{}
+	if normParallelism > 0 {
+		normSem = make(chan struct{}, normParallelism)
 	}
 
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
@@ -99,11 +112,12 @@ func (a *FlowableActivity) syncFlowIsolatedTables(
 		normResponses := concurrency.NewLastChan()
 
 		group.Go(func() error {
-			return a.isolatedTableNormalizeLoop(groupCtx, config, tableMapping, tableNameSchemaMapping, normRequests, normResponses)
+			return a.isolatedTableNormalizeLoop(groupCtx, config, tableMapping, tableNameSchemaMapping,
+				normSem, normRequests, normResponses)
 		})
 		group.Go(func() error {
 			return a.isolatedTablePullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
-				channelBufferSize, idleTimeout, normBufferSize, pullSem, &totalRecordsSynced, normRequests, normResponses)
+				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
 	return group.Wait()
@@ -140,10 +154,17 @@ func waitOrDone(ctx context.Context, wait time.Duration) error {
 // acquire blocks until sem has room (a nil sem, meaning unlimited, never
 // blocks) or ctx is done, returning a release func to call when done. It's a
 // no-op once ctx is already done, since nothing was acquired.
-func acquire(ctx context.Context, sem chan struct{}) (func(), error) {
+func acquire(ctx context.Context, sem chan struct{}, logger log.Logger, name string) (func(), error) {
 	if sem == nil {
 		return func() {}, nil
 	}
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	default:
+	}
+
+	logger.Info("[cdc] waiting for a slot", slog.String("semaphore", name), slog.Int("parallelism", cap(sem)))
 	select {
 	case sem <- struct{}{}:
 		return func() { <-sem }, nil
@@ -167,7 +188,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 	channelBufferSize int,
 	idleTimeout time.Duration,
 	normBufferSize int64,
-	pullSem chan struct{},
+	pullSyncSem chan struct{},
 	totalRecordsSynced *atomic.Int64,
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
@@ -210,7 +231,7 @@ func (a *FlowableActivity) isolatedTablePullSyncLoop(
 		}
 
 		// bounded parallelism: only pull+sync for up to parallelism tables at once
-		release, err := acquire(ctx, pullSem)
+		release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
 		if err != nil {
 			return err
 		}
@@ -355,6 +376,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 	config *protos.FlowConnectionConfigsCore,
 	tableMapping *protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
+	normSem chan struct{},
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
 ) error {
@@ -393,9 +415,17 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 			}
 		}
 
+		// bounded parallelism: only normalize into the destination for up to
+		// normParallelism tables at once.
+		release, err := acquire(ctx, normSem, logger, "normalize")
+		if err != nil {
+			return err
+		}
+
 		dstConn, dstClose, err := connectors.GetByNameAs[connectors.TableCDCSyncConnector](ctx, config.Env,
 			a.CatalogPool, config.DestinationName)
 		if err != nil {
+			release()
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
 		}
 		logger.Info("[cdc] starting normalize",
@@ -412,6 +442,7 @@ func (a *FlowableActivity) isolatedTableNormalizeLoop(
 			SoftDeleteColName: config.SoftDeleteColName,
 		})
 		dstClose(ctx)
+		release()
 
 		if normErr != nil {
 			if ctx.Err() != nil {
