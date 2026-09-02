@@ -385,9 +385,9 @@ func (c *BigQueryConnector) recordMissingSourceColumn(sourceTableIdentifier, col
 	missing[column] = time.Now()
 }
 
-// Matches BigQuery's error for a SELECT list column that doesn't exist on the source,
-// e.g. "Unrecognized name: foo at [1:8]" (verified against a live table).
-var bqUnrecognizedNameRe = regexp.MustCompile(`Unrecognized name: (\S+)`)
+// Matches BigQuery's error for a SELECT list column that doesn't exist on the source.
+// Verified against live BigQuery error messages.
+var bqUnrecognizedNameRe = regexp.MustCompile("Unrecognized name: (?:`([^`]+)`|([^\\s;]+))")
 
 // missingSourceColumn returns the column named in err's "unrecognized name" error, if
 // it's one of candidates. Returns "", false otherwise.
@@ -400,7 +400,11 @@ func missingSourceColumn(err error, candidates []string) (string, bool) {
 	if match == nil {
 		return "", false
 	}
+	// match[1] is the backtick-quoted form, match[2] the bare one; exactly one is set.
 	col := match[1]
+	if col == "" {
+		col = match[2]
+	}
 	if !slices.Contains(candidates, col) {
 		return "", false
 	}
