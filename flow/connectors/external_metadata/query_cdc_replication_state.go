@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	cdcTableReplicationStateTableName = "cdc_table_replication_state"
-	cdcTableAvroStageTableName        = "cdc_table_avro_stage"
+	queryCDCReplicationStateTableName = "query_cdc_replication_state"
+	queryCDCAvroStageTableName        = "query_cdc_avro_stage"
 )
 
-// TableReplicationState is one source table's durable progress in the
-// isolated per-table CDC path (see connectors.TableCDCPullConnector).
+// QueryCDCReplicationState is one source table's durable progress in the
+// query-based CDC path (see connectors.QueryCDCPullConnector).
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
-type TableReplicationState struct {
+type QueryCDCReplicationState struct {
 	// CursorText is the opaque cursor last returned by PullTableRecords for
 	// this table, empty if this table has never been synced.
 	CursorText string
@@ -48,24 +48,24 @@ type TableReplicationState struct {
 	DeletesCount int64
 }
 
-// GetTableReplicationState reads a table's durable progress, defaulting to an
+// GetQueryCDCReplicationState reads a table's durable progress, defaulting to an
 // empty state for a table never seen before.
-func (p *PostgresMetadata) GetTableReplicationState(
+func (p *PostgresMetadata) GetQueryCDCReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string,
-) (TableReplicationState, error) {
-	var state TableReplicationState
+) (QueryCDCReplicationState, error) {
+	var state QueryCDCReplicationState
 	var lastAttemptAt, lastSyncedAt, lastNormalizedAt *time.Time
 	if err := p.pool.QueryRow(ctx,
 		`SELECT cursor_text, last_attempt_at, last_synced_at, synced_batch_id, normalized_batch_id, last_normalized_at,
 			inserts_count, updates_count, deletes_count
-		FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1 AND source_table_identifier = $2`,
+		FROM `+queryCDCReplicationStateTableName+` WHERE flow_name = $1 AND source_table_identifier = $2`,
 		jobName, sourceTableIdentifier,
 	).Scan(&state.CursorText, &lastAttemptAt, &lastSyncedAt, &state.SyncedBatchID, &state.NormalizedBatchID, &lastNormalizedAt,
 		&state.InsertsCount, &state.UpdatesCount, &state.DeletesCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return TableReplicationState{}, nil
+			return QueryCDCReplicationState{}, nil
 		}
-		return TableReplicationState{}, fmt.Errorf("failed to get table replication state for %s: %w", sourceTableIdentifier, err)
+		return QueryCDCReplicationState{}, fmt.Errorf("failed to get table replication state for %s: %w", sourceTableIdentifier, err)
 	}
 	if lastAttemptAt != nil {
 		state.LastAttemptAt = *lastAttemptAt
@@ -79,33 +79,33 @@ func (p *PostgresMetadata) GetTableReplicationState(
 	return state, nil
 }
 
-// InitializeTableReplicationState seeds a table's cursor from the setup
+// InitializeQueryCDCReplicationState seeds a table's cursor from the setup
 // checkpoint before any per-table poll starts. Existing progress always wins;
 // this only fills an uninitialized state row.
-func (p *PostgresMetadata) InitializeTableReplicationState(
+func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+cdcTableReplicationStateTableName+` (flow_name, source_table_identifier, cursor_text)
+		INSERT INTO `+queryCDCReplicationStateTableName+` (flow_name, source_table_identifier, cursor_text)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (flow_name, source_table_identifier)
 		DO UPDATE SET cursor_text = excluded.cursor_text, updated_at = now()
-		WHERE `+cdcTableReplicationStateTableName+`.cursor_text = ''
-			AND `+cdcTableReplicationStateTableName+`.synced_batch_id = 0
-			AND `+cdcTableReplicationStateTableName+`.normalized_batch_id = 0
+		WHERE `+queryCDCReplicationStateTableName+`.cursor_text = ''
+			AND `+queryCDCReplicationStateTableName+`.synced_batch_id = 0
+			AND `+queryCDCReplicationStateTableName+`.normalized_batch_id = 0
 	`, jobName, sourceTableIdentifier, cursor); err != nil {
 		return fmt.Errorf("failed to initialize table replication state for %s: %w", sourceTableIdentifier, err)
 	}
 	return nil
 }
 
-// RecordTableReplicationAttempt records that a poll attempt for this table
+// RecordQueryCDCAttempt records that a poll attempt for this table
 // started at attemptedAt, creating the row if this is the table's first poll.
-func (p *PostgresMetadata) RecordTableReplicationAttempt(
+func (p *PostgresMetadata) RecordQueryCDCAttempt(
 	ctx context.Context, jobName string, sourceTableIdentifier string, attemptedAt time.Time,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+cdcTableReplicationStateTableName+` (flow_name, source_table_identifier, last_attempt_at)
+		INSERT INTO `+queryCDCReplicationStateTableName+` (flow_name, source_table_identifier, last_attempt_at)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (flow_name, source_table_identifier)
 		DO UPDATE SET last_attempt_at = excluded.last_attempt_at, updated_at = now()
@@ -116,17 +116,17 @@ func (p *PostgresMetadata) RecordTableReplicationAttempt(
 	return nil
 }
 
-// RecordTableReplicationSync persists a table's new cursor and, if newBatchID
+// RecordQueryCDCSync persists a table's new cursor and, if newBatchID
 // is non-zero, advances its synced_batch_id after a successful poll that
 // produced records staged for normalize. newBatchID is zero for a poll that
 // found nothing new; the cursor still advances but there's no batch to
-// normalize. The state row always exists by now, RecordTableReplicationAttempt
+// normalize. The state row always exists by now, RecordQueryCDCAttempt
 // created it before the poll started.
-func (p *PostgresMetadata) RecordTableReplicationSync(
+func (p *PostgresMetadata) RecordQueryCDCSync(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string, syncedAt time.Time, newBatchID int64,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		UPDATE `+cdcTableReplicationStateTableName+`
+		UPDATE `+queryCDCReplicationStateTableName+`
 		SET cursor_text = $3,
 			last_synced_at = $4,
 			synced_batch_id = GREATEST(synced_batch_id, $5),
@@ -139,18 +139,18 @@ func (p *PostgresMetadata) RecordTableReplicationSync(
 	return nil
 }
 
-// RecordTableReplicationNormalize advances a table's normalized_batch_id
+// RecordQueryCDCNormalize advances a table's normalized_batch_id
 // after batches up through normalizedBatchID have been inserted into its
 // final destination table, records normalizedAt as the completion time, and
 // adds rowCounts to the table's cumulative insert/update/delete counts. The
 // count increment is skipped alongside last_normalized_at if normalizedBatchID
 // was already applied, so a retry replaying the same range doesn't double count.
-func (p *PostgresMetadata) RecordTableReplicationNormalize(
+func (p *PostgresMetadata) RecordQueryCDCNormalize(
 	ctx context.Context, jobName string, sourceTableIdentifier string, normalizedBatchID int64,
 	rowCounts *model.RecordTypeCounts, normalizedAt time.Time,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		UPDATE `+cdcTableReplicationStateTableName+`
+		UPDATE `+queryCDCReplicationStateTableName+`
 		SET normalized_batch_id = GREATEST(normalized_batch_id, $3),
 			last_normalized_at = CASE WHEN $3 > normalized_batch_id THEN $4 ELSE last_normalized_at END,
 			inserts_count = CASE WHEN $3 > normalized_batch_id THEN inserts_count + $5 ELSE inserts_count END,
@@ -166,13 +166,13 @@ func (p *PostgresMetadata) RecordTableReplicationNormalize(
 	return nil
 }
 
-// PruneTableReplicationState deletes rows for source tables no longer in
+// PruneQueryCDCReplicationState deletes rows for source tables no longer in
 // activeSourceTables, along with any Avro batches they left staged, which will
 // never be normalized now that the table is gone from the mirror.
-func (p *PostgresMetadata) PruneTableReplicationState(
+func (p *PostgresMetadata) PruneQueryCDCReplicationState(
 	ctx context.Context, jobName string, activeSourceTables []string,
 ) error {
-	for _, table := range []string{cdcTableReplicationStateTableName, cdcTableAvroStageTableName} {
+	for _, table := range []string{queryCDCReplicationStateTableName, queryCDCAvroStageTableName} {
 		if _, err := p.pool.Exec(ctx,
 			`DELETE FROM `+table+` WHERE flow_name = $1 AND NOT (source_table_identifier = ANY($2))`,
 			jobName, activeSourceTables,
@@ -183,10 +183,10 @@ func (p *PostgresMetadata) PruneTableReplicationState(
 	return nil
 }
 
-// deleteTableReplicationStateInTx drops all isolated per-table CDC state for a
+// deleteQueryCDCReplicationStateInTx drops all query-based CDC state for a
 // flow: per-table progress plus any Avro batches still staged for normalize.
-func deleteTableReplicationStateInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
-	for _, table := range []string{cdcTableReplicationStateTableName, cdcTableAvroStageTableName} {
+func deleteQueryCDCReplicationStateInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
+	for _, table := range []string{queryCDCReplicationStateTableName, queryCDCAvroStageTableName} {
 		if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE flow_name = $1`, jobName); err != nil {
 			return err
 		}

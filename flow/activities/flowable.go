@@ -175,7 +175,7 @@ func (a *FlowableActivity) EnsurePullability(
 	return output, nil
 }
 
-func isIsolatedTableCDCPath(
+func isQueryCDCPath(
 	flowConfig *protos.FlowConnectionConfigsCore,
 	destinationType protos.DBType,
 ) bool {
@@ -199,9 +199,9 @@ func (a *FlowableActivity) CreateRawTable(
 	}
 
 	var rawTableIdentifier string
-	// The isolated per-table CDC path writes typed Avro straight into each
+	// The query-based CDC path writes typed Avro straight into each
 	// destination table, so there's no _peerdb_raw_* table to create.
-	if !isIsolatedTableCDCPath(flowConfig, destinationType) {
+	if !isQueryCDCPath(flowConfig, destinationType) {
 		dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
@@ -402,9 +402,8 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	stopSetupHeartbeat()
-	if isIsolatedTableCDCPath(config, destinationType) {
-		return a.syncFlowIsolatedTables(ctx, config, options, srcConn.(connectors.TableCDCPullConnector), &shutDown)
+	if isQueryCDCPath(config, destinationType) {
+		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
 	}
 
 	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
@@ -1964,8 +1963,8 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
-	if isIsolatedTableCDCPath(cfg, destinationType) {
-		// No raw table in the isolated per-table CDC path.
+	if isQueryCDCPath(cfg, destinationType) {
+		// No raw table in the query-based CDC path.
 		return nil
 	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))

@@ -89,7 +89,7 @@ func DecodeBigQueryTableCursor(cursor string) (time.Time, error) {
 	return t, nil
 }
 
-// PullTableRecords implements connectors.TableCDCPullConnector. It pulls a
+// PullTableRecords implements connectors.QueryCDCPullConnector. It pulls a
 // single source table's due window, reusing the same window/dispatch logic
 // PullRecords uses across all its tables, scoped to just req.SourceTableIdentifier.
 func (c *BigQueryConnector) PullTableRecords(
@@ -150,11 +150,15 @@ func (c *BigQueryConnector) PullTableRecords(
 	// The activity waits on this signal before starting sync for this poll, so
 	// a query-based source's schema - known as soon as the first row is read
 	addRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
+		err := req.Stream.AddRecord(addCtx, record)
+		if err != nil {
+			return err
+		}
 		if !signaledNotEmpty {
 			signaledNotEmpty = true
 			req.Stream.SignalAsNotEmpty()
 		}
-		return req.Stream.AddRecord(addCtx, record)
+		return nil
 	}
 
 	var bytesProcessed int64

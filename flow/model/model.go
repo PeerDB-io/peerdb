@@ -92,9 +92,9 @@ type PullRecordsRequest[T Items] struct {
 	IdleTimeout time.Duration
 }
 
-// PullTableRecordsRequest is one table's pull request in the isolated per-table
-// CDC path (see TableCDCPullConnector). Unlike PullRecordsRequest, there is one
-// of these per source table per poll, each with its own stream.
+// PullTableRecordsRequest is one table's pull request in the query-based CDC
+// path (see QueryCDCPullConnector). Unlike PullRecordsRequest, there is one of
+// these per source table per poll, each with its own stream.
 //
 //nolint:govet // keeping field comments over alignment
 type PullTableRecordsRequest struct {
@@ -113,7 +113,7 @@ type PullTableRecordsRequest struct {
 	Stream *CDCStream[RecordItems]
 }
 
-// PullTableRecordsResult is returned by TableCDCPullConnector.PullTableRecords.
+// PullTableRecordsResult is returned by QueryCDCPullConnector.PullTableRecords.
 type PullTableRecordsResult struct {
 	// NextCursor is persisted and passed back as PullTableRecordsRequest.Cursor
 	// on this table's next poll.
@@ -122,13 +122,13 @@ type PullTableRecordsResult struct {
 	BytesProcessed int64
 }
 
-// SyncTableCDCRequest carries one table's CDC records to
-// TableCDCSyncConnector.SyncTableCDC, which stages them (e.g. as Avro on
+// SyncQueryCDCRequest carries one table's CDC records to
+// QueryCDCSyncConnector.SyncQueryCDC, which stages them (e.g. as Avro on
 // S3/GCS) under BatchID, this table's own batch sequence, independent of
 // every other table's, without touching the final destination table.
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
-type SyncTableCDCRequest struct {
+type SyncQueryCDCRequest struct {
 	Env          map[string]string
 	FlowJobName  string
 	TableMapping *protos.TableMapping
@@ -143,13 +143,13 @@ type SyncTableCDCRequest struct {
 	SoftDeleteColName string
 }
 
-// NormalizeTableCDCRequest asks TableCDCSyncConnector.NormalizeTableCDC to
+// NormalizeQueryCDCRequest asks QueryCDCSyncConnector.NormalizeQueryCDC to
 // insert batches (StartBatchID, EndBatchID], previously staged by
-// SyncTableCDC, straight into the final destination table, bypassing any
+// SyncQueryCDC, straight into the final destination table, bypassing any
 // raw-table hop.
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
-type NormalizeTableCDCRequest struct {
+type NormalizeQueryCDCRequest struct {
 	Env          map[string]string
 	FlowJobName  string
 	TableMapping *protos.TableMapping

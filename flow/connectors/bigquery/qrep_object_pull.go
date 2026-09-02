@@ -560,7 +560,7 @@ func (c *BigQueryConnector) SetupReplication(
 	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
 	if cfg.GetBigqueryCdcConfig() != nil {
 		for _, tableMapping := range cfg.TableMappings {
-			if err := c.InitializeTableReplicationState(
+			if err := c.InitializeQueryCDCReplicationState(
 				ctx, req.FlowJobName, tableMapping.SourceTableIdentifier, checkpoint,
 			); err != nil {
 				return model.SetupReplicationResult{}, fmt.Errorf(

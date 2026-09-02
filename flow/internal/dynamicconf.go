@@ -300,16 +300,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_CDC_TABLE_PULL_SYNC_PARALLELISM",
+		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
 		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
-			"used when a mirror does not set query_cdc_tables_parallelism; 0 or less removes the limit",
+			"used when a mirror does not set query_cdc_pull_sync_parallelism; 0 or less removes the limit",
 		DefaultValue:     "10",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_CDC_TABLE_NORMALIZE_PARALLELISM",
+		Name: "PEERDB_QUERY_CDC_NORMALIZE_PARALLELISM",
 		Description: "Query-based CDC only: how many tables are normalized into the destination concurrently, " +
 			"bounding destination load when many tables catch up at once; 0 or less removes the limit",
 		DefaultValue:     "4",
@@ -749,12 +749,12 @@ func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string)
 	return time.Duration(x) * time.Second, nil
 }
 
-func PeerDBCDCTablePullSyncParallelism(ctx context.Context, env map[string]string) (int, error) {
-	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_TABLE_PULL_SYNC_PARALLELISM")
+func PeerDBQueryCDCPullSyncParallelism(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM")
 }
 
-func PeerDBCDCTableNormalizeParallelism(ctx context.Context, env map[string]string) (int, error) {
-	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_TABLE_NORMALIZE_PARALLELISM")
+func PeerDBQueryCDCNormalizeParallelism(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_QUERY_CDC_NORMALIZE_PARALLELISM")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {

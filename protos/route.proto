@@ -148,9 +148,9 @@ message CDCTableTotalCountsResponse {
   repeated CDCTableRowCounts tables_data = 2;
 }
 
-// Isolated per-table CDC replication progress; see
-// flow/connectors/external_metadata/table_replication_state.go.
-message TableReplicationState {
+// Query-based CDC per-table replication progress; see
+// flow/connectors/external_metadata/query_cdc_replication_state.go.
+message QueryCDCReplicationState {
   string source_table_identifier = 1;
   string cursor_text = 2;
   google.protobuf.Timestamp last_attempt_at = 3;
@@ -163,10 +163,10 @@ message TableReplicationState {
   int64 deletes_count = 10;
 }
 
-message GetTableReplicationStateRequest { string flow_job_name = 1; }
+message GetQueryCDCReplicationStateRequest { string flow_job_name = 1; }
 
-message GetTableReplicationStateResponse {
-  repeated TableReplicationState tables = 1;
+message GetQueryCDCReplicationStateResponse {
+  repeated QueryCDCReplicationState tables = 1;
 }
 
 message TotalRowsSyncedByMirrorRequest {
@@ -674,10 +674,10 @@ service FlowService {
     };
   }
 
-  rpc GetTableReplicationState(GetTableReplicationStateRequest)
-      returns (GetTableReplicationStateResponse) {
+  rpc GetQueryCDCReplicationState(GetQueryCDCReplicationStateRequest)
+      returns (GetQueryCDCReplicationStateResponse) {
     option (google.api.http) = {
-      get : "/v1/mirrors/cdc/table_replication_state/{flow_job_name}"
+      get : "/v1/mirrors/cdc/query_cdc_replication_state/{flow_job_name}"
     };
   }
 

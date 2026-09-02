@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
+CREATE TABLE IF NOT EXISTS query_cdc_replication_state (
     flow_name text NOT NULL,
     source_table_identifier text NOT NULL,
     cursor_text text NOT NULL DEFAULT '',
@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
     last_synced_at timestamptz,
     -- synced_batch_id/normalized_batch_id are this table's own sync/normalize
     -- progress, independent of every other table's; see per-table
-    -- backpressure in flow/activities/flowable_isolated_cdc.go.
+    -- backpressure in flow/activities/flowable_query_cdc.go.
     synced_batch_id bigint NOT NULL DEFAULT 0,
     normalized_batch_id bigint NOT NULL DEFAULT 0,
     last_normalized_at timestamptz,
@@ -19,10 +19,10 @@ CREATE TABLE IF NOT EXISTS cdc_table_replication_state (
 
 -- Avro files staged by a table's sync step, pending normalize (INSERT straight
 -- into the final destination table). One row per (table, synced_batch_id).
-CREATE TABLE IF NOT EXISTS cdc_table_avro_stage (
+CREATE TABLE IF NOT EXISTS query_cdc_avro_stage (
     flow_name text NOT NULL,
     source_table_identifier text NOT NULL,
-    -- per-table batch_id, matching cdc_table_replication_state.synced_batch_id /
+    -- per-table batch_id, matching query_cdc_replication_state.synced_batch_id /
     -- normalized_batch_id - not the global batch_id used in the cdc_batches table.
     batch_id bigint NOT NULL,
     avro_file jsonb NOT NULL,
