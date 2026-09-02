@@ -425,6 +425,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_IN_PLACE_RESYNC",
+		Description: "Postgres->ClickHouse only: resync re-ingests source data into the existing destination table " +
+			"with a higher _peerdb_version instead of creating _resync tables and swapping",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_SKIP_SNAPSHOT_EXPORT",
 		Description:      "This avoids initial load failing due to connectivity drops, but risks data consistency unless precautions are taken",
 		DefaultValue:     "false",
@@ -937,6 +946,10 @@ func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[s
 
 func PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES")
+}
+
+func PeerDBClickHouseInPlaceResync(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_IN_PLACE_RESYNC")
 }
 
 func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -145,6 +146,13 @@ func buildInsertFromTableFunctionQuery(
 
 		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(qualifiedTable.Namespace))
 		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
+	}
+
+	// in-place resync stamps re-ingested rows with a higher _peerdb_version so ReplacingMergeTree
+	// prefers them over existing rows, while leaving unmatched historical rows untouched.
+	if config.config.ResyncInPlaceVersion != 0 {
+		selectedColumnNames = append(selectedColumnNames, strconv.FormatInt(config.config.ResyncInPlaceVersion, 10))
+		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(versionColName))
 	}
 
 	selectorStr := strings.Join(selectedColumnNames, ",")

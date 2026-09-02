@@ -639,13 +639,29 @@ func startSetupAndSnapshot(
 	// if resync is true, alter the table name schema mapping to temporarily add
 	// a suffix to the table names.
 	if cfg.Resync {
-		for _, mapping := range state.SyncFlowOptions.TableMappings {
-			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-				mapping.DestinationTableIdentifier += "_resync"
-			}
+		// in-place resync (Postgres -> ClickHouse) re-ingests into the existing destination
+		// table with a higher _peerdb_version instead of using _resync tables and swapping.
+		resyncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+		})
+		if err := workflow.ExecuteActivity(
+			resyncCtx, flowable.LoadInPlaceResyncEnabled, cfg,
+		).Get(ctx, &cfg.ResyncInPlace); err != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+			return nextRunNone, fmt.Errorf("failed to resolve in-place resync: %w", err)
 		}
-		// because we have renamed the tables.
-		cfg.TableMappings = state.SyncFlowOptions.TableMappings
+		if cfg.ResyncInPlace {
+			cfg.ResyncInPlaceVersion = workflow.Now(ctx).UnixNano()
+		} else {
+			for _, mapping := range state.SyncFlowOptions.TableMappings {
+				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+					mapping.DestinationTableIdentifier += "_resync"
+				}
+			}
+			// because we have renamed the tables.
+			cfg.TableMappings = state.SyncFlowOptions.TableMappings
+		}
 	}
 
 	setupSnapshotSelector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
@@ -747,7 +763,8 @@ func startSetupAndSnapshot(
 	}
 
 	// in the case of resync, run RenameTables to perform an atomic swap
-	if cfg.Resync {
+	// (in-place resync re-ingests into the existing table, so no swap is needed)
+	if cfg.Resync && !cfg.ResyncInPlace {
 		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 		renameOpts := &protos.RenameTablesInput{
 			FlowJobName:       cfg.FlowJobName,

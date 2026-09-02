@@ -167,7 +167,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer dstClose(ctx)
 
 	var tableSchemaMap map[string]*protos.TableSchema
-	if !connectionConfigs.Resync {
+	if !connectionConfigs.Resync || connectionConfigs.ResyncInPlace {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
 			connectionConfigs.System, connectionConfigs.TableMappings)

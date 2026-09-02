@@ -47,7 +47,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 	}
 
-	if cfg.Resync {
+	if cfg.Resync && !cfg.ResyncInPlace {
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
@@ -64,6 +64,35 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
+
+	// in-place resync re-ingests into the existing destination table (not swapped), so the only
+	// requirement is that the destination has every source column. Skip emptiness/engine/ordering checks.
+	if cfg.ResyncInPlace {
+		chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
+		if err != nil {
+			return err
+		}
+		for _, tableMapping := range cfg.TableMappings {
+			dstTableName := tableMapping.DestinationTableIdentifier
+			if dstTableName == "" {
+				return fmt.Errorf("destination table identifier is empty")
+			}
+			processedSchema, ok := processedMapping[dstTableName]
+			if !ok {
+				return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
+			}
+			// if the destination table does not exist yet, there is nothing to compare
+			if _, ok := chTableColumnsMapping[dstTableName]; !ok {
+				continue
+			}
+			if err := c.processTableComparison(dstTableName, processedSchema,
+				chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll always get swapped out with the _resync tables which we CREATE OR REPLACE

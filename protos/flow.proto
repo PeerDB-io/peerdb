@@ -119,6 +119,12 @@ message FlowConnectionConfigs {
 
   optional bool skip_validation = 28;
 
+  // in-place resync (Postgres -> ClickHouse only): re-ingest source data into the existing
+  // destination table instead of creating "_resync" tables and swapping. resync_in_place_version
+  // holds the _peerdb_version stamp (UnixNano) applied to re-ingested rows.
+  bool resync_in_place = 30;
+  int64 resync_in_place_version = 31;
+
   // connector-specific mirror config, mirroring Peer's per-connector config oneof
   oneof source_connector_config {
     BigqueryCdcConfig bigquery_cdc_config = 29;
@@ -175,6 +181,12 @@ message FlowConnectionConfigsCore {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  // in-place resync (Postgres -> ClickHouse only): re-ingest source data into the existing
+  // destination table instead of creating "_resync" tables and swapping. resync_in_place_version
+  // holds the _peerdb_version stamp (UnixNano) applied to re-ingested rows.
+  bool resync_in_place = 30;
+  int64 resync_in_place_version = 31;
 
   oneof source_connector_config {
     BigqueryCdcConfig bigquery_cdc_config = 29;
@@ -477,6 +489,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+  // in-place resync: non-zero _peerdb_version (UnixNano) to stamp on re-ingested snapshot rows
+  int64 resync_in_place_version = 33; // internal
 }
 
 message ChildTableRange {

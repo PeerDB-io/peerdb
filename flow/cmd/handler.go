@@ -512,6 +512,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
+				if err := h.resolveInPlaceResync(ctx, config); err != nil {
+					return nil, NewInternalApiError(err)
+				}
 
 				// validate mirror first because once the mirror is dropped, there's no going back
 				// Note: We do not validate snapshot parameters (SnapshotNumRowsPerPartition, etc)
@@ -660,6 +663,30 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
+// resolveInPlaceResync sets ResyncInPlace on the config when the in-place resync dynconf flag
+// is enabled for a Postgres -> ClickHouse mirror. Other connectors fall back to the default
+// _resync-and-swap path.
+func (h *FlowRequestHandler) resolveInPlaceResync(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	enabled, err := internal.PeerDBClickHouseInPlaceResync(ctx, config.Env)
+	if err != nil {
+		return fmt.Errorf("unable to load in-place resync setting: %w", err)
+	}
+	if !enabled {
+		config.ResyncInPlace = false
+		return nil
+	}
+	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
+	if err != nil {
+		return fmt.Errorf("unable to load source peer type: %w", err)
+	}
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
+	if err != nil {
+		return fmt.Errorf("unable to load destination peer type: %w", err)
+	}
+	config.ResyncInPlace = srcType == protos.DBType_POSTGRES && dstType == protos.DBType_CLICKHOUSE
+	return nil
+}
+
 func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	ctx context.Context,
 	flowName string,
@@ -692,6 +719,9 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
+	if err := h.resolveInPlaceResync(ctx, config); err != nil {
+		return err
+	}
 	// validate mirror first because once the mirror is dropped, there's no going back
 	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
 		return NewInternalApiError(err)

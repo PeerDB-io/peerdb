@@ -228,9 +228,11 @@ func (s *SetupFlowExecution) createNormalizedTables(
 		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
 		FlowName:          flowConnectionConfigs.FlowJobName,
 		Env:               flowConnectionConfigs.Env,
-		IsResync:          flowConnectionConfigs.Resync,
-		Version:           flowConnectionConfigs.Version,
-		Flags:             flowConnectionConfigs.Flags,
+		// in-place resync re-ingests into the existing table, so it must NOT be created with
+		// CREATE OR REPLACE (which would drop the existing rows).
+		IsResync: flowConnectionConfigs.Resync && !flowConnectionConfigs.ResyncInPlace,
+		Version:  flowConnectionConfigs.Version,
+		Flags:    flowConnectionConfigs.Flags,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {

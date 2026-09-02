@@ -2123,6 +2123,30 @@ func (a *FlowableActivity) PeerDBClickHouseInitialLoadAllowNonEmptyTables(
 	return internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, env)
 }
 
+// LoadInPlaceResyncEnabled reports whether a resync should re-ingest source data into the
+// existing destination table (Postgres -> ClickHouse only) with a higher _peerdb_version,
+// instead of the default _resync-and-swap path.
+func (a *FlowableActivity) LoadInPlaceResyncEnabled(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) (bool, error) {
+	enabled, err := internal.PeerDBClickHouseInPlaceResync(ctx, cfg.Env)
+	if err != nil {
+		return false, err
+	}
+	if !enabled {
+		return false, nil
+	}
+	srcType, err := connectors.LoadPeerType(ctx, a.CatalogPool, cfg.SourceName)
+	if err != nil {
+		return false, err
+	}
+	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		return false, err
+	}
+	return srcType == protos.DBType_POSTGRES && dstType == protos.DBType_CLICKHOUSE, nil
+}
+
 func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
 	_, isActive := activeFlowStatuses[status]
 	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(

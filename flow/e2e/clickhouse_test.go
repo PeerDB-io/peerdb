@@ -719,6 +719,111 @@ func (s ClickHouseSuite) Test_WeirdTable_Dash() {
 	s.WeirdTable("table-group%a%b%c")
 }
 
+// Test_InPlaceResync_CH validates the PG→ClickHouse in-place resync feature.
+// With PEERDB_CLICKHOUSE_IN_PLACE_RESYNC enabled, a resync re-ingests the current
+// source data into the SAME destination table stamped with a high _peerdb_version, so
+// overlapping rows are refreshed while ClickHouse-only historical rows are preserved
+// and no <table>_resync swap table is created.
+func (s ClickHouseSuite) Test_InPlaceResync_CH() {
+	if s.cluster {
+		s.t.Skip("SetupCDCFlowStatusQuery stuck in snapshot somehow")
+	}
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	tableName := "test_inplace_resync"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			val TEXT NOT NULL
+		);
+	`, srcFullName)))
+	require.NoError(s.t, s.Source().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, val) VALUES (1,'a'),(2,'b'),(3,'c')", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("ch_inplace_resync"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_IN_PLACE_RESYNC": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial load", tableName, dstTableName, "id,val")
+
+	// stop CDC so subsequent source changes are only picked up by the resync
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	// insert a ClickHouse-only historical row with no source counterpart;
+	// it must survive the in-place resync
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, val, _peerdb_is_deleted, _peerdb_version) VALUES (100, 'historical', 0, 1)",
+			clickhouse.QuoteIdentifier(dstTableName))))
+	require.NoError(s.t, ch.Close())
+
+	// diverge the source: update an existing row and add a new one
+	require.NoError(s.t, s.Source().Exec(s.t.Context(),
+		fmt.Sprintf("UPDATE %s SET val = 'a2' WHERE id = 1", srcFullName)))
+	require.NoError(s.t, s.Source().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (id, val) VALUES (4,'d')", srcFullName)))
+
+	// resync in place
+	flowConnConfig.Resync = true
+	env = ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	expected := map[string]string{"1": "a2", "2": "b", "3": "c", "4": "d", "100": "historical"}
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for in-place resync", func() bool {
+		rows, err := s.GetRows(dstTableName, "id,val")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		if len(rows.Records) != len(expected) {
+			return false
+		}
+		for _, row := range rows.Records {
+			id := fmt.Sprintf("%v", row[0].Value())
+			val, ok := row[1].Value().(string)
+			if !ok || expected[id] != val {
+				return false
+			}
+		}
+		return true
+	})
+
+	// an in-place resync must not create a <table>_resync swap table
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	var swapCount uint64
+	require.NoError(s.t, ch.QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = '%s_resync'", dstTableName),
+	).Scan(&swapCount))
+	require.NoError(s.t, ch.Close())
+	require.Zero(s.t, swapCount, "in-place resync must not create a _resync swap table")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+}
+
 func (s ClickHouseSuite) Test_ValidatePartitionByExpression() {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
