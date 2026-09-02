@@ -225,6 +225,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Version:                    s.config.Version,
 		Flags:                      s.config.Flags,
 		StructuredIngestionConfig:  mapping.StructuredIngestionConfig,
+		ResyncInPlaceVersion:       s.config.ResyncInPlaceVersion,
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
