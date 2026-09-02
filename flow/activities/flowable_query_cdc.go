@@ -91,7 +91,7 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		sourceTables = append(sourceTables, tm.SourceTableIdentifier)
 	}
 	// Prune removed mirror tables, otherwise the old state might be used if they are re-added later
-	if err := pgMetadata.PruneTableReplicationState(ctx, flowName, sourceTables); err != nil {
+	if err := pgMetadata.PruneQueryCDCReplicationState(ctx, flowName, sourceTables); err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 
@@ -205,7 +205,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		// gap between reading a stale state and waiting, which would wait on a channel that
 		// already fired (or never will) and stall this table's replication forever
 		normWaitCh := normResponses.Wait()
-		state, err := pgMetadata.GetTableReplicationState(ctx, flowName, sourceTable)
+		state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
@@ -237,7 +237,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}
 		attemptedAt := time.Now()
 		logger.Info("[cdc] starting poll")
-		if err := pgMetadata.RecordTableReplicationAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
+		if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
 			release()
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
@@ -328,7 +328,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if numSynced > 0 {
 			newBatchID = nextBatchID
 		}
-		if err := pgMetadata.RecordTableReplicationSync(
+		if err := pgMetadata.RecordQueryCDCSync(
 			ctx, flowName, sourceTable, pullResult.NextCursor, time.Now(), newBatchID,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
@@ -386,7 +386,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 
-	state, err := pgMetadata.GetTableReplicationState(ctx, flowName, sourceTable)
+	state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
@@ -464,7 +464,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		wasLagging = false
 		retryInterval = time.Minute
 
-		if err := pgMetadata.RecordTableReplicationNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
+		if err := pgMetadata.RecordQueryCDCNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)

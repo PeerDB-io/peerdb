@@ -413,7 +413,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 
 // Test_BigQuery_CDC_Restart_Mid_Window_Resume covers resuming from the
 // persisted per-table cursor (query_cdc_replication_state, written by
-// RecordTableReplicationSync in the query-based CDC path) rather than
+// RecordQueryCDCSync in the query-based CDC path) rather than
 // re-scanning already-synced rows or dropping rows written while the mirror
 // wasn't polling.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
@@ -533,14 +533,14 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	stateBeforeDrop, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+	stateBeforeDrop, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
 	require.NoError(t, err)
 
 	require.NoError(t, source.Exec(ctx, "DROP TABLE "+quoteBigQueryTableFQN(failedFQN)),
 		"should drop the failing source table")
 
 	EnvWaitFor(t, env, 2*time.Minute, "failed table keeps retrying its poll after its source table is dropped", func() bool {
-		state, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -554,7 +554,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_N
 
 	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
 
-	stateAfterRetries, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+	stateAfterRetries, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
 	require.NoError(t, err)
 	require.Equal(t, stateBeforeDrop.SyncedBatchID, stateAfterRetries.SyncedBatchID,
 		"failed table must not advance its synced batch id")
@@ -620,7 +620,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_D
 
 	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 2, Val: "wave-1"}})
 	EnvWaitFor(t, env, 2*time.Minute, "stuck table stages its first CDC batch", func() bool {
-		state, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -630,7 +630,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_D
 
 	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 3, Val: "wave-2"}})
 	EnvWaitFor(t, env, 2*time.Minute, "stuck table's own backpressure caps its sync/normalize gap at 2", func() bool {
-		state, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -641,7 +641,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_D
 	// a third wave must not get synced while backpressured - the cap must hold.
 	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 4, Val: "wave-3"}})
 	require.Never(t, func() bool {
-		state, err := queryBigQueryTableReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
 		return err == nil && state.SyncedBatchID > 2
 	}, 15*time.Second, time.Second,
 		"backpressured table must not sync past its own normalize buffer while normalize keeps failing")
@@ -712,7 +712,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
 
-	stateBeforeRemoval, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+	stateBeforeRemoval, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(t, err)
@@ -739,7 +739,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	})
 
 	EnvWaitFor(t, env, 2*time.Minute, "removed table's replication state is pruned", func() bool {
-		exists, err := bigQueryTableReplicationStateExists(ctx, pool, flowConnConfig.FlowJobName, removedSourceID)
+		exists, err := queryCDCReplicationStateExists(ctx, pool, flowConnConfig.FlowJobName, removedSourceID)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -759,10 +759,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	}, 20*time.Second, 2*time.Second,
 		"removed table must stop receiving CDC updates once dropped from the mirror")
 
-	// GetTableReplicationState keeps working after a table removal - the
+	// GetQueryCDCReplicationState keeps working after a table removal - the
 	// retained table's continued sync still shows up.
 	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports new batches from the retained table after removal", func() bool {
-		response, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+		response, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
 			FlowJobName: flowConnConfig.FlowJobName,
 		})
 		if err != nil {
@@ -783,11 +783,11 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Table_Replication_State_Handler checks that the
-// GetTableReplicationState API (flow/cmd/mirror_status.go) reports the same
+// Test_BigQuery_CDC_Replication_State_Handler checks that the
+// GetQueryCDCReplicationState API (flow/cmd/mirror_status.go) reports the same
 // per-table sync/normalize progress as the underlying
 // query_cdc_replication_state row it's read from.
-func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handler() {
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Replication_State_Handler() {
 	t := s.T()
 	ctx := t.Context()
 
@@ -821,9 +821,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Replication_State_Handl
 	require.NoError(t, err)
 	require.NoError(t, err)
 
-	var handlerState *protos.TableReplicationState
+	var handlerState *protos.QueryCDCReplicationState
 	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports normalized progress", func() bool {
-		resp, err := apiClient.GetTableReplicationState(ctx, &protos.GetTableReplicationStateRequest{
+		resp, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
 			FlowJobName: flowConnConfig.FlowJobName,
 		})
 		if err != nil {
@@ -860,14 +860,14 @@ func readBigQueryTableCursor(t *testing.T, pool *pgxpool.Pool, flowJobName strin
 	return cursor
 }
 
-func queryBigQueryTableReplicationState(
+func fetchQueryCDCReplicationState(
 	ctx context.Context, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string,
-) (connmetadata.TableReplicationState, error) {
+) (connmetadata.QueryCDCReplicationState, error) {
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), shared.CatalogPool{Pool: pool})
-	return pgMetadata.GetTableReplicationState(ctx, flowJobName, sourceTableIdentifier)
+	return pgMetadata.GetQueryCDCReplicationState(ctx, flowJobName, sourceTableIdentifier)
 }
 
-func bigQueryTableReplicationStateExists(
+func queryCDCReplicationStateExists(
 	ctx context.Context, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string,
 ) (bool, error) {
 	var exists bool

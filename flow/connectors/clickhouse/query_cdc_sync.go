@@ -106,7 +106,7 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 		return rowCounts, nil
 	}
 
-	if err := SetTableAvroStage(
+	if err := SetQueryCDCAvroStage(
 		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFile, rowCounts,
 	); err != nil {
 		return nil, fmt.Errorf("failed to set table avro stage: %w", err)
@@ -150,7 +150,7 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 
 	rowCounts := &model.RecordTypeCounts{}
 	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
-		avroFile, batchCounts, err := GetTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
+		avroFile, batchCounts, err := GetQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
 		if err != nil {
 			if errors.Is(err, ErrNoAvroStage) {
 				// this function is the only thing that deletes stage rows, so a missing
@@ -179,7 +179,7 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 		}
 		avroFile.Cleanup(ctx)
 
-		if err := DeleteTableAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID); err != nil {
+		if err := DeleteQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID); err != nil {
 			return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
 		}
 

@@ -13,7 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
-// ErrNoAvroStage is returned by GetTableAvroStage when no stage row exists for
+// ErrNoAvroStage is returned by GetQueryCDCAvroStage when no stage row exists for
 // the requested batch.
 var ErrNoAvroStage = errors.New("no avro stage found")
 
@@ -72,11 +72,11 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 	return avroFile, nil
 }
 
-// SetTableAvroStage records a table's staged Avro file for the query-based CDC
+// SetQueryCDCAvroStage records a table's staged Avro file for the query-based CDC
 // path (see flow/activities/flowable_query_cdc.go). Unlike
 // SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
 // flow-wide sync batch ID, one row per (flow, table, table's own batch).
-func SetTableAvroStage(
+func SetQueryCDCAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
 	rowCounts *model.RecordTypeCounts,
 ) error {
@@ -104,9 +104,9 @@ func SetTableAvroStage(
 	return nil
 }
 
-// GetTableAvroStage retrieves a table's staged Avro file for batchID, along
+// GetQueryCDCAvroStage retrieves a table's staged Avro file for batchID, along
 // with the insert/update/delete counts staged with it.
-func GetTableAvroStage(
+func GetQueryCDCAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
 ) (utils.AvroFile, *model.RecordTypeCounts, error) {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
@@ -141,9 +141,9 @@ func GetTableAvroStage(
 	return avroFile, rowCounts, nil
 }
 
-// DeleteTableAvroStage removes a table's staged Avro record for batchID once
+// DeleteQueryCDCAvroStage removes a table's staged Avro record for batchID once
 // it's been normalized. The underlying S3/GCS object is not removed here.
-func DeleteTableAvroStage(ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64) error {
+func DeleteQueryCDCAvroStage(ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64) error {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)

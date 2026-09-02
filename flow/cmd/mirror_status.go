@@ -752,10 +752,10 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	return response, nil
 }
 
-func (h *FlowRequestHandler) GetTableReplicationState(
+func (h *FlowRequestHandler) GetQueryCDCReplicationState(
 	ctx context.Context,
-	req *protos.GetTableReplicationStateRequest,
-) (*protos.GetTableReplicationStateResponse, APIError) {
+	req *protos.GetQueryCDCReplicationStateRequest,
+) (*protos.GetQueryCDCReplicationStateResponse, APIError) {
 	rows, err := h.pool.Query(ctx, `SELECT
 			source_table_identifier,
 			cursor_text,
@@ -774,8 +774,8 @@ func (h *FlowRequestHandler) GetTableReplicationState(
 		return nil, NewInternalApiError(fmt.Errorf("failed to query table replication state: %w", err))
 	}
 
-	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableReplicationState, error) {
-		var table protos.TableReplicationState
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.QueryCDCReplicationState, error) {
+		var table protos.QueryCDCReplicationState
 		var lastAttemptAt, lastSyncedAt, lastNormalizedAt pgtype.Timestamptz
 		if err := row.Scan(
 			&table.SourceTableIdentifier,
@@ -807,10 +807,10 @@ func (h *FlowRequestHandler) GetTableReplicationState(
 	}
 
 	if tables == nil {
-		tables = []*protos.TableReplicationState{}
+		tables = []*protos.QueryCDCReplicationState{}
 	}
 
-	return &protos.GetTableReplicationStateResponse{Tables: tables}, nil
+	return &protos.GetQueryCDCReplicationStateResponse{Tables: tables}, nil
 }
 
 func (h *FlowRequestHandler) ListMirrorNames(
