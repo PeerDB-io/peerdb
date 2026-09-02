@@ -543,14 +543,6 @@ func (c *BigQueryConnector) pullTableQuery(
 		return fmt.Sprintf("SELECT *%s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
 			exceptClause(exclude), dsTable, col, col, col)
 	}
-	locateColumnIndex := func(schema bigquery.Schema, name string) int {
-		for i, field := range schema {
-			if field.Name == name {
-				return i
-			}
-		}
-		return -1
-	}
 
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
@@ -578,7 +570,9 @@ func (c *BigQueryConnector) pullTableQuery(
 			for i, field := range it.Schema {
 				qfields[i] = BigQueryFieldToQField(field)
 			}
-			watermarkColIdx = locateColumnIndex(it.Schema, watermarkColumn)
+			watermarkColIdx = slices.IndexFunc(it.Schema, func(field *bigquery.FieldSchema) bool {
+				return field.Name == watermarkColumn
+			})
 		}
 
 		// The watermark column is this row's own commit-time signal, used as
