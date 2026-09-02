@@ -324,6 +324,9 @@ require (
 
 replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v2.0.7
 
+// 8 MiB SSH channel receive window for CDC over SSH tunnels; see the fork's README
+replace golang.org/x/crypto => github.com/PeerDB-io/crypto v0.55.16
+
 replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
