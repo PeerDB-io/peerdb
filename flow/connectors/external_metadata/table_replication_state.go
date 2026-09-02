@@ -12,7 +12,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
-const cdcTableReplicationStateTableName = "cdc_table_replication_state"
+const (
+	cdcTableReplicationStateTableName = "cdc_table_replication_state"
+	cdcTableAvroStageTableName        = "cdc_table_avro_stage"
+)
 
 // TableReplicationState is one source table's durable progress in the
 // isolated per-table CDC path (see connectors.TableCDCPullConnector).
@@ -164,22 +167,29 @@ func (p *PostgresMetadata) RecordTableReplicationNormalize(
 }
 
 // PruneTableReplicationState deletes rows for source tables no longer in
-// activeSourceTables
+// activeSourceTables, along with any Avro batches they left staged, which will
+// never be normalized now that the table is gone from the mirror.
 func (p *PostgresMetadata) PruneTableReplicationState(
 	ctx context.Context, jobName string, activeSourceTables []string,
 ) error {
-	if _, err := p.pool.Exec(ctx,
-		`DELETE FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1 AND NOT (source_table_identifier = ANY($2))`,
-		jobName, activeSourceTables,
-	); err != nil {
-		return fmt.Errorf("failed to prune table replication state: %w", err)
+	for _, table := range []string{cdcTableReplicationStateTableName, cdcTableAvroStageTableName} {
+		if _, err := p.pool.Exec(ctx,
+			`DELETE FROM `+table+` WHERE flow_name = $1 AND NOT (source_table_identifier = ANY($2))`,
+			jobName, activeSourceTables,
+		); err != nil {
+			return fmt.Errorf("failed to prune %s: %w", table, err)
+		}
 	}
 	return nil
 }
 
+// deleteTableReplicationStateInTx drops all isolated per-table CDC state for a
+// flow: per-table progress plus any Avro batches still staged for normalize.
 func deleteTableReplicationStateInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM `+cdcTableReplicationStateTableName+` WHERE flow_name = $1`, jobName); err != nil {
-		return err
+	for _, table := range []string{cdcTableReplicationStateTableName, cdcTableAvroStageTableName} {
+		if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE flow_name = $1`, jobName); err != nil {
+			return err
+		}
 	}
 	return nil
 }
