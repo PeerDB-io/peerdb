@@ -150,11 +150,15 @@ func (c *BigQueryConnector) PullTableRecords(
 	// The activity waits on this signal before starting sync for this poll, so
 	// a query-based source's schema - known as soon as the first row is read
 	addRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
+		err := req.Stream.AddRecord(addCtx, record)
+		if err != nil {
+			return err
+		}
 		if !signaledNotEmpty {
 			signaledNotEmpty = true
 			req.Stream.SignalAsNotEmpty()
 		}
-		return req.Stream.AddRecord(addCtx, record)
+		return nil
 	}
 
 	var bytesProcessed int64
