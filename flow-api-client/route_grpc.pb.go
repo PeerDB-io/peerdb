@@ -19,54 +19,54 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FlowService_ValidatePeer_FullMethodName             = "/peerdb_route.FlowService/ValidatePeer"
-	FlowService_ValidateCDCMirror_FullMethodName        = "/peerdb_route.FlowService/ValidateCDCMirror"
-	FlowService_CreatePeer_FullMethodName               = "/peerdb_route.FlowService/CreatePeer"
-	FlowService_DropPeer_FullMethodName                 = "/peerdb_route.FlowService/DropPeer"
-	FlowService_CreateCDCFlow_FullMethodName            = "/peerdb_route.FlowService/CreateCDCFlow"
-	FlowService_CreateQRepFlow_FullMethodName           = "/peerdb_route.FlowService/CreateQRepFlow"
-	FlowService_GetAlertConfigs_FullMethodName          = "/peerdb_route.FlowService/GetAlertConfigs"
-	FlowService_PostAlertConfig_FullMethodName          = "/peerdb_route.FlowService/PostAlertConfig"
-	FlowService_DeleteAlertConfig_FullMethodName        = "/peerdb_route.FlowService/DeleteAlertConfig"
-	FlowService_GetDynamicSettings_FullMethodName       = "/peerdb_route.FlowService/GetDynamicSettings"
-	FlowService_PostDynamicSetting_FullMethodName       = "/peerdb_route.FlowService/PostDynamicSetting"
-	FlowService_GetScripts_FullMethodName               = "/peerdb_route.FlowService/GetScripts"
-	FlowService_PostScript_FullMethodName               = "/peerdb_route.FlowService/PostScript"
-	FlowService_DeleteScript_FullMethodName             = "/peerdb_route.FlowService/DeleteScript"
-	FlowService_CDCTableTotalCounts_FullMethodName      = "/peerdb_route.FlowService/CDCTableTotalCounts"
-	FlowService_GetTableReplicationState_FullMethodName = "/peerdb_route.FlowService/GetTableReplicationState"
-	FlowService_GetSchemas_FullMethodName               = "/peerdb_route.FlowService/GetSchemas"
-	FlowService_GetPublications_FullMethodName          = "/peerdb_route.FlowService/GetPublications"
-	FlowService_GetTablesInSchema_FullMethodName        = "/peerdb_route.FlowService/GetTablesInSchema"
-	FlowService_GetAllTables_FullMethodName             = "/peerdb_route.FlowService/GetAllTables"
-	FlowService_GetColumns_FullMethodName               = "/peerdb_route.FlowService/GetColumns"
-	FlowService_GetColumnsTypeConversion_FullMethodName = "/peerdb_route.FlowService/GetColumnsTypeConversion"
-	FlowService_GetSlotInfo_FullMethodName              = "/peerdb_route.FlowService/GetSlotInfo"
-	FlowService_GetSlotLagHistory_FullMethodName        = "/peerdb_route.FlowService/GetSlotLagHistory"
-	FlowService_GetStatInfo_FullMethodName              = "/peerdb_route.FlowService/GetStatInfo"
-	FlowService_ListMirrorLogs_FullMethodName           = "/peerdb_route.FlowService/ListMirrorLogs"
-	FlowService_ListMirrors_FullMethodName              = "/peerdb_route.FlowService/ListMirrors"
-	FlowService_ListMirrorNames_FullMethodName          = "/peerdb_route.FlowService/ListMirrorNames"
-	FlowService_FlowStateChange_FullMethodName          = "/peerdb_route.FlowService/FlowStateChange"
-	FlowService_MirrorStatus_FullMethodName             = "/peerdb_route.FlowService/MirrorStatus"
-	FlowService_GetCDCBatches_FullMethodName            = "/peerdb_route.FlowService/GetCDCBatches"
-	FlowService_CDCBatches_FullMethodName               = "/peerdb_route.FlowService/CDCBatches"
-	FlowService_CDCGraph_FullMethodName                 = "/peerdb_route.FlowService/CDCGraph"
-	FlowService_InitialLoadSummary_FullMethodName       = "/peerdb_route.FlowService/InitialLoadSummary"
-	FlowService_GetPeerInfo_FullMethodName              = "/peerdb_route.FlowService/GetPeerInfo"
-	FlowService_GetPeerType_FullMethodName              = "/peerdb_route.FlowService/GetPeerType"
-	FlowService_ListPeers_FullMethodName                = "/peerdb_route.FlowService/ListPeers"
-	FlowService_GetVersion_FullMethodName               = "/peerdb_route.FlowService/GetVersion"
-	FlowService_GetInstanceInfo_FullMethodName          = "/peerdb_route.FlowService/GetInstanceInfo"
-	FlowService_Maintenance_FullMethodName              = "/peerdb_route.FlowService/Maintenance"
-	FlowService_GetMaintenanceStatus_FullMethodName     = "/peerdb_route.FlowService/GetMaintenanceStatus"
-	FlowService_SkipSnapshotWaitFlows_FullMethodName    = "/peerdb_route.FlowService/SkipSnapshotWaitFlows"
-	FlowService_CreateOrReplaceFlowTags_FullMethodName  = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
-	FlowService_GetFlowTags_FullMethodName              = "/peerdb_route.FlowService/GetFlowTags"
-	FlowService_TotalRowsSyncedByMirror_FullMethodName  = "/peerdb_route.FlowService/TotalRowsSyncedByMirror"
-	FlowService_CancelTableAddition_FullMethodName      = "/peerdb_route.FlowService/CancelTableAddition"
-	FlowService_ResetMirrorSequences_FullMethodName     = "/peerdb_route.FlowService/ResetMirrorSequences"
-	FlowService_GetMirrorRowCounts_FullMethodName       = "/peerdb_route.FlowService/GetMirrorRowCounts"
+	FlowService_ValidatePeer_FullMethodName                = "/peerdb_route.FlowService/ValidatePeer"
+	FlowService_ValidateCDCMirror_FullMethodName           = "/peerdb_route.FlowService/ValidateCDCMirror"
+	FlowService_CreatePeer_FullMethodName                  = "/peerdb_route.FlowService/CreatePeer"
+	FlowService_DropPeer_FullMethodName                    = "/peerdb_route.FlowService/DropPeer"
+	FlowService_CreateCDCFlow_FullMethodName               = "/peerdb_route.FlowService/CreateCDCFlow"
+	FlowService_CreateQRepFlow_FullMethodName              = "/peerdb_route.FlowService/CreateQRepFlow"
+	FlowService_GetAlertConfigs_FullMethodName             = "/peerdb_route.FlowService/GetAlertConfigs"
+	FlowService_PostAlertConfig_FullMethodName             = "/peerdb_route.FlowService/PostAlertConfig"
+	FlowService_DeleteAlertConfig_FullMethodName           = "/peerdb_route.FlowService/DeleteAlertConfig"
+	FlowService_GetDynamicSettings_FullMethodName          = "/peerdb_route.FlowService/GetDynamicSettings"
+	FlowService_PostDynamicSetting_FullMethodName          = "/peerdb_route.FlowService/PostDynamicSetting"
+	FlowService_GetScripts_FullMethodName                  = "/peerdb_route.FlowService/GetScripts"
+	FlowService_PostScript_FullMethodName                  = "/peerdb_route.FlowService/PostScript"
+	FlowService_DeleteScript_FullMethodName                = "/peerdb_route.FlowService/DeleteScript"
+	FlowService_CDCTableTotalCounts_FullMethodName         = "/peerdb_route.FlowService/CDCTableTotalCounts"
+	FlowService_GetQueryCDCReplicationState_FullMethodName = "/peerdb_route.FlowService/GetQueryCDCReplicationState"
+	FlowService_GetSchemas_FullMethodName                  = "/peerdb_route.FlowService/GetSchemas"
+	FlowService_GetPublications_FullMethodName             = "/peerdb_route.FlowService/GetPublications"
+	FlowService_GetTablesInSchema_FullMethodName           = "/peerdb_route.FlowService/GetTablesInSchema"
+	FlowService_GetAllTables_FullMethodName                = "/peerdb_route.FlowService/GetAllTables"
+	FlowService_GetColumns_FullMethodName                  = "/peerdb_route.FlowService/GetColumns"
+	FlowService_GetColumnsTypeConversion_FullMethodName    = "/peerdb_route.FlowService/GetColumnsTypeConversion"
+	FlowService_GetSlotInfo_FullMethodName                 = "/peerdb_route.FlowService/GetSlotInfo"
+	FlowService_GetSlotLagHistory_FullMethodName           = "/peerdb_route.FlowService/GetSlotLagHistory"
+	FlowService_GetStatInfo_FullMethodName                 = "/peerdb_route.FlowService/GetStatInfo"
+	FlowService_ListMirrorLogs_FullMethodName              = "/peerdb_route.FlowService/ListMirrorLogs"
+	FlowService_ListMirrors_FullMethodName                 = "/peerdb_route.FlowService/ListMirrors"
+	FlowService_ListMirrorNames_FullMethodName             = "/peerdb_route.FlowService/ListMirrorNames"
+	FlowService_FlowStateChange_FullMethodName             = "/peerdb_route.FlowService/FlowStateChange"
+	FlowService_MirrorStatus_FullMethodName                = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_GetCDCBatches_FullMethodName               = "/peerdb_route.FlowService/GetCDCBatches"
+	FlowService_CDCBatches_FullMethodName                  = "/peerdb_route.FlowService/CDCBatches"
+	FlowService_CDCGraph_FullMethodName                    = "/peerdb_route.FlowService/CDCGraph"
+	FlowService_InitialLoadSummary_FullMethodName          = "/peerdb_route.FlowService/InitialLoadSummary"
+	FlowService_GetPeerInfo_FullMethodName                 = "/peerdb_route.FlowService/GetPeerInfo"
+	FlowService_GetPeerType_FullMethodName                 = "/peerdb_route.FlowService/GetPeerType"
+	FlowService_ListPeers_FullMethodName                   = "/peerdb_route.FlowService/ListPeers"
+	FlowService_GetVersion_FullMethodName                  = "/peerdb_route.FlowService/GetVersion"
+	FlowService_GetInstanceInfo_FullMethodName             = "/peerdb_route.FlowService/GetInstanceInfo"
+	FlowService_Maintenance_FullMethodName                 = "/peerdb_route.FlowService/Maintenance"
+	FlowService_GetMaintenanceStatus_FullMethodName        = "/peerdb_route.FlowService/GetMaintenanceStatus"
+	FlowService_SkipSnapshotWaitFlows_FullMethodName       = "/peerdb_route.FlowService/SkipSnapshotWaitFlows"
+	FlowService_CreateOrReplaceFlowTags_FullMethodName     = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
+	FlowService_GetFlowTags_FullMethodName                 = "/peerdb_route.FlowService/GetFlowTags"
+	FlowService_TotalRowsSyncedByMirror_FullMethodName     = "/peerdb_route.FlowService/TotalRowsSyncedByMirror"
+	FlowService_CancelTableAddition_FullMethodName         = "/peerdb_route.FlowService/CancelTableAddition"
+	FlowService_ResetMirrorSequences_FullMethodName        = "/peerdb_route.FlowService/ResetMirrorSequences"
+	FlowService_GetMirrorRowCounts_FullMethodName          = "/peerdb_route.FlowService/GetMirrorRowCounts"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -88,7 +88,7 @@ type FlowServiceClient interface {
 	PostScript(ctx context.Context, in *PostScriptRequest, opts ...grpc.CallOption) (*PostScriptResponse, error)
 	DeleteScript(ctx context.Context, in *DeleteScriptRequest, opts ...grpc.CallOption) (*DeleteScriptResponse, error)
 	CDCTableTotalCounts(ctx context.Context, in *CDCTableTotalCountsRequest, opts ...grpc.CallOption) (*CDCTableTotalCountsResponse, error)
-	GetTableReplicationState(ctx context.Context, in *GetTableReplicationStateRequest, opts ...grpc.CallOption) (*GetTableReplicationStateResponse, error)
+	GetQueryCDCReplicationState(ctx context.Context, in *GetQueryCDCReplicationStateRequest, opts ...grpc.CallOption) (*GetQueryCDCReplicationStateResponse, error)
 	GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error)
 	GetPublications(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerPublicationsResponse, error)
 	GetTablesInSchema(ctx context.Context, in *SchemaTablesRequest, opts ...grpc.CallOption) (*SchemaTablesResponse, error)
@@ -281,10 +281,10 @@ func (c *flowServiceClient) CDCTableTotalCounts(ctx context.Context, in *CDCTabl
 	return out, nil
 }
 
-func (c *flowServiceClient) GetTableReplicationState(ctx context.Context, in *GetTableReplicationStateRequest, opts ...grpc.CallOption) (*GetTableReplicationStateResponse, error) {
+func (c *flowServiceClient) GetQueryCDCReplicationState(ctx context.Context, in *GetQueryCDCReplicationStateRequest, opts ...grpc.CallOption) (*GetQueryCDCReplicationStateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetTableReplicationStateResponse)
-	err := c.cc.Invoke(ctx, FlowService_GetTableReplicationState_FullMethodName, in, out, cOpts...)
+	out := new(GetQueryCDCReplicationStateResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetQueryCDCReplicationState_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +630,7 @@ type FlowServiceServer interface {
 	PostScript(context.Context, *PostScriptRequest) (*PostScriptResponse, error)
 	DeleteScript(context.Context, *DeleteScriptRequest) (*DeleteScriptResponse, error)
 	CDCTableTotalCounts(context.Context, *CDCTableTotalCountsRequest) (*CDCTableTotalCountsResponse, error)
-	GetTableReplicationState(context.Context, *GetTableReplicationStateRequest) (*GetTableReplicationStateResponse, error)
+	GetQueryCDCReplicationState(context.Context, *GetQueryCDCReplicationStateRequest) (*GetQueryCDCReplicationStateResponse, error)
 	GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error)
 	GetPublications(context.Context, *PostgresPeerActivityInfoRequest) (*PeerPublicationsResponse, error)
 	GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error)
@@ -718,8 +718,8 @@ func (UnimplementedFlowServiceServer) DeleteScript(context.Context, *DeleteScrip
 func (UnimplementedFlowServiceServer) CDCTableTotalCounts(context.Context, *CDCTableTotalCountsRequest) (*CDCTableTotalCountsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CDCTableTotalCounts not implemented")
 }
-func (UnimplementedFlowServiceServer) GetTableReplicationState(context.Context, *GetTableReplicationStateRequest) (*GetTableReplicationStateResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetTableReplicationState not implemented")
+func (UnimplementedFlowServiceServer) GetQueryCDCReplicationState(context.Context, *GetQueryCDCReplicationStateRequest) (*GetQueryCDCReplicationStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetQueryCDCReplicationState not implemented")
 }
 func (UnimplementedFlowServiceServer) GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSchemas not implemented")
@@ -1108,20 +1108,20 @@ func _FlowService_CDCTableTotalCounts_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FlowService_GetTableReplicationState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetTableReplicationStateRequest)
+func _FlowService_GetQueryCDCReplicationState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQueryCDCReplicationStateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FlowServiceServer).GetTableReplicationState(ctx, in)
+		return srv.(FlowServiceServer).GetQueryCDCReplicationState(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FlowService_GetTableReplicationState_FullMethodName,
+		FullMethod: FlowService_GetQueryCDCReplicationState_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).GetTableReplicationState(ctx, req.(*GetTableReplicationStateRequest))
+		return srv.(FlowServiceServer).GetQueryCDCReplicationState(ctx, req.(*GetQueryCDCReplicationStateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1770,8 +1770,8 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FlowService_CDCTableTotalCounts_Handler,
 		},
 		{
-			MethodName: "GetTableReplicationState",
-			Handler:    _FlowService_GetTableReplicationState_Handler,
+			MethodName: "GetQueryCDCReplicationState",
+			Handler:    _FlowService_GetQueryCDCReplicationState_Handler,
 		},
 		{
 			MethodName: "GetSchemas",

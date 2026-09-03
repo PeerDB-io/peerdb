@@ -1048,10 +1048,10 @@ type FlowConnectionConfigs struct {
 	//
 	//	*FlowConnectionConfigs_BigqueryCdcConfig
 	SourceConnectorConfig isFlowConnectionConfigs_SourceConnectorConfig `protobuf_oneof:"source_connector_config"`
-	// number of tables to query in parallel for query-based CDC flows
-	QueryCdcTablesParallelism int32 `protobuf:"varint,30,opt,name=query_cdc_tables_parallelism,json=queryCdcTablesParallelism,proto3" json:"query_cdc_tables_parallelism,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// query-based CDC: how many source tables are queried and staged concurrently
+	QueryCdcPullSyncParallelism int32 `protobuf:"varint,30,opt,name=query_cdc_pull_sync_parallelism,json=queryCdcPullSyncParallelism,proto3" json:"query_cdc_pull_sync_parallelism,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigs) Reset() {
@@ -1275,9 +1275,9 @@ func (x *FlowConnectionConfigs) GetBigqueryCdcConfig() *BigqueryCdcConfig {
 	return nil
 }
 
-func (x *FlowConnectionConfigs) GetQueryCdcTablesParallelism() int32 {
+func (x *FlowConnectionConfigs) GetQueryCdcPullSyncParallelism() int32 {
 	if x != nil {
-		return x.QueryCdcTablesParallelism
+		return x.QueryCdcPullSyncParallelism
 	}
 	return 0
 }
@@ -1338,10 +1338,10 @@ type FlowConnectionConfigsCore struct {
 	//
 	//	*FlowConnectionConfigsCore_BigqueryCdcConfig
 	SourceConnectorConfig isFlowConnectionConfigsCore_SourceConnectorConfig `protobuf_oneof:"source_connector_config"`
-	// number of tables to query in parallel for query-based CDC flows
-	QueryCdcTablesParallelism int32 `protobuf:"varint,30,opt,name=query_cdc_tables_parallelism,json=queryCdcTablesParallelism,proto3" json:"query_cdc_tables_parallelism,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// query-based CDC: how many source tables are queried and staged concurrently
+	QueryCdcPullSyncParallelism int32 `protobuf:"varint,30,opt,name=query_cdc_pull_sync_parallelism,json=queryCdcPullSyncParallelism,proto3" json:"query_cdc_pull_sync_parallelism,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *FlowConnectionConfigsCore) Reset() {
@@ -1565,9 +1565,9 @@ func (x *FlowConnectionConfigsCore) GetBigqueryCdcConfig() *BigqueryCdcConfig {
 	return nil
 }
 
-func (x *FlowConnectionConfigsCore) GetQueryCdcTablesParallelism() int32 {
+func (x *FlowConnectionConfigsCore) GetQueryCdcPullSyncParallelism() int32 {
 	if x != nil {
-		return x.QueryCdcTablesParallelism
+		return x.QueryCdcPullSyncParallelism
 	}
 	return 0
 }
@@ -5889,7 +5889,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"d\n" +
 	"\x11BigqueryCdcConfig\x12O\n" +
-	"\x10replication_mode\x18\x01 \x01(\x0e2$.peerdb_flow.BigQueryReplicationModeR\x0freplicationMode\"\xc2\v\n" +
+	"\x10replication_mode\x18\x01 \x01(\x0e2$.peerdb_flow.BigQueryReplicationModeR\x0freplicationMode\"\xc7\v\n" +
 	"\x15FlowConnectionConfigs\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5918,13 +5918,13 @@ const file_flow_proto_rawDesc = "" +
 	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
 	"\x05flags\x18\x1b \x03(\tR\x05flags\x12,\n" +
 	"\x0fskip_validation\x18\x1c \x01(\bH\x01R\x0eskipValidation\x88\x01\x01\x12P\n" +
-	"\x13bigquery_cdc_config\x18\x1d \x01(\v2\x1e.peerdb_flow.BigqueryCdcConfigH\x00R\x11bigqueryCdcConfig\x12?\n" +
-	"\x1cquery_cdc_tables_parallelism\x18\x1e \x01(\x05R\x19queryCdcTablesParallelism\x1a6\n" +
+	"\x13bigquery_cdc_config\x18\x1d \x01(\v2\x1e.peerdb_flow.BigqueryCdcConfigH\x00R\x11bigqueryCdcConfig\x12D\n" +
+	"\x1fquery_cdc_pull_sync_parallelism\x18\x1e \x01(\x05R\x1bqueryCdcPullSyncParallelism\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x19\n" +
 	"\x17source_connector_configB\x12\n" +
-	"\x10_skip_validationJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\xca\v\n" +
+	"\x10_skip_validationJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x11\x10\x12\"\xcf\v\n" +
 	"\x19FlowConnectionConfigsCore\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -5953,8 +5953,8 @@ const file_flow_proto_rawDesc = "" +
 	"\aversion\x18\x19 \x01(\rR\aversion\x12\x14\n" +
 	"\x05flags\x18\x1b \x03(\tR\x05flags\x12,\n" +
 	"\x0fskip_validation\x18\x1c \x01(\bH\x01R\x0eskipValidation\x88\x01\x01\x12P\n" +
-	"\x13bigquery_cdc_config\x18\x1d \x01(\v2\x1e.peerdb_flow.BigqueryCdcConfigH\x00R\x11bigqueryCdcConfig\x12?\n" +
-	"\x1cquery_cdc_tables_parallelism\x18\x1e \x01(\x05R\x19queryCdcTablesParallelism\x1a6\n" +
+	"\x13bigquery_cdc_config\x18\x1d \x01(\v2\x1e.peerdb_flow.BigqueryCdcConfigH\x00R\x11bigqueryCdcConfig\x12D\n" +
+	"\x1fquery_cdc_pull_sync_parallelism\x18\x1e \x01(\x05R\x1bqueryCdcPullSyncParallelism\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x19\n" +

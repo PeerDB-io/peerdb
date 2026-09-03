@@ -2239,9 +2239,9 @@ func (x *CDCTableTotalCountsResponse) GetTablesData() []*CDCTableRowCounts {
 	return nil
 }
 
-// Isolated per-table CDC replication progress; see
-// flow/connectors/external_metadata/table_replication_state.go.
-type TableReplicationState struct {
+// Query-based CDC per-table replication progress; see
+// flow/connectors/external_metadata/query_cdc_replication_state.go.
+type QueryCDCReplicationState struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	SourceTableIdentifier string                 `protobuf:"bytes,1,opt,name=source_table_identifier,json=sourceTableIdentifier,proto3" json:"source_table_identifier,omitempty"`
 	CursorText            string                 `protobuf:"bytes,2,opt,name=cursor_text,json=cursorText,proto3" json:"cursor_text,omitempty"`
@@ -2257,20 +2257,20 @@ type TableReplicationState struct {
 	sizeCache             protoimpl.SizeCache
 }
 
-func (x *TableReplicationState) Reset() {
-	*x = TableReplicationState{}
+func (x *QueryCDCReplicationState) Reset() {
+	*x = QueryCDCReplicationState{}
 	mi := &file_route_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TableReplicationState) String() string {
+func (x *QueryCDCReplicationState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TableReplicationState) ProtoMessage() {}
+func (*QueryCDCReplicationState) ProtoMessage() {}
 
-func (x *TableReplicationState) ProtoReflect() protoreflect.Message {
+func (x *QueryCDCReplicationState) ProtoReflect() protoreflect.Message {
 	mi := &file_route_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2282,102 +2282,102 @@ func (x *TableReplicationState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TableReplicationState.ProtoReflect.Descriptor instead.
-func (*TableReplicationState) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueryCDCReplicationState.ProtoReflect.Descriptor instead.
+func (*QueryCDCReplicationState) Descriptor() ([]byte, []int) {
 	return file_route_proto_rawDescGZIP(), []int{37}
 }
 
-func (x *TableReplicationState) GetSourceTableIdentifier() string {
+func (x *QueryCDCReplicationState) GetSourceTableIdentifier() string {
 	if x != nil {
 		return x.SourceTableIdentifier
 	}
 	return ""
 }
 
-func (x *TableReplicationState) GetCursorText() string {
+func (x *QueryCDCReplicationState) GetCursorText() string {
 	if x != nil {
 		return x.CursorText
 	}
 	return ""
 }
 
-func (x *TableReplicationState) GetLastAttemptAt() *timestamppb.Timestamp {
+func (x *QueryCDCReplicationState) GetLastAttemptAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastAttemptAt
 	}
 	return nil
 }
 
-func (x *TableReplicationState) GetLastSyncedAt() *timestamppb.Timestamp {
+func (x *QueryCDCReplicationState) GetLastSyncedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastSyncedAt
 	}
 	return nil
 }
 
-func (x *TableReplicationState) GetSyncedBatchId() int64 {
+func (x *QueryCDCReplicationState) GetSyncedBatchId() int64 {
 	if x != nil {
 		return x.SyncedBatchId
 	}
 	return 0
 }
 
-func (x *TableReplicationState) GetNormalizedBatchId() int64 {
+func (x *QueryCDCReplicationState) GetNormalizedBatchId() int64 {
 	if x != nil {
 		return x.NormalizedBatchId
 	}
 	return 0
 }
 
-func (x *TableReplicationState) GetLastNormalizedAt() *timestamppb.Timestamp {
+func (x *QueryCDCReplicationState) GetLastNormalizedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastNormalizedAt
 	}
 	return nil
 }
 
-func (x *TableReplicationState) GetInsertsCount() int64 {
+func (x *QueryCDCReplicationState) GetInsertsCount() int64 {
 	if x != nil {
 		return x.InsertsCount
 	}
 	return 0
 }
 
-func (x *TableReplicationState) GetUpdatesCount() int64 {
+func (x *QueryCDCReplicationState) GetUpdatesCount() int64 {
 	if x != nil {
 		return x.UpdatesCount
 	}
 	return 0
 }
 
-func (x *TableReplicationState) GetDeletesCount() int64 {
+func (x *QueryCDCReplicationState) GetDeletesCount() int64 {
 	if x != nil {
 		return x.DeletesCount
 	}
 	return 0
 }
 
-type GetTableReplicationStateRequest struct {
+type GetQueryCDCReplicationStateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FlowJobName   string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetTableReplicationStateRequest) Reset() {
-	*x = GetTableReplicationStateRequest{}
+func (x *GetQueryCDCReplicationStateRequest) Reset() {
+	*x = GetQueryCDCReplicationStateRequest{}
 	mi := &file_route_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetTableReplicationStateRequest) String() string {
+func (x *GetQueryCDCReplicationStateRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetTableReplicationStateRequest) ProtoMessage() {}
+func (*GetQueryCDCReplicationStateRequest) ProtoMessage() {}
 
-func (x *GetTableReplicationStateRequest) ProtoReflect() protoreflect.Message {
+func (x *GetQueryCDCReplicationStateRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_route_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2389,39 +2389,39 @@ func (x *GetTableReplicationStateRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetTableReplicationStateRequest.ProtoReflect.Descriptor instead.
-func (*GetTableReplicationStateRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetQueryCDCReplicationStateRequest.ProtoReflect.Descriptor instead.
+func (*GetQueryCDCReplicationStateRequest) Descriptor() ([]byte, []int) {
 	return file_route_proto_rawDescGZIP(), []int{38}
 }
 
-func (x *GetTableReplicationStateRequest) GetFlowJobName() string {
+func (x *GetQueryCDCReplicationStateRequest) GetFlowJobName() string {
 	if x != nil {
 		return x.FlowJobName
 	}
 	return ""
 }
 
-type GetTableReplicationStateResponse struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Tables        []*TableReplicationState `protobuf:"bytes,1,rep,name=tables,proto3" json:"tables,omitempty"`
+type GetQueryCDCReplicationStateResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Tables        []*QueryCDCReplicationState `protobuf:"bytes,1,rep,name=tables,proto3" json:"tables,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetTableReplicationStateResponse) Reset() {
-	*x = GetTableReplicationStateResponse{}
+func (x *GetQueryCDCReplicationStateResponse) Reset() {
+	*x = GetQueryCDCReplicationStateResponse{}
 	mi := &file_route_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetTableReplicationStateResponse) String() string {
+func (x *GetQueryCDCReplicationStateResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetTableReplicationStateResponse) ProtoMessage() {}
+func (*GetQueryCDCReplicationStateResponse) ProtoMessage() {}
 
-func (x *GetTableReplicationStateResponse) ProtoReflect() protoreflect.Message {
+func (x *GetQueryCDCReplicationStateResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_route_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2433,12 +2433,12 @@ func (x *GetTableReplicationStateResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetTableReplicationStateResponse.ProtoReflect.Descriptor instead.
-func (*GetTableReplicationStateResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetQueryCDCReplicationStateResponse.ProtoReflect.Descriptor instead.
+func (*GetQueryCDCReplicationStateResponse) Descriptor() ([]byte, []int) {
 	return file_route_proto_rawDescGZIP(), []int{39}
 }
 
-func (x *GetTableReplicationStateResponse) GetTables() []*TableReplicationState {
+func (x *GetQueryCDCReplicationStateResponse) GetTables() []*QueryCDCReplicationState {
 	if x != nil {
 		return x.Tables
 	}
@@ -6832,8 +6832,8 @@ const file_route_proto_rawDesc = "" +
 	"\n" +
 	"total_data\x18\x01 \x01(\v2\x1a.peerdb_route.CDCRowCountsR\ttotalData\x12@\n" +
 	"\vtables_data\x18\x02 \x03(\v2\x1f.peerdb_route.CDCTableRowCountsR\n" +
-	"tablesData\"\x87\x04\n" +
-	"\x15TableReplicationState\x126\n" +
+	"tablesData\"\x8a\x04\n" +
+	"\x18QueryCDCReplicationState\x126\n" +
 	"\x17source_table_identifier\x18\x01 \x01(\tR\x15sourceTableIdentifier\x12\x1f\n" +
 	"\vcursor_text\x18\x02 \x01(\tR\n" +
 	"cursorText\x12B\n" +
@@ -6845,11 +6845,11 @@ const file_route_proto_rawDesc = "" +
 	"\rinserts_count\x18\b \x01(\x03R\finsertsCount\x12#\n" +
 	"\rupdates_count\x18\t \x01(\x03R\fupdatesCount\x12#\n" +
 	"\rdeletes_count\x18\n" +
-	" \x01(\x03R\fdeletesCount\"E\n" +
-	"\x1fGetTableReplicationStateRequest\x12\"\n" +
-	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\"_\n" +
-	" GetTableReplicationStateResponse\x12;\n" +
-	"\x06tables\x18\x01 \x03(\v2#.peerdb_route.TableReplicationStateR\x06tables\"\x97\x01\n" +
+	" \x01(\x03R\fdeletesCount\"H\n" +
+	"\"GetQueryCDCReplicationStateRequest\x12\"\n" +
+	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\"e\n" +
+	"#GetQueryCDCReplicationStateResponse\x12>\n" +
+	"\x06tables\x18\x01 \x03(\v2&.peerdb_route.QueryCDCReplicationStateR\x06tables\"\x97\x01\n" +
 	"\x1eTotalRowsSyncedByMirrorRequest\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12\x1f\n" +
 	"\vexclude_cdc\x18\x02 \x01(\bR\n" +
@@ -7207,7 +7207,7 @@ const file_route_proto_rawDesc = "" +
 	"\x19MAINTENANCE_PHASE_UNKNOWN\x10\x00\x12'\n" +
 	"#MAINTENANCE_PHASE_START_MAINTENANCE\x10\x01\x12.\n" +
 	"*MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED\x10\x02\x12%\n" +
-	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\xf70\n" +
+	"!MAINTENANCE_PHASE_END_MAINTENANCE\x10\x032\x841\n" +
 	"\vFlowService\x12t\n" +
 	"\fValidatePeer\x12!.peerdb_route.ValidatePeerRequest\x1a\".peerdb_route.ValidatePeerResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/peers/validate\x12\x85\x01\n" +
 	"\x11ValidateCDCMirror\x12\".peerdb_route.CreateCDCFlowRequest\x1a'.peerdb_route.ValidateCDCMirrorResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/mirrors/cdc/validate\x12l\n" +
@@ -7226,8 +7226,8 @@ const file_route_proto_rawDesc = "" +
 	"\n" +
 	"PostScript\x12\x1f.peerdb_route.PostScriptRequest\x1a .peerdb_route.PostScriptResponse\"\x16\x82\xd3\xe4\x93\x02\x10:\x01*\"\v/v1/scripts\x12o\n" +
 	"\fDeleteScript\x12!.peerdb_route.DeleteScriptRequest\x1a\".peerdb_route.DeleteScriptResponse\"\x18\x82\xd3\xe4\x93\x02\x12*\x10/v1/scripts/{id}\x12\xa6\x01\n" +
-	"\x13CDCTableTotalCounts\x12(.peerdb_route.CDCTableTotalCountsRequest\x1a).peerdb_route.CDCTableTotalCountsResponse\":\x82\xd3\xe4\x93\x024\x122/v1/mirrors/cdc/table_total_counts/{flow_job_name}\x12\xba\x01\n" +
-	"\x18GetTableReplicationState\x12-.peerdb_route.GetTableReplicationStateRequest\x1a..peerdb_route.GetTableReplicationStateResponse\"?\x82\xd3\xe4\x93\x029\x127/v1/mirrors/cdc/table_replication_state/{flow_job_name}\x12y\n" +
+	"\x13CDCTableTotalCounts\x12(.peerdb_route.CDCTableTotalCountsRequest\x1a).peerdb_route.CDCTableTotalCountsResponse\":\x82\xd3\xe4\x93\x024\x122/v1/mirrors/cdc/table_total_counts/{flow_job_name}\x12\xc7\x01\n" +
+	"\x1bGetQueryCDCReplicationState\x120.peerdb_route.GetQueryCDCReplicationStateRequest\x1a1.peerdb_route.GetQueryCDCReplicationStateResponse\"C\x82\xd3\xe4\x93\x02=\x12;/v1/mirrors/cdc/query_cdc_replication_state/{flow_job_name}\x12y\n" +
 	"\n" +
 	"GetSchemas\x12-.peerdb_route.PostgresPeerActivityInfoRequest\x1a!.peerdb_route.PeerSchemasResponse\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/v1/peers/schemas\x12\x88\x01\n" +
 	"\x0fGetPublications\x12-.peerdb_route.PostgresPeerActivityInfoRequest\x1a&.peerdb_route.PeerPublicationsResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/v1/peers/publications\x12t\n" +
@@ -7282,139 +7282,139 @@ func file_route_proto_rawDescGZIP() []byte {
 var file_route_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_route_proto_msgTypes = make([]protoimpl.MessageInfo, 114)
 var file_route_proto_goTypes = []any{
-	(ValidatePeerStatus)(0),                  // 0: peerdb_route.ValidatePeerStatus
-	(CreatePeerStatus)(0),                    // 1: peerdb_route.CreatePeerStatus
-	(GraphMode)(0),                           // 2: peerdb_route.GraphMode
-	(TimeAggregateType)(0),                   // 3: peerdb_route.TimeAggregateType
-	(InstanceStatus)(0),                      // 4: peerdb_route.InstanceStatus
-	(MaintenanceStatus)(0),                   // 5: peerdb_route.MaintenanceStatus
-	(MaintenancePhase)(0),                    // 6: peerdb_route.MaintenancePhase
-	(*CreateCDCFlowRequest)(nil),             // 7: peerdb_route.CreateCDCFlowRequest
-	(*CreateCDCFlowResponse)(nil),            // 8: peerdb_route.CreateCDCFlowResponse
-	(*CreateQRepFlowRequest)(nil),            // 9: peerdb_route.CreateQRepFlowRequest
-	(*CreateQRepFlowResponse)(nil),           // 10: peerdb_route.CreateQRepFlowResponse
-	(*AlertConfig)(nil),                      // 11: peerdb_route.AlertConfig
-	(*GetAlertConfigsRequest)(nil),           // 12: peerdb_route.GetAlertConfigsRequest
-	(*PostAlertConfigRequest)(nil),           // 13: peerdb_route.PostAlertConfigRequest
-	(*DeleteAlertConfigRequest)(nil),         // 14: peerdb_route.DeleteAlertConfigRequest
-	(*GetAlertConfigsResponse)(nil),          // 15: peerdb_route.GetAlertConfigsResponse
-	(*PostAlertConfigResponse)(nil),          // 16: peerdb_route.PostAlertConfigResponse
-	(*DeleteAlertConfigResponse)(nil),        // 17: peerdb_route.DeleteAlertConfigResponse
-	(*DynamicSetting)(nil),                   // 18: peerdb_route.DynamicSetting
-	(*GetDynamicSettingsRequest)(nil),        // 19: peerdb_route.GetDynamicSettingsRequest
-	(*GetDynamicSettingsResponse)(nil),       // 20: peerdb_route.GetDynamicSettingsResponse
-	(*PostDynamicSettingRequest)(nil),        // 21: peerdb_route.PostDynamicSettingRequest
-	(*PostDynamicSettingResponse)(nil),       // 22: peerdb_route.PostDynamicSettingResponse
-	(*Script)(nil),                           // 23: peerdb_route.Script
-	(*GetScriptsRequest)(nil),                // 24: peerdb_route.GetScriptsRequest
-	(*GetScriptsResponse)(nil),               // 25: peerdb_route.GetScriptsResponse
-	(*PostScriptRequest)(nil),                // 26: peerdb_route.PostScriptRequest
-	(*PostScriptResponse)(nil),               // 27: peerdb_route.PostScriptResponse
-	(*DeleteScriptRequest)(nil),              // 28: peerdb_route.DeleteScriptRequest
-	(*DeleteScriptResponse)(nil),             // 29: peerdb_route.DeleteScriptResponse
-	(*ValidatePeerRequest)(nil),              // 30: peerdb_route.ValidatePeerRequest
-	(*CreatePeerRequest)(nil),                // 31: peerdb_route.CreatePeerRequest
-	(*DropPeerRequest)(nil),                  // 32: peerdb_route.DropPeerRequest
-	(*DropPeerResponse)(nil),                 // 33: peerdb_route.DropPeerResponse
-	(*ValidatePeerResponse)(nil),             // 34: peerdb_route.ValidatePeerResponse
-	(*CreatePeerResponse)(nil),               // 35: peerdb_route.CreatePeerResponse
-	(*MirrorStatusRequest)(nil),              // 36: peerdb_route.MirrorStatusRequest
-	(*PartitionStatus)(nil),                  // 37: peerdb_route.PartitionStatus
-	(*QRepMirrorStatus)(nil),                 // 38: peerdb_route.QRepMirrorStatus
-	(*CDCBatch)(nil),                         // 39: peerdb_route.CDCBatch
-	(*CDCRowCounts)(nil),                     // 40: peerdb_route.CDCRowCounts
-	(*CDCTableRowCounts)(nil),                // 41: peerdb_route.CDCTableRowCounts
-	(*CDCTableTotalCountsRequest)(nil),       // 42: peerdb_route.CDCTableTotalCountsRequest
-	(*CDCTableTotalCountsResponse)(nil),      // 43: peerdb_route.CDCTableTotalCountsResponse
-	(*TableReplicationState)(nil),            // 44: peerdb_route.TableReplicationState
-	(*GetTableReplicationStateRequest)(nil),  // 45: peerdb_route.GetTableReplicationStateRequest
-	(*GetTableReplicationStateResponse)(nil), // 46: peerdb_route.GetTableReplicationStateResponse
-	(*TotalRowsSyncedByMirrorRequest)(nil),   // 47: peerdb_route.TotalRowsSyncedByMirrorRequest
-	(*TotalRowsSyncedByMirrorResponse)(nil),  // 48: peerdb_route.TotalRowsSyncedByMirrorResponse
-	(*RowCountRequest)(nil),                  // 49: peerdb_route.RowCountRequest
-	(*TableRowCount)(nil),                    // 50: peerdb_route.TableRowCount
-	(*RowCountResponse)(nil),                 // 51: peerdb_route.RowCountResponse
-	(*PeerSchemasResponse)(nil),              // 52: peerdb_route.PeerSchemasResponse
-	(*PeerPublicationsResponse)(nil),         // 53: peerdb_route.PeerPublicationsResponse
-	(*SchemaTablesRequest)(nil),              // 54: peerdb_route.SchemaTablesRequest
-	(*SchemaTablesResponse)(nil),             // 55: peerdb_route.SchemaTablesResponse
-	(*TableResponse)(nil),                    // 56: peerdb_route.TableResponse
-	(*AllTablesResponse)(nil),                // 57: peerdb_route.AllTablesResponse
-	(*TableColumnsRequest)(nil),              // 58: peerdb_route.TableColumnsRequest
-	(*ColumnsItem)(nil),                      // 59: peerdb_route.ColumnsItem
-	(*TableColumnsResponse)(nil),             // 60: peerdb_route.TableColumnsResponse
-	(*ColumnsTypeConversionRequest)(nil),     // 61: peerdb_route.ColumnsTypeConversionRequest
-	(*ColumnsTypeConversion)(nil),            // 62: peerdb_route.ColumnsTypeConversion
-	(*ColumnsTypeConversionResponse)(nil),    // 63: peerdb_route.ColumnsTypeConversionResponse
-	(*PostgresPeerActivityInfoRequest)(nil),  // 64: peerdb_route.PostgresPeerActivityInfoRequest
-	(*PeerInfoRequest)(nil),                  // 65: peerdb_route.PeerInfoRequest
-	(*PeerInfoResponse)(nil),                 // 66: peerdb_route.PeerInfoResponse
-	(*PeerTypeResponse)(nil),                 // 67: peerdb_route.PeerTypeResponse
-	(*PeerListItem)(nil),                     // 68: peerdb_route.PeerListItem
-	(*ListPeersRequest)(nil),                 // 69: peerdb_route.ListPeersRequest
-	(*ListPeersResponse)(nil),                // 70: peerdb_route.ListPeersResponse
-	(*SlotInfo)(nil),                         // 71: peerdb_route.SlotInfo
-	(*SlotLagPoint)(nil),                     // 72: peerdb_route.SlotLagPoint
-	(*GetSlotLagHistoryRequest)(nil),         // 73: peerdb_route.GetSlotLagHistoryRequest
-	(*GetSlotLagHistoryResponse)(nil),        // 74: peerdb_route.GetSlotLagHistoryResponse
-	(*StatInfo)(nil),                         // 75: peerdb_route.StatInfo
-	(*PeerSlotResponse)(nil),                 // 76: peerdb_route.PeerSlotResponse
-	(*PeerStatResponse)(nil),                 // 77: peerdb_route.PeerStatResponse
-	(*CloneTableSummary)(nil),                // 78: peerdb_route.CloneTableSummary
-	(*SnapshotStatus)(nil),                   // 79: peerdb_route.SnapshotStatus
-	(*CDCMirrorStatus)(nil),                  // 80: peerdb_route.CDCMirrorStatus
-	(*MirrorStatusResponse)(nil),             // 81: peerdb_route.MirrorStatusResponse
-	(*InitialLoadSummaryRequest)(nil),        // 82: peerdb_route.InitialLoadSummaryRequest
-	(*InitialLoadSummaryResponse)(nil),       // 83: peerdb_route.InitialLoadSummaryResponse
-	(*GetCDCBatchesRequest)(nil),             // 84: peerdb_route.GetCDCBatchesRequest
-	(*GetCDCBatchesResponse)(nil),            // 85: peerdb_route.GetCDCBatchesResponse
-	(*GraphRequest)(nil),                     // 86: peerdb_route.GraphRequest
-	(*GraphResponseItem)(nil),                // 87: peerdb_route.GraphResponseItem
-	(*GraphResponse)(nil),                    // 88: peerdb_route.GraphResponse
-	(*MirrorLog)(nil),                        // 89: peerdb_route.MirrorLog
-	(*ListMirrorLogsRequest)(nil),            // 90: peerdb_route.ListMirrorLogsRequest
-	(*ListMirrorLogsResponse)(nil),           // 91: peerdb_route.ListMirrorLogsResponse
-	(*ValidateCDCMirrorResponse)(nil),        // 92: peerdb_route.ValidateCDCMirrorResponse
-	(*ListMirrorsItem)(nil),                  // 93: peerdb_route.ListMirrorsItem
-	(*ListMirrorsRequest)(nil),               // 94: peerdb_route.ListMirrorsRequest
-	(*ListMirrorsResponse)(nil),              // 95: peerdb_route.ListMirrorsResponse
-	(*ListMirrorNamesRequest)(nil),           // 96: peerdb_route.ListMirrorNamesRequest
-	(*ListMirrorNamesResponse)(nil),          // 97: peerdb_route.ListMirrorNamesResponse
-	(*FlowStateChangeRequest)(nil),           // 98: peerdb_route.FlowStateChangeRequest
-	(*FlowStateChangeResponse)(nil),          // 99: peerdb_route.FlowStateChangeResponse
-	(*PeerDBVersionRequest)(nil),             // 100: peerdb_route.PeerDBVersionRequest
-	(*PeerDBVersionResponse)(nil),            // 101: peerdb_route.PeerDBVersionResponse
-	(*PeerDBStateRequest)(nil),               // 102: peerdb_route.PeerDBStateRequest
-	(*InstanceInfoRequest)(nil),              // 103: peerdb_route.InstanceInfoRequest
-	(*InstanceInfoResponse)(nil),             // 104: peerdb_route.InstanceInfoResponse
-	(*MaintenanceRequest)(nil),               // 105: peerdb_route.MaintenanceRequest
-	(*MaintenanceResponse)(nil),              // 106: peerdb_route.MaintenanceResponse
-	(*MaintenanceStatusRequest)(nil),         // 107: peerdb_route.MaintenanceStatusRequest
-	(*MaintenanceActivityDetails)(nil),       // 108: peerdb_route.MaintenanceActivityDetails
-	(*MaintenanceStatusResponse)(nil),        // 109: peerdb_route.MaintenanceStatusResponse
-	(*SkipSnapshotWaitFlowsRequest)(nil),     // 110: peerdb_route.SkipSnapshotWaitFlowsRequest
-	(*SkipSnapshotWaitFlowsResponse)(nil),    // 111: peerdb_route.SkipSnapshotWaitFlowsResponse
-	(*FlowTag)(nil),                          // 112: peerdb_route.FlowTag
-	(*CreateOrReplaceFlowTagsRequest)(nil),   // 113: peerdb_route.CreateOrReplaceFlowTagsRequest
-	(*CreateOrReplaceFlowTagsResponse)(nil),  // 114: peerdb_route.CreateOrReplaceFlowTagsResponse
-	(*GetFlowTagsRequest)(nil),               // 115: peerdb_route.GetFlowTagsRequest
-	(*GetFlowTagsResponse)(nil),              // 116: peerdb_route.GetFlowTagsResponse
-	(*CancelTableAdditionInput)(nil),         // 117: peerdb_route.CancelTableAdditionInput
-	(*CancelTableAdditionOutput)(nil),        // 118: peerdb_route.CancelTableAdditionOutput
-	(*ResetMirrorSequencesRequest)(nil),      // 119: peerdb_route.ResetMirrorSequencesRequest
-	(*ResetMirrorSequencesResponse)(nil),     // 120: peerdb_route.ResetMirrorSequencesResponse
-	(*FlowConnectionConfigs)(nil),            // 121: peerdb_flow.FlowConnectionConfigs
-	(*QRepConfig)(nil),                       // 122: peerdb_flow.QRepConfig
-	(DynconfValueType)(0),                    // 123: peerdb_flow.DynconfValueType
-	(DynconfApplyMode)(0),                    // 124: peerdb_flow.DynconfApplyMode
-	(DynconfTarget)(0),                       // 125: peerdb_flow.DynconfTarget
-	(*Peer)(nil),                             // 126: peerdb_peers.Peer
-	(*timestamppb.Timestamp)(nil),            // 127: google.protobuf.Timestamp
-	(DBType)(0),                              // 128: peerdb_peers.DBType
-	(FlowStatus)(0),                          // 129: peerdb_flow.FlowStatus
-	(*FlowConfigUpdate)(nil),                 // 130: peerdb_flow.FlowConfigUpdate
-	(*durationpb.Duration)(nil),              // 131: google.protobuf.Duration
-	(*TableMapping)(nil),                     // 132: peerdb_flow.TableMapping
+	(ValidatePeerStatus)(0),                     // 0: peerdb_route.ValidatePeerStatus
+	(CreatePeerStatus)(0),                       // 1: peerdb_route.CreatePeerStatus
+	(GraphMode)(0),                              // 2: peerdb_route.GraphMode
+	(TimeAggregateType)(0),                      // 3: peerdb_route.TimeAggregateType
+	(InstanceStatus)(0),                         // 4: peerdb_route.InstanceStatus
+	(MaintenanceStatus)(0),                      // 5: peerdb_route.MaintenanceStatus
+	(MaintenancePhase)(0),                       // 6: peerdb_route.MaintenancePhase
+	(*CreateCDCFlowRequest)(nil),                // 7: peerdb_route.CreateCDCFlowRequest
+	(*CreateCDCFlowResponse)(nil),               // 8: peerdb_route.CreateCDCFlowResponse
+	(*CreateQRepFlowRequest)(nil),               // 9: peerdb_route.CreateQRepFlowRequest
+	(*CreateQRepFlowResponse)(nil),              // 10: peerdb_route.CreateQRepFlowResponse
+	(*AlertConfig)(nil),                         // 11: peerdb_route.AlertConfig
+	(*GetAlertConfigsRequest)(nil),              // 12: peerdb_route.GetAlertConfigsRequest
+	(*PostAlertConfigRequest)(nil),              // 13: peerdb_route.PostAlertConfigRequest
+	(*DeleteAlertConfigRequest)(nil),            // 14: peerdb_route.DeleteAlertConfigRequest
+	(*GetAlertConfigsResponse)(nil),             // 15: peerdb_route.GetAlertConfigsResponse
+	(*PostAlertConfigResponse)(nil),             // 16: peerdb_route.PostAlertConfigResponse
+	(*DeleteAlertConfigResponse)(nil),           // 17: peerdb_route.DeleteAlertConfigResponse
+	(*DynamicSetting)(nil),                      // 18: peerdb_route.DynamicSetting
+	(*GetDynamicSettingsRequest)(nil),           // 19: peerdb_route.GetDynamicSettingsRequest
+	(*GetDynamicSettingsResponse)(nil),          // 20: peerdb_route.GetDynamicSettingsResponse
+	(*PostDynamicSettingRequest)(nil),           // 21: peerdb_route.PostDynamicSettingRequest
+	(*PostDynamicSettingResponse)(nil),          // 22: peerdb_route.PostDynamicSettingResponse
+	(*Script)(nil),                              // 23: peerdb_route.Script
+	(*GetScriptsRequest)(nil),                   // 24: peerdb_route.GetScriptsRequest
+	(*GetScriptsResponse)(nil),                  // 25: peerdb_route.GetScriptsResponse
+	(*PostScriptRequest)(nil),                   // 26: peerdb_route.PostScriptRequest
+	(*PostScriptResponse)(nil),                  // 27: peerdb_route.PostScriptResponse
+	(*DeleteScriptRequest)(nil),                 // 28: peerdb_route.DeleteScriptRequest
+	(*DeleteScriptResponse)(nil),                // 29: peerdb_route.DeleteScriptResponse
+	(*ValidatePeerRequest)(nil),                 // 30: peerdb_route.ValidatePeerRequest
+	(*CreatePeerRequest)(nil),                   // 31: peerdb_route.CreatePeerRequest
+	(*DropPeerRequest)(nil),                     // 32: peerdb_route.DropPeerRequest
+	(*DropPeerResponse)(nil),                    // 33: peerdb_route.DropPeerResponse
+	(*ValidatePeerResponse)(nil),                // 34: peerdb_route.ValidatePeerResponse
+	(*CreatePeerResponse)(nil),                  // 35: peerdb_route.CreatePeerResponse
+	(*MirrorStatusRequest)(nil),                 // 36: peerdb_route.MirrorStatusRequest
+	(*PartitionStatus)(nil),                     // 37: peerdb_route.PartitionStatus
+	(*QRepMirrorStatus)(nil),                    // 38: peerdb_route.QRepMirrorStatus
+	(*CDCBatch)(nil),                            // 39: peerdb_route.CDCBatch
+	(*CDCRowCounts)(nil),                        // 40: peerdb_route.CDCRowCounts
+	(*CDCTableRowCounts)(nil),                   // 41: peerdb_route.CDCTableRowCounts
+	(*CDCTableTotalCountsRequest)(nil),          // 42: peerdb_route.CDCTableTotalCountsRequest
+	(*CDCTableTotalCountsResponse)(nil),         // 43: peerdb_route.CDCTableTotalCountsResponse
+	(*QueryCDCReplicationState)(nil),            // 44: peerdb_route.QueryCDCReplicationState
+	(*GetQueryCDCReplicationStateRequest)(nil),  // 45: peerdb_route.GetQueryCDCReplicationStateRequest
+	(*GetQueryCDCReplicationStateResponse)(nil), // 46: peerdb_route.GetQueryCDCReplicationStateResponse
+	(*TotalRowsSyncedByMirrorRequest)(nil),      // 47: peerdb_route.TotalRowsSyncedByMirrorRequest
+	(*TotalRowsSyncedByMirrorResponse)(nil),     // 48: peerdb_route.TotalRowsSyncedByMirrorResponse
+	(*RowCountRequest)(nil),                     // 49: peerdb_route.RowCountRequest
+	(*TableRowCount)(nil),                       // 50: peerdb_route.TableRowCount
+	(*RowCountResponse)(nil),                    // 51: peerdb_route.RowCountResponse
+	(*PeerSchemasResponse)(nil),                 // 52: peerdb_route.PeerSchemasResponse
+	(*PeerPublicationsResponse)(nil),            // 53: peerdb_route.PeerPublicationsResponse
+	(*SchemaTablesRequest)(nil),                 // 54: peerdb_route.SchemaTablesRequest
+	(*SchemaTablesResponse)(nil),                // 55: peerdb_route.SchemaTablesResponse
+	(*TableResponse)(nil),                       // 56: peerdb_route.TableResponse
+	(*AllTablesResponse)(nil),                   // 57: peerdb_route.AllTablesResponse
+	(*TableColumnsRequest)(nil),                 // 58: peerdb_route.TableColumnsRequest
+	(*ColumnsItem)(nil),                         // 59: peerdb_route.ColumnsItem
+	(*TableColumnsResponse)(nil),                // 60: peerdb_route.TableColumnsResponse
+	(*ColumnsTypeConversionRequest)(nil),        // 61: peerdb_route.ColumnsTypeConversionRequest
+	(*ColumnsTypeConversion)(nil),               // 62: peerdb_route.ColumnsTypeConversion
+	(*ColumnsTypeConversionResponse)(nil),       // 63: peerdb_route.ColumnsTypeConversionResponse
+	(*PostgresPeerActivityInfoRequest)(nil),     // 64: peerdb_route.PostgresPeerActivityInfoRequest
+	(*PeerInfoRequest)(nil),                     // 65: peerdb_route.PeerInfoRequest
+	(*PeerInfoResponse)(nil),                    // 66: peerdb_route.PeerInfoResponse
+	(*PeerTypeResponse)(nil),                    // 67: peerdb_route.PeerTypeResponse
+	(*PeerListItem)(nil),                        // 68: peerdb_route.PeerListItem
+	(*ListPeersRequest)(nil),                    // 69: peerdb_route.ListPeersRequest
+	(*ListPeersResponse)(nil),                   // 70: peerdb_route.ListPeersResponse
+	(*SlotInfo)(nil),                            // 71: peerdb_route.SlotInfo
+	(*SlotLagPoint)(nil),                        // 72: peerdb_route.SlotLagPoint
+	(*GetSlotLagHistoryRequest)(nil),            // 73: peerdb_route.GetSlotLagHistoryRequest
+	(*GetSlotLagHistoryResponse)(nil),           // 74: peerdb_route.GetSlotLagHistoryResponse
+	(*StatInfo)(nil),                            // 75: peerdb_route.StatInfo
+	(*PeerSlotResponse)(nil),                    // 76: peerdb_route.PeerSlotResponse
+	(*PeerStatResponse)(nil),                    // 77: peerdb_route.PeerStatResponse
+	(*CloneTableSummary)(nil),                   // 78: peerdb_route.CloneTableSummary
+	(*SnapshotStatus)(nil),                      // 79: peerdb_route.SnapshotStatus
+	(*CDCMirrorStatus)(nil),                     // 80: peerdb_route.CDCMirrorStatus
+	(*MirrorStatusResponse)(nil),                // 81: peerdb_route.MirrorStatusResponse
+	(*InitialLoadSummaryRequest)(nil),           // 82: peerdb_route.InitialLoadSummaryRequest
+	(*InitialLoadSummaryResponse)(nil),          // 83: peerdb_route.InitialLoadSummaryResponse
+	(*GetCDCBatchesRequest)(nil),                // 84: peerdb_route.GetCDCBatchesRequest
+	(*GetCDCBatchesResponse)(nil),               // 85: peerdb_route.GetCDCBatchesResponse
+	(*GraphRequest)(nil),                        // 86: peerdb_route.GraphRequest
+	(*GraphResponseItem)(nil),                   // 87: peerdb_route.GraphResponseItem
+	(*GraphResponse)(nil),                       // 88: peerdb_route.GraphResponse
+	(*MirrorLog)(nil),                           // 89: peerdb_route.MirrorLog
+	(*ListMirrorLogsRequest)(nil),               // 90: peerdb_route.ListMirrorLogsRequest
+	(*ListMirrorLogsResponse)(nil),              // 91: peerdb_route.ListMirrorLogsResponse
+	(*ValidateCDCMirrorResponse)(nil),           // 92: peerdb_route.ValidateCDCMirrorResponse
+	(*ListMirrorsItem)(nil),                     // 93: peerdb_route.ListMirrorsItem
+	(*ListMirrorsRequest)(nil),                  // 94: peerdb_route.ListMirrorsRequest
+	(*ListMirrorsResponse)(nil),                 // 95: peerdb_route.ListMirrorsResponse
+	(*ListMirrorNamesRequest)(nil),              // 96: peerdb_route.ListMirrorNamesRequest
+	(*ListMirrorNamesResponse)(nil),             // 97: peerdb_route.ListMirrorNamesResponse
+	(*FlowStateChangeRequest)(nil),              // 98: peerdb_route.FlowStateChangeRequest
+	(*FlowStateChangeResponse)(nil),             // 99: peerdb_route.FlowStateChangeResponse
+	(*PeerDBVersionRequest)(nil),                // 100: peerdb_route.PeerDBVersionRequest
+	(*PeerDBVersionResponse)(nil),               // 101: peerdb_route.PeerDBVersionResponse
+	(*PeerDBStateRequest)(nil),                  // 102: peerdb_route.PeerDBStateRequest
+	(*InstanceInfoRequest)(nil),                 // 103: peerdb_route.InstanceInfoRequest
+	(*InstanceInfoResponse)(nil),                // 104: peerdb_route.InstanceInfoResponse
+	(*MaintenanceRequest)(nil),                  // 105: peerdb_route.MaintenanceRequest
+	(*MaintenanceResponse)(nil),                 // 106: peerdb_route.MaintenanceResponse
+	(*MaintenanceStatusRequest)(nil),            // 107: peerdb_route.MaintenanceStatusRequest
+	(*MaintenanceActivityDetails)(nil),          // 108: peerdb_route.MaintenanceActivityDetails
+	(*MaintenanceStatusResponse)(nil),           // 109: peerdb_route.MaintenanceStatusResponse
+	(*SkipSnapshotWaitFlowsRequest)(nil),        // 110: peerdb_route.SkipSnapshotWaitFlowsRequest
+	(*SkipSnapshotWaitFlowsResponse)(nil),       // 111: peerdb_route.SkipSnapshotWaitFlowsResponse
+	(*FlowTag)(nil),                             // 112: peerdb_route.FlowTag
+	(*CreateOrReplaceFlowTagsRequest)(nil),      // 113: peerdb_route.CreateOrReplaceFlowTagsRequest
+	(*CreateOrReplaceFlowTagsResponse)(nil),     // 114: peerdb_route.CreateOrReplaceFlowTagsResponse
+	(*GetFlowTagsRequest)(nil),                  // 115: peerdb_route.GetFlowTagsRequest
+	(*GetFlowTagsResponse)(nil),                 // 116: peerdb_route.GetFlowTagsResponse
+	(*CancelTableAdditionInput)(nil),            // 117: peerdb_route.CancelTableAdditionInput
+	(*CancelTableAdditionOutput)(nil),           // 118: peerdb_route.CancelTableAdditionOutput
+	(*ResetMirrorSequencesRequest)(nil),         // 119: peerdb_route.ResetMirrorSequencesRequest
+	(*ResetMirrorSequencesResponse)(nil),        // 120: peerdb_route.ResetMirrorSequencesResponse
+	(*FlowConnectionConfigs)(nil),               // 121: peerdb_flow.FlowConnectionConfigs
+	(*QRepConfig)(nil),                          // 122: peerdb_flow.QRepConfig
+	(DynconfValueType)(0),                       // 123: peerdb_flow.DynconfValueType
+	(DynconfApplyMode)(0),                       // 124: peerdb_flow.DynconfApplyMode
+	(DynconfTarget)(0),                          // 125: peerdb_flow.DynconfTarget
+	(*Peer)(nil),                                // 126: peerdb_peers.Peer
+	(*timestamppb.Timestamp)(nil),               // 127: google.protobuf.Timestamp
+	(DBType)(0),                                 // 128: peerdb_peers.DBType
+	(FlowStatus)(0),                             // 129: peerdb_flow.FlowStatus
+	(*FlowConfigUpdate)(nil),                    // 130: peerdb_flow.FlowConfigUpdate
+	(*durationpb.Duration)(nil),                 // 131: google.protobuf.Duration
+	(*TableMapping)(nil),                        // 132: peerdb_flow.TableMapping
 }
 var file_route_proto_depIdxs = []int32{
 	121, // 0: peerdb_route.CreateCDCFlowRequest.connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
@@ -7439,10 +7439,10 @@ var file_route_proto_depIdxs = []int32{
 	40,  // 19: peerdb_route.CDCTableRowCounts.counts:type_name -> peerdb_route.CDCRowCounts
 	40,  // 20: peerdb_route.CDCTableTotalCountsResponse.total_data:type_name -> peerdb_route.CDCRowCounts
 	41,  // 21: peerdb_route.CDCTableTotalCountsResponse.tables_data:type_name -> peerdb_route.CDCTableRowCounts
-	127, // 22: peerdb_route.TableReplicationState.last_attempt_at:type_name -> google.protobuf.Timestamp
-	127, // 23: peerdb_route.TableReplicationState.last_synced_at:type_name -> google.protobuf.Timestamp
-	127, // 24: peerdb_route.TableReplicationState.last_normalized_at:type_name -> google.protobuf.Timestamp
-	44,  // 25: peerdb_route.GetTableReplicationStateResponse.tables:type_name -> peerdb_route.TableReplicationState
+	127, // 22: peerdb_route.QueryCDCReplicationState.last_attempt_at:type_name -> google.protobuf.Timestamp
+	127, // 23: peerdb_route.QueryCDCReplicationState.last_synced_at:type_name -> google.protobuf.Timestamp
+	127, // 24: peerdb_route.QueryCDCReplicationState.last_normalized_at:type_name -> google.protobuf.Timestamp
+	44,  // 25: peerdb_route.GetQueryCDCReplicationStateResponse.tables:type_name -> peerdb_route.QueryCDCReplicationState
 	50,  // 26: peerdb_route.RowCountResponse.table_counts:type_name -> peerdb_route.TableRowCount
 	56,  // 27: peerdb_route.SchemaTablesResponse.tables:type_name -> peerdb_route.TableResponse
 	59,  // 28: peerdb_route.TableColumnsResponse.columns:type_name -> peerdb_route.ColumnsItem
@@ -7503,7 +7503,7 @@ var file_route_proto_depIdxs = []int32{
 	26,  // 83: peerdb_route.FlowService.PostScript:input_type -> peerdb_route.PostScriptRequest
 	28,  // 84: peerdb_route.FlowService.DeleteScript:input_type -> peerdb_route.DeleteScriptRequest
 	42,  // 85: peerdb_route.FlowService.CDCTableTotalCounts:input_type -> peerdb_route.CDCTableTotalCountsRequest
-	45,  // 86: peerdb_route.FlowService.GetTableReplicationState:input_type -> peerdb_route.GetTableReplicationStateRequest
+	45,  // 86: peerdb_route.FlowService.GetQueryCDCReplicationState:input_type -> peerdb_route.GetQueryCDCReplicationStateRequest
 	64,  // 87: peerdb_route.FlowService.GetSchemas:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
 	64,  // 88: peerdb_route.FlowService.GetPublications:input_type -> peerdb_route.PostgresPeerActivityInfoRequest
 	54,  // 89: peerdb_route.FlowService.GetTablesInSchema:input_type -> peerdb_route.SchemaTablesRequest
@@ -7551,7 +7551,7 @@ var file_route_proto_depIdxs = []int32{
 	27,  // 131: peerdb_route.FlowService.PostScript:output_type -> peerdb_route.PostScriptResponse
 	29,  // 132: peerdb_route.FlowService.DeleteScript:output_type -> peerdb_route.DeleteScriptResponse
 	43,  // 133: peerdb_route.FlowService.CDCTableTotalCounts:output_type -> peerdb_route.CDCTableTotalCountsResponse
-	46,  // 134: peerdb_route.FlowService.GetTableReplicationState:output_type -> peerdb_route.GetTableReplicationStateResponse
+	46,  // 134: peerdb_route.FlowService.GetQueryCDCReplicationState:output_type -> peerdb_route.GetQueryCDCReplicationStateResponse
 	52,  // 135: peerdb_route.FlowService.GetSchemas:output_type -> peerdb_route.PeerSchemasResponse
 	53,  // 136: peerdb_route.FlowService.GetPublications:output_type -> peerdb_route.PeerPublicationsResponse
 	55,  // 137: peerdb_route.FlowService.GetTablesInSchema:output_type -> peerdb_route.SchemaTablesResponse
