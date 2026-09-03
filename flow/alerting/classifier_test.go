@@ -731,21 +731,6 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-<<<<<<< HEAD
-func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
-	err := &pgconn.PgError{
-		Severity: "ERROR",
-		Code:     pgerrcode.GeneratedAlways,
-		Message:  `cannot insert a non-DEFAULT value into column "id"`,
-	}
-	errorClass, errInfo := GetErrorClass(t.Context(),
-		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
-	assert.Equal(t, ErrorNotifyGeneratedAlwaysColumn, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   pgerrcode.GeneratedAlways,
-	}, errInfo, "Unexpected error info")
-=======
 func TestPostgresExtensionNotAvailableOnSchemaDump(t *testing.T) {
 	for name, message := range map[string]string{
 		"not available": `psql failed: exit status 3
@@ -765,7 +750,21 @@ psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postg
 			}, errInfo, "Unexpected error info")
 		})
 	}
->>>>>>> abf467b05 (fix(pg-pg): classify pgdump extension missing)
+}
+
+func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.GeneratedAlways,
+		Message:  `cannot insert a non-DEFAULT value into column "id"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.products: %w", err))
+	assert.Equal(t, ErrorNotifyGeneratedAlwaysColumn, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.GeneratedAlways,
+	}, errInfo, "Unexpected error info")
 }
 
 func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {

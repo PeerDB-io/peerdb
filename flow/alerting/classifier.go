@@ -219,15 +219,13 @@ var (
 	ErrorNotifyConstraintViolation = ErrorClass{
 		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
 	}
-<<<<<<< HEAD
-	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
-		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
-=======
 	// The pg_dump automated schema migration failed because the destination is missing an extension
 	// that the source schema depends on; the user must install it on the destination.
 	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
 		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
->>>>>>> abf467b05 (fix(pg-pg): classify pgdump extension missing)
+	}
+	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
+		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
 	}
 	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
 		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
