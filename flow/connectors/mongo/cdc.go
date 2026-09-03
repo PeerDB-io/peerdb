@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -242,10 +241,6 @@ const workerBufferedChanSize = 10
 // results in too much coordination and reduces effective concurrency in practice.
 const pullRecordsItemsChunkSize = 256
 
-// maxNumDecodeWorkers is the maximum number of goroutines that decodeLoop spins up to parallelize
-// decoding of record chunks.
-const maxNumDecodeWorkers = 6
-
 type decodeChunk struct {
 	// base64-encoded resume token
 	resumeToken string
@@ -305,8 +300,8 @@ type recordItems struct {
 }
 
 // decodeWorker is spun up by PullRecords in separate goroutines, up to
-// maxNumDecodeWorker in parallel. The output is sent through `send` to `sendLoop`
-// directly.
+// PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS in parallel. The output is sent through `send` to
+// `sendLoop` directly.
 func (c *MongoConnector) decodeWorker(
 	ctx context.Context,
 	chunk decodeChunk,
@@ -568,8 +563,11 @@ func (c *MongoConnector) PullRecords(
 	}
 	existingChunk := make([]recordItems, 0, pullRecordsItemsChunkSize)
 	sendChan := make(chan chan sendChunk, workerBufferedChanSize)
-	numDecodeWorkers := max(1, min(maxNumDecodeWorkers, runtime.GOMAXPROCS(0)/2))
-	decodeWorkerSem := make(chan struct{}, numDecodeWorkers)
+	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+	decodeWorkerSem := make(chan struct{}, max(1, numParallelDecodeWorkers))
 	workerEg.Go(func() error {
 		return c.sendLoop(workerCtx, sendChan, req)
 	})
