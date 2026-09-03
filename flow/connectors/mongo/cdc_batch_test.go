@@ -172,8 +172,8 @@ func TestPullRecordsOffsetNeverRunsAheadOfDeliveredRecords(t *testing.T) {
 		{name: "cut by max batch size", iterations: repeatInserts(8), maxBatchSize: 5},
 		{
 			name:         "cut by max batch size across decode batches",
-			iterations:   repeatInserts(pullRecordsItemsBatchSize + 9),
-			maxBatchSize: pullRecordsItemsBatchSize + 3,
+			iterations:   repeatInserts(pullRecordsItemsChunkSize + 9),
+			maxBatchSize: pullRecordsItemsChunkSize + 3,
 		},
 		{name: "cut by sync interval", iterations: []iterationType{insert, insert, idle}, maxBatchSize: 100},
 		{name: "idle before any record", iterations: []iterationType{idle, idle, insert, idle}, maxBatchSize: 100},
@@ -183,8 +183,8 @@ func TestPullRecordsOffsetNeverRunsAheadOfDeliveredRecords(t *testing.T) {
 		{name: "undecodable document", iterations: []iterationType{insert, insert, nullIdInsert}, maxBatchSize: 3},
 		{
 			name:         "undecodable document after a full decode batch",
-			iterations:   append(repeatInserts(pullRecordsItemsBatchSize), nullIdInsert),
-			maxBatchSize: pullRecordsItemsBatchSize + 1,
+			iterations:   append(repeatInserts(pullRecordsItemsChunkSize), nullIdInsert),
+			maxBatchSize: pullRecordsItemsChunkSize + 1,
 		},
 		// A batch that never sees a record keeps recreating its stream on every idle
 		// timeout, so these cases have to be ended by a hard failure instead.
@@ -221,11 +221,11 @@ func TestPullRecordsTruncatesBatchAtMaxBatchSize(t *testing.T) {
 	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
 }
 
-// A batch larger than pullRecordsItemsBatchSize is handed to the decode workers in
+// A batch larger than pullRecordsItemsChunkSize is handed to the decode workers in
 // several chunks that are decoded in parallel. Every event must still arrive exactly
 // once and in change stream order, and the offset must land on the last one.
 func TestPullRecordsTruncatesBatchSpanningManyDecodeBatches(t *testing.T) {
-	maxBatchSize := 2*pullRecordsItemsBatchSize + 37
+	maxBatchSize := 2*pullRecordsItemsChunkSize + 37
 	h := newPullHarness(t, repeatInserts(maxBatchSize+1)...)
 	h.req.MaxBatchSize = uint32(maxBatchSize)
 
@@ -340,9 +340,9 @@ func TestPullRecordsUndecodableDocumentFailsPull(t *testing.T) {
 func TestPullRecordsUndecodableDocumentInEarlierSubBatchFailsPull(t *testing.T) {
 	// The bad document heads the first sub-batch; MaxBatchSize is two sub-batches, so
 	// the loop keeps pulling well past the point the worker rejects it.
-	iterations := append([]iterationType{nullIdInsert}, repeatInserts(3*pullRecordsItemsBatchSize)...)
+	iterations := append([]iterationType{nullIdInsert}, repeatInserts(3*pullRecordsItemsChunkSize)...)
 	h := newPullHarness(t, iterations...)
-	h.req.MaxBatchSize = uint32(2 * pullRecordsItemsBatchSize)
+	h.req.MaxBatchSize = uint32(2 * pullRecordsItemsChunkSize)
 
 	out := h.run(t)
 	require.ErrorContains(t, out.err, "_id field is missing or null in table db.coll")
@@ -353,12 +353,12 @@ func TestPullRecordsUndecodableDocumentInEarlierSubBatchFailsPull(t *testing.T) 
 // Cancelling the activity mid-pull must surface as an error. Returning nil would let the
 // sync workflow commit the offset for a batch that was cut off part-way through.
 func TestPullRecordsContextCancellationMidBatchFailsPull(t *testing.T) {
-	h := newPullHarness(t, repeatInserts(4*pullRecordsItemsBatchSize)...)
-	h.req.MaxBatchSize = 3 * pullRecordsItemsBatchSize
+	h := newPullHarness(t, repeatInserts(4*pullRecordsItemsChunkSize)...)
+	h.req.MaxBatchSize = 3 * pullRecordsItemsChunkSize
 	// Cancel once a couple of sub-batches are in flight, so the cancellation races the
 	// decode workers rather than arriving before any work started.
 	h.stream.beforeNext = func(idx int) {
-		if idx == 2*pullRecordsItemsBatchSize {
+		if idx == 2*pullRecordsItemsChunkSize {
 			h.cancel()
 		}
 	}
