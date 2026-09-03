@@ -66,3 +66,31 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 
 	return avroFile, nil
 }
+
+func hasAvroStageInBatchRange(
+	ctx context.Context,
+	flowJobName string,
+	lastNormBatchID int64,
+	endBatchID int64,
+) (bool, error) {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	var exists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM ch_s3_stage
+			WHERE flow_job_name = $1
+			  AND sync_batch_id > $2
+			  AND sync_batch_id <= $3
+			  AND COALESCE((avro_file->>'numRecords')::bigint, 0) > 0
+		)`,
+		flowJobName, lastNormBatchID, endBatchID,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("failed to check avro stage in batch range: %w", err)
+	}
+
+	return exists, nil
+}
