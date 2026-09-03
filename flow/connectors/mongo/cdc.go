@@ -264,6 +264,7 @@ func (c *MongoConnector) sendLoop(
 	ctx context.Context,
 	records <-chan chan sendChunk,
 	req *model.PullRecordsRequest[model.RecordItems],
+	signalledAsNonEmpty *bool,
 ) error {
 	for {
 		select {
@@ -274,6 +275,13 @@ func (c *MongoConnector) sendLoop(
 			select {
 			case sendChunk := <-recordChan:
 				for i := range sendChunk.records {
+					if !*signalledAsNonEmpty {
+						// This bool should be shared across any instantiations of sendLoop for
+						// a given RecordStream. However, it's not an atomic and so only one sendLoop
+						// at a given time can own it.
+						*signalledAsNonEmpty = true
+						req.RecordStream.SignalAsNotEmpty()
+					}
 					if err := req.RecordStream.AddRecord(ctx, sendChunk.records[i]); err != nil {
 						return err
 					}
@@ -400,11 +408,6 @@ func (c *MongoConnector) PullRecords(
 		alerter = alerting.NewAlerter(ctx, catalogPool, otelManager)
 	}
 
-	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
-		fullDocumentColumnName = LegacyFullDocumentColumnName
-	}
-
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
@@ -471,6 +474,7 @@ func (c *MongoConnector) PullRecords(
 
 	var recordCount uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
+	var signalledAsNonEmpty bool
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -500,7 +504,7 @@ func (c *MongoConnector) PullRecords(
 	// Off of that, we create two child contexts, one for workers (called workerCtx), that's passed
 	// to children goroutines (eg. decodeWorker). The other, timeoutCtx, is managed by us for timeouts.
 	// Note that when we hit a timeout, we don't want to cancel the workerCtx; we want the workers
-	// to gracefully drain.
+	// to gracefully drain. We recreate workerCtx and workerEg anytime we recreate the changestream.
 	//
 	// Also note that timeoutCtx is occasionally rewritten, such as when the first record arrives,
 	// or when we reset the changestream.
@@ -520,7 +524,7 @@ func (c *MongoConnector) PullRecords(
 	defer func() {
 		cancelTimeout()
 		workerCtxCancel()
-		workerEg.Wait()
+		_ = workerEg.Wait()
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
@@ -550,7 +554,6 @@ func (c *MongoConnector) PullRecords(
 	incrementRecordCount := func() {
 		recordCount += 1
 		if recordCount == 1 {
-			req.RecordStream.SignalAsNotEmpty()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
 		}
 		if recordCount%50000 == 0 {
@@ -569,7 +572,7 @@ func (c *MongoConnector) PullRecords(
 	}
 	decodeWorkerSem := make(chan struct{}, max(1, numParallelDecodeWorkers))
 	workerEg.Go(func() error {
-		return c.sendLoop(workerCtx, sendChan, req)
+		return c.sendLoop(workerCtx, sendChan, req, &signalledAsNonEmpty)
 	})
 
 	dispatchChunk := func() error {
@@ -586,28 +589,26 @@ func (c *MongoConnector) PullRecords(
 		}
 		select {
 		case decodeWorkerSem <- struct{}{}:
-		case <-ctx.Done():
-			workerCtxCancel()
-			return ctx.Err()
 		case <-workerCtx.Done():
-			return workerCtx.Err()
+			return workerEg.Wait()
 		}
 		resultChan := make(chan sendChunk)
 		select {
 		case sendChan <- resultChan:
-		case <-ctx.Done():
-			workerCtxCancel()
-			return ctx.Err()
 		case <-workerCtx.Done():
-			return workerCtx.Err()
+			return workerEg.Wait()
 		}
-		workerEg.Go(func() error {
-			defer func() {
-				<-decodeWorkerSem
-			}()
-			return c.decodeWorker(
-				workerCtx, decodeChunk{items: existingChunk, resumeToken: rtText}, resultChan, req)
-		})
+		workerEg.Go(func(existingChunk []recordItems) func() error {
+			// Two-level method to capture existingChunk before it changes
+			// below.
+			return func() error {
+				defer func() {
+					<-decodeWorkerSem
+				}()
+				return c.decodeWorker(
+					workerCtx, decodeChunk{items: existingChunk, resumeToken: rtText}, resultChan, req)
+			}
+		}(existingChunk))
 		existingChunk = make([]recordItems, 0, pullRecordsItemsChunkSize)
 		return nil
 	}
@@ -616,6 +617,7 @@ func (c *MongoConnector) PullRecords(
 		finishErr := dispatchChunk()
 		// Close the sender chan and wait for events to drain.
 		close(sendChan)
+		// NB: workerEg cannot be reused after wait() has been called.
 		if err := workerEg.Wait(); err != nil {
 			return err
 		}
@@ -638,10 +640,15 @@ func (c *MongoConnector) PullRecords(
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
 
+		// reset worker timeout.
+		workerCtxCancel()
+		workerCtx, workerCtxCancel = context.WithCancel(ctx)
+		workerEg, workerCtx = errgroup.WithContext(workerCtx)
+
 		// Restart the send loop.
 		sendChan = make(chan chan sendChunk, workerBufferedChanSize)
 		workerEg.Go(func() error {
-			return c.sendLoop(workerCtx, sendChan, req)
+			return c.sendLoop(workerCtx, sendChan, req, &signalledAsNonEmpty)
 		})
 
 		// set resume point based on whether operation time should be used or not
