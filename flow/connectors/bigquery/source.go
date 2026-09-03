@@ -38,7 +38,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	for _, tableMapping := range cfg.TableMappings {
 		t := bqvalidate.SourceTableConfig{
 			SourceTableIdentifier: tableMapping.SourceTableIdentifier,
-			WatermarkColumn:       tableMapping.GetWatermarkColumn(),
+			WatermarkColumn:       tableMapping.QueryCdcWatermarkColumn,
 			Exclude:               tableMapping.Exclude,
 			HasOrderingKey:        tableHasOrderingKey(tableMapping),
 			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||

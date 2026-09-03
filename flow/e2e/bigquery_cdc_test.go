@@ -160,7 +160,7 @@ func bqCdcFlowConnectionConfig(
 				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
 				DestinationTableIdentifier: s.DestinationTable(dstTable),
 				BigqueryCdcEventsFunction:  params.eventsFunction,
-				WatermarkColumn:            params.watermarkColumn,
+				QueryCdcWatermarkColumn:    params.watermarkColumn,
 			},
 		},
 		Destination: s.Peer().Name,

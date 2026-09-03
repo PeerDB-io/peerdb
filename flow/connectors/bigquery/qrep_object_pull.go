@@ -657,7 +657,7 @@ func (c *BigQueryConnector) setupQueryModeReplication(
 ) (map[string]time.Time, error) {
 	checkpointByTable := make(map[string]time.Time, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		watermark, err := c.maxWatermarkValue(ctx, tableMapping.SourceTableIdentifier, tableMapping.GetWatermarkColumn())
+		watermark, err := c.maxWatermarkValue(ctx, tableMapping.SourceTableIdentifier, tableMapping.QueryCdcWatermarkColumn)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get max watermark for table %s: %w", tableMapping.SourceTableIdentifier, err)
 		}
@@ -668,7 +668,7 @@ func (c *BigQueryConnector) setupQueryModeReplication(
 		_ = c.LogFlowInfo(ctx, req.FlowJobName, "Starting initial-load BigQuery export to GCS staging bucket")
 		err := c.runTableExports(ctx, req.FlowJobName, cfg.TableMappings, func(tm *protos.TableMapping) (string, error) {
 			return c.bigQueryExportQueryStatement(
-				ctx, tm.SourceTableIdentifier, tm.GetWatermarkColumn(), cfg.SnapshotStagingPath, checkpointByTable[tm.SourceTableIdentifier])
+				ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn, cfg.SnapshotStagingPath, checkpointByTable[tm.SourceTableIdentifier])
 		})
 		if err != nil {
 			return nil, err

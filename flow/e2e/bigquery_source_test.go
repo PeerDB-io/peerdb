@@ -245,11 +245,11 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 
 		t.Run("rejects a non-timestamp watermark column", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
-				tableMapping.WatermarkColumn = "trip_id" // INTEGER
+				tableMapping.QueryCdcWatermarkColumn = "trip_id" // INTEGER
 			}
 			defer func() {
 				for _, tableMapping := range flowConfig.TableMappings {
-					tableMapping.WatermarkColumn = ""
+					tableMapping.QueryCdcWatermarkColumn = ""
 				}
 			}()
 
@@ -260,12 +260,12 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 
 		t.Run("rejects a watermark column that is excluded from replication", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
-				tableMapping.WatermarkColumn = "pickup_datetime"
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
 				tableMapping.Exclude = []string{"pickup_datetime"}
 			}
 			defer func() {
 				for _, tableMapping := range flowConfig.TableMappings {
-					tableMapping.WatermarkColumn = ""
+					tableMapping.QueryCdcWatermarkColumn = ""
 					tableMapping.Exclude = nil
 				}
 			}()
@@ -277,11 +277,11 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 
 		t.Run("accepts a TIMESTAMP watermark column", func(t *testing.T) {
 			for _, tableMapping := range flowConfig.TableMappings {
-				tableMapping.WatermarkColumn = "pickup_datetime"
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
 			}
 			defer func() {
 				for _, tableMapping := range flowConfig.TableMappings {
-					tableMapping.WatermarkColumn = ""
+					tableMapping.QueryCdcWatermarkColumn = ""
 				}
 			}()
 

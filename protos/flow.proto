@@ -55,7 +55,7 @@ message TableMapping {
   BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
   // the column to use as a cursor for query-based CDC replication
   // required if replication_mode is BIGQUERY_REPLICATION_MODE_QUERY
-  string watermark_column = 11;
+  string query_cdc_watermark_column = 11;
 }
 
 message SetupInput {
