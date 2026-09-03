@@ -24,4 +24,6 @@ export type TableMapRow = Omit<
   tableSize: string;
   editingDisabled: boolean;
   isReplicaIdentityFull: boolean;
+  isUnlogged: boolean;
+  hasPrimaryKeyOrReplicaIdentity: boolean;
 };

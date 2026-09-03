@@ -1189,6 +1189,42 @@ func (s APITestSuite) TestGetTablesExcludeViews() {
 	require.NotContains(s.t, tableNames, viewName, "view should not be in the list")
 }
 
+func (s APITestSuite) TestGetTablesUnloggedNotMirrorable() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("unlogged tables are a postgres concept")
+	}
+
+	tableName := "test_unlogged_table"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE UNLOGGED TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+
+	peer := s.source.GeneratePeer(s.t)
+
+	findTable := func(cdcEnabled bool) *protos.TableResponse {
+		resp, err := s.GetTablesInSchema(s.t.Context(), &protos.SchemaTablesRequest{
+			PeerName:   peer.Name,
+			SchemaName: Schema(s),
+			CdcEnabled: cdcEnabled,
+		})
+		require.NoError(s.t, err)
+		for _, table := range resp.Tables {
+			if table.TableName == tableName {
+				return table
+			}
+		}
+		require.Fail(s.t, "unlogged table should be listed")
+		return nil
+	}
+
+	cdcTable := findTable(true)
+	require.True(s.t, cdcTable.IsUnlogged, "table should be reported as unlogged")
+	require.True(s.t, cdcTable.HasPrimaryKeyOrReplicaIdentity, "table has a primary key")
+	require.False(s.t, cdcTable.CanMirror, "unlogged table cannot be mirrored via cdc")
+
+	initialLoadTable := findTable(false)
+	require.True(s.t, initialLoadTable.CanMirror, "unlogged table can be mirrored via initial load")
+}
+
 func (s APITestSuite) TestScripts() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only run with pg so only one test against scripts runs")
