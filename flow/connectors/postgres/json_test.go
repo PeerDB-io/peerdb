@@ -9,6 +9,7 @@ import (
 )
 
 func testRelaxedNumber(t *testing.T, useJsonMarshaller bool) {
+	t.Helper()
 	relaxedNumberStr := "1" + strings.Repeat("0", 1000)
 	negRelaxedNumberStr := "-" + relaxedNumberStr
 
@@ -149,5 +150,5 @@ func TestDuplicateJsonKeysCounter(t *testing.T) {
 	// last occurrence wins, matching encoding/json
 	var result any
 	require.NoError(t, jsonApi.UnmarshalFromString(`{"a":1,"a":2}`, &result))
-	require.Equal(t, float64(2), result.(map[string]any)["a"])
+	require.InEpsilon(t, float64(2), result.(map[string]any)["a"], 0.00001)
 }
