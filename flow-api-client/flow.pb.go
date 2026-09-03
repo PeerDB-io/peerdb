@@ -786,9 +786,9 @@ type TableMapping struct {
 	BigqueryCdcEventsFunction BigqueryCdcEventsFunction `protobuf:"varint,10,opt,name=bigquery_cdc_events_function,json=bigqueryCdcEventsFunction,proto3,enum=peerdb_flow.BigqueryCdcEventsFunction" json:"bigquery_cdc_events_function,omitempty"`
 	// the column to use as a cursor for query-based CDC replication
 	// required if replication_mode is BIGQUERY_REPLICATION_MODE_QUERY
-	WatermarkColumn string `protobuf:"bytes,11,opt,name=watermark_column,json=watermarkColumn,proto3" json:"watermark_column,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	QueryCdcWatermarkColumn string `protobuf:"bytes,11,opt,name=query_cdc_watermark_column,json=queryCdcWatermarkColumn,proto3" json:"query_cdc_watermark_column,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *TableMapping) Reset() {
@@ -891,9 +891,9 @@ func (x *TableMapping) GetBigqueryCdcEventsFunction() BigqueryCdcEventsFunction 
 	return BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED
 }
 
-func (x *TableMapping) GetWatermarkColumn() string {
+func (x *TableMapping) GetQueryCdcWatermarkColumn() string {
 	if x != nil {
-		return x.WatermarkColumn
+		return x.QueryCdcWatermarkColumn
 	}
 	return ""
 }
@@ -5865,7 +5865,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x10destination_type\x18\x03 \x01(\tR\x0fdestinationType\x12\x1a\n" +
 	"\bordering\x18\x04 \x01(\x05R\bordering\x12\"\n" +
 	"\fpartitioning\x18\x06 \x01(\x05R\fpartitioning\x12)\n" +
-	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\"\xb3\x04\n" +
+	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\"\xc5\x04\n" +
 	"\fTableMapping\x126\n" +
 	"\x17source_table_identifier\x18\x01 \x01(\tR\x15sourceTableIdentifier\x12@\n" +
 	"\x1cdestination_table_identifier\x18\x02 \x01(\tR\x1adestinationTableIdentifier\x12#\n" +
@@ -5878,8 +5878,8 @@ const file_flow_proto_rawDesc = "" +
 	"policyName\x12*\n" +
 	"\x11partition_by_expr\x18\t \x01(\tR\x0fpartitionByExpr\x12g\n" +
 	"\x1cbigquery_cdc_events_function\x18\n" +
-	" \x01(\x0e2&.peerdb_flow.BigqueryCdcEventsFunctionR\x19bigqueryCdcEventsFunction\x12)\n" +
-	"\x10watermark_column\x18\v \x01(\tR\x0fwatermarkColumn\"\xb2\x01\n" +
+	" \x01(\x0e2&.peerdb_flow.BigqueryCdcEventsFunctionR\x19bigqueryCdcEventsFunction\x12;\n" +
+	"\x1aquery_cdc_watermark_column\x18\v \x01(\tR\x17queryCdcWatermarkColumn\"\xb2\x01\n" +
 	"\n" +
 	"SetupInput\x122\n" +
 	"\x03env\x18\x01 \x03(\v2 .peerdb_flow.SetupInput.EnvEntryR\x03env\x12\x1b\n" +
