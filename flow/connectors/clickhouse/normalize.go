@@ -28,6 +28,7 @@ import (
 
 const (
 	defaultIsDeletedColName = "_peerdb_is_deleted"
+	legacyIsDeletedColName  = "_PEERDB_IS_DELETED"
 	isDeletedColType        = "UInt8"
 	versionColName          = "_peerdb_version"
 	versionColType          = "UInt64"
@@ -464,6 +465,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	destinationColumns, err := peerdb_clickhouse.GetTableColumnsMapping(
+		ctx, c.logger, c.database, destinationTableNames,
+	)
+	if err != nil {
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get destination table columns: %w", err)
+	}
+
 	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -577,6 +585,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				continue
 			}
 
+			softDeleteColName := resolveSoftDeleteColumnName(
+				req.SoftDeleteColName,
+				destinationColumns[tbl],
+			)
 			queryGenerator := NewNormalizeQueryGenerator(
 				tbl,
 				req.TableNameSchemaMapping,
@@ -589,7 +601,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
-				req.SoftDeleteColName,
+				softDeleteColName,
 				req.Version,
 				req.Flags,
 			)
@@ -633,6 +645,35 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		StartBatchID: lastNormBatchID + 1,
 		EndBatchID:   endBatchID,
 	}, nil
+}
+
+func resolveSoftDeleteColumnName(
+	configuredName string,
+	destinationColumns []peerdb_clickhouse.ClickHouseColumn,
+) string {
+	if configuredName == "" {
+		configuredName = defaultIsDeletedColName
+	}
+
+	for _, column := range destinationColumns {
+		if column.Name == configuredName {
+			return column.Name
+		}
+	}
+	if configuredName != defaultIsDeletedColName && configuredName != legacyIsDeletedColName {
+		return configuredName
+	}
+
+	compatibleName := defaultIsDeletedColName
+	if configuredName == defaultIsDeletedColName {
+		compatibleName = legacyIsDeletedColName
+	}
+	for _, column := range destinationColumns {
+		if column.Name == compatibleName {
+			return column.Name
+		}
+	}
+	return configuredName
 }
 
 func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
