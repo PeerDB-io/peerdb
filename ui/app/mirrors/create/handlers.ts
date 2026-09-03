@@ -195,7 +195,7 @@ function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
       partitionByExpr: row.partitionByExpr,
       bigqueryCdcEventsFunction:
         BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
-      watermarkColumn: row.watermarkColumn,
+      queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
     }));
 }
 
@@ -459,7 +459,7 @@ export async function fetchTables(
         partitionByExpr: '',
         bigqueryCdcEventsFunction:
           BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
-        watermarkColumn: '',
+        queryCdcWatermarkColumn: '',
         isReplicaIdentityFull: tableObject.isReplicaIdentityFull,
       });
     }
