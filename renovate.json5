@@ -119,6 +119,14 @@
       "matchUpdateTypes": ["digest"],
       "enabled": false
     },
+    // The x/crypto fork is consumed via a replace directive. It ships Go-team x/crypto releases
+    // plus a one-line patch, so minimumReleaseAge adds no supply-chain protection and would
+    // delay CVE fixes; opt it out.
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/PeerDB-io/crypto"],
+      "minimumReleaseAge": null
+    },
     // This package rule instruct renovate to require approval from
     // the dependency dashboard before proposing major upgrades.
     // This sets a default is approval mindset for automatic proposals.
