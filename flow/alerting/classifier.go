@@ -305,6 +305,11 @@ var (
 	ErrorNotifyClickHousePermissionsError = ErrorClass{
 		Class: "NOTIFY_CLICKHOUSE_PERMISSIONS_ERROR", action: NotifyUser,
 	}
+	// BigQuery rejected an operation for a non-transient reason, such as an
+	// invalid query, exhausted quota, or an unsupported operation.
+	ErrorNotifyBigQueryError = ErrorClass{
+		Class: "NOTIFY_BIGQUERY_ERROR", action: NotifyUser,
+	}
 	// Creating the destination table failed because a user-provided part of its definition
 	// (e.g. a PARTITION BY/ORDER BY expression or a custom column type) is invalid,
 	// such as referencing a column that does not exist in the normalized table
@@ -333,6 +338,47 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 		return e.action
 	}
 	return NotifyTelemetry
+}
+
+// classifyBigQueryReason maps the reason values used by both googleapi.Error
+// and bigquery.Error. The mapping follows BigQuery's documented remediation:
+// retry transient service and short-term rate errors, notify the user about
+// authentication/resource access problems, and surface other actionable job
+// failures as BigQuery errors.
+func classifyBigQueryReason(reason string) (ErrorClass, bool) {
+	switch reason {
+	case "backendError",
+		"internalError",
+		"jobBackendError",
+		"jobInternalError",
+		"jobRateLimitExceeded",
+		"rateLimitExceeded",
+		"stopped",
+		"tableUnavailable":
+		return ErrorRetryRecoverable, true
+
+	case "accessDenied", "invalidUser", "notFound", "proxyAuthenticationRequired":
+		return ErrorNotifyConnectivity, true
+
+	case "attributeError",
+		"badRequest",
+		"billingNotEnabled",
+		"billingTierLimitExceeded",
+		"blocked",
+		"duplicate",
+		"invalid",
+		"invalidQuery",
+		"notImplemented",
+		"quotaExceeded",
+		"resourceInUse",
+		"resourcesExceeded",
+		"responseTooLarge",
+		"timeout":
+		return ErrorNotifyBigQueryError, true
+
+	default:
+		return ErrorOther, false
+	}
 }
 
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
@@ -1102,14 +1148,41 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			// The HTTP status alone is not enough to classify BigQuery failures.
+			// For example, both a short-lived rate limit and a permanent quota or
+			// permission problem use 403. Prefer the structured BigQuery reason.
+			for _, item := range apiErr.Errors {
+				if item.Reason == "" {
+					continue
+				}
+				bqErrorInfo.Code = item.Reason
+				if errorClass, classified := classifyBigQueryReason(item.Reason); classified {
+					return errorClass, bqErrorInfo
+				}
+			}
 			switch apiErr.Code {
 			case 401, // Unauthorized
 				403, // Forbidden
 				404: // Not Found (e.g. missing dataset/table/staging bucket)
 				return ErrorNotifyConnectivity, bqErrorInfo
+			case 408, // Request Timeout
+				429, // Too Many Requests
+				500, // Internal Server Error
+				502, // Bad Gateway
+				503, // Service Unavailable
+				504: // Gateway Timeout
+				return ErrorRetryRecoverable, bqErrorInfo
+			case 400, // Bad Request
+				407, // Proxy Authentication Required
+				409, // Conflict
+				501: // Not Implemented
+				return ErrorNotifyBigQueryError, bqErrorInfo
 			}
 		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
 			bqErrorInfo.Code = bqErr.Reason
+			if errorClass, classified := classifyBigQueryReason(bqErr.Reason); classified {
+				return errorClass, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
