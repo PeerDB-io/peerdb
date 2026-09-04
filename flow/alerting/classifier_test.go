@@ -1925,6 +1925,7 @@ func TestBigQueryHTTPStatusFallbacks(t *testing.T) {
 		errorClass ErrorClass
 	}{
 		{httpCode: 400, errorClass: ErrorNotifyBigQueryError},
+		{httpCode: 407, errorClass: ErrorNotifyConnectivity},
 		{httpCode: 408, errorClass: ErrorRetryRecoverable},
 		{httpCode: 429, errorClass: ErrorRetryRecoverable},
 		{httpCode: 502, errorClass: ErrorRetryRecoverable},
@@ -1971,6 +1972,7 @@ func TestBigQueryJobErrorReasons(t *testing.T) {
 	}{
 		{reason: "internalError", errorClass: ErrorRetryRecoverable},
 		{reason: "jobRateLimitExceeded", errorClass: ErrorRetryRecoverable},
+		{reason: "stopped", errorClass: ErrorNotifyBigQueryError},
 		{reason: "accessDenied", errorClass: ErrorNotifyConnectivity},
 		{reason: "invalidQuery", errorClass: ErrorNotifyBigQueryError},
 		{reason: "quotaExceeded", errorClass: ErrorNotifyBigQueryError},

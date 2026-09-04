@@ -353,7 +353,6 @@ func classifyBigQueryReason(reason string) (ErrorClass, bool) {
 		"jobInternalError",
 		"jobRateLimitExceeded",
 		"rateLimitExceeded",
-		"stopped",
 		"tableUnavailable":
 		return ErrorRetryRecoverable, true
 
@@ -373,6 +372,7 @@ func classifyBigQueryReason(reason string) (ErrorClass, bool) {
 		"resourceInUse",
 		"resourcesExceeded",
 		"responseTooLarge",
+		"stopped",
 		"timeout":
 		return ErrorNotifyBigQueryError, true
 
@@ -1163,7 +1163,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			switch apiErr.Code {
 			case 401, // Unauthorized
 				403, // Forbidden
-				404: // Not Found (e.g. missing dataset/table/staging bucket)
+				404, // Not Found (e.g. missing dataset/table/staging bucket)
+				407: // Proxy Authentication Required
 				return ErrorNotifyConnectivity, bqErrorInfo
 			case 408, // Request Timeout
 				429, // Too Many Requests
@@ -1173,7 +1174,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				504: // Gateway Timeout
 				return ErrorRetryRecoverable, bqErrorInfo
 			case 400, // Bad Request
-				407, // Proxy Authentication Required
 				409, // Conflict
 				501: // Not Implemented
 				return ErrorNotifyBigQueryError, bqErrorInfo
