@@ -144,7 +144,7 @@ type SyncQueryCDCRequest struct {
 }
 
 // NormalizeQueryCDCRequest asks QueryCDCSyncConnector.NormalizeQueryCDC to
-// insert batches (StartBatchID, EndBatchID], previously staged by
+// insert batches [StartBatchID, EndBatchID], previously staged by
 // SyncQueryCDC, straight into the final destination table, bypassing any
 // raw-table hop.
 //
@@ -156,8 +156,8 @@ type NormalizeQueryCDCRequest struct {
 	TableSchema  *protos.TableSchema
 	Version      uint32
 	Flags        []string
-	// StartBatchID is exclusive (the table's last normalized batch), EndBatchID
-	// is inclusive (the table's last synced batch as of this normalize call).
+	// StartBatchID is the table's last normalized batch plus one, and EndBatchID
+	// is the table's last synced batch. Both bounds are inclusive.
 	StartBatchID      int64
 	EndBatchID        int64
 	SoftDeleteColName string

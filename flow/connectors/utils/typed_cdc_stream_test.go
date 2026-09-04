@@ -13,14 +13,16 @@ import (
 
 func TestRecordsToTypedCDCStream(t *testing.T) {
 	const dstTable = "test_dst_tbl"
-	schema := types.QRecordSchema{
-		Fields: []types.QField{
-			{Name: "id", Type: types.QValueKindInt32},
-			{Name: "name", Type: types.QValueKindString, Nullable: true},
-			{Name: "_peerdb_is_deleted", Type: types.QValueKindInt64},
-			{Name: "_peerdb_version", Type: types.QValueKindInt64},
-		},
+	businessFields := []types.QField{
+		{Name: "id", Type: types.QValueKindInt32},
+		{Name: "name", Type: types.QValueKindString, Nullable: true},
 	}
+	systemFields := []types.QField{
+		{Name: "_peerdb_is_deleted", Type: types.QValueKindInt64},
+		{Name: "_peerdb_version", Type: types.QValueKindInt64},
+	}
+	schemaFields := append(append([]types.QField{}, businessFields...), systemFields...)
+	schema := types.QRecordSchema{Fields: schemaFields}
 	sourceColumnByDest := map[string]string{"id": "id", "name": "name"}
 	numericTruncator := model.NewStreamNumericTruncator(nil, map[string]struct{}{})
 
@@ -49,7 +51,8 @@ func TestRecordsToTypedCDCStream(t *testing.T) {
 
 	rowCounts := &model.RecordTypeCounts{}
 	stream, err := RecordsToTypedCDCStream(
-		records, dstTable, schema, sourceColumnByDest, protos.DBType_CLICKHOUSE, false, numericTruncator, rowCounts,
+		records, dstTable, schema, businessFields, sourceColumnByDest,
+		protos.DBType_CLICKHOUSE, false, numericTruncator, rowCounts,
 	)
 	require.NoError(t, err)
 

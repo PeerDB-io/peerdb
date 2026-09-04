@@ -25,11 +25,10 @@ type insertFromTableFunctionConfig struct {
 	connector                 *ClickHouseConnector
 	logger                    log.Logger
 	destinationTable          string
+	stagedFormat              string
 	schema                    types.QRecordSchema
 	excludedColumns           []string
 	fieldExpressionConverters []fieldExpressionConverter
-	// parquetStaged is true when the table function reads Parquet
-	parquetStaged bool
 }
 
 type fieldExpressionConverter func(
@@ -68,7 +67,7 @@ func timeFieldExpressionConverter(
 
 	// Parquet TIME(MICROS) (e.g. BigQuery's object export) is interpreted by
 	// ClickHouse as DateTime64(6, 'UTC') directly, so no manual conversion needed.
-	if config.parquetStaged {
+	if config.stagedFormat == "parquet" {
 		return sourceFieldIdentifier, nil
 	}
 
@@ -88,7 +87,7 @@ func arrayTimeFieldExpressionConverter(
 	sourceFieldIdentifier string,
 	field types.QField,
 ) (string, error) {
-	if field.Type != types.QValueKindArrayTime || config.parquetStaged {
+	if field.Type != types.QValueKindArrayTime || config.stagedFormat == "parquet" {
 		return sourceFieldIdentifier, nil
 	}
 

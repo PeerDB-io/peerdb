@@ -428,8 +428,9 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			release()
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
 		}
+		startBatchID := lastNormalized + 1
 		logger.Info("[cdc] starting normalize",
-			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
+			slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
 		normCounts, normErr := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
 			Env:               config.Env,
 			FlowJobName:       flowName,
@@ -437,7 +438,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			TableSchema:       tableNameSchemaMapping[destTable],
 			Version:           config.Version,
 			Flags:             config.Flags,
-			StartBatchID:      lastNormalized,
+			StartBatchID:      startBatchID,
 			EndBatchID:        reqBatchID,
 			SoftDeleteColName: config.SoftDeleteColName,
 		})

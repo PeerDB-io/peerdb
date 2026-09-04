@@ -321,7 +321,7 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		connector:                 c,
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,
-		parquetStaged:             format == string(model.QObjectStreamBigQueryExportParquetFormat),
+		stagedFormat:              format,
 	}
 
 	chSettings := chinternal.NewCHSettings(c.chVersion)
