@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"hash/crc32"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,10 +16,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pressly/goose/v3/lock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
+
+func TestBootstrapLockIDIsPinned(t *testing.T) {
+	require.Equal(t, bootstrapLockID, int64(crc32.ChecksumIEEE([]byte("peerdb"))))
+	require.NotEqual(t, lock.DefaultLockID, bootstrapLockID)
+}
 
 // TestGooseBootstrapFromRefinery proves the goose migration path produces the exact same
 // catalog schema as the legacy refinery path.
