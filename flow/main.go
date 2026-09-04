@@ -89,6 +89,13 @@ func main() {
 		Sources: cli.EnvVars("RUN_MAINTENANCE_FLOW"),
 	}
 
+	maintenanceRunCatalogMigrationsFlag := &cli.BoolFlag{
+		Name:    "run-catalog-migrations",
+		Value:   false,
+		Usage:   "Run catalog schema migrations as the first step of 'start' maintenance",
+		Sources: cli.EnvVars("MAINTENANCE_RUN_CATALOG_MIGRATIONS"),
+	}
+
 	maintenanceSkipOnApiVersionMatchFlag := &cli.BoolFlag{
 		Name:    "skip-on-api-version-match",
 		Value:   false,
@@ -272,6 +279,7 @@ func main() {
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					maintenanceModeWorkflowFlag,
+					maintenanceRunCatalogMigrationsFlag,
 					maintenanceSkipOnApiVersionMatchFlag,
 					maintenanceSkipOnDeploymentVersionMatch,
 					maintenanceSkipOnNoMirrorsFlag,
@@ -288,6 +296,7 @@ func main() {
 						TemporalHostPort:                  temporalHostPort,
 						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
 						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
+						RunCatalogMigrations:              clicmd.Bool(maintenanceRunCatalogMigrationsFlag.Name),
 						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
 						SkipOnDeploymentVersionMatch:      clicmd.Bool(maintenanceSkipOnDeploymentVersionMatch.Name),
 						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
