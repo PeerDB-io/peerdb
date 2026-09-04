@@ -565,7 +565,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			}
 
 			if fastProcessJsonColumns {
-				arr := make([][]byte, len(textArr))
+				arr := make([]preMarshalledJson, len(textArr))
 				for j, text := range textArr {
 					if text.Valid {
 						convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))

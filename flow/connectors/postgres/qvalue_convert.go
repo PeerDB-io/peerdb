@@ -374,6 +374,10 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
+// In some cases, for parseFieldFromPostgresOID, we send in pre-marshalled
+// JSON objects, avoiding the need to call json.Marshal.
+type preMarshalledJson []byte
+
 func (c *PostgresConnector) parseFieldFromPostgresOID(
 	oid uint32,
 	typmod int32,
@@ -487,7 +491,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil
 	case types.QValueKindJSON, types.QValueKindJSONB:
-		if preMarshalled, ok := value.([]byte); ok {
+		if preMarshalled, ok := value.(preMarshalledJson); ok {
 			// value is a pre-marshalled JSON document, see convertWithRelaxedNumbers.
 			if len(preMarshalled) == 0 {
 				preMarshalled = jsonNullLiteral
@@ -500,7 +504,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 		return parsed, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-		if valArr, ok := value.([][]byte); ok {
+		if valArr, ok := value.([]preMarshalledJson); ok {
 			// value is an array of pre-marshalled JSON documents; incrementally marshal
 			// the array instead of round-tripping the whole array through json.Marshal.
 			var builder strings.Builder
