@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -139,10 +140,10 @@ func (c *BigQueryConnector) PullTableRecords(
 		return model.PullTableRecordsResult{}, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
-	var eventsFunction protos.BigqueryCdcEventsFunction
+	var tm *protos.TableMapping
 	for _, tableMapping := range cfg.TableMappings {
 		if tableMapping.SourceTableIdentifier == req.SourceTableIdentifier {
-			eventsFunction = tableMapping.GetBigqueryCdcEventsFunction()
+			tm = tableMapping
 			break
 		}
 	}
@@ -162,11 +163,16 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	var bytesProcessed int64
-	switch eventsFunction {
-	case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
+	if cfg.GetBigqueryCdcConfig().ReplicationMode == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
+		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
+			req.NameAndExclude, start, upper, addRecord)
+	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
-	default:
+	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
 		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
+	} else {
+		// unreachable, but just in case throw an error instead of silently returning an empty result
+		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)
 	}
 	if err != nil {
 		return model.PullTableRecordsResult{}, err
@@ -195,8 +201,10 @@ func (c *BigQueryConnector) pullTableAppends(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), "APPENDS", dsTable.stringQuoted(),
-		sourceTableIdentifier, nameAndExclude.Exclude, "", start, end)
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
+		func(exclude map[string]struct{}) string {
+			return buildPullQuery("APPENDS", dsTable.stringQuoted(), exclude, "")
+		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
 	}
@@ -284,12 +292,12 @@ func exceptClause(exclude map[string]struct{}) string {
 // exists on the source table (BigQuery reports one such column per error, so this
 // may loop more than once).
 func (c *BigQueryConnector) runPullQuery(
-	ctx context.Context, fn string, dsTable string, sourceTableIdentifier string,
-	exclude map[string]struct{}, orderBy string, start, end time.Time,
+	ctx context.Context, sourceTableIdentifier string, exclude map[string]struct{}, start, end time.Time,
+	buildQuery func(exclude map[string]struct{}) string,
 ) (*bigquery.RowIterator, error) {
 	effective := c.effectiveExclude(sourceTableIdentifier, exclude)
 	for {
-		q := c.client.Query(buildPullQuery(fn, dsTable, effective, orderBy))
+		q := c.client.Query(buildQuery(effective))
 		q.Parameters = []bigquery.QueryParameter{
 			{Name: "start", Value: start},
 			{Name: "end", Value: end},
@@ -431,10 +439,10 @@ func (c *BigQueryConnector) pullTableChanges(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(
-		withByteCounter(ctx, &bytesTransferred), "CHANGES", dsTable.stringQuoted(), sourceTableIdentifier, nameAndExclude.Exclude,
-		quotedIdentifier(bigQueryChangeTimestampColumn), start, end,
-	)
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
+		func(exclude map[string]struct{}) string {
+			return buildPullQuery("CHANGES", dsTable.stringQuoted(), exclude, quotedIdentifier(bigQueryChangeTimestampColumn))
+		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
 	}
@@ -509,6 +517,89 @@ func (c *BigQueryConnector) pullTableChanges(
 			return 0, fmt.Errorf("unexpected _CHANGE_TYPE %q for table %s", changeType, sourceTableIdentifier)
 		}
 		if err := addRecord(ctx, record); err != nil {
+			return 0, err
+		}
+	}
+}
+
+// pullTableQuery runs SELECT * FROM <table> WHERE watermarkColumn > @start AND
+// watermarkColumn <= @end ORDER BY watermarkColumn for one source table
+// Returns the HTTP response body bytes consumed by BigQuery for this table's
+// query
+func (c *BigQueryConnector) pullTableQuery(
+	ctx context.Context,
+	watermarkColumn string,
+	sourceTableIdentifier string,
+	nameAndExclude model.NameAndExclude,
+	start, end time.Time,
+	addRecord func(context.Context, model.Record[model.RecordItems]) error,
+) (int64, error) {
+	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+	}
+
+	buildQueryModePullQuery := func(dsTable string, watermarkColumn string, exclude map[string]struct{}) string {
+		col := quotedIdentifier(watermarkColumn)
+		return fmt.Sprintf("SELECT *%s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
+			exceptClause(exclude), dsTable, col, col, col)
+	}
+
+	var bytesTransferred atomic.Int64
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
+		func(exclude map[string]struct{}) string {
+			return buildQueryModePullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
+		})
+	if err != nil {
+		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
+	}
+
+	var qfields []types.QField
+	watermarkColIdx := -1
+	for {
+		var row []bigquery.Value
+		if err := it.Next(&row); err != nil {
+			if errors.Is(err, iterator.Done) {
+				return bytesTransferred.Load(), nil
+			}
+			return 0, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
+		}
+
+		// it.Schema is only guaranteed populated after the first Next() call
+		if qfields == nil {
+			qfields = make([]types.QField, len(it.Schema))
+			for i, field := range it.Schema {
+				qfields[i] = BigQueryFieldToQField(field)
+			}
+			watermarkColIdx = slices.IndexFunc(it.Schema, func(field *bigquery.FieldSchema) bool {
+				return field.Name == watermarkColumn
+			})
+		}
+
+		// The watermark column is this row's own commit-time signal, used as
+		// CommitTimeNano. Falls back to the poll window's start if, unexpectedly, the
+		// column isn't present.
+		commitTimeNano := start.UnixNano()
+		if watermarkColIdx >= 0 {
+			switch v := row[watermarkColIdx].(type) {
+			case time.Time:
+				commitTimeNano = v.UnixNano()
+			case civil.Date:
+				commitTimeNano = v.In(time.UTC).UnixNano()
+			}
+		}
+
+		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+		}
+
+		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
+			Items:                items,
+			SourceTableName:      sourceTableIdentifier,
+			DestinationTableName: nameAndExclude.Name,
+		}); err != nil {
 			return 0, err
 		}
 	}
