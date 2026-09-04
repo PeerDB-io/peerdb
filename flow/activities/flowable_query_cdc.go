@@ -230,75 +230,80 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			continue
 		}
 
-		// bounded parallelism: only pull+sync for up to parallelism tables at once
-		release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
-		if err != nil {
-			return err
-		}
-		attemptedAt := time.Now()
-		logger.Info("[cdc] starting poll")
-		if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
-			release()
-			return a.Alerter.LogFlowError(ctx, flowName, err)
-		}
-
 		nextBatchID := state.SyncedBatchID + 1
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
-		pollGroup, pollCtx := errgroup.WithContext(ctx)
 		var pullResult model.PullTableRecordsResult
-		pollGroup.Go(func() error {
-			var pullErr error
-			pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-				Env:                   config.Env,
-				FlowJobName:           flowName,
-				SourceTableIdentifier: sourceTable,
-				NameAndExclude:        nameAndExclude,
-				Cursor:                state.CursorText,
-				Stream:                stream,
-			})
-			stream.Close()
-			if pullErr == nil {
-				logger.Info("[cdc] poll done", slog.Int64("bytesProcessed", pullResult.BytesProcessed))
-			}
-			return pullErr
-		})
-
-		hasRecords := !stream.WaitAndCheckEmpty()
 		var rowCounts *model.RecordTypeCounts
-		if hasRecords {
+		pollErr, fatalErr := func() (error, error) {
+			// bounded parallelism: only pull+sync for up to parallelism tables at once
+			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
+			if err != nil {
+				return err, nil
+			}
+			defer release()
+
+			attemptedAt := time.Now()
+			logger.Info("[cdc] starting poll")
+			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
+				return nil, err
+			}
+
+			pollGroup, pollCtx := errgroup.WithContext(ctx)
 			pollGroup.Go(func() error {
-				dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
-					pollCtx, config.Env, a.CatalogPool, config.DestinationName)
-				if syncErr != nil {
-					return fmt.Errorf("failed to get destination connector: %w", syncErr)
-				}
-				defer dstClose(pollCtx)
-
-				logger.Info("[cdc] starting sync")
-				rowCounts, syncErr = dstConn.SyncQueryCDC(pollCtx, &model.SyncQueryCDCRequest{
-					Env:               config.Env,
-					FlowJobName:       flowName,
-					TableMapping:      tableMapping,
-					TableSchema:       tableNameSchemaMapping[destTable],
-					Records:           stream.GetRecords(),
-					Version:           config.Version,
-					Flags:             config.Flags,
-					SchemaDeltas:      stream.SchemaDeltas,
-					BatchID:           nextBatchID,
-					SoftDeleteColName: config.SoftDeleteColName,
+				var pullErr error
+				pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
+					Env:                   config.Env,
+					FlowJobName:           flowName,
+					SourceTableIdentifier: sourceTable,
+					NameAndExclude:        nameAndExclude,
+					Cursor:                state.CursorText,
+					Stream:                stream,
 				})
-				if syncErr == nil {
-					logger.Info("[cdc] sync done",
-						slog.Int("inserts", int(rowCounts.InsertCount.Load())),
-						slog.Int("updates", int(rowCounts.UpdateCount.Load())),
-						slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
+				stream.Close()
+				if pullErr == nil {
+					logger.Info("[cdc] poll done", slog.Int64("bytesProcessed", pullResult.BytesProcessed))
 				}
-				return syncErr
+				return pullErr
 			})
-		}
 
-		pollErr := pollGroup.Wait()
-		release()
+			hasRecords := !stream.WaitAndCheckEmpty()
+			if hasRecords {
+				pollGroup.Go(func() error {
+					dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
+						pollCtx, config.Env, a.CatalogPool, config.DestinationName)
+					if syncErr != nil {
+						return fmt.Errorf("failed to get destination connector: %w", syncErr)
+					}
+					defer dstClose(pollCtx)
+
+					logger.Info("[cdc] starting sync")
+					rowCounts, syncErr = dstConn.SyncQueryCDC(pollCtx, &model.SyncQueryCDCRequest{
+						Env:               config.Env,
+						FlowJobName:       flowName,
+						TableMapping:      tableMapping,
+						TableSchema:       tableNameSchemaMapping[destTable],
+						Records:           stream.GetRecords(),
+						Version:           config.Version,
+						Flags:             config.Flags,
+						SchemaDeltas:      stream.SchemaDeltas,
+						BatchID:           nextBatchID,
+						SoftDeleteColName: config.SoftDeleteColName,
+					})
+					if syncErr == nil {
+						logger.Info("[cdc] sync done",
+							slog.Int("inserts", int(rowCounts.InsertCount.Load())),
+							slog.Int("updates", int(rowCounts.UpdateCount.Load())),
+							slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
+					}
+					return syncErr
+				})
+			}
+
+			return pollGroup.Wait(), nil
+		}()
+		if fatalErr != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
+		}
 		if pollErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -417,33 +422,39 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 
 		// bounded parallelism: only normalize into the destination for up to
 		// normParallelism tables at once.
-		release, err := acquire(ctx, normSem, logger, "normalize")
-		if err != nil {
-			return err
-		}
-
-		dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
-			a.CatalogPool, config.DestinationName)
-		if err != nil {
-			release()
-			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
-		}
 		startBatchID := lastNormalized + 1
-		logger.Info("[cdc] starting normalize",
-			slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
-		normCounts, normErr := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
-			Env:               config.Env,
-			FlowJobName:       flowName,
-			TableMapping:      tableMapping,
-			TableSchema:       tableNameSchemaMapping[destTable],
-			Version:           config.Version,
-			Flags:             config.Flags,
-			StartBatchID:      startBatchID,
-			EndBatchID:        reqBatchID,
-			SoftDeleteColName: config.SoftDeleteColName,
-		})
-		dstClose(ctx)
-		release()
+		normCounts, normErr, fatalErr := func() (*model.RecordTypeCounts, error, error) {
+			release, err := acquire(ctx, normSem, logger, "normalize")
+			if err != nil {
+				return nil, err, nil
+			}
+			defer release()
+
+			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
+				a.CatalogPool, config.DestinationName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)
+			}
+			defer dstClose(ctx)
+
+			logger.Info("[cdc] starting normalize",
+				slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
+			normCounts, err := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
+				Env:               config.Env,
+				FlowJobName:       flowName,
+				TableMapping:      tableMapping,
+				TableSchema:       tableNameSchemaMapping[destTable],
+				Version:           config.Version,
+				Flags:             config.Flags,
+				StartBatchID:      startBatchID,
+				EndBatchID:        reqBatchID,
+				SoftDeleteColName: config.SoftDeleteColName,
+			})
+			return normCounts, err, nil
+		}()
+		if fatalErr != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
+		}
 
 		if normErr != nil {
 			if ctx.Err() != nil {
