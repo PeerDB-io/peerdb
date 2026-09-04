@@ -35,10 +35,18 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.QueryCDCPullConnector,
+	shutDown *atomic.Bool,
 ) error {
 	flowName := config.FlowJobName
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+
+	var totalRecordsSynced atomic.Int64
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d",
+			len(options.TableMappings), totalRecordsSynced.Load())
+	})
+	defer shutdown()
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
@@ -100,12 +108,6 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return err
 	}
 
-	var totalRecordsSynced atomic.Int64
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d", len(sourceTables), totalRecordsSynced.Load())
-	})
-	defer shutdown()
-
 	group, groupCtx := errgroup.WithContext(ctx)
 	for _, tableMapping := range options.TableMappings {
 		normRequests := concurrency.NewLastChan()
@@ -120,7 +122,24 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
-	return group.Wait()
+
+	if err := group.Wait(); err != nil {
+		// mirrors syncFlowSharedStream: a worker shutdown cancels ctx ourselves, so the
+		// resulting context.Canceled is expected teardown rather than an activity failure
+		if shutDown.Load() {
+			logger.Info("isolated CDC SyncFlow shutdown")
+			return nil
+		}
+		// errgroup cancels groupCtx, not ctx, on a table error, so ctx being done here
+		// means an outside cancel rather than a replication failure
+		if ctx.Err() != nil {
+			logger.Info("isolated CDC SyncFlow canceled", slog.Any("error", ctx.Err()))
+			return ctx.Err()
+		}
+		logger.Error("isolated CDC SyncFlow failed", slog.Any("error", err))
+		return err
+	}
+	return nil
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,

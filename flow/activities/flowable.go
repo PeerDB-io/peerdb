@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -354,28 +355,11 @@ func (a *FlowableActivity) SyncFlow(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
-	var currentSyncFlowNum atomic.Int32
-	var totalRecordsSynced atomic.Int64
-	var normalizingBatchID atomic.Int64
-	var normalizeWaiting atomic.Bool
-	var syncingBatchID atomic.Int64
-	var syncState atomic.Pointer[string]
-	syncState.Store(new("setup"))
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
-		sBatchID := syncingBatchID.Load()
-		nBatchID := normalizingBatchID.Load()
-		var nWaiting string
-		if normalizeWaiting.Load() {
-			nWaiting = " (W)"
-		}
-		return fmt.Sprintf(
-			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d (%s), normalizingBatchID:%d%s",
-			currentSyncFlowNum.Load(), totalRecordsSynced.Load(),
-			sBatchID, *syncState.Load(), nBatchID, nWaiting,
-		)
-	})
-	defer shutdown()
+	activityCtx := ctx
+	// Heartbeats connector setup below, which must not exceed the activity's heartbeat
+	// timeout. Each sync path replaces it with its own heartbeat once it takes over.
+	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(activityCtx, func() string { return "setup" }))
+	defer stopSetupHeartbeat()
 
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
@@ -413,15 +397,63 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
-	defer srcClose(ctx)
+	defer func() {
+		// The sync path has stopped its heartbeat by the time it returns. Keep the
+		// activity alive while closing the source, even after a worker shutdown has
+		// canceled the derived sync context.
+		stopSetupHeartbeat()
+		stopCloseHeartbeat := common.HeartbeatRoutine(activityCtx, func() string { return "closing source" })
+		defer stopCloseHeartbeat()
+		srcClose(ctx)
+	}()
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
+	stopSetupHeartbeat()
 	if isQueryCDCPath(config, destinationType) {
-		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector))
+		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
 	}
+
+	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
+}
+
+// syncFlowSharedStream runs the classic shared-stream CDC path: a single pull+sync
+// loop for the whole mirror feeding a single normalize loop, with all tables sharing
+// one batch counter and one backpressure window.
+func (a *FlowableActivity) syncFlowSharedStream(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	options *protos.SyncFlowOptions,
+	srcConn connectors.CDCPullConnectorCore,
+	destinationType protos.DBType,
+	shutDown *atomic.Bool,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	var currentSyncFlowNum atomic.Int32
+	var totalRecordsSynced atomic.Int64
+	var normalizingBatchID atomic.Int64
+	var normalizeWaiting atomic.Bool
+	var syncingBatchID atomic.Int64
+	var syncState atomic.Pointer[string]
+	syncState.Store(new("setup"))
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
+		sBatchID := syncingBatchID.Load()
+		nBatchID := normalizingBatchID.Load()
+		var nWaiting string
+		if normalizeWaiting.Load() {
+			nWaiting = " (W)"
+		}
+		return fmt.Sprintf(
+			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d (%s), normalizingBatchID:%d%s",
+			currentSyncFlowNum.Load(), totalRecordsSynced.Load(),
+			sBatchID, *syncState.Load(), nBatchID, nWaiting,
+		)
+	})
+	defer shutdown()
 
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
