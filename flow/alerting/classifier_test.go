@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -1845,17 +1847,106 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 	}, errInfo)
 }
 
-func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
+func TestBigQueryServerErrorShouldBeRecoverable(t *testing.T) {
 	t.Parallel()
 
 	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
 	err := exceptions.NewBigQueryError(apiErr)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
-	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
 		Code:   "500",
 	}, errInfo)
+}
+
+func TestBigQueryGoogleAPIErrorReasons(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		httpCode   int
+		reason     string
+		errorClass ErrorClass
+	}{
+		{name: "backend error", httpCode: 500, reason: "backendError", errorClass: ErrorRetryRecoverable},
+		{name: "bad request", httpCode: 400, reason: "badRequest", errorClass: ErrorNotifyBigQueryError},
+		{name: "job backend error", httpCode: 400, reason: "jobBackendError", errorClass: ErrorRetryRecoverable},
+		{name: "job internal error", httpCode: 400, reason: "jobInternalError", errorClass: ErrorRetryRecoverable},
+		{name: "rate limit", httpCode: 403, reason: "rateLimitExceeded", errorClass: ErrorRetryRecoverable},
+		{name: "job rate limit", httpCode: 400, reason: "jobRateLimitExceeded", errorClass: ErrorRetryRecoverable},
+		{name: "table unavailable", httpCode: 400, reason: "tableUnavailable", errorClass: ErrorRetryRecoverable},
+		{name: "access denied", httpCode: 403, reason: "accessDenied", errorClass: ErrorNotifyConnectivity},
+		{name: "not found", httpCode: 404, reason: "notFound", errorClass: ErrorNotifyConnectivity},
+		{name: "quota exceeded", httpCode: 403, reason: "quotaExceeded", errorClass: ErrorNotifyBigQueryError},
+		{name: "invalid query", httpCode: 400, reason: "invalidQuery", errorClass: ErrorNotifyBigQueryError},
+		{name: "resources exceeded", httpCode: 400, reason: "resourcesExceeded", errorClass: ErrorNotifyBigQueryError},
+		{name: "response too large", httpCode: 403, reason: "responseTooLarge", errorClass: ErrorNotifyBigQueryError},
+		{name: "job timeout", httpCode: 400, reason: "timeout", errorClass: ErrorNotifyBigQueryError},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Feed a representative BigQuery REST error body through the same
+			// googleapi decoder used by the generated client.
+			response := &http.Response{
+				StatusCode: testCase.httpCode,
+				Status:     fmt.Sprintf("%d BigQuery error", testCase.httpCode),
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(fmt.Sprintf(
+					`{"error":{"code":%d,"message":"BigQuery operation failed","errors":[`+
+						`{"message":"BigQuery operation failed","reason":%q}]}}`,
+					testCase.httpCode, testCase.reason,
+				))),
+			}
+			decodedErr := googleapi.CheckResponse(response)
+			var apiErr *googleapi.Error
+			require.ErrorAs(t, decodedErr, &apiErr)
+			require.Equal(t, testCase.reason, apiErr.Errors[0].Reason)
+
+			err := exceptions.NewBigQueryError(decodedErr)
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("BigQuery request failed: %w", err))
+			assert.Equal(t, testCase.errorClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   testCase.reason,
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryHTTPStatusFallbacks(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		httpCode   int
+		errorClass ErrorClass
+	}{
+		{httpCode: 400, errorClass: ErrorNotifyBigQueryError},
+		{httpCode: 407, errorClass: ErrorNotifyConnectivity},
+		{httpCode: 408, errorClass: ErrorRetryRecoverable},
+		{httpCode: 429, errorClass: ErrorRetryRecoverable},
+		{httpCode: 502, errorClass: ErrorRetryRecoverable},
+		{httpCode: 503, errorClass: ErrorRetryRecoverable},
+		{httpCode: 504, errorClass: ErrorRetryRecoverable},
+		{httpCode: 501, errorClass: ErrorNotifyBigQueryError},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(strconv.Itoa(testCase.httpCode), func(t *testing.T) {
+			t.Parallel()
+
+			err := exceptions.NewBigQueryError(&googleapi.Error{Code: testCase.httpCode, Message: "boom"})
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, testCase.errorClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(testCase.httpCode),
+			}, errInfo)
+		})
+	}
 }
 
 func TestBigQueryErrorWithoutGoogleAPIShouldBeOther(t *testing.T) {
@@ -1870,21 +1961,38 @@ func TestBigQueryErrorWithoutGoogleAPIShouldBeOther(t *testing.T) {
 	}, errInfo)
 }
 
-// bigquery.Error (with a Reason like "invalidQuery", "accessDenied") is what
-// surfaces from job-level failures e.g. status.Err() on Job.Wait. We surface
-// the Reason as the code for diagnostic clarity even though we don't classify
-// individual Reasons yet.
-func TestBigQueryJobErrorWithReasonShouldUseReasonAsCode(t *testing.T) {
+// bigquery.Error is what surfaces from job-level failures such as status.Err()
+// after Job.Wait.
+func TestBigQueryJobErrorReasons(t *testing.T) {
 	t.Parallel()
 
-	jobErr := &bigquery.Error{Reason: "invalidQuery", Message: "bad SQL", Location: "query"}
-	err := exceptions.NewBigQueryError(jobErr)
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job completed with error: %w", err))
-	assert.Equal(t, ErrorOther, errorClass)
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceBigQuery,
-		Code:   "invalidQuery",
-	}, errInfo)
+	testCases := []struct {
+		reason     string
+		errorClass ErrorClass
+	}{
+		{reason: "internalError", errorClass: ErrorRetryRecoverable},
+		{reason: "jobRateLimitExceeded", errorClass: ErrorRetryRecoverable},
+		{reason: "stopped", errorClass: ErrorNotifyBigQueryError},
+		{reason: "accessDenied", errorClass: ErrorNotifyConnectivity},
+		{reason: "invalidQuery", errorClass: ErrorNotifyBigQueryError},
+		{reason: "quotaExceeded", errorClass: ErrorNotifyBigQueryError},
+		{reason: "newUnknownReason", errorClass: ErrorOther},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.reason, func(t *testing.T) {
+			t.Parallel()
+
+			jobErr := &bigquery.Error{Reason: testCase.reason, Message: "job failed", Location: "query"}
+			err := exceptions.NewBigQueryError(jobErr)
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job completed with error: %w", err))
+			assert.Equal(t, testCase.errorClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   testCase.reason,
+			}, errInfo)
+		})
+	}
 }
 
 // Unwrapped *googleapi.Error from outside the BigQuery connector must NOT be
