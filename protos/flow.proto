@@ -52,6 +52,9 @@ message TableMapping {
   // Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
   // BIGQUERY_REPLICATION_MODE_EVENTS.
   BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
+  // If true, the mirror will use structured ingestion on sources without schemas
+  // using the column types given by the `columns` (`destination_type`) field in the TableMapping.
+  bool structured_ingestion = 11;
 }
 
 message SetupInput {
