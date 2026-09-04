@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/PeerDB-io/peerdb/flow/db"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -32,7 +31,6 @@ type MaintenanceCLIParams struct {
 	FlowGrpcAddress                   string
 	SkipIfK8sServiceMissing           string
 	FlowTlsEnabled                    bool
-	RunCatalogMigrations              bool
 	SkipOnApiVersionMatch             bool
 	SkipOnDeploymentVersionMatch      bool
 	SkipOnNoMirrors                   bool
@@ -53,16 +51,6 @@ type StartMaintenanceResult struct {
 // running the requested maintenance workflow
 func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	slog.InfoContext(ctx, "Starting Maintenance Mode CLI")
-
-	// If enabled, goose migration runs unconditionally on start-maintenance
-	// Off by default for now while refinery's migration hook still exist.
-	if args.Mode == "start" && args.RunCatalogMigrations {
-		slog.InfoContext(ctx, "Running goose migrations")
-		if err := db.Run(ctx); err != nil {
-			return fmt.Errorf("failed to run goose migrations: %w", err)
-		}
-	}
-
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,

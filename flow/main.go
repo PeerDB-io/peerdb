@@ -20,6 +20,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peerdb/flow/cmd"
+	"github.com/PeerDB-io/peerdb/flow/db"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -87,13 +88,6 @@ func main() {
 		Value:   "",
 		Usage:   "Run a maintenance flow. Options are 'start' or 'end'",
 		Sources: cli.EnvVars("RUN_MAINTENANCE_FLOW"),
-	}
-
-	maintenanceRunCatalogMigrationsFlag := &cli.BoolFlag{
-		Name:    "run-catalog-migrations",
-		Value:   false,
-		Usage:   "Run catalog schema migrations as the first step of 'start' maintenance",
-		Sources: cli.EnvVars("MAINTENANCE_RUN_CATALOG_MIGRATIONS"),
 	}
 
 	maintenanceSkipOnApiVersionMatchFlag := &cli.BoolFlag{
@@ -274,12 +268,18 @@ func main() {
 				},
 			},
 			{
+				Name:  "migrate",
+				Usage: "Run catalog schema migrations to the latest version and exit",
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					return db.Run(ctx)
+				},
+			},
+			{
 				Name: "maintenance",
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					maintenanceModeWorkflowFlag,
-					maintenanceRunCatalogMigrationsFlag,
 					maintenanceSkipOnApiVersionMatchFlag,
 					maintenanceSkipOnDeploymentVersionMatch,
 					maintenanceSkipOnNoMirrorsFlag,
@@ -296,7 +296,6 @@ func main() {
 						TemporalHostPort:                  temporalHostPort,
 						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
 						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
-						RunCatalogMigrations:              clicmd.Bool(maintenanceRunCatalogMigrationsFlag.Name),
 						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
 						SkipOnDeploymentVersionMatch:      clicmd.Bool(maintenanceSkipOnDeploymentVersionMatch.Name),
 						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),

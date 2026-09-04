@@ -33,6 +33,8 @@ func Run(ctx context.Context) error {
 }
 
 func Apply(ctx context.Context, connStr string) error {
+	slog.InfoContext(ctx, "Starting db migrations")
+
 	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to open catalog connection: %w", err)
@@ -64,6 +66,7 @@ func Apply(ctx context.Context, connStr string) error {
 	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+	slog.InfoContext(ctx, "Completed db migrations")
 	return nil
 }
 
