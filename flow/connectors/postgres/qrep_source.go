@@ -325,13 +325,13 @@ func (c *PostgresConnector) GetMaxValue(
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	_catalogPool shared.CatalogPool,
-	_otelManager *otel_metrics.OtelManager,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, otelManager, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -340,18 +340,19 @@ func (c *PostgresConnector) PullQRepRecords(
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	_catalogPool shared.CatalogPool,
-	_otelManager *otel_metrics.OtelManager,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+	return corePullQRepRecords(c, ctx, otelManager, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
@@ -384,7 +385,7 @@ func corePullQRepRecords(
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, otelManager, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
@@ -398,7 +399,7 @@ func corePullQRepRecords(
 	}
 
 	if len(partition.ChildTableRanges) > 0 {
-		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns)
+		return pullChildTableRanges(c, ctx, otelManager, config, partition, sink, selectedColumns)
 	}
 
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -457,7 +458,7 @@ func corePullQRepRecords(
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, config.Env, otelManager, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -479,6 +480,7 @@ func corePullQRepRecords(
 func pullChildTableRanges(
 	c *PostgresConnector,
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
@@ -487,7 +489,7 @@ func pullChildTableRanges(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, config.Env, otelManager, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -575,7 +577,7 @@ func pullXminRecordStream(
 		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.SnapshotName,
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, nil, config.Version, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)

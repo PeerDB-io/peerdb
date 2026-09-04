@@ -1,12 +1,14 @@
 package connpostgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -26,20 +29,21 @@ type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
 	env         map[string]string
+	otelManager *otel_metrics.OtelManager
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
-	flowJobName string, partitionID string,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string,
+	otelManager *otel_metrics.OtelManager, version uint32, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, otelManager, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
-	snapshot string, flowJobName string, partitionID string,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string,
+	otelManager *otel_metrics.OtelManager, version uint32, snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
@@ -48,6 +52,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		env:               env,
+		otelManager:       otelManager,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
@@ -291,7 +296,12 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	var numBytes int64
 	const logPerRows = 50000
 
-	jsonApi := createExtendedJSONUnmarshaler()
+	jsonApi, jsonExt := createExtendedJSONUnmarshaler()
+	defer func() {
+		if qe.otelManager != nil {
+			qe.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, jsonExt.duplicateKeys.Swap(0))
+		}
+	}()
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, 0, err
@@ -303,13 +313,17 @@ func (qe *QRepQueryExecutor) processRowsStream(
 		}
 	}
 
+	fastProcessJsonColumns, err := internal.PeerDBPostgresFastProcessJsonColumns(ctx, qe.env)
+	if err != nil {
+		return 0, 0, err
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi)
+		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, fastProcessJsonColumns)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -507,6 +521,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	nullableFields map[string]struct{},
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
+	fastProcessJsonColumns bool,
 ) ([]types.QValue, error) {
 	rawValues := row.RawValues()
 	values := make([]any, len(fds))
@@ -521,13 +536,26 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		// Special handling for JSON types
 		switch fd.DataTypeOID {
 		case pgtype.JSONOID, pgtype.JSONBOID:
-			if err := jsonApi.Unmarshal(buf, &values[i]); err != nil {
-				qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
-				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
-			}
-			if values[i] == nil {
-				// avoid confusing SQL null & JSON null by using pre-marshaled value
-				values[i] = json.RawMessage("null")
+			if fastProcessJsonColumns {
+				convertedData, err := convertWithRelaxedNumbers(bytes.NewReader(buf), len(buf))
+				if err != nil {
+					qe.logger.Error("[pg_query_executor] failed to process json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to process json: %w", err)
+				}
+				if len(convertedData) == 0 {
+					// avoid confusing SQL null & JSON null by using pre-marshaled value
+					convertedData = jsonNullLiteral
+				}
+				values[i] = convertedData
+			} else {
+				if err := jsonApi.Unmarshal(buf, &values[i]); err != nil {
+					qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+				}
+				if values[i] == nil {
+					// avoid confusing SQL null & JSON null by using pre-marshaled value
+					values[i] = json.RawMessage("null")
+				}
 			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			var textArr pgtype.FlatArray[pgtype.Text]
@@ -536,18 +564,35 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				return nil, fmt.Errorf("failed to scan json array: %w", err)
 			}
 
-			arr := make([]any, len(textArr))
-			for j, text := range textArr {
-				if text.Valid {
-					if err := jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
-						qe.logger.Error("[pg_query_executor] failed to unmarshal json array element", slog.Any("error", err))
-						return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+			if fastProcessJsonColumns {
+				arr := make([]preMarshalledJson, len(textArr))
+				for j, text := range textArr {
+					if text.Valid {
+						convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))
+						if err != nil {
+							qe.logger.Error("[pg_query_executor] failed to process json array element", slog.Any("error", err))
+							return nil, fmt.Errorf("failed to process json array element: %w", err)
+						}
+						arr[j] = convertedData
+					} else {
+						arr[j] = nil
 					}
-				} else {
-					arr[j] = nil
 				}
+				values[i] = arr
+			} else {
+				arr := make([]any, len(textArr))
+				for j, text := range textArr {
+					if text.Valid {
+						if err := jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+							qe.logger.Error("[pg_query_executor] failed to unmarshal json array element", slog.Any("error", err))
+							return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+						}
+					} else {
+						arr[j] = nil
+					}
+				}
+				values[i] = arr
 			}
-			values[i] = arr
 
 		default:
 			if dt, ok := qe.conn.TypeMap().TypeForOID(fd.DataTypeOID); ok {

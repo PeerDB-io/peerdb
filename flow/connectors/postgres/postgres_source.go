@@ -333,6 +333,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
+	fastProcessJsonColumns, err := internal.PeerDBPostgresFastProcessJsonColumns(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -344,6 +348,7 @@ func pullCore[Items model.Items](
 		FlowJobName:                              req.FlowJobName,
 		Slot:                                     slotName,
 		Publication:                              publicationName,
+		FastProcessJsonColumns:                   fastProcessJsonColumns,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
