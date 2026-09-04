@@ -172,6 +172,16 @@ func (c *MongoConnector) GetTableSchema(
 				dataFieldDescription,
 			},
 		}
+		// WIP pfcoperez: Check columns types passed
+		if tm.Columns != nil {
+			for _, col := range tm.Columns {
+				if col != nil {
+					fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>> PFCOPEREZ DEV: " + col.String())
+				}
+			}
+		} else {
+			fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>> PFCOPEREZ DEV: columns is nil")
+		}
 	}
 
 	return result, nil
