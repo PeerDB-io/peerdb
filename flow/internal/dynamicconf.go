@@ -575,7 +575,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_POSTGRES,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
 
