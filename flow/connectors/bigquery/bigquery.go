@@ -54,13 +54,13 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 
 //nolint:govet // logically grouped, fieldalignment confuses things
 type BigQueryConnector struct {
-	// droppedExcludeColumns remembers, per source table, excluded columns that
-	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
-	// to EXCEPT them. Guarded by droppedExcludeColumnsMu since concurrent per-table
-	// pull loops share this connector.
-	droppedExcludeColumnsMu sync.Mutex
-	droppedExcludeColumns   map[string]map[string]struct{}
-	logger                  log.Logger
+	// missingSourceColumns remembers, per source table, columns that BigQuery has
+	// reported as no longer existing, along with when, so later polls stop selecting
+	// them until missingSourceColumnRetryAfter elapses. Guarded by
+	// missingSourceColumnsMu since concurrent per-table pull loops share this connector.
+	missingSourceColumnsMu sync.Mutex
+	missingSourceColumns   map[string]map[string]time.Time
+	logger                 log.Logger
 	*metadataStore.PostgresMetadata
 	bqConfig      *protos.BigqueryConfig
 	credentials   *auth.Credentials
@@ -136,16 +136,16 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	return &BigQueryConnector{
-		credentials:           creds,
-		bqConfig:              config,
-		client:                client,
-		datasetID:             datasetID,
-		projectID:             projectID,
-		PostgresMetadata:      metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
-		storageClient:         storageClient,
-		catalogPool:           catalogPool,
-		logger:                logger,
-		droppedExcludeColumns: make(map[string]map[string]struct{}),
+		credentials:          creds,
+		bqConfig:             config,
+		client:               client,
+		datasetID:            datasetID,
+		projectID:            projectID,
+		PostgresMetadata:     metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
+		storageClient:        storageClient,
+		catalogPool:          catalogPool,
+		logger:               logger,
+		missingSourceColumns: make(map[string]map[string]time.Time),
 	}, nil
 }
 
