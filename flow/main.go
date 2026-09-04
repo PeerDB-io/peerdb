@@ -20,6 +20,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peerdb/flow/cmd"
+	"github.com/PeerDB-io/peerdb/flow/db"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -264,6 +265,13 @@ func main() {
 						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
 						EnableOtelTraces:  clicmd.Bool(otelTracesFlag.Name),
 					})
+				},
+			},
+			{
+				Name:  "migrate",
+				Usage: "Run catalog schema migrations to the latest version and exit",
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					return db.Run(ctx)
 				},
 			},
 			{

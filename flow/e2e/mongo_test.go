@@ -622,6 +622,85 @@ func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
 	RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_CDC_Collection_DDL_Reported_To_User() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	dropTable := "test_ddl_dropped"
+	renameTable := "test_ddl_renamed"
+	renameTarget := "test_ddl_renamed_to"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, "test_collection_ddl"),
+		TableMappings: TableMappings(s,
+			dropTable, dropTable+"_dst",
+			renameTable, renameTable+"_dst"),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	for _, coll := range []string{dropTable, renameTable} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), coll))
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// replicate a document from each collection first, so the mirror is demonstrably
+	// streaming before any DDL is issued
+	for _, coll := range []string{dropTable, renameTable} {
+		insertRes, err := adminClient.Database(srcDatabase).Collection(coll).
+			InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", dropTable, dropTable+"_dst", "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", renameTable, renameTable+"_dst", "_id,doc")
+
+	// drop emits a change event whose ns is the dropped collection
+	require.NoError(t, adminClient.Database(srcDatabase).Collection(dropTable).Drop(t.Context()))
+
+	// rename emits a change event whose ns is the *source* collection, so it is still
+	// inside the mirror's table mapping and reaches the connector
+	require.NoError(t, adminClient.Database("admin").RunCommand(t.Context(), bson.D{
+		bson.E{Key: "renameCollection", Value: srcDatabase + "." + renameTable},
+		bson.E{Key: "to", Value: srcDatabase + "." + renameTarget},
+	}).Err())
+
+	EnvWaitFor(t, env, 3*time.Minute, "drop reported to user", func() bool {
+		count, err := GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"drop event on "+srcDatabase+"."+dropTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	EnvWaitFor(t, env, 3*time.Minute, "rename reported to user", func() bool {
+		count, err := GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"rename event on "+srcDatabase+"."+renameTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	// the DDL is reported, not applied: the destination tables are left alone
+	EnvWaitForCount(env, s, "dropped collection destination untouched", dropTable+"_dst", "_id,doc", 1)
+	EnvWaitForCount(env, s, "renamed collection destination untouched", renameTable+"_dst", "_id,doc", 1)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 	t := s.T()
 
