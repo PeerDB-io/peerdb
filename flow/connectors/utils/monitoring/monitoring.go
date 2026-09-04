@@ -312,6 +312,18 @@ func UpdateStartTimeForQRepRun(ctx context.Context, pool shared.CatalogPool, run
 	return nil
 }
 
+func MarkQRepRunFailed(ctx context.Context, pool shared.CatalogPool, runUUID string) error {
+	if _, err := pool.Exec(ctx,
+		"UPDATE peerdb_stats.qrep_runs SET failed=true, end_time=COALESCE(end_time,$1)"+
+			" WHERE run_uuid=$2 AND consolidate_complete=false",
+		time.Now(), runUUID,
+	); err != nil {
+		return fmt.Errorf("error while marking run_uuid %s as failed in qrep_runs: %w", runUUID, err)
+	}
+
+	return nil
+}
+
 func UpdateEndTimeForQRepRun(ctx context.Context, pool shared.CatalogPool, runUUID string) error {
 	if _, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.qrep_runs SET end_time=$1, consolidate_complete=true WHERE run_uuid=$2",

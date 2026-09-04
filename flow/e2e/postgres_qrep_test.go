@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -201,6 +202,50 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_QRep_Failed_Run_Marked_In_Catalog() {
+	numRows := 10
+
+	baseName := "test_qrep_failed_marked"
+	srcTable := baseName + "_src"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := baseName + "_dst"
+	require.NoError(s.t, CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable))
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.suffix, srcTable)
+
+	jobName := AddSuffix(s, baseName)
+	qrepConfig := CreateQRepWorkflowConfig(
+		s.t,
+		jobName,
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		GeneratePostgresPeer(s.t).Name,
+		"",
+		true,
+		"",
+		"",
+	)
+	qrepConfig.SnapshotName = "non-existent-snapshot"
+
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.Error(s.t, env.Error(s.t.Context()))
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	var failed bool
+	require.NoError(s.t, catalogPool.QueryRow(s.t.Context(),
+		"SELECT failed FROM peerdb_stats.qrep_runs WHERE flow_name = $1", jobName).Scan(&failed))
+	require.True(s.t, failed)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {

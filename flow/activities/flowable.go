@@ -873,6 +873,15 @@ func initializeReplicatePartitionFunc(
 	}
 }
 
+// MarkQRepRunFailed records a qrep workflow failure against its run in peerdb_stats.qrep_runs
+// so the run is excluded from the initial load summary instead of showing as in progress forever.
+func (a *FlowableActivity) MarkQRepRunFailed(ctx context.Context, config *protos.QRepConfig,
+	runUUID string,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.MarkQRepRunFailed(ctx, a.CatalogPool, runUUID)
+}
+
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {

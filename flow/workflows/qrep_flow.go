@@ -510,11 +510,30 @@ func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlo
 	}
 }
 
+func markQRepRunFailed(ctx workflow.Context, config *protos.QRepConfig, runUUID string) {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 5 * time.Second,
+			MaximumAttempts: 3,
+		},
+	})
+	if err := workflow.ExecuteActivity(ctx, flowable.MarkQRepRunFailed, config, runUUID).Get(ctx, nil); err != nil {
+		workflow.GetLogger(ctx).Warn("failed to mark qrep run as failed",
+			slog.String(string(shared.FlowNameKey), config.FlowJobName), slog.Any("error", err))
+	}
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
-) (*protos.QRepFlowState, error) {
+) (_ *protos.QRepFlowState, err error) {
+	defer func() {
+		if err != nil && !workflow.IsContinueAsNewError(err) && !temporal.IsCanceledError(err) && ctx.Err() == nil {
+			markQRepRunFailed(ctx, config, workflow.GetInfo(ctx).OriginalRunID)
+		}
+	}()
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
 	//   2. In the loop, query the source database to get the partitions to replicate.
