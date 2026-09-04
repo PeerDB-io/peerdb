@@ -2246,13 +2246,13 @@ func (a *FlowableActivity) RunPgDumpSchema(
 		return false, nil
 	}
 
-	// skip schema migration for non-password auth (e.g. IAM)
-	if srcPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
-		logger.Info("skipping pg_dump schema migration: source peer uses non-password auth")
+	// Skip schema migration for auth modes that cannot provide pg_dump credentials.
+	if !pgDumpSchemaAuthSupported(srcPgConfig.PostgresConfig.AuthType) {
+		logger.Info("skipping pg_dump schema migration: source peer uses unsupported auth")
 		return false, nil
 	}
-	if dstPgConfig.PostgresConfig.AuthType != protos.PostgresAuthType_POSTGRES_PASSWORD {
-		logger.Info("skipping pg_dump schema migration: destination peer uses non-password auth")
+	if !pgDumpSchemaAuthSupported(dstPgConfig.PostgresConfig.AuthType) {
+		logger.Info("skipping pg_dump schema migration: destination peer uses unsupported auth")
 		return false, nil
 	}
 
@@ -2271,4 +2271,9 @@ func (a *FlowableActivity) RunPgDumpSchema(
 	a.Alerter.LogFlowInfo(ctx, input.FlowName,
 		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))
 	return true, nil
+}
+
+func pgDumpSchemaAuthSupported(authType protos.PostgresAuthType) bool {
+	return authType == protos.PostgresAuthType_POSTGRES_PASSWORD ||
+		authType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH
 }
