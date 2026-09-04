@@ -148,6 +148,27 @@ message CDCTableTotalCountsResponse {
   repeated CDCTableRowCounts tables_data = 2;
 }
 
+// Query-based CDC per-table replication progress; see
+// flow/connectors/external_metadata/query_cdc_replication_state.go.
+message QueryCDCReplicationState {
+  string source_table_identifier = 1;
+  string cursor_text = 2;
+  google.protobuf.Timestamp last_attempt_at = 3;
+  google.protobuf.Timestamp last_synced_at = 4;
+  int64 synced_batch_id = 5;
+  int64 normalized_batch_id = 6;
+  google.protobuf.Timestamp last_normalized_at = 7;
+  int64 inserts_count = 8;
+  int64 updates_count = 9;
+  int64 deletes_count = 10;
+}
+
+message GetQueryCDCReplicationStateRequest { string flow_job_name = 1; }
+
+message GetQueryCDCReplicationStateResponse {
+  repeated QueryCDCReplicationState tables = 1;
+}
+
 message TotalRowsSyncedByMirrorRequest {
   string flow_job_name = 1;
   bool exclude_cdc = 2; // if true, only initial load rows are counted
@@ -650,6 +671,13 @@ service FlowService {
       returns (CDCTableTotalCountsResponse) {
     option (google.api.http) = {
       get : "/v1/mirrors/cdc/table_total_counts/{flow_job_name}"
+    };
+  }
+
+  rpc GetQueryCDCReplicationState(GetQueryCDCReplicationStateRequest)
+      returns (GetQueryCDCReplicationStateResponse) {
+    option (google.api.http) = {
+      get : "/v1/mirrors/cdc/query_cdc_replication_state/{flow_job_name}"
     };
   }
 

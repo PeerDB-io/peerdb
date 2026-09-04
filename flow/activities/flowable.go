@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -174,27 +175,54 @@ func (a *FlowableActivity) EnsurePullability(
 	return output, nil
 }
 
+func isQueryCDCPath(
+	flowConfig *protos.FlowConnectionConfigsCore,
+	destinationType protos.DBType,
+) bool {
+	return flowConfig.GetBigqueryCdcConfig() != nil && destinationType == protos.DBType_CLICKHOUSE
+}
+
 // CreateRawTable creates a raw table in the destination flowable.
 func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
-	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
-	}
-	defer dstClose(ctx)
 
-	res, err := dstConn.CreateRawTable(ctx, config)
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
+	flowConfig, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch flow config: %w", err))
+	}
+
+	var rawTableIdentifier string
+	// The query-based CDC path writes typed Avro straight into each
+	// destination table, so there's no _peerdb_raw_* table to create.
+	if !isQueryCDCPath(flowConfig, destinationType) {
+		dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+		}
+		defer dstClose(ctx)
+
+		res, err := dstConn.CreateRawTable(ctx, config)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		}
+		// CreateRawTable return (nil, nil) for no-op destinations (S3/GCS/MinIO, Postgres)
+		if res != nil {
+			rawTableIdentifier = res.TableIdentifier
+		}
+	}
+
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
 		return nil, err
 	}
 
-	return res, nil
+	return &protos.CreateRawTableOutput{TableIdentifier: rawTableIdentifier}, nil
 }
 
 // SetupTableSchema populates table_schema_mapping
@@ -327,28 +355,11 @@ func (a *FlowableActivity) SyncFlow(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
-	var currentSyncFlowNum atomic.Int32
-	var totalRecordsSynced atomic.Int64
-	var normalizingBatchID atomic.Int64
-	var normalizeWaiting atomic.Bool
-	var syncingBatchID atomic.Int64
-	var syncState atomic.Pointer[string]
-	syncState.Store(new("setup"))
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
-		sBatchID := syncingBatchID.Load()
-		nBatchID := normalizingBatchID.Load()
-		var nWaiting string
-		if normalizeWaiting.Load() {
-			nWaiting = " (W)"
-		}
-		return fmt.Sprintf(
-			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d (%s), normalizingBatchID:%d%s",
-			currentSyncFlowNum.Load(), totalRecordsSynced.Load(),
-			sBatchID, *syncState.Load(), nBatchID, nWaiting,
-		)
-	})
-	defer shutdown()
+	activityCtx := ctx
+	// Heartbeats connector setup below, which must not exceed the activity's heartbeat
+	// timeout. Each sync path replaces it with its own heartbeat once it takes over.
+	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(activityCtx, func() string { return "setup" }))
+	defer stopSetupHeartbeat()
 
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
@@ -386,11 +397,63 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
-	defer srcClose(ctx)
+	defer func() {
+		// The sync path has stopped its heartbeat by the time it returns. Keep the
+		// activity alive while closing the source, even after a worker shutdown has
+		// canceled the derived sync context.
+		stopSetupHeartbeat()
+		stopCloseHeartbeat := common.HeartbeatRoutine(activityCtx, func() string { return "closing source" })
+		defer stopCloseHeartbeat()
+		srcClose(ctx)
+	}()
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
+
+	stopSetupHeartbeat()
+	if isQueryCDCPath(config, destinationType) {
+		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
+	}
+
+	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
+}
+
+// syncFlowSharedStream runs the classic shared-stream CDC path: a single pull+sync
+// loop for the whole mirror feeding a single normalize loop, with all tables sharing
+// one batch counter and one backpressure window.
+func (a *FlowableActivity) syncFlowSharedStream(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	options *protos.SyncFlowOptions,
+	srcConn connectors.CDCPullConnectorCore,
+	destinationType protos.DBType,
+	shutDown *atomic.Bool,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	var currentSyncFlowNum atomic.Int32
+	var totalRecordsSynced atomic.Int64
+	var normalizingBatchID atomic.Int64
+	var normalizeWaiting atomic.Bool
+	var syncingBatchID atomic.Int64
+	var syncState atomic.Pointer[string]
+	syncState.Store(new("setup"))
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
+		sBatchID := syncingBatchID.Load()
+		nBatchID := normalizingBatchID.Load()
+		var nWaiting string
+		if normalizeWaiting.Load() {
+			nWaiting = " (W)"
+		}
+		return fmt.Sprintf(
+			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d (%s), normalizingBatchID:%d%s",
+			currentSyncFlowNum.Load(), totalRecordsSynced.Load(),
+			sBatchID, *syncState.Load(), nBatchID, nWaiting,
+		)
+	})
+	defer shutdown()
 
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
@@ -1905,6 +1968,15 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	})
 	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+	if isQueryCDCPath(cfg, destinationType) {
+		// No raw table in the query-based CDC path.
+		return nil
+	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 	normBatchID, err := pgMetadata.GetLastNormalizeBatchID(ctx, cfg.FlowJobName)

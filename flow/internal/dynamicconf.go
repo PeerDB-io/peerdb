@@ -300,6 +300,24 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
+		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
+			"used when a mirror does not set query_cdc_pull_sync_parallelism; 0 or less removes the limit",
+		DefaultValue:     "10",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name: "PEERDB_QUERY_CDC_NORMALIZE_PARALLELISM",
+		Description: "Query-based CDC only: how many tables are normalized into the destination concurrently, " +
+			"bounding destination load when many tables catch up at once; 0 or less removes the limit",
+		DefaultValue:     "4",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
 		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
 		DefaultValue:     "false",
@@ -729,6 +747,14 @@ func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string)
 		return 0, err
 	}
 	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBQueryCDCPullSyncParallelism(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM")
+}
+
+func PeerDBQueryCDCNormalizeParallelism(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_QUERY_CDC_NORMALIZE_PARALLELISM")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {

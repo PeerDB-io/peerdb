@@ -12,8 +12,12 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type bqCdcRow struct {
@@ -162,6 +166,11 @@ func bqCdcFlowConnectionConfig(
 			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
 		},
 	}
+	flowConnConfig.IdleTimeoutSeconds = 5
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5",
+	}
+
 	return flowConnConfig
 }
 
@@ -403,9 +412,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 }
 
 // Test_BigQuery_CDC_Restart_Mid_Window_Resume covers resuming from the
-// persisted checkpoint (chunk 4's UpdateReplStateLastOffset/SetLastOffset)
-// rather than re-scanning already-synced rows or dropping rows written while
-// the mirror wasn't polling.
+// persisted per-table cursor (query_cdc_replication_state, written by
+// RecordQueryCDCSync in the query-based CDC path) rather than
+// re-scanning already-synced rows or dropping rows written while the mirror
+// wasn't polling.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	t := s.T()
 	ctx := t.Context()
@@ -413,6 +423,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	source := s.Source().(*bigQuerySource)
 	srcTable := AddSuffix(s, "cdc_restart_resume")
 	dstTable := srcTable + "_dst"
+	sourceTableIdentifier := fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable)
 	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
 
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
@@ -438,19 +449,21 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-	checkpointBeforePause := readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName)
-	require.NotEmpty(t, checkpointBeforePause, "checkpoint should be persisted after batch A lands")
+	checkpointBeforePause := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
+	require.False(t, checkpointBeforePause.IsZero(), "checkpoint should be persisted after batch A lands")
 
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
 	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
+	checkpointAtPause := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier)
+
 	// batch B: written while the mirror isn't polling - must not be lost.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 3, Val: "batch-b"}})
 
 	// checkpoint must not move while paused - nothing is being scanned.
-	require.Equal(t, checkpointBeforePause, readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName),
+	require.Equal(t, checkpointAtPause, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier),
 		"checkpoint should stay put while the mirror is paused")
 
 	// CDCDynamicPropertiesSignal auto-unpauses regardless of whether it
@@ -476,18 +489,391 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Restart_Mid_Window_Resume() {
 	// already have timed out.
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
-	require.Greater(t, readBigQueryCheckpointText(t, pool, flowConnConfig.FlowJobName), checkpointBeforePause,
+	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, sourceTableIdentifier).After(checkpointAtPause),
 		"checkpoint should have advanced past batch B after resuming")
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
 }
 
-func readBigQueryCheckpointText(t *testing.T, pool *pgxpool.Pool, flowJobName string) string {
+// Test_BigQuery_CDC_Isolated_Table_Failure_Does_Not_Block_Sibling drops one
+// source table mid-CDC to force queryCDCPullSyncLoop's poll-failure path
+// (flow/activities/flowable_query_cdc.go) and proves a sibling table keeps
+// replicating unaffected.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Failure_Does_Not_Block_Sibling() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	failedSrc := AddSuffix(s, "cdc_isolation_failed")
+	healthySrc := AddSuffix(s, "cdc_isolation_healthy")
+	failedDst := failedSrc + "_dst"
+	healthyDst := healthySrc + "_dst"
+	failedFQN := createBigQueryCdcSourceTable(ctx, t, source, failedSrc, false)
+	healthyFQN := createBigQueryCdcSourceTable(ctx, t, source, healthySrc, false)
+	failedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, failedSrc)
+
+	bqInsertRows(ctx, t, source, failedFQN, []bqCdcRow{{ID: 1, Val: "failed-initial"}})
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 1, Val: "healthy-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, failedSrc, failedDst, appends)
+	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, &protos.TableMapping{
+		SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, healthySrc),
+		DestinationTableIdentifier: s.DestinationTable(healthyDst),
+		BigqueryCdcEventsFunction:  appends,
+	})
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "failed table initial snapshot landed", failedSrc, failedDst, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "healthy table initial snapshot landed", healthySrc, healthyDst, "id,val")
+
+	pool, err := catalogTestAccessPool()
+	require.NoError(t, err)
+	stateBeforeDrop, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+	require.NoError(t, err)
+
+	require.NoError(t, source.Exec(ctx, "DROP TABLE "+quoteBigQueryTableFQN(failedFQN)),
+		"should drop the failing source table")
+
+	EnvWaitFor(t, env, 2*time.Minute, "failed table keeps retrying its poll after its source table is dropped", func() bool {
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return state.LastAttemptAt.After(stateBeforeDrop.LastAttemptAt)
+	})
+
+	// healthy sibling keeps advancing while the failed table just retries.
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 2, Val: "healthy-after-sibling-failure"}})
+	EnvWaitForEqualTablesWithNames(env, s, "healthy row synced despite failed sibling", healthySrc, healthyDst, "id,val")
+
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	stateAfterRetries, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, failedSourceID)
+	require.NoError(t, err)
+	require.Equal(t, stateBeforeDrop.SyncedBatchID, stateAfterRetries.SyncedBatchID,
+		"failed table must not advance its synced batch id")
+
+	errorCount, err := GetLogCount(ctx, shared.CatalogPool{Pool: pool}, flowConnConfig.FlowJobName, "error",
+		failedSourceID+"; replication for other tables will continue")
+	require.NoError(t, err)
+	require.Equal(t, 1, errorCount,
+		"the customer-visible error should be emitted once for the table failure episode")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Isolated_Table_Backpressure_Does_Not_Block_Sibling renames
+// away one table's ClickHouse destination so its own NormalizeQueryCDC always
+// fails, then proves that table's own sync loop backpressures at
+// normBufferSize (flow/activities/flowable_query_cdc.go) without slowing
+// down a healthy sibling table at all.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Backpressure_Does_Not_Block_Sibling() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	stuckSrc := AddSuffix(s, "cdc_backpressure_stuck")
+	healthySrc := AddSuffix(s, "cdc_backpressure_healthy")
+	stuckDst := stuckSrc + "_dst"
+	healthyDst := healthySrc + "_dst"
+	stuckFQN := createBigQueryCdcSourceTable(ctx, t, source, stuckSrc, false)
+	healthyFQN := createBigQueryCdcSourceTable(ctx, t, source, healthySrc, false)
+	stuckSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, stuckSrc)
+
+	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 1, Val: "stuck-initial"}})
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 1, Val: "healthy-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, stuckSrc, stuckDst, appends)
+	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, &protos.TableMapping{
+		SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, healthySrc),
+		DestinationTableIdentifier: s.DestinationTable(healthyDst),
+		BigqueryCdcEventsFunction:  appends,
+	})
+	// normBufferSize = max(normBufferHours*3600/idleTimeout, 2), so this floors
+	// the backpressure threshold at 2 synced-but-unnormalized batches.
+	flowConnConfig.Env["PEERDB_NORMALIZE_BUFFER_HOURS"] = "0"
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "stuck table initial snapshot landed", stuckSrc, stuckDst, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "healthy table initial snapshot landed", healthySrc, healthyDst, "id,val")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.Peer().GetClickhouseConfig())
+	require.NoError(t, err)
+	t.Cleanup(func() { ch.Close() })
+	brokenDst := stuckDst + "_renamed_away"
+	require.NoError(t, ch.Exec(ctx, fmt.Sprintf("RENAME TABLE `%s` TO `%s`", stuckDst, brokenDst)),
+		"should rename the stuck table's destination to force normalize failures")
+
+	pool, err := catalogTestAccessPool()
+	require.NoError(t, err)
+
+	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 2, Val: "wave-1"}})
+	EnvWaitFor(t, env, 2*time.Minute, "stuck table stages its first CDC batch", func() bool {
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return state.SyncedBatchID >= 1
+	})
+
+	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 3, Val: "wave-2"}})
+	EnvWaitFor(t, env, 2*time.Minute, "stuck table's own backpressure caps its sync/normalize gap at 2", func() bool {
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return state.SyncedBatchID == 2 && state.NormalizedBatchID == 0
+	})
+
+	// a third wave must not get synced while backpressured - the cap must hold.
+	bqInsertRows(ctx, t, source, stuckFQN, []bqCdcRow{{ID: 4, Val: "wave-3"}})
+	require.Never(t, func() bool {
+		state, err := fetchQueryCDCReplicationState(ctx, pool, flowConnConfig.FlowJobName, stuckSourceID)
+		return err == nil && state.SyncedBatchID > 2
+	}, 15*time.Second, time.Second,
+		"backpressured table must not sync past its own normalize buffer while normalize keeps failing")
+
+	// healthy sibling is unaffected by the stuck table's backpressure.
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 2, Val: "healthy-wave-1"}})
+	EnvWaitForEqualTablesWithNames(env, s, "healthy row synced despite stuck sibling", healthySrc, healthyDst, "id,val")
+	bqInsertRows(ctx, t, source, healthyFQN, []bqCdcRow{{ID: 3, Val: "healthy-wave-2"}})
+	EnvWaitForEqualTablesWithNames(env, s, "second healthy row synced despite stuck sibling", healthySrc, healthyDst, "id,val")
+
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	errorCount, err := GetLogCount(ctx, shared.CatalogPool{Pool: pool}, flowConnConfig.FlowJobName, "error",
+		stuckSourceID+"; replication for other tables will continue")
+	require.NoError(t, err)
+	require.Equal(t, 1, errorCount,
+		"the customer-visible normalize-failure error should be emitted once for the backpressure episode")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CDC runs CDC on two tables,
+// pauses the mirror, removes one table from the mirror config
+// and checks that: the removed table's per-table state is pruned, it stops receiving updates, the retained
+// table is unaffected, and the table replication state API keeps working correctly.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CDC() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	retainedSrc := AddSuffix(s, "cdc_isolated_remove_retained")
+	removedSrc := AddSuffix(s, "cdc_isolated_remove_removed")
+	retainedDst := retainedSrc + "_dst"
+	removedDst := removedSrc + "_dst"
+	retainedFQN := createBigQueryCdcSourceTable(ctx, t, source, retainedSrc, false)
+	removedFQN := createBigQueryCdcSourceTable(ctx, t, source, removedSrc, false)
+	retainedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, retainedSrc)
+	removedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, removedSrc)
+
+	bqInsertRows(ctx, t, source, retainedFQN, []bqCdcRow{{ID: 1, Val: "retained-initial"}})
+	bqInsertRows(ctx, t, source, removedFQN, []bqCdcRow{{ID: 1, Val: "removed-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, retainedSrc, retainedDst, appends)
+	removedMapping := &protos.TableMapping{
+		SourceTableIdentifier:      removedSourceID,
+		DestinationTableIdentifier: s.DestinationTable(removedDst),
+		BigqueryCdcEventsFunction:  appends,
+	}
+	flowConnConfig.TableMappings = append(flowConnConfig.TableMappings, removedMapping)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "retained table initial snapshot landed", retainedSrc, retainedDst, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "removed table initial snapshot landed", removedSrc, removedDst, "id,val")
+
+	// cdc for a while: both tables get a wave of changes before the removal.
+	bqInsertRows(ctx, t, source, retainedFQN, []bqCdcRow{{ID: 2, Val: "retained-cdc-1"}})
+	bqInsertRows(ctx, t, source, removedFQN, []bqCdcRow{{ID: 2, Val: "removed-cdc-1"}})
+	EnvWaitForEqualTablesWithNames(env, s, "retained table CDC wave landed", retainedSrc, retainedDst, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "removed table CDC wave landed", removedSrc, removedDst, "id,val")
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	pool, err := catalogTestAccessPool()
+	require.NoError(t, err)
+
+	stateBeforeRemoval, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(t, err)
+	var maxBatchIDBeforeRemoval int64
+	for _, table := range stateBeforeRemoval.Tables {
+		if table.SourceTableIdentifier == retainedSourceID {
+			maxBatchIDBeforeRemoval = table.SyncedBatchId
+			break
+		}
+	}
+	require.Positive(t, maxBatchIDBeforeRemoval, "retained table should have a synced CDC batch recorded before removal")
+
+	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// CDCDynamicPropertiesSignal auto-unpauses regardless of payload
+	SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		RemovedTables: []*protos.TableMapping{removedMapping},
+	})
+	EnvWaitFor(t, env, 1*time.Minute, "resumed workflow after table removal", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	EnvWaitFor(t, env, 2*time.Minute, "removed table's replication state is pruned", func() bool {
+		exists, err := queryCDCReplicationStateExists(ctx, pool, flowConnConfig.FlowJobName, removedSourceID)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return !exists
+	})
+
+	// retained table keeps replicating after the removal.
+	bqInsertRows(ctx, t, source, retainedFQN, []bqCdcRow{{ID: 3, Val: "retained-cdc-2"}})
+	EnvWaitForEqualTablesWithNames(env, s, "retained table CDC continues after removal", retainedSrc, retainedDst, "id,val")
+
+	// removed table's source keeps changing, but the mirror must no longer pick it up.
+	bqInsertRows(ctx, t, source, removedFQN, []bqCdcRow{{ID: 3, Val: "removed-after-removal"}})
+	require.Never(t, func() bool {
+		rows, err := s.GetRows(removedDst, "id,val")
+		return err == nil && len(rows.Records) > 2
+	}, 20*time.Second, 2*time.Second,
+		"removed table must stop receiving CDC updates once dropped from the mirror")
+
+	// GetQueryCDCReplicationState keeps working after a table removal - the
+	// retained table's continued sync still shows up.
+	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports new batches from the retained table after removal", func() bool {
+		response, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, table := range response.Tables {
+			if table.SourceTableIdentifier == retainedSourceID {
+				return table.SyncedBatchId > maxBatchIDBeforeRemoval && table.LastSyncedAt != nil
+			}
+		}
+		return false
+	})
+
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Replication_State_Handler checks that the
+// GetQueryCDCReplicationState API (flow/cmd/mirror_status.go) reports the same
+// per-table sync/normalize progress as the underlying
+// query_cdc_replication_state row it's read from.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Replication_State_Handler() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_repl_state_handler")
+	dstTable := srcTable + "_dst"
+	sourceTableIdentifier := fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable)
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "wave-1"}})
+	EnvWaitFor(t, env, 4*time.Minute, "CDC wave picked up", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 2
+	})
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	require.NoError(t, err)
+
+	var handlerState *protos.QueryCDCReplicationState
+	EnvWaitFor(t, env, 2*time.Minute, "table replication state handler reports normalized progress", func() bool {
+		resp, err := apiClient.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, table := range resp.Tables {
+			if table.SourceTableIdentifier == sourceTableIdentifier {
+				handlerState = table
+				break
+			}
+		}
+		return handlerState != nil && handlerState.NormalizedBatchId > 0 && handlerState.LastNormalizedAt != nil
+	})
+
+	require.Equal(t, int64(1), handlerState.InsertsCount, "only the CDC-polled insert should be counted, not the initial snapshot row")
+	require.Equal(t, int64(0), handlerState.UpdatesCount)
+	require.Equal(t, int64(0), handlerState.DeletesCount)
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+func readBigQueryTableCursor(t *testing.T, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string) time.Time {
 	t.Helper()
-	var lastText string
+	var cursorText string
 	require.NoError(t, pool.QueryRow(
-		t.Context(), "SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1", flowJobName,
-	).Scan(&lastText))
-	return lastText
+		t.Context(),
+		"SELECT cursor_text FROM query_cdc_replication_state WHERE flow_name = $1 AND source_table_identifier = $2",
+		flowJobName, sourceTableIdentifier,
+	).Scan(&cursorText))
+	cursor, err := time.Parse(time.RFC3339Nano, cursorText)
+	require.NoError(t, err, "cursor_text should be a valid RFC3339Nano timestamp")
+	return cursor
+}
+
+func fetchQueryCDCReplicationState(
+	ctx context.Context, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string,
+) (connmetadata.QueryCDCReplicationState, error) {
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), shared.CatalogPool{Pool: pool})
+	return pgMetadata.GetQueryCDCReplicationState(ctx, flowJobName, sourceTableIdentifier)
+}
+
+func queryCDCReplicationStateExists(
+	ctx context.Context, pool *pgxpool.Pool, flowJobName string, sourceTableIdentifier string,
+) (bool, error) {
+	var exists bool
+	err := pool.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM query_cdc_replication_state WHERE flow_name = $1 AND source_table_identifier = $2)",
+		flowJobName, sourceTableIdentifier,
+	).Scan(&exists)
+	return exists, err
 }

@@ -136,6 +136,24 @@ type CDCPullConnector interface {
 	) error
 }
 
+// QueryCDCPullConnector is implemented by sources that poll each table
+// independently (no shared replication stream to isolate tables on top of),
+// letting the activity drive per-table isolation, parallelism, and
+// backpressure generically instead of each such connector reimplementing it.
+type QueryCDCPullConnector interface {
+	CDCPullConnectorCore
+
+	// PullTableRecords pulls whatever is newly available for one source table
+	// and streams it into req.Stream. This method should be idempotent given
+	// the same req.Cursor.
+	PullTableRecords(
+		ctx context.Context,
+		catalogPool shared.CatalogPool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullTableRecordsRequest,
+	) (model.PullTableRecordsResult, error)
+}
+
 type CDCPullPgConnector interface {
 	CDCPullConnectorCore
 
@@ -204,6 +222,20 @@ type CDCSyncConnector interface {
 	// SyncRecords pushes RecordItems to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error)
+}
+
+// QueryCDCSyncConnector is implemented by destinations that can stage one
+// table's CDC records (SyncQueryCDC) and separately insert staged batches
+// straight into the final destination table (NormalizeQueryCDC), skipping any
+// raw-table hop.
+type QueryCDCSyncConnector interface {
+	Connector
+
+	// SyncQueryCDC should be idempotent given the same records and BatchID.
+	SyncQueryCDC(ctx context.Context, req *model.SyncQueryCDCRequest) (*model.RecordTypeCounts, error)
+
+	// NormalizeQueryCDC should be idempotent given the same batch range.
+	NormalizeQueryCDC(ctx context.Context, req *model.NormalizeQueryCDCRequest) (*model.RecordTypeCounts, error)
 }
 
 type CDCSyncPgConnector interface {
@@ -693,7 +725,6 @@ var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
 	_ CDCPullConnector = &connmongo.MongoConnector{}
-	_ CDCPullConnector = &connbigquery.BigQueryConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -819,4 +850,7 @@ var (
 	_ GetSchemaConnector              = &conncockroachdb.CockroachDBConnector{}
 	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
 	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
+
+	_ QueryCDCPullConnector = &connbigquery.BigQueryConnector{}
+	_ QueryCDCSyncConnector = &connclickhouse.ClickHouseConnector{}
 )

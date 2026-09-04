@@ -14,6 +14,39 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+func TestInitializeQueryCDCReplicationState(t *testing.T) {
+	ctx := t.Context()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	metadata := NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), pool)
+
+	flowName := "test_initialize_query_cdc_replication_state_" + uuid.NewString()
+	firstTable := "first_table"
+	secondTable := "second_table"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM `+queryCDCReplicationStateTableName+` WHERE flow_name = $1`, flowName)
+	})
+
+	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, firstTable, "snapshot-checkpoint"))
+	state, err := metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+
+	// Existing progress must not be replaced if the activity is restarted.
+	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, firstTable, "newer-checkpoint"))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+
+	// A state row created by an attempt before initialization is still eligible
+	// for seeding because it has not synced or normalized anything.
+	require.NoError(t, metadata.RecordQueryCDCAttempt(ctx, flowName, secondTable, time.Now()))
+	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, secondTable, "snapshot-checkpoint"))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, secondTable)
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+}
+
 func TestOffloadRestoreSensitivePartitionRanges(t *testing.T) {
 	const encKeyID = "test_enc_key"
 	t.Setenv("PEERDB_CURRENT_ENC_KEY_ID", encKeyID)

@@ -123,6 +123,9 @@ message FlowConnectionConfigs {
   oneof source_connector_config {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
+
+  // query-based CDC: how many source tables are queried and staged concurrently
+  int32 query_cdc_pull_sync_parallelism = 30;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -179,6 +182,9 @@ message FlowConnectionConfigsCore {
   oneof source_connector_config {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
+
+  // query-based CDC: how many source tables are queried and staged concurrently
+  int32 query_cdc_pull_sync_parallelism = 30;
 }
 
 message RenameTableOption {

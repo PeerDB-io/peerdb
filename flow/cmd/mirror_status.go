@@ -752,6 +752,67 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	return response, nil
 }
 
+func (h *FlowRequestHandler) GetQueryCDCReplicationState(
+	ctx context.Context,
+	req *protos.GetQueryCDCReplicationStateRequest,
+) (*protos.GetQueryCDCReplicationStateResponse, APIError) {
+	rows, err := h.pool.Query(ctx, `SELECT
+			source_table_identifier,
+			cursor_text,
+			last_attempt_at,
+			last_synced_at,
+			synced_batch_id,
+			normalized_batch_id,
+			last_normalized_at,
+			inserts_count,
+			updates_count,
+			deletes_count
+		FROM query_cdc_replication_state
+		WHERE flow_name = $1
+		ORDER BY source_table_identifier`, req.FlowJobName)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("failed to query table replication state: %w", err))
+	}
+
+	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.QueryCDCReplicationState, error) {
+		var table protos.QueryCDCReplicationState
+		var lastAttemptAt, lastSyncedAt, lastNormalizedAt pgtype.Timestamptz
+		if err := row.Scan(
+			&table.SourceTableIdentifier,
+			&table.CursorText,
+			&lastAttemptAt,
+			&lastSyncedAt,
+			&table.SyncedBatchId,
+			&table.NormalizedBatchId,
+			&lastNormalizedAt,
+			&table.InsertsCount,
+			&table.UpdatesCount,
+			&table.DeletesCount,
+		); err != nil {
+			return nil, NewInternalApiError(fmt.Errorf("failed to scan table replication state: %w", err))
+		}
+		if lastAttemptAt.Valid {
+			table.LastAttemptAt = timestamppb.New(lastAttemptAt.Time)
+		}
+		if lastSyncedAt.Valid {
+			table.LastSyncedAt = timestamppb.New(lastSyncedAt.Time)
+		}
+		if lastNormalizedAt.Valid {
+			table.LastNormalizedAt = timestamppb.New(lastNormalizedAt.Time)
+		}
+		return &table, nil
+	})
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("failed to collect table replication state: %w", err))
+	}
+
+	if tables == nil {
+		tables = []*protos.QueryCDCReplicationState{}
+	}
+
+	return &protos.GetQueryCDCReplicationStateResponse{Tables: tables}, nil
+}
+
 func (h *FlowRequestHandler) ListMirrorNames(
 	ctx context.Context,
 	req *protos.ListMirrorNamesRequest,

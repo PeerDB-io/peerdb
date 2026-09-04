@@ -457,5 +457,9 @@ func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
 		return err
 	}
 
+	if err := deleteQueryCDCReplicationStateInTx(ctx, tx, jobName); err != nil {
+		return err
+	}
+
 	return nil
 }
