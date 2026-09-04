@@ -577,9 +577,9 @@ func (c *BigQueryConnector) pullTableQuery(
 		}
 
 		// The watermark column is this row's own commit-time signal, used as
-		// CommitTimeNano. Falls back to the poll window's end if, unexpectedly, the
+		// CommitTimeNano. Falls back to the poll window's start if, unexpectedly, the
 		// column isn't present.
-		commitTimeNano := end.UnixNano()
+		commitTimeNano := start.UnixNano()
 		if watermarkColIdx >= 0 {
 			switch v := row[watermarkColIdx].(type) {
 			case time.Time:
