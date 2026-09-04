@@ -15,6 +15,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -113,6 +115,118 @@ func (s MongoClickhouseSuite) Test_Flow_With_Schema() {
 		FlowJobName:   AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
 		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 10 rows into the source table for initial load
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Flow_With_Structured_Ingestion covers the structured ingestion checks in
+// checkTableMappings: a structured mapping has to carry columns, each column has to declare a
+// destination type, and that type has to look like a type expression. Those rejections land
+// before any connector is opened.
+func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion() {
+	// This test can be generalized to future connectors using structured ingestion.
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured"
+	dstTable := "test_structured_dst"
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+
+	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
+		tableMappings := TableMappings(s, srcTable, dstTable)
+		tableMappings[0].StructuredIngestion = true
+		tableMappings[0].Columns = columns
+		return tableMappings
+	}
+
+	for _, testCase := range []struct {
+		name          string
+		flowName      string
+		columns       []*protos.ColumnSetting
+		expectedError string
+	}{
+		{
+			name:          "no columns",
+			flowName:      "structured_no_columns",
+			expectedError: "structured ingestion is enabled but no columns are specified",
+		},
+		{
+			name:     "column without destination type",
+			flowName: "structured_untyped_column",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64"},
+				{SourceName: "desc"},
+			},
+			expectedError: "the following columns have no destination type specified",
+		},
+		{
+			name:     "invalid destination type",
+			flowName: "structured_invalid_type",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
+			},
+			expectedError: "invalid custom column type",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName:   AddSuffix(s, testCase.flowName),
+				TableMappings: structuredMappings(testCase.columns),
+				Destination:   s.Peer().Name,
+			}
+			flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+			flowConnConfig.DoInitialSnapshot = true
+
+			_, err := apiClient.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			require.Error(t, err)
+			grpcStatus, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+			require.Equal(t, codes.InvalidArgument, grpcStatus.Code())
+			require.Contains(t, grpcStatus.Message(), testCase.expectedError)
+		})
+	}
+
+	// A fully typed structured mapping passes validation, so the mirror runs as usual.
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: structuredMappings([]*protos.ColumnSetting{
+			{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
+			{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
+		}),
+		Destination: s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
