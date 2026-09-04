@@ -476,6 +476,45 @@ func local_request_FlowService_CDCTableTotalCounts_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
+func request_FlowService_GetQueryCDCReplicationState_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetQueryCDCReplicationStateRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["flow_job_name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "flow_job_name")
+	}
+	protoReq.FlowJobName, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "flow_job_name", err)
+	}
+	msg, err := client.GetQueryCDCReplicationState(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_FlowService_GetQueryCDCReplicationState_0(ctx context.Context, marshaler runtime.Marshaler, server FlowServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq GetQueryCDCReplicationStateRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["flow_job_name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "flow_job_name")
+	}
+	protoReq.FlowJobName, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "flow_job_name", err)
+	}
+	msg, err := server.GetQueryCDCReplicationState(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 var filter_FlowService_GetSchemas_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
 func request_FlowService_GetSchemas_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -1810,6 +1849,26 @@ func RegisterFlowServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_FlowService_CDCTableTotalCounts_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodGet, pattern_FlowService_GetQueryCDCReplicationState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/peerdb_route.FlowService/GetQueryCDCReplicationState", runtime.WithHTTPPathPattern("/v1/mirrors/cdc/query_cdc_replication_state/{flow_job_name}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_FlowService_GetQueryCDCReplicationState_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_FlowService_GetQueryCDCReplicationState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_FlowService_GetSchemas_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2745,6 +2804,23 @@ func RegisterFlowServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_FlowService_CDCTableTotalCounts_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodGet, pattern_FlowService_GetQueryCDCReplicationState_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/peerdb_route.FlowService/GetQueryCDCReplicationState", runtime.WithHTTPPathPattern("/v1/mirrors/cdc/query_cdc_replication_state/{flow_job_name}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_FlowService_GetQueryCDCReplicationState_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_FlowService_GetQueryCDCReplicationState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodGet, pattern_FlowService_GetSchemas_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -3293,101 +3369,103 @@ func RegisterFlowServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux
 }
 
 var (
-	pattern_FlowService_ValidatePeer_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "validate"}, ""))
-	pattern_FlowService_ValidateCDCMirror_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "validate"}, ""))
-	pattern_FlowService_CreatePeer_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "create"}, ""))
-	pattern_FlowService_DropPeer_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "drop"}, ""))
-	pattern_FlowService_CreateCDCFlow_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "cdc", "create"}, ""))
-	pattern_FlowService_CreateQRepFlow_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "qrep", "create"}, ""))
-	pattern_FlowService_GetAlertConfigs_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "alerts", "config"}, ""))
-	pattern_FlowService_PostAlertConfig_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "alerts", "config"}, ""))
-	pattern_FlowService_DeleteAlertConfig_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "alerts", "config", "id"}, ""))
-	pattern_FlowService_GetDynamicSettings_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "dynamic_settings"}, ""))
-	pattern_FlowService_PostDynamicSetting_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "dynamic_settings"}, ""))
-	pattern_FlowService_GetScripts_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "scripts", "id"}, ""))
-	pattern_FlowService_PostScript_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "scripts"}, ""))
-	pattern_FlowService_DeleteScript_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "scripts", "id"}, ""))
-	pattern_FlowService_CDCTableTotalCounts_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "table_total_counts", "flow_job_name"}, ""))
-	pattern_FlowService_GetSchemas_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "schemas"}, ""))
-	pattern_FlowService_GetPublications_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "publications"}, ""))
-	pattern_FlowService_GetTablesInSchema_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "tables"}, ""))
-	pattern_FlowService_GetAllTables_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "tables", "all"}, ""))
-	pattern_FlowService_GetColumns_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "columns"}, ""))
-	pattern_FlowService_GetColumnsTypeConversion_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "columns", "all_type_conversions"}, ""))
-	pattern_FlowService_GetSlotInfo_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "slots", "peer_name"}, ""))
-	pattern_FlowService_GetSlotLagHistory_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "slots", "lag_history"}, ""))
-	pattern_FlowService_GetStatInfo_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "stats", "peer_name"}, ""))
-	pattern_FlowService_ListMirrorLogs_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "logs"}, ""))
-	pattern_FlowService_ListMirrors_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "list"}, ""))
-	pattern_FlowService_ListMirrorNames_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "names"}, ""))
-	pattern_FlowService_FlowStateChange_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "state_change"}, ""))
-	pattern_FlowService_MirrorStatus_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "status"}, ""))
-	pattern_FlowService_GetCDCBatches_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "batches", "flow_job_name"}, ""))
-	pattern_FlowService_CDCBatches_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "batches"}, ""))
-	pattern_FlowService_CDCGraph_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "graph"}, ""))
-	pattern_FlowService_InitialLoadSummary_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "initial_load", "parent_mirror_name"}, ""))
-	pattern_FlowService_GetPeerInfo_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "info", "peer_name"}, ""))
-	pattern_FlowService_GetPeerType_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "type", "peer_name"}, ""))
-	pattern_FlowService_ListPeers_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "list"}, ""))
-	pattern_FlowService_GetVersion_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "version"}, ""))
-	pattern_FlowService_GetInstanceInfo_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "instance", "info"}, ""))
-	pattern_FlowService_Maintenance_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "instance", "maintenance"}, ""))
-	pattern_FlowService_GetMaintenanceStatus_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "instance", "maintenance", "status"}, ""))
-	pattern_FlowService_SkipSnapshotWaitFlows_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "instance", "maintenance", "skip-snapshot-wait"}, ""))
-	pattern_FlowService_CreateOrReplaceFlowTags_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "flows", "tags"}, ""))
-	pattern_FlowService_GetFlowTags_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "flows", "tags", "flow_name"}, ""))
-	pattern_FlowService_TotalRowsSyncedByMirror_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "mirrors", "total_rows_synced", "flow_job_name"}, ""))
-	pattern_FlowService_CancelTableAddition_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "cdc", "cancel_table_addition"}, ""))
-	pattern_FlowService_ResetMirrorSequences_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "sequences", "reset"}, ""))
-	pattern_FlowService_GetMirrorRowCounts_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "row_counts"}, ""))
+	pattern_FlowService_ValidatePeer_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "validate"}, ""))
+	pattern_FlowService_ValidateCDCMirror_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "validate"}, ""))
+	pattern_FlowService_CreatePeer_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "create"}, ""))
+	pattern_FlowService_DropPeer_0                    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "drop"}, ""))
+	pattern_FlowService_CreateCDCFlow_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "cdc", "create"}, ""))
+	pattern_FlowService_CreateQRepFlow_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "qrep", "create"}, ""))
+	pattern_FlowService_GetAlertConfigs_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "alerts", "config"}, ""))
+	pattern_FlowService_PostAlertConfig_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "alerts", "config"}, ""))
+	pattern_FlowService_DeleteAlertConfig_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "alerts", "config", "id"}, ""))
+	pattern_FlowService_GetDynamicSettings_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "dynamic_settings"}, ""))
+	pattern_FlowService_PostDynamicSetting_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "dynamic_settings"}, ""))
+	pattern_FlowService_GetScripts_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "scripts", "id"}, ""))
+	pattern_FlowService_PostScript_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "scripts"}, ""))
+	pattern_FlowService_DeleteScript_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "scripts", "id"}, ""))
+	pattern_FlowService_CDCTableTotalCounts_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "table_total_counts", "flow_job_name"}, ""))
+	pattern_FlowService_GetQueryCDCReplicationState_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "query_cdc_replication_state", "flow_job_name"}, ""))
+	pattern_FlowService_GetSchemas_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "schemas"}, ""))
+	pattern_FlowService_GetPublications_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "publications"}, ""))
+	pattern_FlowService_GetTablesInSchema_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "tables"}, ""))
+	pattern_FlowService_GetAllTables_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "tables", "all"}, ""))
+	pattern_FlowService_GetColumns_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "columns"}, ""))
+	pattern_FlowService_GetColumnsTypeConversion_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "columns", "all_type_conversions"}, ""))
+	pattern_FlowService_GetSlotInfo_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "slots", "peer_name"}, ""))
+	pattern_FlowService_GetSlotLagHistory_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "peers", "slots", "lag_history"}, ""))
+	pattern_FlowService_GetStatInfo_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "stats", "peer_name"}, ""))
+	pattern_FlowService_ListMirrorLogs_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "logs"}, ""))
+	pattern_FlowService_ListMirrors_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "list"}, ""))
+	pattern_FlowService_ListMirrorNames_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "names"}, ""))
+	pattern_FlowService_FlowStateChange_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "state_change"}, ""))
+	pattern_FlowService_MirrorStatus_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "status"}, ""))
+	pattern_FlowService_GetCDCBatches_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "batches", "flow_job_name"}, ""))
+	pattern_FlowService_CDCBatches_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "batches"}, ""))
+	pattern_FlowService_CDCGraph_0                    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "cdc", "graph"}, ""))
+	pattern_FlowService_InitialLoadSummary_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "mirrors", "cdc", "initial_load", "parent_mirror_name"}, ""))
+	pattern_FlowService_GetPeerInfo_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "info", "peer_name"}, ""))
+	pattern_FlowService_GetPeerType_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "peers", "type", "peer_name"}, ""))
+	pattern_FlowService_ListPeers_0                   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "peers", "list"}, ""))
+	pattern_FlowService_GetVersion_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "version"}, ""))
+	pattern_FlowService_GetInstanceInfo_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "instance", "info"}, ""))
+	pattern_FlowService_Maintenance_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "instance", "maintenance"}, ""))
+	pattern_FlowService_GetMaintenanceStatus_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "instance", "maintenance", "status"}, ""))
+	pattern_FlowService_SkipSnapshotWaitFlows_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "instance", "maintenance", "skip-snapshot-wait"}, ""))
+	pattern_FlowService_CreateOrReplaceFlowTags_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "flows", "tags"}, ""))
+	pattern_FlowService_GetFlowTags_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "flows", "tags", "flow_name"}, ""))
+	pattern_FlowService_TotalRowsSyncedByMirror_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "mirrors", "total_rows_synced", "flow_job_name"}, ""))
+	pattern_FlowService_CancelTableAddition_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "flows", "cdc", "cancel_table_addition"}, ""))
+	pattern_FlowService_ResetMirrorSequences_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "mirrors", "sequences", "reset"}, ""))
+	pattern_FlowService_GetMirrorRowCounts_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "mirrors", "row_counts"}, ""))
 )
 
 var (
-	forward_FlowService_ValidatePeer_0             = runtime.ForwardResponseMessage
-	forward_FlowService_ValidateCDCMirror_0        = runtime.ForwardResponseMessage
-	forward_FlowService_CreatePeer_0               = runtime.ForwardResponseMessage
-	forward_FlowService_DropPeer_0                 = runtime.ForwardResponseMessage
-	forward_FlowService_CreateCDCFlow_0            = runtime.ForwardResponseMessage
-	forward_FlowService_CreateQRepFlow_0           = runtime.ForwardResponseMessage
-	forward_FlowService_GetAlertConfigs_0          = runtime.ForwardResponseMessage
-	forward_FlowService_PostAlertConfig_0          = runtime.ForwardResponseMessage
-	forward_FlowService_DeleteAlertConfig_0        = runtime.ForwardResponseMessage
-	forward_FlowService_GetDynamicSettings_0       = runtime.ForwardResponseMessage
-	forward_FlowService_PostDynamicSetting_0       = runtime.ForwardResponseMessage
-	forward_FlowService_GetScripts_0               = runtime.ForwardResponseMessage
-	forward_FlowService_PostScript_0               = runtime.ForwardResponseMessage
-	forward_FlowService_DeleteScript_0             = runtime.ForwardResponseMessage
-	forward_FlowService_CDCTableTotalCounts_0      = runtime.ForwardResponseMessage
-	forward_FlowService_GetSchemas_0               = runtime.ForwardResponseMessage
-	forward_FlowService_GetPublications_0          = runtime.ForwardResponseMessage
-	forward_FlowService_GetTablesInSchema_0        = runtime.ForwardResponseMessage
-	forward_FlowService_GetAllTables_0             = runtime.ForwardResponseMessage
-	forward_FlowService_GetColumns_0               = runtime.ForwardResponseMessage
-	forward_FlowService_GetColumnsTypeConversion_0 = runtime.ForwardResponseMessage
-	forward_FlowService_GetSlotInfo_0              = runtime.ForwardResponseMessage
-	forward_FlowService_GetSlotLagHistory_0        = runtime.ForwardResponseMessage
-	forward_FlowService_GetStatInfo_0              = runtime.ForwardResponseMessage
-	forward_FlowService_ListMirrorLogs_0           = runtime.ForwardResponseMessage
-	forward_FlowService_ListMirrors_0              = runtime.ForwardResponseMessage
-	forward_FlowService_ListMirrorNames_0          = runtime.ForwardResponseMessage
-	forward_FlowService_FlowStateChange_0          = runtime.ForwardResponseMessage
-	forward_FlowService_MirrorStatus_0             = runtime.ForwardResponseMessage
-	forward_FlowService_GetCDCBatches_0            = runtime.ForwardResponseMessage
-	forward_FlowService_CDCBatches_0               = runtime.ForwardResponseMessage
-	forward_FlowService_CDCGraph_0                 = runtime.ForwardResponseMessage
-	forward_FlowService_InitialLoadSummary_0       = runtime.ForwardResponseMessage
-	forward_FlowService_GetPeerInfo_0              = runtime.ForwardResponseMessage
-	forward_FlowService_GetPeerType_0              = runtime.ForwardResponseMessage
-	forward_FlowService_ListPeers_0                = runtime.ForwardResponseMessage
-	forward_FlowService_GetVersion_0               = runtime.ForwardResponseMessage
-	forward_FlowService_GetInstanceInfo_0          = runtime.ForwardResponseMessage
-	forward_FlowService_Maintenance_0              = runtime.ForwardResponseMessage
-	forward_FlowService_GetMaintenanceStatus_0     = runtime.ForwardResponseMessage
-	forward_FlowService_SkipSnapshotWaitFlows_0    = runtime.ForwardResponseMessage
-	forward_FlowService_CreateOrReplaceFlowTags_0  = runtime.ForwardResponseMessage
-	forward_FlowService_GetFlowTags_0              = runtime.ForwardResponseMessage
-	forward_FlowService_TotalRowsSyncedByMirror_0  = runtime.ForwardResponseMessage
-	forward_FlowService_CancelTableAddition_0      = runtime.ForwardResponseMessage
-	forward_FlowService_ResetMirrorSequences_0     = runtime.ForwardResponseMessage
-	forward_FlowService_GetMirrorRowCounts_0       = runtime.ForwardResponseMessage
+	forward_FlowService_ValidatePeer_0                = runtime.ForwardResponseMessage
+	forward_FlowService_ValidateCDCMirror_0           = runtime.ForwardResponseMessage
+	forward_FlowService_CreatePeer_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_DropPeer_0                    = runtime.ForwardResponseMessage
+	forward_FlowService_CreateCDCFlow_0               = runtime.ForwardResponseMessage
+	forward_FlowService_CreateQRepFlow_0              = runtime.ForwardResponseMessage
+	forward_FlowService_GetAlertConfigs_0             = runtime.ForwardResponseMessage
+	forward_FlowService_PostAlertConfig_0             = runtime.ForwardResponseMessage
+	forward_FlowService_DeleteAlertConfig_0           = runtime.ForwardResponseMessage
+	forward_FlowService_GetDynamicSettings_0          = runtime.ForwardResponseMessage
+	forward_FlowService_PostDynamicSetting_0          = runtime.ForwardResponseMessage
+	forward_FlowService_GetScripts_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_PostScript_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_DeleteScript_0                = runtime.ForwardResponseMessage
+	forward_FlowService_CDCTableTotalCounts_0         = runtime.ForwardResponseMessage
+	forward_FlowService_GetQueryCDCReplicationState_0 = runtime.ForwardResponseMessage
+	forward_FlowService_GetSchemas_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_GetPublications_0             = runtime.ForwardResponseMessage
+	forward_FlowService_GetTablesInSchema_0           = runtime.ForwardResponseMessage
+	forward_FlowService_GetAllTables_0                = runtime.ForwardResponseMessage
+	forward_FlowService_GetColumns_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_GetColumnsTypeConversion_0    = runtime.ForwardResponseMessage
+	forward_FlowService_GetSlotInfo_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_GetSlotLagHistory_0           = runtime.ForwardResponseMessage
+	forward_FlowService_GetStatInfo_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_ListMirrorLogs_0              = runtime.ForwardResponseMessage
+	forward_FlowService_ListMirrors_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_ListMirrorNames_0             = runtime.ForwardResponseMessage
+	forward_FlowService_FlowStateChange_0             = runtime.ForwardResponseMessage
+	forward_FlowService_MirrorStatus_0                = runtime.ForwardResponseMessage
+	forward_FlowService_GetCDCBatches_0               = runtime.ForwardResponseMessage
+	forward_FlowService_CDCBatches_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_CDCGraph_0                    = runtime.ForwardResponseMessage
+	forward_FlowService_InitialLoadSummary_0          = runtime.ForwardResponseMessage
+	forward_FlowService_GetPeerInfo_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_GetPeerType_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_ListPeers_0                   = runtime.ForwardResponseMessage
+	forward_FlowService_GetVersion_0                  = runtime.ForwardResponseMessage
+	forward_FlowService_GetInstanceInfo_0             = runtime.ForwardResponseMessage
+	forward_FlowService_Maintenance_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_GetMaintenanceStatus_0        = runtime.ForwardResponseMessage
+	forward_FlowService_SkipSnapshotWaitFlows_0       = runtime.ForwardResponseMessage
+	forward_FlowService_CreateOrReplaceFlowTags_0     = runtime.ForwardResponseMessage
+	forward_FlowService_GetFlowTags_0                 = runtime.ForwardResponseMessage
+	forward_FlowService_TotalRowsSyncedByMirror_0     = runtime.ForwardResponseMessage
+	forward_FlowService_CancelTableAddition_0         = runtime.ForwardResponseMessage
+	forward_FlowService_ResetMirrorSequences_0        = runtime.ForwardResponseMessage
+	forward_FlowService_GetMirrorRowCounts_0          = runtime.ForwardResponseMessage
 )
