@@ -99,6 +99,8 @@ require (
 	k8s.io/client-go v0.35.3 // Note: v0.* are newer than v1.*
 )
 
+require github.com/pressly/goose/v3 v3.27.3
+
 require (
 	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
@@ -231,6 +233,7 @@ require (
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
+	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/minio/minlz v1.1.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect
@@ -262,11 +265,12 @@ require (
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
-	github.com/prometheus/procfs v0.20.1 // indirect
+	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
+	github.com/sethvargo/go-retry v0.4.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.6 // indirect
 	github.com/shoenig/go-m1cpu v0.2.1 // indirect
@@ -323,6 +327,9 @@ require (
 )
 
 replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v2.0.7
+
+// 8 MiB SSH channel receive window for CDC over SSH tunnels; see the fork's README
+replace golang.org/x/crypto => github.com/PeerDB-io/crypto v0.55.16
 
 replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 

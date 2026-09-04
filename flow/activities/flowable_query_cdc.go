@@ -35,10 +35,18 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.QueryCDCPullConnector,
+	shutDown *atomic.Bool,
 ) error {
 	flowName := config.FlowJobName
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+
+	var totalRecordsSynced atomic.Int64
+	shutdown := common.HeartbeatRoutine(ctx, func() string {
+		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d",
+			len(options.TableMappings), totalRecordsSynced.Load())
+	})
+	defer shutdown()
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
@@ -100,12 +108,6 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return err
 	}
 
-	var totalRecordsSynced atomic.Int64
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d", len(sourceTables), totalRecordsSynced.Load())
-	})
-	defer shutdown()
-
 	group, groupCtx := errgroup.WithContext(ctx)
 	for _, tableMapping := range options.TableMappings {
 		normRequests := concurrency.NewLastChan()
@@ -120,7 +122,24 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
-	return group.Wait()
+
+	if err := group.Wait(); err != nil {
+		// mirrors syncFlowSharedStream: a worker shutdown cancels ctx ourselves, so the
+		// resulting context.Canceled is expected teardown rather than an activity failure
+		if shutDown.Load() {
+			logger.Info("isolated CDC SyncFlow shutdown")
+			return nil
+		}
+		// errgroup cancels groupCtx, not ctx, on a table error, so ctx being done here
+		// means an outside cancel rather than a replication failure
+		if ctx.Err() != nil {
+			logger.Info("isolated CDC SyncFlow canceled", slog.Any("error", ctx.Err()))
+			return ctx.Err()
+		}
+		logger.Error("isolated CDC SyncFlow failed", slog.Any("error", err))
+		return err
+	}
+	return nil
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
@@ -230,75 +249,80 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			continue
 		}
 
-		// bounded parallelism: only pull+sync for up to parallelism tables at once
-		release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
-		if err != nil {
-			return err
-		}
-		attemptedAt := time.Now()
-		logger.Info("[cdc] starting poll")
-		if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
-			release()
-			return a.Alerter.LogFlowError(ctx, flowName, err)
-		}
-
 		nextBatchID := state.SyncedBatchID + 1
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
-		pollGroup, pollCtx := errgroup.WithContext(ctx)
 		var pullResult model.PullTableRecordsResult
-		pollGroup.Go(func() error {
-			var pullErr error
-			pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-				Env:                   config.Env,
-				FlowJobName:           flowName,
-				SourceTableIdentifier: sourceTable,
-				NameAndExclude:        nameAndExclude,
-				Cursor:                state.CursorText,
-				Stream:                stream,
-			})
-			stream.Close()
-			if pullErr == nil {
-				logger.Info("[cdc] poll done", slog.Int64("bytesProcessed", pullResult.BytesProcessed))
-			}
-			return pullErr
-		})
-
-		hasRecords := !stream.WaitAndCheckEmpty()
 		var rowCounts *model.RecordTypeCounts
-		if hasRecords {
+		pollErr, fatalErr := func() (error, error) {
+			// bounded parallelism: only pull+sync for up to parallelism tables at once
+			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
+			if err != nil {
+				return err, nil
+			}
+			defer release()
+
+			attemptedAt := time.Now()
+			logger.Info("[cdc] starting poll")
+			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
+				return nil, err
+			}
+
+			pollGroup, pollCtx := errgroup.WithContext(ctx)
 			pollGroup.Go(func() error {
-				dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
-					pollCtx, config.Env, a.CatalogPool, config.DestinationName)
-				if syncErr != nil {
-					return fmt.Errorf("failed to get destination connector: %w", syncErr)
-				}
-				defer dstClose(pollCtx)
-
-				logger.Info("[cdc] starting sync")
-				rowCounts, syncErr = dstConn.SyncQueryCDC(pollCtx, &model.SyncQueryCDCRequest{
-					Env:               config.Env,
-					FlowJobName:       flowName,
-					TableMapping:      tableMapping,
-					TableSchema:       tableNameSchemaMapping[destTable],
-					Records:           stream.GetRecords(),
-					Version:           config.Version,
-					Flags:             config.Flags,
-					SchemaDeltas:      stream.SchemaDeltas,
-					BatchID:           nextBatchID,
-					SoftDeleteColName: config.SoftDeleteColName,
+				var pullErr error
+				pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
+					Env:                   config.Env,
+					FlowJobName:           flowName,
+					SourceTableIdentifier: sourceTable,
+					NameAndExclude:        nameAndExclude,
+					Cursor:                state.CursorText,
+					Stream:                stream,
 				})
-				if syncErr == nil {
-					logger.Info("[cdc] sync done",
-						slog.Int("inserts", int(rowCounts.InsertCount.Load())),
-						slog.Int("updates", int(rowCounts.UpdateCount.Load())),
-						slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
+				stream.Close()
+				if pullErr == nil {
+					logger.Info("[cdc] poll done", slog.Int64("bytesProcessed", pullResult.BytesProcessed))
 				}
-				return syncErr
+				return pullErr
 			})
-		}
 
-		pollErr := pollGroup.Wait()
-		release()
+			hasRecords := !stream.WaitAndCheckEmpty()
+			if hasRecords {
+				pollGroup.Go(func() error {
+					dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
+						pollCtx, config.Env, a.CatalogPool, config.DestinationName)
+					if syncErr != nil {
+						return fmt.Errorf("failed to get destination connector: %w", syncErr)
+					}
+					defer dstClose(pollCtx)
+
+					logger.Info("[cdc] starting sync")
+					rowCounts, syncErr = dstConn.SyncQueryCDC(pollCtx, &model.SyncQueryCDCRequest{
+						Env:               config.Env,
+						FlowJobName:       flowName,
+						TableMapping:      tableMapping,
+						TableSchema:       tableNameSchemaMapping[destTable],
+						Records:           stream.GetRecords(),
+						Version:           config.Version,
+						Flags:             config.Flags,
+						SchemaDeltas:      stream.SchemaDeltas,
+						BatchID:           nextBatchID,
+						SoftDeleteColName: config.SoftDeleteColName,
+					})
+					if syncErr == nil {
+						logger.Info("[cdc] sync done",
+							slog.Int("inserts", int(rowCounts.InsertCount.Load())),
+							slog.Int("updates", int(rowCounts.UpdateCount.Load())),
+							slog.Int("deletes", int(rowCounts.DeleteCount.Load())))
+					}
+					return syncErr
+				})
+			}
+
+			return pollGroup.Wait(), nil
+		}()
+		if fatalErr != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
+		}
 		if pollErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -417,32 +441,39 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 
 		// bounded parallelism: only normalize into the destination for up to
 		// normParallelism tables at once.
-		release, err := acquire(ctx, normSem, logger, "normalize")
-		if err != nil {
-			return err
-		}
+		startBatchID := lastNormalized + 1
+		normCounts, normErr, fatalErr := func() (*model.RecordTypeCounts, error, error) {
+			release, err := acquire(ctx, normSem, logger, "normalize")
+			if err != nil {
+				return nil, err, nil
+			}
+			defer release()
 
-		dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
-			a.CatalogPool, config.DestinationName)
-		if err != nil {
-			release()
-			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to get destination connector: %w", err))
+			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
+				a.CatalogPool, config.DestinationName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)
+			}
+			defer dstClose(ctx)
+
+			logger.Info("[cdc] starting normalize",
+				slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
+			normCounts, err := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
+				Env:               config.Env,
+				FlowJobName:       flowName,
+				TableMapping:      tableMapping,
+				TableSchema:       tableNameSchemaMapping[destTable],
+				Version:           config.Version,
+				Flags:             config.Flags,
+				StartBatchID:      startBatchID,
+				EndBatchID:        reqBatchID,
+				SoftDeleteColName: config.SoftDeleteColName,
+			})
+			return normCounts, err, nil
+		}()
+		if fatalErr != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
 		}
-		logger.Info("[cdc] starting normalize",
-			slog.Int64("startBatchID", lastNormalized), slog.Int64("endBatchID", reqBatchID))
-		normCounts, normErr := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
-			Env:               config.Env,
-			FlowJobName:       flowName,
-			TableMapping:      tableMapping,
-			TableSchema:       tableNameSchemaMapping[destTable],
-			Version:           config.Version,
-			Flags:             config.Flags,
-			StartBatchID:      lastNormalized,
-			EndBatchID:        reqBatchID,
-			SoftDeleteColName: config.SoftDeleteColName,
-		})
-		dstClose(ctx)
-		release()
 
 		if normErr != nil {
 			if ctx.Err() != nil {

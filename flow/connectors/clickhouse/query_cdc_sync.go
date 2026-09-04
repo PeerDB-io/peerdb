@@ -24,8 +24,8 @@ func isDeletedColNameOrDefault(configuredSoftDeleteColName string) string {
 // path's typed Avro file
 func typedCDCTableSchema(
 	tableSchema *protos.TableSchema, tableMapping *protos.TableMapping, isDeletedColName, versionColName string,
-) (types.QRecordSchema, map[string]string) {
-	fields := make([]types.QField, 0, len(tableSchema.Columns)+2)
+) (types.QRecordSchema, []types.QField, map[string]string) {
+	businessFields := make([]types.QField, 0, len(tableSchema.Columns))
 	sourceColumnByDest := make(map[string]string, len(tableSchema.Columns))
 	for _, column := range tableSchema.Columns {
 		dstColName := column.Name
@@ -40,17 +40,20 @@ func typedCDCTableSchema(
 			}
 		}
 		sourceColumnByDest[dstColName] = column.Name
-		fields = append(fields, types.QField{
+		businessFields = append(businessFields, types.QField{
 			Name:     dstColName,
 			Type:     types.QValueKind(column.Type),
 			Nullable: column.Nullable,
 		})
 	}
-	fields = append(fields,
-		types.QField{Name: isDeletedColName, Type: types.QValueKindInt64},
-		types.QField{Name: versionColName, Type: types.QValueKindInt64},
-	)
-	return types.QRecordSchema{Fields: fields}, sourceColumnByDest
+	systemFields := []types.QField{
+		{Name: isDeletedColName, Type: types.QValueKindInt64},
+		{Name: versionColName, Type: types.QValueKindInt64},
+	}
+	fields := make([]types.QField, 0, len(businessFields)+len(systemFields))
+	fields = append(fields, businessFields...)
+	fields = append(fields, systemFields...)
+	return types.QRecordSchema{Fields: fields}, businessFields, sourceColumnByDest
 }
 
 // SyncQueryCDC replays any pending schema deltas onto the destination table,
@@ -68,7 +71,7 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
-	schema, sourceColumnByDest := typedCDCTableSchema(req.TableSchema, req.TableMapping,
+	schema, businessFields, sourceColumnByDest := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 
 	unboundedNumericAsString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, req.Env)
@@ -79,7 +82,7 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 
 	rowCounts := &model.RecordTypeCounts{}
 	stream, err := utils.RecordsToTypedCDCStream(
-		req.Records, req.TableMapping.DestinationTableIdentifier, schema, sourceColumnByDest,
+		req.Records, req.TableMapping.DestinationTableIdentifier, schema, businessFields, sourceColumnByDest,
 		protos.DBType_CLICKHOUSE, unboundedNumericAsString, numericTruncator, rowCounts,
 	)
 	if err != nil {
@@ -115,7 +118,7 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 	return rowCounts, nil
 }
 
-// NormalizeQueryCDC inserts every batch in (req.StartBatchID, req.EndBatchID],
+// NormalizeQueryCDC inserts every batch in [req.StartBatchID, req.EndBatchID],
 // previously staged by SyncQueryCDC, straight into the final destination
 // table, one INSERT ... SELECT per batch from that batch's staged Avro file,
 // deleting each stage record once applied. Returns the summed
@@ -123,7 +126,7 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 func (c *ClickHouseConnector) NormalizeQueryCDC(
 	ctx context.Context, req *model.NormalizeQueryCDCRequest,
 ) (*model.RecordTypeCounts, error) {
-	schema, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
+	schema, _, _ := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 
@@ -149,7 +152,7 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 	chSettings := chinternal.NewInsertSettings(c.chVersion, req.Version)
 
 	rowCounts := &model.RecordTypeCounts{}
-	for batchID := req.StartBatchID + 1; batchID <= req.EndBatchID; batchID++ {
+	for batchID := req.StartBatchID; batchID <= req.EndBatchID; batchID++ {
 		avroFile, batchCounts, err := GetQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
 		if err != nil {
 			if errors.Is(err, ErrNoAvroStage) {

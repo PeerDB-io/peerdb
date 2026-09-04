@@ -156,13 +156,13 @@ func RecordsToTypedCDCStream(
 	records <-chan model.Record[model.RecordItems],
 	destinationTableName string,
 	schema types.QRecordSchema,
+	businessFields []types.QField,
 	sourceColumnByDest map[string]string,
 	targetDWH protos.DBType,
 	unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
 	rowCounts *model.RecordTypeCounts,
 ) (*model.QRecordStream, error) {
-	businessFields := schema.Fields[:len(schema.Fields)-2]
 	countMap := map[string]*model.RecordTypeCounts{destinationTableName: rowCounts}
 
 	recordStream := model.NewQRecordStream(1024)
@@ -171,7 +171,8 @@ func RecordsToTypedCDCStream(
 	go func() {
 		tableNumericTruncator := numericTruncator.Get(destinationTableName)
 		for record := range records {
-			row, err := typedCDCRow(businessFields, sourceColumnByDest, record, targetDWH, unboundedNumericAsString, tableNumericTruncator)
+			row, err := typedCDCRow(schema, businessFields, sourceColumnByDest, record,
+				targetDWH, unboundedNumericAsString, tableNumericTruncator)
 			if err != nil {
 				recordStream.Close(err)
 				return
@@ -189,6 +190,7 @@ func RecordsToTypedCDCStream(
 }
 
 func typedCDCRow(
+	schema types.QRecordSchema,
 	businessFields []types.QField,
 	sourceColumnByDest map[string]string,
 	record model.Record[model.RecordItems],
@@ -212,7 +214,7 @@ func typedCDCRow(
 
 	items = truncateNumerics(items, targetDWH, unboundedNumericAsString, tableNumericTruncator)
 
-	row := make([]types.QValue, 0, len(businessFields)+2)
+	row := make([]types.QValue, 0, len(schema.Fields))
 	for _, field := range businessFields {
 		val := items.GetColumnValue(sourceColumnByDest[field.Name])
 		if val == nil {
@@ -221,6 +223,9 @@ func typedCDCRow(
 		row = append(row, val)
 	}
 	row = append(row, types.QValueInt64{Val: isDeleted}, types.QValueInt64{Val: time.Now().UnixNano()})
+	if len(row) != len(schema.Fields) {
+		return nil, fmt.Errorf("typed CDC row has %d values for a %d-field schema", len(row), len(schema.Fields))
+	}
 	return row, nil
 }
 

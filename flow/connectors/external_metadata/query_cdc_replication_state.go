@@ -79,14 +79,9 @@ func (p *PostgresMetadata) GetQueryCDCReplicationState(
 	return state, nil
 }
 
-// InitializeQueryCDCReplicationState seeds a table's cursor from the checkpoint of the snapshot
-// that just ran, before any per-table poll starts.
-//
-// The upsert is what makes this safe to call more than once for the same table, which happens
-// whenever the activity that snapshots and seeds is retried. Existing progress always wins: a
-// retry snapshots as of a later time, and keeping the earlier cursor makes CDC re-read the window
-// between the two attempts rather than skip it. That also means a plain insert conflict is not an
-// error worth failing the retry over.
+// InitializeQueryCDCReplicationState seeds a table's cursor from the checkpoint
+// of the snapshot that just ran. Existing progress always wins, making retries
+// safe: retaining the earlier cursor can re-read a window but cannot skip it.
 func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string,
 ) error {
@@ -104,13 +99,9 @@ func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	return nil
 }
 
-// RecordQueryCDCAttempt records that a poll attempt for this table started at attemptedAt.
-//
-// It creates the row when missing, which normally does not happen: setup seeds every table's
-// state from the snapshot it just took, so the first poll finds a row with a cursor. The
-// exception is a table added with the initial load skipped -- nothing snapshots it, so it has no
-// checkpoint to inherit and starts from this first poll instead (see
-// InitializeQueryCDCReplicationState).
+// RecordQueryCDCAttempt records that a poll attempt for this table started at
+// attemptedAt. It creates a missing row for tables whose initial load was
+// skipped and therefore have no snapshot checkpoint to inherit.
 func (p *PostgresMetadata) RecordQueryCDCAttempt(
 	ctx context.Context, jobName string, sourceTableIdentifier string, attemptedAt time.Time,
 ) error {

@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -34,6 +35,8 @@ const (
 	operationTypeUpdate  operationType = "update"
 	operationTypeReplace operationType = "replace"
 	operationTypeDelete  operationType = "delete"
+	operationTypeDrop    operationType = "drop"
+	operationTypeRename  operationType = "rename"
 )
 
 func parseOperationType(s string) (operationType, bool) {
@@ -234,6 +237,11 @@ func (c *MongoConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
+
+	var alerter *alerting.Alerter
+	if catalogPool.Pool != nil {
+		alerter = alerting.NewAlerter(ctx, catalogPool, otelManager)
+	}
 
 	fullDocumentColumnName := DefaultFullDocumentColumnName
 	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
@@ -575,6 +583,20 @@ func (c *MongoConnector) PullRecords(
 		default:
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
+
+			// When the skipped event is a collection-level DDL (drop or rename), generate customer facing logs.
+			if alerter != nil {
+				switch operationType(changeEvent.OperationType) {
+				case operationTypeDrop, operationTypeRename:
+					ddlErr := fmt.Errorf(
+						"%s event on %s.%s: collection DDL is not replicated, the destination table is left unchanged",
+						changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll)
+					alerter.LogFlowWarning(ctx, req.FlowJobName, ddlErr)
+				}
+			} else {
+				c.logger.Error("Alerter not initialized")
+			}
+
 			continue
 		}
 		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)

@@ -783,8 +783,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Table_Addition_Mid_CDC adds a table to a running mirror and checks the two
-// things a table addition has to get right on the query-based CDC path.
+// Test_BigQuery_CDC_Table_Addition_Mid_CDC verifies that an added table gets
+// both its initial snapshot and a cursor from which query-based CDC can resume.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
 	t := s.T()
 	ctx := t.Context()
@@ -799,27 +799,22 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
 	addedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, addedSrc)
 
 	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 1, Val: "existing-initial"}})
-	// written before the table joins the mirror - can only arrive through the addition's snapshot.
 	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-pre-snapshot"}})
 
 	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
 	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, appends)
-
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-
 	EnvWaitForEqualTablesWithNames(env, s, "existing table initial snapshot landed", existingSrc, existingDst, "id,val")
 
 	pool, err := catalogTestAccessPool()
 	require.NoError(t, err)
-
 	SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
-	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
+	EnvWaitFor(t, env, time.Minute, "paused workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
-	// CDCDynamicPropertiesSignal auto-unpauses once the addition finishes, same as the removal test.
 	SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{{
 			SourceTableIdentifier:      addedSourceID,
@@ -831,22 +826,15 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
-	// the addition snapshotted the table being added, not the mirror's pre-addition table set.
 	EnvWaitForEqualTablesWithNames(env, s, "added table initial snapshot landed", addedSrc, addedDst, "id,val")
-
-	// the export left a checkpoint behind. readBigQueryTableCursor fails on a missing row and on an
-	// unparseable empty cursor, which is what an uninitialized added table has either way.
 	checkpointAfterAddition := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID)
-	require.False(t, checkpointAfterAddition.IsZero(), "added table should inherit a CDC checkpoint from its snapshot")
+	require.False(t, checkpointAfterAddition.IsZero())
 
-	// changes written after the addition must flow, on the added table and the original alike.
 	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 2, Val: "added-cdc-1"}})
 	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 2, Val: "existing-cdc-1"}})
 	EnvWaitForEqualTablesWithNames(env, s, "added table CDC wave landed", addedSrc, addedDst, "id,val")
 	EnvWaitForEqualTablesWithNames(env, s, "existing table CDC continues after addition", existingSrc, existingDst, "id,val")
-
-	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID).After(checkpointAfterAddition),
-		"added table's checkpoint should advance once it starts polling")
+	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID).After(checkpointAfterAddition))
 	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
 
 	env.Cancel(ctx)
