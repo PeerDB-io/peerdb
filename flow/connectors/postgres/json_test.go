@@ -161,7 +161,7 @@ func generateString(rng *rand.Rand, length int) string {
 	var sb strings.Builder
 	sb.Grow(length) // Optimize memory allocation
 
-	for i := 0; i < length; i++ {
+	for _ := range length {
 		sb.WriteByte(randStringCharset[rng.Intn(len(randStringCharset))])
 	}
 	return sb.String()
@@ -171,7 +171,7 @@ func constructDocument(rng *rand.Rand, numFields int, maxDepth int) map[string]a
 	const keyLength = 32
 
 	result := make(map[string]any, numFields)
-	for i := 0; i < numFields; i++ {
+	for _ := range numFields {
 		f := rng.Float32()
 		// 33% chance each of producing a random number, random string, or another object.
 		// If we've reached maxDepth, the object part folds into a random number.
@@ -188,7 +188,7 @@ func constructDocument(rng *rand.Rand, numFields int, maxDepth int) map[string]a
 
 func benchmarkJsonProcessing(b *testing.B, fastPath bool, numFields, maxDepth int) {
 	b.Helper()
-	rng := rand.New(rand.NewSource(42))
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec
 	doc := constructDocument(rng, numFields, maxDepth)
 	marshaledDoc, err := json.Marshal(doc)
 	require.NoError(b, err)
@@ -199,7 +199,8 @@ func benchmarkJsonProcessing(b *testing.B, fastPath bool, numFields, maxDepth in
 
 	for b.Loop() {
 		if fastPath {
-			convertWithRelaxedNumbers(bytes.NewReader(marshaledDoc), len(marshaledDoc))
+			_, err := convertWithRelaxedNumbers(bytes.NewReader(marshaledDoc), len(marshaledDoc))
+			require.NoError(b, err)
 		} else {
 			require.NoError(b, jsonIter.UnmarshalFromString(string(marshaledDoc), &result))
 			_, err := json.Marshal(result)
