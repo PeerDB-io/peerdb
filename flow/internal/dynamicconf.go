@@ -584,6 +584,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
+	{
+		Name:             "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS",
+		Description:      "Number of parallel threads to use when decoding full BSON documents in MongoDB change events.",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -1025,4 +1033,8 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
+}
+
+func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
 }
