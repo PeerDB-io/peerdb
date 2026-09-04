@@ -3,14 +3,17 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	ch_proto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"golang.org/x/sync/errgroup"
@@ -495,13 +498,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	})
 	defer periodicLogger()
 
-	type queryInfo struct {
-		table           string
-		query           string
-		lastNormBatchID int64
-	}
 	queriesCh := make(chan queryInfo)
 	rawTbl := c.GetRawTableName(req.FlowJobName)
+
+	var removedColumnsMu sync.Mutex
+	removedColumnsMapping := make(map[string][]string)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	// create N=PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE goroutines to process requests from queriesCh
@@ -527,7 +528,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.String("query", q.query),
 					slog.Int("parallelWorker", i))
 
-				if err := c.execWithConnection(errCtx, chConn, q.query); err != nil {
+				removedCols, err := c.execNormalizeQuery(errCtx, chConn, q)
+				if err != nil {
 					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
 						slog.String("table", q.table),
 						slog.Int64("endBatchID", endBatchID),
@@ -535,6 +537,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						slog.Int("parallelWorker", i),
 						slog.Any("error", err))
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", q.table, err)
+				}
+				if len(removedCols) > 0 {
+					removedColumnsMu.Lock()
+					removedColumnsMapping[q.table] = removedCols
+					removedColumnsMu.Unlock()
 				}
 
 				c.logger.Info("[clickhouse] set last normalized batch id for table",
@@ -607,6 +614,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			case queriesCh <- queryInfo{
 				table:           tbl,
 				query:           query,
+				generator:       queryGenerator,
 				lastNormBatchID: lastNormBatchIDForTable,
 			}:
 			case <-errCtx.Done():
@@ -629,10 +637,171 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
-	return model.NormalizeResponse{
+	resp := model.NormalizeResponse{
 		StartBatchID: lastNormBatchID + 1,
 		EndBatchID:   endBatchID,
-	}, nil
+	}
+	if len(removedColumnsMapping) > 0 {
+		resp.RemovedColumnsMapping = removedColumnsMapping
+	}
+	return resp, nil
+}
+
+// queryInfo describes a normalize INSERT for a single destination table.
+type queryInfo struct {
+	generator       *NormalizeQueryGenerator
+	table           string
+	query           string
+	lastNormBatchID int64
+}
+
+// execNormalizeQuery runs the normalize INSERT; on ErrNoSuchColumnInTable it refreshes the
+// schema against the destination table and retries without the dropped columns. Returns the
+// source names of the columns removed during recovery.
+func (c *ClickHouseConnector) execNormalizeQuery(
+	ctx context.Context,
+	conn clickhouse.Conn,
+	q queryInfo,
+) ([]string, error) {
+	err := c.execWithConnection(ctx, conn, q.query)
+	if err == nil {
+		return nil, nil
+	}
+
+	chEx, ok := errors.AsType[*clickhouse.Exception](err)
+	if !ok || ch_proto.Error(chEx.Code) != ch_proto.ErrNoSuchColumnInTable {
+		return nil, err
+	}
+
+	// A destination column is missing (user dropped it): try to auto-recover by
+	// refreshing the schema and retrying the INSERT without that column.
+	c.logger.Warn("[clickhouse] missing column in destination, attempting schema refresh and retry",
+		slog.String("table", q.table),
+		slog.Any("error", err))
+	retryQuery, removedCols, refreshErr := c.refreshSchemaAndRebuildQuery(ctx, q.generator)
+	if refreshErr != nil {
+		c.logger.Error("[clickhouse] failed to refresh schema after missing column error",
+			slog.String("table", q.table),
+			slog.Any("error", refreshErr))
+		return nil, err
+	}
+	if retryErr := c.execWithConnection(ctx, conn, retryQuery); retryErr != nil {
+		c.logger.Error("[clickhouse] retry after schema refresh failed",
+			slog.String("table", q.table),
+			slog.String("query", retryQuery),
+			slog.Any("error", retryErr))
+		return nil, err
+	}
+	c.logger.Warn("[clickhouse] successfully retried normalize after dropping missing destination columns",
+		slog.String("table", q.table))
+	return removedCols, nil
+}
+
+// filterSchemaColumnsByDestination removes columns from schema whose mapped destination column
+// name (per tableMapping, which may be nil) is absent from actualDestColumns. Returns the
+// filtered schema and the source names of the removed columns (empty if nothing was removed).
+func filterSchemaColumnsByDestination(
+	schema *protos.TableSchema,
+	tableMapping *protos.TableMapping,
+	actualDestColumns map[string]struct{},
+) (*protos.TableSchema, []string) {
+	var filteredCols []*protos.FieldDescription
+	var removedSourceCols []string
+	for _, col := range schema.Columns {
+		dstColName := col.Name
+		if tableMapping != nil {
+			for _, cs := range tableMapping.Columns {
+				if cs.SourceName == col.Name && cs.DestinationName != "" {
+					dstColName = cs.DestinationName
+					break
+				}
+			}
+		}
+		if _, exists := actualDestColumns[dstColName]; exists {
+			filteredCols = append(filteredCols, col)
+		} else {
+			removedSourceCols = append(removedSourceCols, col.Name)
+		}
+	}
+
+	return &protos.TableSchema{
+		TableIdentifier:       schema.TableIdentifier,
+		PrimaryKeyColumns:     schema.PrimaryKeyColumns,
+		IsReplicaIdentityFull: schema.IsReplicaIdentityFull,
+		System:                schema.System,
+		NullableEnabled:       schema.NullableEnabled,
+		TableOid:              schema.TableOid,
+		Columns:               filteredCols,
+	}, removedSourceCols
+}
+
+// refreshSchemaAndRebuildQuery queries the actual columns present in the destination ClickHouse table,
+// removes any columns from the schema that no longer exist there, and returns a rebuilt normalize query
+// together with the source names of the removed columns. This is used to recover from
+// ErrNoSuchColumnInTable when the user has manually dropped a column from the destination.
+func (c *ClickHouseConnector) refreshSchemaAndRebuildQuery(
+	ctx context.Context,
+	gen *NormalizeQueryGenerator,
+) (string, []string, error) {
+	colMapping, err := peerdb_clickhouse.GetTableColumnsMapping(ctx, c.logger, c.database, []string{gen.TableName})
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to query destination table columns for schema refresh: %w", err)
+	}
+	actualColSet := make(map[string]struct{}, len(colMapping[gen.TableName]))
+	for _, col := range colMapping[gen.TableName] {
+		actualColSet[col.Name] = struct{}{}
+	}
+
+	query, removedCols, err := rebuildQueryWithDestinationColumns(ctx, gen, actualColSet)
+	if err != nil {
+		return "", nil, err
+	}
+
+	c.logger.Warn("[clickhouse] auto-removing destination-dropped columns from schema",
+		slog.String("table", gen.TableName),
+		slog.Any("removedColumns", removedCols))
+
+	return query, removedCols, nil
+}
+
+func rebuildQueryWithDestinationColumns(
+	ctx context.Context,
+	gen *NormalizeQueryGenerator,
+	actualDestColumns map[string]struct{},
+) (string, []string, error) {
+	// Resolve the table mapping to handle source→destination column name remapping.
+	var tableMapping *protos.TableMapping
+	for _, tm := range gen.tableMappings {
+		if tm.DestinationTableIdentifier == gen.TableName {
+			tableMapping = tm
+			break
+		}
+	}
+
+	filteredSchema, removedCols := filterSchemaColumnsByDestination(
+		gen.tableNameSchemaMapping[gen.TableName], tableMapping, actualDestColumns)
+
+	if len(removedCols) == 0 {
+		return "", nil, fmt.Errorf(
+			"no user columns were absent from destination table %s despite ErrNoSuchColumnInTable; "+
+				"the missing column may be a PeerDB internal column", gen.TableName)
+	}
+
+	// Build a new query generator with a shallow copy of the schema mapping where
+	// only the affected table's schema is replaced with the filtered one.
+	newMapping := maps.Clone(gen.tableNameSchemaMapping)
+	newMapping[gen.TableName] = filteredSchema
+
+	retryGen := *gen
+	retryGen.tableNameSchemaMapping = newMapping
+	retryGen.Query = ""
+
+	query, err := retryGen.BuildQuery(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to rebuild normalize query with filtered schema for %s: %w", gen.TableName, err)
+	}
+
+	return query, removedCols, nil
 }
 
 func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
