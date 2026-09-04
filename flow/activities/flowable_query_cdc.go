@@ -43,7 +43,7 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 
 	var totalRecordsSynced atomic.Int64
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return fmt.Sprintf("isolated CDC: %d tables, totalRecordsSynced:%d",
+		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d",
 			len(options.TableMappings), totalRecordsSynced.Load())
 	})
 	defer shutdown()

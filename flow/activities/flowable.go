@@ -355,9 +355,10 @@ func (a *FlowableActivity) SyncFlow(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
+	activityCtx := ctx
 	// Heartbeats connector setup below, which must not exceed the activity's heartbeat
-	// timeout. Each sync path stops it and installs its own heartbeat once it takes over.
-	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(ctx, func() string { return "setup" }))
+	// timeout. Each sync path replaces it with its own heartbeat once it takes over.
+	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(activityCtx, func() string { return "setup" }))
 	defer stopSetupHeartbeat()
 
 	ctx, cancelCtx := context.WithCancel(ctx)
@@ -396,12 +397,21 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
-	defer srcClose(ctx)
+	defer func() {
+		// The sync path has stopped its heartbeat by the time it returns. Keep the
+		// activity alive while closing the source, even after a worker shutdown has
+		// canceled the derived sync context.
+		stopSetupHeartbeat()
+		stopCloseHeartbeat := common.HeartbeatRoutine(activityCtx, func() string { return "closing source" })
+		defer stopCloseHeartbeat()
+		srcClose(ctx)
+	}()
 
 	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
+	stopSetupHeartbeat()
 	if isQueryCDCPath(config, destinationType) {
 		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
 	}
