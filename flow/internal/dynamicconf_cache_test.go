@@ -85,6 +85,7 @@ func TestCachedDynconfSettingCoalescesConcurrentRefreshes(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{})
 	release := make(chan struct{})
+	//nolint:unparam // Signature must match the getter type
 	getter := func(context.Context, map[string]string, string) (int64, error) {
 		if calls.Add(1) == 1 {
 			close(started)
