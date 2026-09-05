@@ -15,10 +15,12 @@ import (
 
 func TestCachedDynconfSettingCachesWithinTTL(t *testing.T) {
 	var calls int
-	setting := NewCachedDynconfSetting(func(context.Context, map[string]string) (int64, error) {
+	getter := func(context.Context, map[string]string, string) (int64, error) {
 		calls++
 		return 10, nil
-	}, time.Minute)
+	}
+	var setting CachedDynconfSetting[int64]
+	setting.InitOnce("TEST_SETTING", time.Minute, getter)
 
 	for range 2 {
 		value, err := setting.Get(t.Context(), nil)
@@ -28,12 +30,21 @@ func TestCachedDynconfSettingCachesWithinTTL(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
+func TestCachedDynconfSettingRequiresInitialization(t *testing.T) {
+	var setting CachedDynconfSetting[int64]
+
+	_, err := setting.Get(t.Context(), nil)
+	require.EqualError(t, err, "cached dynamic setting is not initialized")
+}
+
 func TestCachedDynconfSettingRefreshesAfterTTL(t *testing.T) {
 	var calls int64
-	setting := NewCachedDynconfSetting(func(context.Context, map[string]string) (int64, error) {
+	getter := func(context.Context, map[string]string, string) (int64, error) {
 		calls++
 		return calls * 10, nil
-	}, time.Millisecond)
+	}
+	var setting CachedDynconfSetting[int64]
+	setting.InitOnce("TEST_SETTING", time.Millisecond, getter)
 
 	value, err := setting.Get(t.Context(), nil)
 	require.NoError(t, err)
@@ -50,13 +61,15 @@ func TestCachedDynconfSettingRefreshesAfterTTL(t *testing.T) {
 func TestCachedDynconfSettingDoesNotCacheErrors(t *testing.T) {
 	wantErr := errors.New("lookup failed")
 	var calls int
-	setting := NewCachedDynconfSetting(func(context.Context, map[string]string) (int64, error) {
+	getter := func(context.Context, map[string]string, string) (int64, error) {
 		calls++
 		if calls == 1 {
 			return 0, wantErr
 		}
 		return 10, nil
-	}, time.Minute)
+	}
+	var setting CachedDynconfSetting[int64]
+	setting.InitOnce("TEST_SETTING", time.Minute, getter)
 
 	_, err := setting.Get(t.Context(), nil)
 	require.ErrorIs(t, err, wantErr)
@@ -72,13 +85,14 @@ func TestCachedDynconfSettingCoalescesConcurrentRefreshes(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{})
 	release := make(chan struct{})
-	setting := NewCachedDynconfSetting(func(context.Context, map[string]string) (int64, error) {
+	getter := func(context.Context, map[string]string, string) (int64, error) {
 		if calls.Add(1) == 1 {
 			close(started)
 		}
 		<-release
 		return 10, nil
-	}, time.Minute)
+	}
+	var setting CachedDynconfSetting[int64]
 
 	results := make(chan int64, goroutines)
 	errs := make(chan error, goroutines)
@@ -87,6 +101,7 @@ func TestCachedDynconfSettingCoalescesConcurrentRefreshes(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
+			setting.InitOnce("TEST_SETTING", time.Minute, getter)
 			value, err := setting.Get(t.Context(), nil)
 			results <- value
 			errs <- err
@@ -111,11 +126,39 @@ func TestCachedDynconfSettingCoalescesConcurrentRefreshes(t *testing.T) {
 func TestCachedDynconfSettingWithTypedDynconfGetter(t *testing.T) {
 	//nolint:gosec // Test data does not need cryptographically secure randomness.
 	expectedPartSize := rand.Int64()
-	setting := NewCachedDynconfSetting(PeerDBS3PartSize, time.Minute)
+	var setting CachedDynconfSetting[int64]
+	setting.InitOnce("PEERDB_S3_PART_SIZE", time.Minute, dynamicConfSigned[int64])
 
 	value, err := setting.Get(t.Context(), map[string]string{
 		"PEERDB_S3_PART_SIZE": strconv.FormatInt(expectedPartSize, 10),
 	})
 	require.NoError(t, err)
 	require.Equal(t, expectedPartSize, value)
+}
+
+func TestCachedDynconfSettingDoesNotCacheEnvOverrides(t *testing.T) {
+	const name = "TEST_SETTING"
+	var calls int
+	getter := func(_ context.Context, env map[string]string, name string) (int64, error) {
+		calls++
+		if value, overridden := env[name]; overridden {
+			return strconv.ParseInt(value, 10, 64)
+		}
+		return 10, nil
+	}
+	var setting CachedDynconfSetting[int64]
+	setting.InitOnce(name, time.Minute, getter)
+
+	value, err := setting.Get(t.Context(), nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), value)
+
+	value, err = setting.Get(t.Context(), map[string]string{name: "20"})
+	require.NoError(t, err)
+	require.Equal(t, int64(20), value)
+
+	value, err = setting.Get(t.Context(), nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), value)
+	require.Equal(t, 2, calls)
 }

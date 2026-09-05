@@ -29,7 +29,6 @@ type s3StagingStore struct {
 	bucket   string
 	prefix   string
 	fullPath string // original "s3://bucket/prefix" for logging
-	partSize *internal.CachedDynconfSetting[int64]
 }
 
 //nolint:iface // factory function intentionally returns interface
@@ -99,10 +98,6 @@ func newS3StagingStore(
 		prefix:   s3o.Prefix,
 		fullPath: awsBucketPath,
 		creds:    credentialsProvider,
-		partSize: internal.NewCachedDynconfSetting(
-			internal.PeerDBS3PartSize,
-			30*time.Second,
-		),
 	}, nil
 }
 
@@ -114,7 +109,7 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	partSize, err := s.partSize.Get(ctx, env)
+	partSize, err := internal.PeerDBS3PartSize(ctx, env)
 	if err != nil {
 		return fmt.Errorf("could not get s3 part size config: %w", err)
 	}
