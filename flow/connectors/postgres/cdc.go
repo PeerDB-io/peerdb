@@ -405,7 +405,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 		}
 		if text.Valid {
 			if p.fastProcessJsonColumns {
-				convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))
+				convertedData, err := convertWithRelaxedNumbers(text.String)
 				if err != nil {
 					p.logger.Error("[pg_cdc] failed to process json", slog.Any("error", err))
 					return nil, fmt.Errorf("failed to process json: %w", err)
@@ -440,14 +440,14 @@ func (p *PostgresCDCSource) decodeColumnData(
 			arr := make([]preMarshalledJson, len(textArr))
 			for j, text := range textArr {
 				if text.Valid {
-					convertedData, err := convertWithRelaxedNumbers(strings.NewReader(text.String), len(text.String))
+					convertedData, err := convertWithRelaxedNumbers(text.String)
 					if err != nil {
 						p.logger.Error("[pg_cdc] failed to process json array element", slog.Any("error", err))
 						return nil, fmt.Errorf("failed to process json array element: %w", err)
 					}
 					arr[j] = convertedData
 				} else {
-					arr[j] = nil
+					arr[j] = ""
 				}
 			}
 			parsedData = arr

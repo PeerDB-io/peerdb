@@ -374,10 +374,6 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-// In some cases, for parseFieldFromPostgresOID, we send in pre-marshalled
-// JSON objects, avoiding the need to call json.Marshal.
-type preMarshalledJson []byte
-
 func (c *PostgresConnector) parseFieldFromPostgresOID(
 	oid uint32,
 	typmod int32,
@@ -518,9 +514,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				if len(elem) == 0 {
 					elem = jsonNullLiteral
 				}
-				if _, err := builder.Write(elem); err != nil {
-					return nil, fmt.Errorf("failed to write JSON array element: %w", err)
-				}
+				_, _ = builder.WriteString(string(elem))
 			}
 			builder.WriteByte(']')
 			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil

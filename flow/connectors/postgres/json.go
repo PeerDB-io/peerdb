@@ -1,11 +1,12 @@
 package connpostgres
 
 import (
-	"bytes"
 	"encoding/json/jsontext"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"unsafe"
 
@@ -83,26 +84,114 @@ func createExtendedJSONUnmarshaler() (jsoniter.API, *RelaxedNumberExtension) {
 	return config, ext
 }
 
+// preMarshalledJson is a syntactically valid JSON document ready to send to a
+// destination. Keeping it distinct prevents parseJSON from encoding it as a
+// Go string.
+type preMarshalledJson string
+
 // jsonNullLiteral is the pre-marshalled JSON null literal, used to keep a JSON
 // null distinguishable from a SQL NULL.
-var jsonNullLiteral = []byte("null")
+const jsonNullLiteral preMarshalledJson = "null"
 
-func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
+// convertWithRelaxedNumbers preserves the source JSON byte-for-byte except for
+// numbers outside the float64 range, which it quotes. Strict UTF-8 validation
+// runs on the fast path. Inputs containing invalid UTF-8 or unpaired surrogate
+// escapes fall back to a duplicate-preserving re-encode that repairs them with
+// the Unicode replacement character.
+func convertWithRelaxedNumbers(input string) (preMarshalledJson, error) {
+	converted, err := copyWithRelaxedNumbers(input)
+	if err == nil {
+		return converted, nil
+	}
+
+	repaired, repairErr := reencodeWithRelaxedNumbers(input)
+	if repairErr != nil {
+		return "", repairErr
+	}
+	return repaired, nil
+}
+
+func copyWithRelaxedNumbers(input string) (preMarshalledJson, error) {
+	return copyWithRelaxedNumbersUnicode(input, false)
+}
+
+func copyWithRelaxedNumbersUnicode(input string, allowInvalidUTF8 bool) (preMarshalledJson, error) {
+	dec := jsontext.NewDecoder(
+		strings.NewReader(input),
+		jsontext.AllowDuplicateNames(true),
+		jsontext.AllowInvalidUTF8(allowInvalidUTF8),
+	)
+
+	var output strings.Builder
+	hasSubstitution := false
+	lastCopied := 0
+	topLevelValues := 0
+	for {
+		tok, err := dec.ReadToken()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("invalid PostgreSQL JSON: %w", err)
+		}
+
+		if tok.Kind() == jsontext.KindNumber {
+			if _, err := tok.Float(); err != nil {
+				if !errors.Is(err, strconv.ErrRange) {
+					return "", fmt.Errorf("parse PostgreSQL JSON number: %w", err)
+				}
+
+				rawNumber := tok.String()
+				end := int(dec.InputOffset())
+				start := end - len(rawNumber)
+				if !hasSubstitution {
+					output.Grow(len(input) + 2)
+					hasSubstitution = true
+				}
+				_, _ = output.WriteString(input[lastCopied:start])
+				_ = output.WriteByte('"')
+				_, _ = output.WriteString(input[start:end])
+				_ = output.WriteByte('"')
+				lastCopied = end
+			}
+		}
+
+		if dec.StackDepth() == 0 {
+			topLevelValues++
+			if topLevelValues > 1 {
+				return "", errors.New("invalid PostgreSQL JSON: multiple top-level values")
+			}
+		}
+	}
+	if topLevelValues == 0 {
+		return "", errors.New("invalid PostgreSQL JSON: empty input")
+	}
+	if !hasSubstitution {
+		return preMarshalledJson(input), nil
+	}
+	_, _ = output.WriteString(input[lastCopied:])
+	return preMarshalledJson(output.String()), nil
+}
+
+// reencodeWithRelaxedNumbers is both the invalid-Unicode repair path and the
+// retained benchmark reference for the previous token decode/encode approach.
+func reencodeWithRelaxedNumbers(input string) (preMarshalledJson, error) {
 	// We use a jsontext Encoder and Decoder to walk through the input and
 	// convert any numbers that fail to parse as a float into a string instead.
-	//
-	// We create both the decoder and the encoder with AllowInvalidUTF8 so that
-	// we do not error out on seeing an invalid UTF-8 string; instead, we escape
-	// it with UTF-8 valid escape characters to allow for the ingestion into
-	// ClickHouse to not fail.
-	dec := jsontext.NewDecoder(input, jsontext.AllowInvalidUTF8(true), jsontext.Multiline(false))
-	out := new(bytes.Buffer)
-	if sizeHint > 0 {
-		// Grow slightly past the sizeHint to account for any whitespace added by
-		// the encoder below. We want to avoid repeat allocations as much as possible.
-		out.Grow(int(float64(sizeHint) * 1.5))
-	}
-	enc := jsontext.NewEncoder(out, jsontext.AllowInvalidUTF8(true), jsontext.Multiline(false))
+	dec := jsontext.NewDecoder(
+		strings.NewReader(input),
+		jsontext.AllowDuplicateNames(true),
+		jsontext.AllowInvalidUTF8(true),
+		jsontext.Multiline(false),
+	)
+	var out strings.Builder
+	out.Grow(int(float64(len(input)) * 1.5))
+	enc := jsontext.NewEncoder(&out,
+		jsontext.AllowDuplicateNames(true),
+		jsontext.AllowInvalidUTF8(true),
+		jsontext.Multiline(false),
+	)
+	topLevelValues := 0
 	for {
 		// Read a token from the input.
 		tok, err := dec.ReadToken()
@@ -110,7 +199,7 @@ func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, err
+			return "", err
 		}
 
 		// Check if the token is a number.
@@ -118,7 +207,7 @@ func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
 			_, err := tok.Float()
 			if err != nil {
 				if !errors.Is(err, strconv.ErrRange) {
-					return nil, err
+					return "", err
 				}
 				// Float is out of range. Convert tok to a string.
 				tok = jsontext.String(tok.String())
@@ -126,10 +215,19 @@ func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
 		}
 
 		if err := enc.WriteToken(tok); err != nil {
-			return nil, err
+			return "", err
 		}
+		if dec.StackDepth() == 0 {
+			topLevelValues++
+			if topLevelValues > 1 {
+				return "", errors.New("invalid PostgreSQL JSON: multiple top-level values")
+			}
+		}
+	}
+	if topLevelValues == 0 {
+		return "", errors.New("invalid PostgreSQL JSON: empty input")
 	}
 	// The encoder terminates each top-level value with a newline; callers treat
 	// the result as a single JSON value, so trim it.
-	return bytes.TrimRight(out.Bytes(), "\n"), nil
+	return preMarshalledJson(strings.TrimRight(out.String(), "\n")), nil
 }
