@@ -458,26 +458,16 @@ func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool shared.Catal
 	return nil
 }
 
-func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, runUUID string,
+func UpdateEndTimeAndRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
 	if _, err := pool.Exec(ctx,
-		`UPDATE peerdb_stats.qrep_partitions SET end_time=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
-		time.Now(), runUUID, partition.PartitionId,
+		`UPDATE peerdb_stats.qrep_partitions
+		SET end_time=$1, rows_synced=CASE WHEN $2::bigint > 0 THEN $2 ELSE rows_synced END
+		WHERE run_uuid=$3 AND partition_uuid=$4`,
+		time.Now(), rowsSynced, runUUID, partition.PartitionId,
 	); err != nil {
-		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
-	}
-	return nil
-}
-
-func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
-	partition *protos.QRepPartition,
-) error {
-	if _, err := pool.Exec(ctx,
-		`UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
-		rowsSynced, runUUID, partition.PartitionId,
-	); err != nil {
-		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
+		return fmt.Errorf("error while completing qrep partition in qrep_partitions: %w", err)
 	}
 	return nil
 }
