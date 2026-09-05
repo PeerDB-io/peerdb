@@ -631,7 +631,11 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 				},
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepRun(
+			ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName); err != nil {
+			return err
+		}
+		if err := monitoring.RecordQRepPartitions(
 			ctx, logger, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName,
 		); err != nil {
 			return err

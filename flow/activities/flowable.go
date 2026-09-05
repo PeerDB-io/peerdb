@@ -631,6 +631,11 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 	return nil
 }
 
+func (a *FlowableActivity) InitializeQRepRun(ctx context.Context, config *protos.QRepConfig, runUUID string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.RecordQRepRun(ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName)
+}
+
 // GetQRepPartitions returns the partitions for a given QRepConfig.
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
@@ -644,9 +649,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
-	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
-		return nil, err
-	}
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep pull connector: %w", err))
@@ -686,7 +688,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepPartitions(
 			ctx,
 			logger,
 			a.CatalogPool,
