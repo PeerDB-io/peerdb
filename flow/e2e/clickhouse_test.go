@@ -1563,6 +1563,69 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		require.JSONEqf(s.t, "[]", c66Str, "c66 should be empty JSON array in row %d", i)
 	}
 
+	// deleting a row whose destination has a plain (non-nullable) JSON column must not break
+	// normalization: the delete record's _peerdb_data only contains the primary key, so the JSON
+	// columns are absent from the CDC payload.
+	err = s.Source().Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %[1]s WHERE id=4;`, srcFullName))
+	require.NoError(s.t, err)
+	EnvWaitForCount(env, s, "waiting for CDC count after delete", dstTableName, "id", 2)
+	EnvWaitForEqualTablesWithNames(env, s, "check comparable types after delete", srcTableName, dstTableName,
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_ClickHouse_NativeJSON_Delete covers a regression where a delete record (whose
+// _peerdb_data only contains the primary key) failed normalization for a table with a
+// destination column using ClickHouse's native (non-nullable) JSON type: JSONExtract of the
+// missing key resolved to an empty string rather than NULL, and casting that to JSON threw, breaking the
+// whole normalize batch instead of just propagating the delete.
+func (s ClickHouseSuite) Test_ClickHouse_NativeJSON_Delete() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_native_json_delete"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_native_json_delete_dst"
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id serial PRIMARY KEY,
+			meta JSON
+		)`, srcFullName)))
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (meta) VALUES ('{"a":1}'), ('{"b":2}')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting for initial snapshot", dstTableName, "id", 2)
+
+	require.NoError(s.t, s.Source().Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE id=1`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting for cdc delete", dstTableName, "id", 1)
+
+	// Read ClickHouse's own normalized text of the JSON column so the comparison is over a
+	// plain String scan target (GetRows does not scan the native JSON type directly).
+	rows, err := s.GetRows(dstTableName, "id, toString(meta)")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 1)
+	require.Equal(s.t, "2", fmt.Sprint(rows.Records[0][0].Value()), "surviving row should be id=2")
+	require.JSONEq(s.t, `{"b":2}`, fmt.Sprint(rows.Records[0][1].Value()))
+
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
