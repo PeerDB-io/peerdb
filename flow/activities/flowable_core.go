@@ -559,12 +559,9 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
-			return err
-		}
 	}
 
-	return monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
+	return monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
@@ -675,15 +672,10 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	}
 
 	if rowsSynced > 0 {
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
-			return 0, err
-		}
-
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
-	if err := monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition); err != nil {
+	if err := monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 		return 0, err
 	}
 
