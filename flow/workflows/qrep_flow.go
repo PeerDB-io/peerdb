@@ -175,6 +175,22 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 	return nil
 }
 
+func (q *QRepFlowExecution) initializeRun(ctx workflow.Context) error {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    0,
+		},
+	})
+	if err := workflow.ExecuteActivity(ctx, flowable.InitializeQRepRun, q.config, q.runUUID).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to initialize qrep run: %w", err)
+	}
+	return nil
+}
+
 // getPartitions returns the partitions to replicate.
 func (q *QRepFlowExecution) getPartitions(
 	ctx workflow.Context,
@@ -510,11 +526,25 @@ func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlo
 	}
 }
 
+func markRunAsFailed(ctx workflow.Context, config *protos.QRepConfig, runUUID string) {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 5 * time.Second,
+			MaximumAttempts: 3,
+		},
+	})
+	if err := workflow.ExecuteActivity(ctx, flowable.MarkQRepRunFailed, config, runUUID).Get(ctx, nil); err != nil {
+		workflow.GetLogger(ctx).Warn("failed to mark qrep run as failed",
+			slog.String(string(shared.FlowNameKey), config.FlowJobName), slog.Any("error", err))
+	}
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
-) (*protos.QRepFlowState, error) {
+) (_ *protos.QRepFlowState, wfErr error) {
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
 	//   2. In the loop, query the source database to get the partitions to replicate.
@@ -603,6 +633,16 @@ func QRepFlowWorkflow(
 	}
 
 	if q.activeSignal != model.PauseSignal {
+		if err := q.initializeRun(ctx); err != nil {
+			return state, err
+		}
+		// a qrep_runs row exists from here on, mark it as failed on workflow failure
+		defer func() {
+			if wfErr != nil && !workflow.IsContinueAsNewError(wfErr) && !temporal.IsCanceledError(wfErr) && ctx.Err() == nil {
+				markRunAsFailed(ctx, config, q.runUUID)
+			}
+		}()
+
 		q.logger.Info("fetching partitions to replicate for peer flow")
 		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
