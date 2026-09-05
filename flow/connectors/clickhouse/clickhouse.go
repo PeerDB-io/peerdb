@@ -29,11 +29,12 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database  clickhouse.Conn
-	logger    log.Logger
-	Config    *protos.ClickhouseConfig
-	staging   StagingStore
-	chVersion *clickhouseproto.Version
+	database         clickhouse.Conn
+	logger           log.Logger
+	Config           *protos.ClickhouseConfig
+	staging          StagingStore
+	chVersion        *clickhouseproto.Version
+	bytesPerAvroFile *internal.CachedDynconfSetting[int64]
 }
 
 func NewClickHouseConnector(
@@ -70,6 +71,10 @@ func NewClickHouseConnector(
 		logger:           logger,
 		staging:          staging,
 		chVersion:        &clickHouseVersion.Version,
+		bytesPerAvroFile: internal.NewCachedDynconfSetting(
+			internal.PeerDBS3BytesPerAvroFile,
+			30*time.Second,
+		),
 	}, nil
 }
 

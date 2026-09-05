@@ -156,7 +156,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 		return nil, 0, err
 	}
 
-	bytesPerAvroFile, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
+	bytesPerAvroFile, err := s.bytesPerAvroFile.Get(ctx, config.Env)
 	if err != nil {
 		return nil, 0, err
 	}
