@@ -150,6 +150,8 @@ impl FlowGrpcClient {
             flags: Default::default(),
             skip_validation: Some(false),
             source_connector_config: None,
+            resync_in_place: false,
+            resync_in_place_version: 0,
         };
 
         if job.disable_peerdb_columns {
