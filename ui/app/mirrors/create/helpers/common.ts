@@ -51,6 +51,8 @@ export const blankCDCSetting: CDCConfig = {
   version: 0,
   flags: [],
   skipValidation: false,
+  resyncInPlace: false,
+  resyncInPlaceVersion: 0,
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
@@ -90,4 +92,5 @@ export const blankQRepSetting: QRepConfig = {
   columns: [],
   sourceType: DBType.DBTYPE_UNKNOWN,
   flags: [],
+  resyncInPlaceVersion: 0,
 };
