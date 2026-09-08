@@ -484,6 +484,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+  // mirrors TableMapping.structured_ingestion for the table being snapshotted
+  bool structured_ingestion = 33; // internal
 }
 
 message ChildTableRange {
