@@ -83,7 +83,7 @@ func testRelaxedNumber(t *testing.T, useJsonMarshaller bool) {
 		},
 	}
 
-	jsonApi, _ := createExtendedJSONUnmarshaler()
+	jsonApi := createExtendedJSONUnmarshaler()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,43 +125,12 @@ func TestConvertRelaxedNumber(t *testing.T) {
 	testRelaxedNumber(t, false)
 }
 
-func TestDuplicateJsonKeysCounter(t *testing.T) {
-	t.Parallel()
-	jsonApi, ext := createExtendedJSONUnmarshaler()
-
-	testCases := []struct {
-		name  string
-		input string
-		want  int64
-	}{
-		{name: "no duplicates", input: `{"a":1,"b":2}`, want: 0},
-		{name: "top level duplicate", input: `{"a":1,"a":2}`, want: 1},
-		{name: "nested duplicates", input: `{"o":{"k":1,"k":2,"k":3}}`, want: 2},
-		{name: "duplicate inside array element", input: `[{"x":1,"x":2}]`, want: 1},
-		{name: "duplicate keys with distinct values elsewhere", input: `{"a":{"b":1},"a":{"b":2},"c":3}`, want: 1},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			before := ext.duplicateKeys.Load()
-			var result any
-			require.NoError(t, jsonApi.UnmarshalFromString(tc.input, &result))
-			require.Equal(t, tc.want, ext.duplicateKeys.Load()-before)
-		})
-	}
-
-	// last occurrence wins, matching encoding/json
-	var result any
-	require.NoError(t, jsonApi.UnmarshalFromString(`{"a":1,"a":2}`, &result))
-	require.InEpsilon(t, float64(2), result.(map[string]any)["a"], 0.00001)
-}
-
 func generateString(rng *rand.Rand, length int) string {
 	const randStringCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	var sb strings.Builder
 	sb.Grow(length) // Optimize memory allocation
 
-	for _ := range length {
+	for range length {
 		sb.WriteByte(randStringCharset[rng.Intn(len(randStringCharset))])
 	}
 	return sb.String()
@@ -171,7 +140,7 @@ func constructDocument(rng *rand.Rand, numFields int, maxDepth int) map[string]a
 	const keyLength = 32
 
 	result := make(map[string]any, numFields)
-	for _ := range numFields {
+	for range numFields {
 		f := rng.Float32()
 		// 33% chance each of producing a random number, random string, or another object.
 		// If we've reached maxDepth, the object part folds into a random number.
@@ -192,7 +161,7 @@ func benchmarkJsonProcessing(b *testing.B, fastPath bool, numFields, maxDepth in
 	doc := constructDocument(rng, numFields, maxDepth)
 	marshaledDoc, err := json.Marshal(doc)
 	require.NoError(b, err)
-	jsonIter, _ := createExtendedJSONUnmarshaler()
+	jsonIter := createExtendedJSONUnmarshaler()
 	var result any
 
 	b.ResetTimer()

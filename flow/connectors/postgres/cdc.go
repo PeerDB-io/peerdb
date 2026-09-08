@@ -66,7 +66,6 @@ type PostgresCDCSource struct {
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	jsonApi                                  jsoniter.API
-	jsonExt                                  *RelaxedNumberExtension
 	flowJobName                              string
 	fastProcessJsonColumns                   bool
 	handleInheritanceForNonPartitionedTables bool
@@ -161,7 +160,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
-	jsonApi, jsonExt := createExtendedJSONUnmarshaler()
+	jsonApi := createExtendedJSONUnmarshaler()
 
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
@@ -182,7 +181,6 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		jsonApi:                                  jsonApi,
-		jsonExt:                                  jsonExt,
 		flowJobName:                              cdcConfig.FlowJobName,
 		fastProcessJsonColumns:                   cdcConfig.FastProcessJsonColumns,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
@@ -657,7 +655,6 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
-		p.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, p.jsonExt.duplicateKeys.Swap(0))
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
@@ -665,7 +662,6 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
-		p.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, p.jsonExt.duplicateKeys.Swap(0))
 
 		if lastXLogDataServerWALEnd.Load() > 0 {
 			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
