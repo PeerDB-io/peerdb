@@ -14,6 +14,8 @@ import (
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
+	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
+
 	// CDC-only mirrors (no initial snapshot) never stage data in GCS, so skip
 	// the staging bucket requirement entirely.
 	if cfg.DoInitialSnapshot {
@@ -34,7 +36,24 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	tables := make([]bqvalidate.SourceTableConfig, 0, len(cfg.TableMappings))
+	sourceConfig := bqvalidate.SourceConfig{
+		Client:         c.client,
+		ProjectID:      c.projectID,
+		DefaultDataset: c.datasetID,
+		SnapshotOnly:   snapshotOnly,
+	}
+	if !snapshotOnly {
+		switch cfg.GetBigqueryCdcConfig().GetReplicationMode() {
+		case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY:
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeQuery
+		case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS:
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeEvents
+		default:
+			return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMode())
+		}
+	}
+
+	sourceConfig.Tables = make([]bqvalidate.SourceTableConfig, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		t := bqvalidate.SourceTableConfig{
 			SourceTableIdentifier: tableMapping.SourceTableIdentifier,
@@ -44,48 +63,18 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
 				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
 		}
-		if cfg.GetBigqueryCdcConfig().GetReplicationMode() == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS {
+		if sourceConfig.ReplicationMode == bqvalidate.ReplicationModeEvents {
 			switch tableMapping.GetBigqueryCdcEventsFunction() {
 			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
 				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionAppends
 			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
 				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionChanges
-			default:
-				return fmt.Errorf("table %s has no cdc_events_function configured; "+
-					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",
-					tableMapping.SourceTableIdentifier)
 			}
 		}
-		tables = append(tables, t)
+		sourceConfig.Tables = append(sourceConfig.Tables, t)
 	}
 
-	sourceConfig := bqvalidate.SourceConfig{
-		Client:         c.client,
-		ProjectID:      c.projectID,
-		DefaultDataset: c.datasetID,
-		Tables:         tables,
-	}
-
-	tablesByKey, err := bqvalidate.ValidateSourceTables(ctx, sourceConfig)
-	if err != nil {
-		return wrapExternalError(err)
-	}
-
-	// snapshot-only mirrors never touch CDC, so no need to validate mode-specific requirements below
-	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
-		return nil
-	}
-
-	switch cfg.GetBigqueryCdcConfig().GetReplicationMode() {
-	case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY:
-		sourceConfig.ReplicationMode = bqvalidate.ReplicationModeQuery
-	case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS:
-		sourceConfig.ReplicationMode = bqvalidate.ReplicationModeEvents
-	default:
-		return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMode())
-	}
-
-	if err := bqvalidate.ValidateSourceCDC(ctx, sourceConfig, tablesByKey); err != nil {
+	if err := bqvalidate.ValidateSource(ctx, sourceConfig); err != nil {
 		return wrapExternalError(err)
 	}
 

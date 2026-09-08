@@ -187,8 +187,8 @@ type SourceTableConfig struct {
 	RequiresOrderingKey bool
 }
 
-// SourceConfig holds everything the ValidateSource* functions need to
-// validate a BigQuery mirror source's tables. It intentionally avoids
+// SourceConfig holds everything ValidateSource needs to validate a BigQuery
+// mirror source's tables. It intentionally avoids
 // depending on generated protos so it can be built and called from outside
 // the flow module.
 type SourceConfig struct {
@@ -198,6 +198,9 @@ type SourceConfig struct {
 	DefaultDataset  string
 	Tables          []SourceTableConfig
 	ReplicationMode ReplicationMode
+	// SnapshotOnly skips CDC-specific validation after the source tables have
+	// been validated.
+	SnapshotOnly bool
 }
 
 // ExternalError marks a failure as coming from a BigQuery API call rather
@@ -211,11 +214,22 @@ func (e *ExternalError) Unwrap() error {
 	return e.error
 }
 
-// ValidateSourceTables checks that every configured source table exists, that
-// its column selection (Include/Exclude) resolves to a non-empty set of real
-// columns, and that the client can read data from it. It returns the tables'
-// columns for reuse by ValidateSourceCDC.
-func ValidateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
+// ValidateSource checks that every configured source table exists, that its
+// column selection resolves to a non-empty set of real columns, and that the
+// client can read data from it. For mirrors that continue with CDC, it also
+// validates the requirements of the configured replication mode.
+func ValidateSource(ctx context.Context, cfg SourceConfig) error {
+	tablesByKey, err := validateSourceTables(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if cfg.SnapshotOnly {
+		return nil
+	}
+	return validateSourceCDC(ctx, cfg, tablesByKey)
+}
+
+func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
 	validateTables := make([]DatasetTable, 0, len(cfg.Tables))
 	for _, t := range cfg.Tables {
 		dt, err := ResolveDatasetTable(t.SourceTableIdentifier, cfg.DefaultDataset)
@@ -293,10 +307,9 @@ func validateTableDataAccess(ctx context.Context, client *bigquery.Client, proje
 	return nil
 }
 
-// ValidateSourceCDC checks that every configured source table meets the
-// requirements of its replication mode and CDC events function. tablesByKey
-// is the result of a prior, successful ValidateSourceTables call.
-func ValidateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[DatasetTable]TableInfo) error {
+// validateSourceCDC checks that every configured source table meets the
+// requirements of its replication mode and CDC events function.
+func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[DatasetTable]TableInfo) error {
 	validateTables := make([]DatasetTable, 0, len(cfg.Tables))
 	for _, t := range cfg.Tables {
 		dt, err := ResolveDatasetTable(t.SourceTableIdentifier, cfg.DefaultDataset)
