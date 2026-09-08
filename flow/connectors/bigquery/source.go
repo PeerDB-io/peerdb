@@ -74,7 +74,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		sourceConfig.Tables = append(sourceConfig.Tables, t)
 	}
 
-	if err := bqvalidate.ValidateSource(ctx, sourceConfig); err != nil {
+	if _, err := bqvalidate.ValidateSource(ctx, sourceConfig); err != nil {
 		return wrapExternalError(err)
 	}
 

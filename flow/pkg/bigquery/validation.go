@@ -217,16 +217,20 @@ func (e *ExternalError) Unwrap() error {
 // ValidateSource checks that every configured source table exists, that its
 // column selection resolves to a non-empty set of real columns, and that the
 // client can read data from it. For mirrors that continue with CDC, it also
-// validates the requirements of the configured replication mode.
-func ValidateSource(ctx context.Context, cfg SourceConfig) error {
+// validates the requirements of the configured replication mode. The returned
+// table metadata can be reused for validation that is specific to the caller.
+func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
 	tablesByKey, err := validateSourceTables(ctx, cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if cfg.SnapshotOnly {
-		return nil
+		return tablesByKey, nil
 	}
-	return validateSourceCDC(ctx, cfg, tablesByKey)
+	if err := validateSourceCDC(ctx, cfg, tablesByKey); err != nil {
+		return nil, err
+	}
+	return tablesByKey, nil
 }
 
 func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
