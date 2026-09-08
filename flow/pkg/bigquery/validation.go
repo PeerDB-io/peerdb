@@ -198,6 +198,10 @@ type SourceConfig struct {
 	DefaultDataset  string
 	Tables          []SourceTableConfig
 	ReplicationMode ReplicationMode
+	// HasSnapshot enables validation of snapshot export permissions using
+	// SnapshotStagingPath.
+	HasSnapshot         bool
+	SnapshotStagingPath string
 	// SnapshotOnly skips CDC-specific validation after the source tables have
 	// been validated.
 	SnapshotOnly bool
@@ -216,21 +220,46 @@ func (e *ExternalError) Unwrap() error {
 
 // ValidateSource checks that every configured source table exists, that its
 // column selection resolves to a non-empty set of real columns, and that the
-// client can read data from it. For mirrors that continue with CDC, it also
-// validates the requirements of the configured replication mode. The returned
-// table metadata can be reused for validation that is specific to the caller.
+// client can read data from it. It also validates snapshot export permissions
+// and CDC requirements for mirrors with those phases enabled. The returned table
+// metadata can be reused for validation that is specific to the caller.
 func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
 	tablesByKey, err := validateSourceTables(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.SnapshotOnly {
-		return tablesByKey, nil
+	if !cfg.SnapshotOnly {
+		if err := validateSourceCDC(ctx, cfg, tablesByKey); err != nil {
+			return nil, err
+		}
 	}
-	if err := validateSourceCDC(ctx, cfg, tablesByKey); err != nil {
-		return nil, err
+	if cfg.HasSnapshot {
+		if err := validateSnapshotExportAccess(ctx, cfg); err != nil {
+			return nil, err
+		}
 	}
 	return tablesByKey, nil
+}
+
+// validateSnapshotExportAccess checks that BigQuery can create export jobs
+// for the first source table. The query is a dry run and exports no data.
+func validateSnapshotExportAccess(ctx context.Context, cfg SourceConfig) error {
+	if len(cfg.Tables) == 0 {
+		return nil
+	}
+
+	key, err := ResolveDatasetTable(cfg.Tables[0].SourceTableIdentifier, cfg.DefaultDataset)
+	if err != nil {
+		return err
+	}
+	query := cfg.Client.Query(fmt.Sprintf(
+		"EXPORT DATA OPTIONS(uri='%s*.avro', format='Avro') AS SELECT * FROM `%s.%s.%s` LIMIT 0",
+		cfg.SnapshotStagingPath, cfg.ProjectID, key.Dataset, key.Table))
+	query.DryRun = true
+	if _, err := query.Run(ctx); err != nil {
+		return fmt.Errorf("failed to validate export job permission for table %q: %w", key, &ExternalError{err})
+	}
+	return nil
 }
 
 func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {

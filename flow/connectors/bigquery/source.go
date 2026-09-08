@@ -37,10 +37,12 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	sourceConfig := bqvalidate.SourceConfig{
-		Client:         c.client,
-		ProjectID:      c.projectID,
-		DefaultDataset: c.datasetID,
-		SnapshotOnly:   snapshotOnly,
+		Client:              c.client,
+		ProjectID:           c.projectID,
+		DefaultDataset:      c.datasetID,
+		HasSnapshot:         cfg.DoInitialSnapshot,
+		SnapshotOnly:        snapshotOnly,
+		SnapshotStagingPath: cfg.SnapshotStagingPath,
 	}
 	if !snapshotOnly {
 		switch cfg.GetBigqueryCdcConfig().GetReplicationMode() {
