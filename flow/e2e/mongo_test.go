@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -258,6 +259,116 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion() {
 	}
 
 	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Flow runs a structured ingestion mirror end to end: the destination table
+// gets the columns and types the mapping declares, and documents shaped as the mapping land in them,
+// both through the initial load and through CDC.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_flow"
+	dstTable := "test_structured_flow_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestion = true
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "teamA", DestinationType: "String"},
+		{SourceName: "teamB", DestinationType: "String"},
+		{SourceName: "scoreA", DestinationType: "Int64"},
+		{SourceName: "scoreB", DestinationType: "Int64"},
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	type match struct {
+		teamA, teamB   string
+		scoreA, scoreB int64
+	}
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertMatches := func(matches []match) {
+		for _, m := range matches {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "teamA", Value: m.teamA},
+				{Key: "teamB", Value: m.teamB},
+				{Key: "scoreA", Value: m.scoreA},
+				{Key: "scoreB", Value: m.scoreB},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	// the destination rows, read back as matches in teamA order, which is how GetRows sorts them
+	matchColumns := "teamA,teamB,scoreA,scoreB"
+	requireMatches := func(reason string, expected []match) {
+		rows, err := s.GetRows(dstTable, matchColumns)
+		require.NoError(t, err, reason)
+		actual := make([]match, 0, len(rows.Records))
+		for _, record := range rows.Records {
+			require.Len(t, record, 4, reason)
+			actual = append(actual, match{
+				teamA:  record[0].Value().(string),
+				teamB:  record[1].Value().(string),
+				scoreA: record[2].Value().(int64),
+				scoreB: record[3].Value().(int64),
+			})
+		}
+		expected = slices.Clone(expected)
+		slices.SortFunc(expected, func(a, b match) int { return strings.Compare(a.teamA, b.teamA) })
+		require.Equal(t, expected, actual, reason)
+	}
+
+	initialMatches := []match{
+		{teamA: "FulhamFC", teamB: "Other team", scoreA: 3, scoreB: 0},
+		{teamA: "Arsenal", teamB: "Chelsea", scoreA: 1, scoreB: 1},
+		{teamA: "Liverpool", teamB: "Everton", scoreA: 2, scoreB: 0},
+	}
+	insertMatches(initialMatches)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load", dstTable, matchColumns, len(initialMatches))
+	requireMatches("initial load", initialMatches)
+
+	// the table was created from the mapping, with the declared types
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	columnTypes, err := ch.Query(t.Context(),
+		fmt.Sprintf("SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('teamA', 'scoreA')",
+			peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{"teamA": "String", "scoreA": "Int64"}, actualColumnTypes)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	cdcMatches := []match{
+		{teamA: "Brentford", teamB: "FulhamFC", scoreA: 0, scoreB: 2},
+	}
+	insertMatches(cdcMatches)
+
+	allMatches := append(slices.Clone(initialMatches), cdcMatches...)
+	EnvWaitForCount(env, s, "cdc", dstTable, matchColumns, len(allMatches))
+	requireMatches("cdc", allMatches)
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }
