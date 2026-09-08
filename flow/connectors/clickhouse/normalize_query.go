@@ -109,6 +109,48 @@ func clampTimestamps(timestampExpr string) string {
 		timestampExpr)
 }
 
+// projectionTypeKey maps a ClickHouse type declared in a TypeSystem_CH schema onto the
+// spellings the projection switch in BuildQuery matches on, so that e.g. DateTime64(3),
+// Nullable(DateTime('UTC')), Date or JSON(max_dynamic_paths=16) get the same tailored
+// extraction as their canonical forms. Other types are returned unchanged and fall
+// through to the generic JSONExtract, which casts to the declared type.
+func projectionTypeKey(chType string) string {
+	inner := strings.TrimSpace(chType)
+	for {
+		unwrapped, ok := unwrapChType(inner, "Nullable", "LowCardinality")
+		if !ok {
+			break
+		}
+		inner = unwrapped
+	}
+	base, args, _ := strings.Cut(inner, "(")
+	switch base {
+	case "DateTime64", "DateTime":
+		return "DateTime64(6)"
+	case "Date32", "Date":
+		return "Date32"
+	case "Time64", "Time":
+		return "Time64(6)"
+	case "JSON":
+		return "JSON"
+	case "Array":
+		if projectionTypeKey(strings.TrimSuffix(args, ")")) == "DateTime64(6)" {
+			return "Array(DateTime64(6))"
+		}
+	}
+	return chType
+}
+
+// unwrapChType strips one level of the given wrapper types, e.g. Nullable(X) -> X
+func unwrapChType(chType string, wrappers ...string) (string, bool) {
+	for _, wrapper := range wrappers {
+		if strings.HasPrefix(chType, wrapper+"(") && strings.HasSuffix(chType, ")") {
+			return strings.TrimSpace(chType[len(wrapper)+1 : len(chType)-1]), true
+		}
+	}
+	return chType, false
+}
+
 func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error) {
 	selectQuery := strings.Builder{}
 	selectQuery.WriteString("SELECT ")
@@ -170,7 +212,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			} else {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
+					ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column,
+					schema.NullableEnabled || columnNullableEnabled, t.flags,
 				)
 				if err != nil {
 					return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -178,7 +221,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			}
 		}
 
-		switch clickHouseType {
+		// TypeSystem_CH schemas spell types freely (DateTime64(3), Nullable(DateTime), JSON(...)):
+		// match on a canonical key so they get the same tailored extraction as the spellings
+		// ToDWHColumnType produces, while the generic JSONExtract below keeps the declared type
+		typeKey := clickHouseType
+		if schema.System == protos.TypeSystem_CH {
+			typeKey = projectionTypeKey(clickHouseType)
+		}
+		switch typeKey {
 		case "Time64(6)", "Nullable(Time64(6))":
 			fmt.Fprintf(&projection,
 				"toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6) AS %s,",
