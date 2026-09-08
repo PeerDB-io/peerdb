@@ -203,8 +203,8 @@ type SourceConfig struct {
 	DefaultDataset  string
 	Tables          []SourceTableConfig
 	ReplicationMode ReplicationMode
-	// HasSnapshot enables validation of snapshot export permissions using
-	// SnapshotStagingPath.
+	// HasSnapshot enables validation of snapshot staging access and export
+	// permissions using SnapshotStagingPath.
 	HasSnapshot         bool
 	SnapshotStagingPath string
 	// SnapshotOnly skips CDC-specific validation after the source tables have
@@ -252,8 +252,8 @@ func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]Tab
 	return tablesByKey, nil
 }
 
-// validateSnapshotStagingAccess checks the snapshot staging path and, when a
-// storage client is available, verifies the bucket operations used by snapshots.
+// validateSnapshotStagingAccess checks the snapshot staging path and verifies
+// the bucket operations used by snapshots.
 func validateSnapshotStagingAccess(ctx context.Context, cfg SourceConfig) error {
 	if cfg.SnapshotStagingPath == "" {
 		return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
