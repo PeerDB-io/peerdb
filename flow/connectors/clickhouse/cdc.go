@@ -266,12 +266,18 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			qvKind := types.QValueKind(addedColumn.Type)
-			clickHouseColType, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
+			// TypeSystem_CH deltas carry ClickHouse types verbatim, not QValueKinds
+			var qvKind types.QValueKind
+			clickHouseColType := addedColumn.Type
+			if schemaDelta.System != protos.TypeSystem_CH {
+				qvKind = types.QValueKind(addedColumn.Type)
+				var err error
+				clickHouseColType, err = qvalue.ToDWHColumnType(
+					ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
+				}
 			}
 
 			defaultExpr := addedColumn.DefaultExpr
