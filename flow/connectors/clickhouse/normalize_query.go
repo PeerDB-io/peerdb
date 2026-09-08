@@ -139,7 +139,11 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	for _, column := range schema.Columns {
 		colName := column.Name
 		dstColName := colName
-		colType := types.QValueKind(column.Type)
+		// TypeSystem_CH schemas carry ClickHouse types, not QValueKinds
+		var colType types.QValueKind
+		if schema.System != protos.TypeSystem_CH {
+			colType = types.QValueKind(column.Type)
+		}
 
 		var clickHouseType string
 		var columnNullableEnabled bool
@@ -161,12 +165,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
-			)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+			if schema.System == protos.TypeSystem_CH {
+				clickHouseType = column.Type
+			} else {
+				var err error
+				clickHouseType, err = qvalue.ToDWHColumnType(
+					ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
+				)
+				if err != nil {
+					return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+				}
 			}
 		}
 

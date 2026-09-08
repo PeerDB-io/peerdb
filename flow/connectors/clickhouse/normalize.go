@@ -188,7 +188,11 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		for _, column := range tableSchema.Columns {
 			colName := column.Name
 			dstColName := colName
-			colType := types.QValueKind(column.Type)
+			// TypeSystem_CH schemas carry ClickHouse types, not QValueKinds
+			var colType types.QValueKind
+			if tableSchema.System != protos.TypeSystem_CH {
+				colType = types.QValueKind(column.Type)
+			}
 			var columnNullableEnabled bool
 			var clickHouseType string
 			if tableMapping != nil {
@@ -207,7 +211,12 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				}
 			}
 
-			if clickHouseType == "" {
+			if tableSchema.System == protos.TypeSystem_CH {
+				// types are used verbatim, nullability included
+				if clickHouseType == "" {
+					clickHouseType = column.Type
+				}
+			} else if clickHouseType == "" {
 				var err error
 				clickHouseType, err = qvalue.ToDWHColumnType(
 					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
