@@ -151,7 +151,7 @@ func NewSchemaProjectorWithDefaultSchemaToKind(
 	return NewSchemaProjector(defaultSchemaToQKind, schemaColumns, shouldRecordValues)
 }
 
-// Columns are the schema columns in declaration order, with the kind their values are projected to.
+// Columns are the structured schema (order is relevant).
 func (sc *SchemaProjector) Columns() []types.QField {
 	return slices.Clone(sc.fields[:len(sc.fields)-1])
 }
@@ -165,7 +165,7 @@ func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 // ProjectRecord projects a record onto the schema, laid out as QRecordSchema. Every schema column gets
 // the record's value, or a null of the column's kind when the record lacks the field or its value does
 // not match the column's kind. Mismatched values and record fields absent from the schema are reported
-// in the malformed data column, which is null when there is nothing to report.
+// in the malformed data column.
 func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue]) ([]types.QValue, error) {
 	values := make([]types.QValue, len(sc.fields))
 	for i, field := range sc.fields {
@@ -188,6 +188,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 		}
 
 		// Otherwise the kinds must match, or the value is recorded as malformed data.
+		// NOTE: The equals comparison canbe replaced by a call to a equivalence function.
 		if column.kind != value.Kind() {
 			var recordedValue *types.QValue
 			if sc.shouldRecordValues {
