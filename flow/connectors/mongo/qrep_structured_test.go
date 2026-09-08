@@ -15,10 +15,11 @@ import (
 
 func structuredTestColumns() []*protos.ColumnSetting {
 	return []*protos.ColumnSetting{
-		{SourceName: "name", DestinationType: "String"},
-		{SourceName: "age", DestinationType: "Int64"},
+		// as inferred schemas declare them: all nullable, a document may lack any field
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
 		{SourceName: "score", DestinationType: "Nullable(Float64)"},
-		{SourceName: "address", DestinationType: "JSON"},
+		{SourceName: "address", DestinationType: "Nullable(JSON)"},
 	}
 }
 
@@ -35,6 +36,59 @@ func TestGetStructuredSchema(t *testing.T) {
 		{Name: "address", Type: types.QValueKindJSON, Nullable: true},
 		{Name: structured.MalformedDataColumn, Type: types.QValueKindJSON, Nullable: true},
 	}, GetStructuredSchema(projector).Fields)
+}
+
+// TestGetTableSchemaStructured checks the table schema of a structured mapping carries the kinds the
+// records are projected to, so the destination types come from the mapping's `destination_type` override,
+// and that every column but the document key is nullable.
+func TestGetTableSchemaStructured(t *testing.T) {
+	structuredTable, plainTable := "test.structured", "test.plain"
+	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{
+			{SourceTableIdentifier: structuredTable, StructuredIngestion: true, Columns: structuredTestColumns()},
+			{SourceTableIdentifier: plainTable},
+		})
+	require.NoError(t, err)
+
+	fieldNamesAndTypes := func(schema *protos.TableSchema) [][2]string {
+		out := make([][2]string, 0, len(schema.Columns))
+		for _, column := range schema.Columns {
+			out = append(out, [2]string{column.Name, column.Type})
+		}
+		return out
+	}
+
+	require.Equal(t, protos.TypeSystem_Q, schemas[structuredTable].System)
+	require.True(t, schemas[structuredTable].NullableEnabled)
+	require.Equal(t, [][2]string{
+		{DefaultDocumentKeyColumnName, "string"},
+		{"name", "string"},
+		{"age", "int64"},
+		{"score", "float64"},
+		{"address", "json"},
+		{structured.MalformedDataColumn, "json"},
+	}, fieldNamesAndTypes(schemas[structuredTable]))
+	for _, column := range schemas[structuredTable].Columns {
+		// every column but the document key is nullable
+		require.Equal(t, column.Name != DefaultDocumentKeyColumnName, column.Nullable, column.Name)
+	}
+
+	// a plain mapping is unaffected
+	require.Equal(t, protos.TypeSystem_Q, schemas[plainTable].System)
+	require.False(t, schemas[plainTable].NullableEnabled)
+	require.Equal(t, [][2]string{
+		{DefaultDocumentKeyColumnName, "string"},
+		{DefaultFullDocumentColumnName, "json"},
+	}, fieldNamesAndTypes(schemas[plainTable]))
+
+	// an unsupported destination type fails schema resolution
+	_, err = (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{
+			SourceTableIdentifier: structuredTable, StructuredIngestion: true,
+			Columns: []*protos.ColumnSetting{{SourceName: "location", DestinationType: "Point"}},
+		}})
+	require.ErrorContains(t, err, structuredTable)
+	require.ErrorContains(t, err, "Point")
 }
 
 func TestNewStructuredSchemaProjectorRejects(t *testing.T) {

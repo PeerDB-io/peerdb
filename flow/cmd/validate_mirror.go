@@ -96,12 +96,6 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
-	// `TypeSystem_CH` should only be used internally.
-	if connectionConfigs.System == protos.TypeSystem_CH {
-		return nil, NewInvalidArgumentApiError(
-			fmt.Errorf("invalid config: CH type system is only valid for table schemas, not as the mirror type system"))
-	}
-
 	if apiErr := h.checkTableMappings(ctx, connectionConfigs); apiErr != nil {
 		return nil, apiErr
 	}

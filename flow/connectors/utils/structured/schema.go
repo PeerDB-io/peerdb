@@ -72,7 +72,7 @@ func defaultSchemaToQKind(schemaType string) (types.QValueKind, error) {
 		return types.QValueKindArrayBoolean, nil
 	case "Array(Date)":
 		return types.QValueKindArrayDate, nil
-	case "JSON":
+	case "JSON", "Nullable(JSON)":
 		return types.QValueKindJSON, nil
 	default:
 		if strings.Contains(schemaType, "Decimal") {
@@ -151,8 +151,13 @@ func NewSchemaProjectorWithDefaultSchemaToKind(
 	return NewSchemaProjector(defaultSchemaToQKind, schemaColumns, shouldRecordValues)
 }
 
-// QRecordSchema is the schema of the records ProjectRecord produces: the schema columns in declaration
-// order, followed by the malformed data column.
+// Columns are the schema columns in declaration order, with the kind their values are projected to.
+func (sc *SchemaProjector) Columns() []types.QField {
+	return slices.Clone(sc.fields[:len(sc.fields)-1])
+}
+
+// QRecordSchema is the schema of the records ProjectRecord produces: Columns followed by the malformed
+// data column.
 func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
 }
