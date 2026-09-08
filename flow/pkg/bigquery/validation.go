@@ -195,6 +195,8 @@ type SourceTableConfig struct {
 // mirror source's tables. It intentionally avoids
 // depending on generated protos so it can be built and called from outside
 // the flow module.
+//
+//nolint:govet // logically grouped, fieldalignment confuses things
 type SourceConfig struct {
 	Client        *bigquery.Client
 	StorageClient *storage.Client
