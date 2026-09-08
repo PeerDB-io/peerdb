@@ -155,7 +155,7 @@ func TestJSONRoundtripQRep(t *testing.T) {
 	}
 
 	env := map[string]string{"PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS": "true"}
-	qe, err := connector.NewQRepQueryExecutor(ctx, env, nil, shared.InternalVersion_Latest, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, env, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
 	batch, err := qe.ExecuteAndProcessQuery(ctx, fmt.Sprintf(

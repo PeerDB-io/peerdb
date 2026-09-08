@@ -19,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -29,21 +28,20 @@ type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
 	env         map[string]string
-	otelManager *otel_metrics.OtelManager
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string,
-	otelManager *otel_metrics.OtelManager, version uint32, flowJobName string, partitionID string,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
+	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, otelManager, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string,
-	otelManager *otel_metrics.OtelManager, version uint32, snapshot string, flowJobName string, partitionID string,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
+	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
@@ -52,7 +50,6 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		env:               env,
-		otelManager:       otelManager,
 		snapshot:          snapshot,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
@@ -296,12 +293,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	var numBytes int64
 	const logPerRows = 50000
 
-	jsonApi, jsonExt := createExtendedJSONUnmarshaler()
-	defer func() {
-		if qe.otelManager != nil {
-			qe.otelManager.Metrics.DuplicateJsonKeysCounter.Add(ctx, jsonExt.duplicateKeys.Swap(0))
-		}
-	}()
+	jsonApi := createExtendedJSONUnmarshaler()
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, 0, err

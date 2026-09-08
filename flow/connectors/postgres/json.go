@@ -6,18 +6,13 @@ import (
 	"errors"
 	"io"
 	"strconv"
-	"sync/atomic"
 	"unsafe"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/modern-go/reflect2"
 )
 
-// relaxedNumberDecoder converts numbers that are out of float64 range into strings.
-// It also tracks duplicate object keys and increments `duplicateKeys` when seen.
-type relaxedNumberDecoder struct {
-	duplicateKeys *atomic.Int64
-}
+type relaxedNumberDecoder struct{}
 
 func (d *relaxedNumberDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
 	anyPtr := (*any)(ptr)
@@ -29,28 +24,6 @@ func (d *relaxedNumberDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterato
 		} else {
 			*anyPtr = numberToken.String()
 		}
-	case jsoniter.ObjectValue:
-		// decode objects ourselves to count duplicate keys; last occurrence wins.
-		obj := make(map[string]any)
-		iter.ReadMapCB(func(it *jsoniter.Iterator, field string) bool {
-			var elem any
-			d.Decode(unsafe.Pointer(&elem), it)
-			if _, ok := obj[field]; ok {
-				d.duplicateKeys.Add(1)
-			}
-			obj[field] = elem
-			return true
-		})
-		*anyPtr = obj
-	case jsoniter.ArrayValue:
-		arr := []any{}
-		iter.ReadArrayCB(func(it *jsoniter.Iterator) bool {
-			var elem any
-			d.Decode(unsafe.Pointer(&elem), it)
-			arr = append(arr, elem)
-			return true
-		})
-		*anyPtr = arr
 	default:
 		*anyPtr = iter.Read()
 	}
@@ -58,29 +31,19 @@ func (d *relaxedNumberDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterato
 
 type RelaxedNumberExtension struct {
 	jsoniter.DummyExtension
-	duplicateKeys atomic.Int64
 }
 
 func (extension *RelaxedNumberExtension) CreateDecoder(typ reflect2.Type) jsoniter.ValDecoder {
 	if typ == reflect2.TypeOfPtr((*any)(nil)).Elem() {
-		return &relaxedNumberDecoder{duplicateKeys: &extension.duplicateKeys}
+		return &relaxedNumberDecoder{}
 	}
 	return nil
 }
 
-func createExtendedJSONUnmarshaler() (jsoniter.API, *RelaxedNumberExtension) {
-	// jsoniter.ConfigCompatibleWithStandardLibrary is shared via a global var,
-	// so we make a clean copy of it to ensure that the returned marshaller only
-	// has one extension registered. This is important so we correctly track
-	// the correct automic inside `RelaxedNumberExtension`.
-	config := jsoniter.Config{
-		EscapeHTML:             true,
-		SortMapKeys:            true,
-		ValidateJsonRawMessage: true,
-	}.Froze()
-	ext := &RelaxedNumberExtension{}
-	config.RegisterExtension(ext)
-	return config, ext
+func createExtendedJSONUnmarshaler() jsoniter.API {
+	config := jsoniter.ConfigCompatibleWithStandardLibrary
+	config.RegisterExtension(&RelaxedNumberExtension{})
+	return config
 }
 
 // jsonNullLiteral is the pre-marshalled JSON null literal, used to keep a JSON
@@ -94,15 +57,27 @@ func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
 	// We create both the decoder and the encoder with AllowInvalidUTF8 so that
 	// we do not error out on seeing an invalid UTF-8 string; instead, we escape
 	// it with UTF-8 valid escape characters to allow for the ingestion into
-	// ClickHouse to not fail.
-	dec := jsontext.NewDecoder(input, jsontext.AllowInvalidUTF8(true), jsontext.Multiline(false))
+	// ClickHouse to not fail. We also use AllowDuplicateNames to not have the
+	// ingestion error out in case there are duplicate object keys; we let the
+	// destination ClickHouse collapse these
+	dec := jsontext.NewDecoder(
+		input,
+		jsontext.AllowInvalidUTF8(true),
+		jsontext.Multiline(false),
+		jsontext.AllowDuplicateNames(true),
+	)
 	out := new(bytes.Buffer)
 	if sizeHint > 0 {
 		// Grow slightly past the sizeHint to account for any whitespace added by
 		// the encoder below. We want to avoid repeat allocations as much as possible.
 		out.Grow(int(float64(sizeHint) * 1.5))
 	}
-	enc := jsontext.NewEncoder(out, jsontext.AllowInvalidUTF8(true), jsontext.Multiline(false))
+	enc := jsontext.NewEncoder(
+		out,
+		jsontext.AllowInvalidUTF8(true),
+		jsontext.Multiline(false),
+		jsontext.AllowDuplicateNames(true),
+	)
 	for {
 		// Read a token from the input.
 		tok, err := dec.ReadToken()
