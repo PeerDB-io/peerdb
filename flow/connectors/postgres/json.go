@@ -46,11 +46,15 @@ func createExtendedJSONUnmarshaler() jsoniter.API {
 	return config
 }
 
+// Type to identify json that has already been marshalled, vs. a JSON token
+// like a string or byte slice.
+type preMarshalledJson []byte
+
 // jsonNullLiteral is the pre-marshalled JSON null literal, used to keep a JSON
 // null distinguishable from a SQL NULL.
-var jsonNullLiteral = []byte("null")
+var jsonNullLiteral = preMarshalledJson("null")
 
-func convertWithRelaxedNumbers(input io.Reader, sizeHint int) ([]byte, error) {
+func convertWithRelaxedNumbers(input io.Reader, sizeHint int) (preMarshalledJson, error) {
 	// We use a jsontext Encoder and Decoder to walk through the input and
 	// convert any numbers that fail to parse as a float into a string instead.
 	//
