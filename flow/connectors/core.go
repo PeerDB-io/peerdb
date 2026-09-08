@@ -101,10 +101,14 @@ type CDCPullConnectorCore interface {
 		*protos.EnsurePullabilityBatchOutput, error)
 
 	// For InitialSnapshotOnly correctness without replication slot
-	// `any` is for returning transaction if necessary
+	// `any` is for returning transaction if necessary.
+	// tableMappings is the snapshotting flow's own table set, which is not always the
+	// mirror's: a table addition runs this as a child flow scoped to just the tables being
+	// added, and the catalog still holds the mirror's pre-addition config while it runs.
 	ExportTxSnapshot(
 		ctx context.Context,
 		flowName string,
+		tableMappings []*protos.TableMapping,
 		env map[string]string,
 	) (*protos.ExportTxSnapshotOutput, any, error)
 

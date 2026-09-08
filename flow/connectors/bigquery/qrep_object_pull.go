@@ -308,6 +308,7 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
+	tableMappings []*protos.TableMapping,
 	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
@@ -333,8 +334,18 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to get current BigQuery timestamp for snapshot: %w", err)
 	}
 
-	if err := c.exportTablesAsOf(ctx, flowName, cfg.TableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
+	// Use the activity's mappings rather than the catalog config: during a table
+	// addition, the catalog still contains the mirror's pre-addition table list.
+	if err := c.exportTablesAsOf(ctx, flowName, tableMappings, runSnapshotStagingPath, snapshotTime); err != nil {
 		return nil, nil, err
+	}
+
+	// Table additions run as InitialSnapshotOnly child flows and do not call
+	// SetupReplication, so seed their query-CDC cursors from this snapshot.
+	if cfg.GetBigqueryCdcConfig() != nil {
+		if err := c.initializeQueryCDCCheckpoints(ctx, flowName, tableMappings, snapshotTime); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return &protos.ExportTxSnapshotOutput{SnapshotStagingPath: runSnapshotStagingPath}, runSnapshotStagingPath, nil
@@ -552,24 +563,31 @@ func (c *BigQueryConnector) SetupReplication(
 		}
 	}
 
-	// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc),
-	// but the snapshot export's FOR SYSTEM_TIME AS OF snapshotTime already includes rows
-	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
-	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
-	// keeps CDC's first window from re-pulling what the snapshot already captured.
-	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
 	if cfg.GetBigqueryCdcConfig() != nil {
-		for _, tableMapping := range cfg.TableMappings {
-			if err := c.InitializeQueryCDCReplicationState(
-				ctx, req.FlowJobName, tableMapping.SourceTableIdentifier, checkpoint,
-			); err != nil {
-				return model.SetupReplicationResult{}, fmt.Errorf(
-					"failed to initialize CDC checkpoint for table %s: %w",
-					tableMapping.SourceTableIdentifier, err,
-				)
-			}
+		if err := c.initializeQueryCDCCheckpoints(ctx, req.FlowJobName, cfg.TableMappings, snapshotTime); err != nil {
+			return model.SetupReplicationResult{}, err
 		}
 	}
 
 	return model.SetupReplicationResult{}, nil
+}
+
+// initializeQueryCDCCheckpoints hands the snapshot's end position to query-based
+// CDC as the starting cursor of every table covered by that snapshot.
+func (c *BigQueryConnector) initializeQueryCDCCheckpoints(
+	ctx context.Context, flowName string, tableMappings []*protos.TableMapping, snapshotTime time.Time,
+) error {
+	// APPENDS()/CHANGES() start timestamps are inclusive, while the snapshot
+	// already contains rows committed at snapshotTime. BigQuery timestamps have
+	// microsecond precision, so advancing by one microsecond cannot skip a row.
+	checkpoint := snapshotTime.Add(time.Microsecond).Format(time.RFC3339Nano)
+	for _, tableMapping := range tableMappings {
+		if err := c.InitializeQueryCDCReplicationState(
+			ctx, flowName, tableMapping.SourceTableIdentifier, checkpoint,
+		); err != nil {
+			return fmt.Errorf("failed to initialize CDC checkpoint for table %s: %w",
+				tableMapping.SourceTableIdentifier, err)
+		}
+	}
+	return nil
 }

@@ -39,7 +39,7 @@ func (c *CockroachDBConnector) EnsurePullability(
 // ExportTxSnapshot captures the current HLC timestamp so that
 // initial-snapshot-only mirrors read all tables at one consistent system time.
 func (c *CockroachDBConnector) ExportTxSnapshot(
-	ctx context.Context, flowName string, env map[string]string,
+	ctx context.Context, flowName string, tableMappings []*protos.TableMapping, env map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	systemTime, err := c.clusterLogicalTimestamp(ctx)
 	if err != nil {
