@@ -2,12 +2,16 @@ package bigquery
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -192,8 +196,9 @@ type SourceTableConfig struct {
 // depending on generated protos so it can be built and called from outside
 // the flow module.
 type SourceConfig struct {
-	Client    *bigquery.Client
-	ProjectID string
+	Client        *bigquery.Client
+	StorageClient *storage.Client
+	ProjectID     string
 	// DefaultDataset is used for table identifiers with no dataset qualifier.
 	DefaultDataset  string
 	Tables          []SourceTableConfig
@@ -224,6 +229,12 @@ func (e *ExternalError) Unwrap() error {
 // and CDC requirements for mirrors with those phases enabled. The returned table
 // metadata can be reused for validation that is specific to the caller.
 func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
+	if cfg.HasSnapshot {
+		if err := validateSnapshotStagingAccess(ctx, cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	tablesByKey, err := validateSourceTables(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -239,6 +250,59 @@ func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]Tab
 		}
 	}
 	return tablesByKey, nil
+}
+
+// validateSnapshotStagingAccess checks the snapshot staging path and, when a
+// storage client is available, verifies the bucket operations used by snapshots.
+func validateSnapshotStagingAccess(ctx context.Context, cfg SourceConfig) error {
+	if cfg.SnapshotStagingPath == "" {
+		return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
+	}
+
+	stagingURL, err := url.Parse(cfg.SnapshotStagingPath)
+	if err != nil {
+		return fmt.Errorf("invalid snapshot bucket: %w", err)
+	}
+	if stagingURL.Scheme != "gs" {
+		return fmt.Errorf("invalid snapshot bucket: invalid scheme %q, expected gs", stagingURL.Scheme)
+	}
+	if stagingURL.Host == "" {
+		return fmt.Errorf("invalid snapshot bucket: bucket name is required")
+	}
+
+	bucket := cfg.StorageClient.Bucket(stagingURL.Host)
+	if _, err := bucket.Attrs(ctx); err != nil {
+		return fmt.Errorf("failed to access staging bucket: %w", &ExternalError{err})
+	}
+
+	prefix := strings.Trim(stagingURL.Path, "/")
+	if prefix != "" {
+		prefix += "/"
+	}
+	it := bucket.Objects(ctx, &storage.Query{Prefix: prefix})
+	if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
+		return fmt.Errorf("failed to access staging bucket: %w", &ExternalError{err})
+	}
+
+	var randomSuffix [16]byte
+	if _, err := rand.Read(randomSuffix[:]); err != nil {
+		return fmt.Errorf("failed to generate staging bucket access-check object name: %w", err)
+	}
+	testObject := bucket.Object(prefix + ".peerdb_access_check_" + hex.EncodeToString(randomSuffix[:]))
+	writer := testObject.NewWriter(ctx)
+	if _, err := writer.Write([]byte("PeerDB snapshot staging access check")); err != nil {
+		_ = writer.Close()
+		_ = testObject.Delete(ctx)
+		return fmt.Errorf("failed to write to staging bucket: %w", &ExternalError{err})
+	}
+	if err := writer.Close(); err != nil {
+		_ = testObject.Delete(ctx)
+		return fmt.Errorf("failed to write to staging bucket: %w", &ExternalError{err})
+	}
+	if err := testObject.Delete(ctx); err != nil {
+		return fmt.Errorf("failed to delete from staging bucket: %w", &ExternalError{err})
+	}
+	return nil
 }
 
 // validateSnapshotExportAccess checks that BigQuery can create export jobs

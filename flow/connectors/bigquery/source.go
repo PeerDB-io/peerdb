@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"cloud.google.com/go/storage"
-	"google.golang.org/api/iterator"
-
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -16,28 +13,9 @@ import (
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 
-	// CDC-only mirrors (no initial snapshot) never stage data in GCS, so skip
-	// the staging bucket requirement entirely.
-	if cfg.DoInitialSnapshot {
-		if cfg.SnapshotStagingPath == "" {
-			return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
-		}
-
-		stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
-		if err != nil {
-			return fmt.Errorf("invalid snapshot bucket: %w", err)
-		}
-
-		bucket := c.storageClient.Bucket(stagingPath.Bucket())
-
-		it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
-		if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
-			return fmt.Errorf("failed to access staging bucket: %w", exceptions.NewBigQueryError(err))
-		}
-	}
-
 	sourceConfig := bqvalidate.SourceConfig{
 		Client:              c.client,
+		StorageClient:       c.storageClient,
 		ProjectID:           c.projectID,
 		DefaultDataset:      c.datasetID,
 		HasSnapshot:         cfg.DoInitialSnapshot,

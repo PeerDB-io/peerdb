@@ -202,6 +202,18 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		require.NoError(t, err, "CDC should be allowed now that chunk 3 replaced the blanket rejection")
 	})
 
+	t.Run("snapshot staging access probe is cleaned up", func(t *testing.T) {
+		objectsBefore, err := source.helper.CountObjectsInGCSPath(ctx, flowConfig.SnapshotStagingPath)
+		require.NoError(t, err, "should count staging objects before validation")
+
+		err = bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.NoError(t, err, "snapshot validation should verify GCS object access")
+
+		objectsAfter, err := source.helper.CountObjectsInGCSPath(ctx, flowConfig.SnapshotStagingPath)
+		require.NoError(t, err, "should count staging objects after validation")
+		require.Equal(t, objectsBefore, objectsAfter, "snapshot validation should delete its GCS access-check object")
+	})
+
 	t.Run("CDC-only mirror does not require a staging bucket", func(t *testing.T) {
 		flowConfig.SnapshotStagingPath = ""
 		flowConfig.DoInitialSnapshot = false
