@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"math"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -98,7 +100,25 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	db := c.client.Database(parseWatermarkTable.Namespace)
 
-	stream.SetSchema(GetDefaultSchema(config.Version))
+	converter := NewDirectBsonConverter()
+	var schema types.QRecordSchema
+	var qValuesFromBsonRaw func(raw bson.Raw) ([]types.QValue, error)
+	if config.GetStructuredIngestion() {
+		projector, err := newStructuredSchemaProjector(config.Columns)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
+		}
+		schema = GetStructuredSchema(projector)
+		qValuesFromBsonRaw = func(raw bson.Raw) ([]types.QValue, error) {
+			return StructuredQValuesFromBsonRaw(raw, config.Version, converter, projector, config.WatermarkTable)
+		}
+	} else {
+		schema = GetDefaultSchema(config.Version)
+		qValuesFromBsonRaw = func(raw bson.Raw) ([]types.QValue, error) {
+			return QValuesFromBsonRaw(raw, config.Version, converter, config.WatermarkTable)
+		}
+	}
+	stream.SetSchema(schema)
 
 	c.totalBytesRead.Store(0)
 	c.deltaBytesRead.Store(0)
@@ -145,9 +165,8 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	defer cursor.Close(ctx)
 
-	converter := NewDirectBsonConverter()
 	for cursor.Next(ctx) {
-		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable)
+		record, err := qValuesFromBsonRaw(cursor.Current)
 		if err != nil {
 			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
@@ -188,6 +207,15 @@ func (c *MongoConnector) PullQRepRecords(
 	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
+// documentKeyQField is the record field for the document key (`_id`), common to every schema.
+func documentKeyQField() types.QField {
+	return types.QField{
+		Name:     DefaultDocumentKeyColumnName,
+		Type:     types.QValueKindString,
+		Nullable: false,
+	}
+}
+
 func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 	fullDocumentColumnName := DefaultFullDocumentColumnName
 	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
@@ -195,16 +223,32 @@ func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 	}
 	schema := make([]types.QField, 0, 2)
 	schema = append(schema,
-		types.QField{
-			Name:     DefaultDocumentKeyColumnName,
-			Type:     types.QValueKindString,
-			Nullable: false,
-		},
+		documentKeyQField(),
 		types.QField{
 			Name:     fullDocumentColumnName,
 			Type:     types.QValueKindJSON,
 			Nullable: false,
 		})
+	return types.QRecordSchema{Fields: schema}
+}
+
+// structuredRecordMalformedValues controls whether structured ingestion records the offending values, and
+// not just the reason, in the malformed data column.
+// TODO PFCOPEREZ: make this configurable.
+const structuredRecordMalformedValues = true
+
+// newStructuredSchemaProjector builds the projector for the columns of a structured ingestion table mapping.
+func newStructuredSchemaProjector(columns []*protos.ColumnSetting) (*structured.SchemaProjector, error) {
+	return structured.NewSchemaProjectorWithDefaultSchemaToKind(columns, structuredRecordMalformedValues)
+}
+
+// GetStructuredSchema is the record schema of a structured ingestion table: the document key followed by
+// the columns projector projects documents onto, the layout StructuredQValuesFromBsonRaw produces.
+func GetStructuredSchema(projector *structured.SchemaProjector) types.QRecordSchema {
+	projected := projector.QRecordSchema()
+	schema := make([]types.QField, 0, len(projected.Fields)+1)
+	schema = append(schema, documentKeyQField())
+	schema = append(schema, projected.Fields...)
 	return types.QRecordSchema{Fields: schema}
 }
 
@@ -271,4 +315,70 @@ func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConv
 	}
 
 	return []types.QValue{idQValue, docQValue}, nil
+}
+
+// documentFields walks the top-level fields of a document, the document key excluded, yielding each with
+// its value converted by converter (nested documents and arrays whole, as JSON). The walk stops at the
+// first failure, which the returned function reports once the walk is over.
+func documentFields(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error) {
+	var walkErr error
+	return func(yield func(string, types.QValue) bool) {
+		elements, err := raw.Elements()
+		if err != nil {
+			walkErr = fmt.Errorf("failed to read document fields: %w", err)
+			return
+		}
+		for _, element := range elements {
+			field, err := element.KeyErr()
+			if err != nil {
+				walkErr = fmt.Errorf("failed to read document field name: %w", err)
+				return
+			}
+			if field == DefaultDocumentKeyColumnName {
+				continue
+			}
+			// the schema projector gives nulls the kind of the column they land in
+			value, err := converter.QValueFromBsonValue(element.Value(), types.QValueKindInvalid)
+			if err != nil {
+				walkErr = fmt.Errorf("failed to convert document field %s: %w", field, err)
+				return
+			}
+			if !yield(field, value) {
+				return
+			}
+		}
+	}, func() error { return walkErr }
+}
+
+// StructuredQValuesFromBsonRaw converts a document into a record laid out as GetStructuredSchema for
+// projector: the document key, then the document fields projected by projector onto the schema columns.
+func StructuredQValuesFromBsonRaw(
+	raw bson.Raw,
+	version uint32,
+	converter BsonToQValueConverter,
+	projector *structured.SchemaProjector,
+	tableName string,
+) ([]types.QValue, error) {
+	rv := raw.Lookup(DefaultDocumentKeyColumnName)
+	if rv.IsZero() || rv.Type == bson.TypeNull {
+		return nil, exceptions.NewInvalidIdValueError(tableName)
+	}
+	idQValue, err := converter.QValueStringFromId(rv, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
+	}
+
+	fields, walkErr := documentFields(raw, converter)
+	values, err := projector.ProjectRecord(fields)
+	if err != nil {
+		return nil, fmt.Errorf("failed to project document onto schema: %w", err)
+	}
+	if err := walkErr(); err != nil {
+		return nil, err
+	}
+
+	record := make([]types.QValue, 0, len(values)+1)
+	record = append(record, idQValue)
+	record = append(record, values...)
+	return record, nil
 }
