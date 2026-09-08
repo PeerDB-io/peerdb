@@ -273,10 +273,6 @@ func validateSnapshotStagingAccess(ctx context.Context, cfg SourceConfig) error 
 	}
 
 	bucket := cfg.StorageClient.Bucket(stagingURL.Host)
-	if _, err := bucket.Attrs(ctx); err != nil {
-		return fmt.Errorf("failed to access staging bucket: %w", &ExternalError{err})
-	}
-
 	prefix := strings.Trim(stagingURL.Path, "/")
 	if prefix != "" {
 		prefix += "/"
