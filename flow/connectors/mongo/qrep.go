@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"iter"
 	"log/slog"
 	"math"
 	"time"
@@ -317,39 +316,6 @@ func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConv
 	return []types.QValue{idQValue, docQValue}, nil
 }
 
-// documentFields walks the top-level fields of a document, the document key excluded, yielding each with
-// its value converted by converter (nested documents and arrays whole, as JSON). The walk stops at the
-// first failure, which the returned function reports once the walk is over.
-func documentFields(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error) {
-	var walkErr error
-	return func(yield func(string, types.QValue) bool) {
-		elements, err := raw.Elements()
-		if err != nil {
-			walkErr = fmt.Errorf("failed to read document fields: %w", err)
-			return
-		}
-		for _, element := range elements {
-			field, err := element.KeyErr()
-			if err != nil {
-				walkErr = fmt.Errorf("failed to read document field name: %w", err)
-				return
-			}
-			if field == DefaultDocumentKeyColumnName {
-				continue
-			}
-			// the schema projector gives nulls the kind of the column they land in
-			value, err := converter.QValueFromBsonValue(element.Value(), types.QValueKindInvalid)
-			if err != nil {
-				walkErr = fmt.Errorf("failed to convert document field %s: %w", field, err)
-				return
-			}
-			if !yield(field, value) {
-				return
-			}
-		}
-	}, func() error { return walkErr }
-}
-
 // StructuredQValuesFromBsonRaw converts a document into a record laid out as GetStructuredSchema for
 // projector: the document key, then the document fields projected by projector onto the schema columns.
 func StructuredQValuesFromBsonRaw(
@@ -368,7 +334,7 @@ func StructuredQValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	fields, walkErr := documentFields(raw, converter)
+	fields, walkErr := DocumentQValueIterator(raw, converter)
 	values, err := projector.ProjectRecord(fields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to project document onto schema: %w", err)
