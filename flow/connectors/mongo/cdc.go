@@ -163,37 +163,36 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
-		if tm.StructuredIngestion {
-			idFieldDescription.Type = "String"
-			dataFieldDescription.Type = "JSON"
-		}
-
-		columns := []*protos.FieldDescription{
-			idFieldDescription,
-		}
+		columns := []*protos.FieldDescription{idFieldDescription}
+		nullableEnabled := false
 
 		if tm.StructuredIngestion {
-			for _, column := range tm.Columns {
-				name := column.DestinationName
-				if name == "" {
-					name = column.SourceName
-				}
+			projector, err := newStructuredSchemaProjector(tm.Columns)
+			if err != nil {
+				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
+			}
+			// Every column but the document key is nullable, a document may lack any of them: the declared
+			// types are expected to be Nullable(...) already.
+			for _, column := range projector.Columns() {
 				columns = append(columns, &protos.FieldDescription{
-					Name:     name,
-					Type:     column.DestinationType,
-					Nullable: true,
+					Name:         column.Name,
+					Type:         string(column.Type),
+					TypeModifier: -1,
+					Nullable:     column.Nullable,
 				})
 			}
 			columns = append(columns, structured.MalformedDataFieldDescription())
+			nullableEnabled = true
 		} else {
 			columns = append(columns, dataFieldDescription)
 		}
+
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
-			System:                protos.TypeSystem_CH,
-			NullableEnabled:       false,
+			System:                protos.TypeSystem_Q,
+			NullableEnabled:       nullableEnabled,
 			Columns:               columns,
 		}
 	}

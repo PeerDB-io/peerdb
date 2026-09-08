@@ -274,11 +274,12 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 
 	tableMappings := TableMappings(s, srcTable, dstTable)
 	tableMappings[0].StructuredIngestion = true
+	// as an inferred schema declares them: all nullable, a document may lack any field
 	tableMappings[0].Columns = []*protos.ColumnSetting{
-		{SourceName: "teamA", DestinationType: "String"},
-		{SourceName: "teamB", DestinationType: "String"},
-		{SourceName: "scoreA", DestinationType: "Int64"},
-		{SourceName: "scoreB", DestinationType: "Int64"},
+		{SourceName: "teamA", DestinationType: "Nullable(String)"},
+		{SourceName: "teamB", DestinationType: "Nullable(String)"},
+		{SourceName: "scoreA", DestinationType: "Nullable(Int64)"},
+		{SourceName: "scoreB", DestinationType: "Nullable(Int64)"},
 	}
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -357,7 +358,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 		actualColumnTypes[name] = columnType
 	}
 	require.NoError(t, columnTypes.Err())
-	require.Equal(t, map[string]string{"teamA": "String", "scoreA": "Int64"}, actualColumnTypes)
+	require.Equal(t, map[string]string{"teamA": "Nullable(String)", "scoreA": "Nullable(Int64)"}, actualColumnTypes)
 
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	cdcMatches := []match{

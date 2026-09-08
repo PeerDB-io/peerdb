@@ -414,10 +414,6 @@ message QRepWriteMode {
 enum TypeSystem {
   Q = 0;
   PG = 1;
-  // Table-level only (TableSchema.system / TableSchemaDelta.system), not a mirror type system:
-  // column types are ClickHouse types that a ClickHouse destination uses verbatim,
-  // e.g. for structured ingestion from schemaless sources.
-  CH = 2;
 }
 
 message QRepConfig {
