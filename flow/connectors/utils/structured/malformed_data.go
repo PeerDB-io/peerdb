@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -99,6 +100,16 @@ func (m *MalformedData) AsQValue() (types.QValue, error) {
 		return nil, err
 	}
 	return types.QValueJSON{Val: string(jsonData)}, nil
+}
+
+// Describes the column malformed data is recorded in.
+func MalformedDataFieldDescription() *protos.FieldDescription {
+	return &protos.FieldDescription{
+		Name:         MalformedDataColumn,
+		Type:         string(types.QValueKindJSON),
+		TypeModifier: -1,
+		Nullable:     true,
+	}
 }
 
 // isJSONRepresentable reports whether v can be encoded by encoding/json, which rejects NaN and ±Inf floats.
