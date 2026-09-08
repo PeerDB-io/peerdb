@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -161,16 +162,29 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		columns := []*protos.FieldDescription{
+			idFieldDescription,
+		}
+
+		if tm.StructuredIngestion {
+			for _, column := range tm.Columns {
+				columns = append(columns, &protos.FieldDescription{
+					Name:     column.DestinationName,
+					Type:     column.DestinationType,
+					Nullable: true,
+				})
+			}
+			columns = append(columns, structured.MalformedDataFieldDescription())
+		} else {
+			columns = append(columns, dataFieldDescription)
+		}
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
-			System:                protos.TypeSystem_Q,
+			System:                protos.TypeSystem_CH,
 			NullableEnabled:       false,
-			Columns: []*protos.FieldDescription{
-				idFieldDescription,
-				dataFieldDescription,
-			},
+			Columns:               columns,
 		}
 	}
 
