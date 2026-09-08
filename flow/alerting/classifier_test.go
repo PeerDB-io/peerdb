@@ -1280,6 +1280,19 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongoKeyNotFoundShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    211,
+		Message: "(KeyNotFound) No keys found for HMAC that is valid for time",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "211",
+	}, errInfo)
+}
+
 func TestMongoCursorErrors(t *testing.T) {
 	err := mongo.CommandError{
 		Code:    6,
