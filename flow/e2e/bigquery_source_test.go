@@ -300,6 +300,57 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 			require.NoError(t, err)
 		})
+
+		keylessTableName := AddSuffix(s, "source_validation_no_pkey")
+		keylessTableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, keylessTableName)
+		err := source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (trip_id INT64, pickup_datetime TIMESTAMP)",
+			quoteBigQueryTableFQN(keylessTableFQN)))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(keylessTableName)
+			if err := table.Delete(context.Background()); err != nil {
+				t.Logf("Warning: failed to delete test table %s: %v", keylessTableName, err)
+			}
+		})
+		keylessSourceIdentifier := source.config.DatasetId + "." + keylessTableName
+
+		t.Run("requires an ordering key for ReplacingMergeTree", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.SourceTableIdentifier = keylessSourceIdentifier
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+				tableMapping.Engine = protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.SourceTableIdentifier = source.config.DatasetId + ".trips_1k"
+					tableMapping.QueryCdcWatermarkColumn = ""
+					tableMapping.Engine = protos.TableEngine_CH_ENGINE_MERGE_TREE
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.ErrorContains(t, err, "empty sort key is not supported")
+		})
+
+		t.Run("accepts an explicit ordering key for ReplacingMergeTree", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.SourceTableIdentifier = keylessSourceIdentifier
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+				tableMapping.Engine = protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+				tableMapping.Columns = []*protos.ColumnSetting{{SourceName: "trip_id", Ordering: 1}}
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.SourceTableIdentifier = source.config.DatasetId + ".trips_1k"
+					tableMapping.QueryCdcWatermarkColumn = ""
+					tableMapping.Engine = protos.TableEngine_CH_ENGINE_MERGE_TREE
+					tableMapping.Columns = nil
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
 	})
 }
 

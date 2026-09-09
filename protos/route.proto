@@ -214,6 +214,8 @@ message TableResponse {
   bool can_mirror = 2;
   string table_size = 3;
   bool is_replica_identity_full = 4;
+  bool is_unlogged = 5;
+  bool has_primary_key_or_replica_identity = 6;
 }
 
 message AllTablesResponse { repeated string tables = 1; }

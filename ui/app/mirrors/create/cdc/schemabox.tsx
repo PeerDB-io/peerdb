@@ -45,6 +45,19 @@ import {
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
+function cannotMirrorReason(row: TableMapRow): string {
+  const reasons: string[] = [];
+  if (!row.hasPrimaryKeyOrReplicaIdentity) {
+    reasons.push('It needs a primary key or replica identity.');
+  }
+  if (row.isUnlogged) {
+    reasons.push(
+      'It is unlogged, which CDC cannot replicate. Run ALTER TABLE ... SET LOGGED.'
+    );
+  }
+  return `This table cannot be mirrored. ${reasons.join(' ')}`;
+}
+
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -361,9 +374,7 @@ export default function SchemaBox({
                               ...tooltipStyle(styledTheme),
                               display: row.canMirror ? 'none' : 'block',
                             }}
-                            content={
-                              'This table must have a primary key or replica identity to be mirrored.'
-                            }
+                            content={cannotMirrorReason(row)}
                           >
                             <Label
                               as='label'

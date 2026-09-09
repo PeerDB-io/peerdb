@@ -184,10 +184,8 @@ type SourceTableConfig struct {
 	// HasOrderingKey reports whether the table mapping configures an explicit
 	// ordering key (a PK substitute) via column settings.
 	HasOrderingKey bool
-	// RequiresOrderingKey reports whether the destination engine is a
-	// ReplacingMergeTree variant, which collapses rows on write when ordered
-	// by an empty tuple, so it needs either a source PK or an explicit
-	// ordering key.
+	// RequiresOrderingKey reports whether the destination engine requires a
+	// source PK or an explicit ordering key.
 	RequiresOrderingKey bool
 }
 
@@ -227,9 +225,10 @@ func (e *ExternalError) Unwrap() error {
 
 // ValidateSource checks that every configured source table exists, that its
 // column selection resolves to a non-empty set of real columns, and that the
-// client can read data from it. It also validates snapshot export permissions
-// and CDC requirements for mirrors with those phases enabled. The returned table
-// metadata can be reused for validation that is specific to the caller.
+// client can read data from it. It also validates destination ordering-key
+// requirements, snapshot export permissions, and CDC requirements for mirrors
+// with those phases enabled. The returned table metadata can be reused for
+// validation that is specific to the caller.
 func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]TableInfo, error) {
 	if cfg.HasSnapshot {
 		if err := validateSnapshotStagingAccess(ctx, cfg); err != nil {
@@ -239,6 +238,9 @@ func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]Tab
 
 	tablesByKey, err := validateSourceTables(ctx, cfg)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateSourceOrderingKeys(cfg, tablesByKey); err != nil {
 		return nil, err
 	}
 	if !cfg.SnapshotOnly {
@@ -252,6 +254,27 @@ func ValidateSource(ctx context.Context, cfg SourceConfig) (map[DatasetTable]Tab
 		}
 	}
 	return tablesByKey, nil
+}
+
+// validateSourceOrderingKeys performs the source-metadata portion of the
+// destination ordering-key validation here as well, so an invalid mapping is
+// rejected during source validation instead of waiting for destination
+// validation.
+func validateSourceOrderingKeys(cfg SourceConfig, tablesByKey map[DatasetTable]TableInfo) error {
+	for _, table := range cfg.Tables {
+		if !table.RequiresOrderingKey || table.HasOrderingKey {
+			continue
+		}
+
+		key, err := ResolveDatasetTable(table.SourceTableIdentifier, cfg.DefaultDataset)
+		if err != nil {
+			return err
+		}
+		if !tablesByKey[key].HasPrimaryKey() {
+			return fmt.Errorf("cannot determine sort key from source table %s; empty sort key is not supported", key)
+		}
+	}
+	return nil
 }
 
 // validateSnapshotStagingAccess checks the snapshot staging path and verifies
@@ -453,11 +476,9 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 					t.WatermarkColumn, key, column.Type)
 			}
 		case ReplicationModeEvents:
-			destinationHasOrderingKey := tablesByKey[key].HasPrimaryKey() || t.HasOrderingKey
-
 			switch t.CDCEventsFunction {
 			case CDCEventsFunctionChanges:
-				if !destinationHasOrderingKey {
+				if !tablesByKey[key].HasPrimaryKey() && !t.HasOrderingKey {
 					return fmt.Errorf("table %q has no primary key constraint configured on BigQuery; "+
 						"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
 						"or an explicit ordering key configured via column settings on the table mapping", key)
@@ -468,13 +489,6 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 						key)
 				}
 			case CDCEventsFunctionAppends:
-				if t.RequiresOrderingKey && !destinationHasOrderingKey {
-					return fmt.Errorf("table %q has no primary key configured on BigQuery and no ordering key configured "+
-						"via column settings, and the destination engine is a ReplacingMergeTree variant (the plain form "+
-						"is the default); ORDER BY tuple() on a keyless ReplacingMergeTree collapses the table on writes, "+
-						"so such a table must use an explicit CH_ENGINE_MERGE_TREE engine instead, or have an ordering key "+
-						"configured", key)
-				}
 			default:
 				return fmt.Errorf("table %q has no cdc_events_function configured; "+
 					"REPLICATION_MODE_EVENTS replication mode requires one per table to select the CDC function to use",

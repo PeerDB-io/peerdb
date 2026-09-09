@@ -500,6 +500,11 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
+		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
+		if numReplicated > 0 {
+			a.Alerter.LogFlowInfo(ctx, flowName,
+				fmt.Sprintf("replicated %d rows to destination for table %s", numReplicated, destTable))
+		}
 		logger.Info("[cdc] normalize done", slog.Int64("normalizedBatchID", reqBatchID))
 	}
 }
