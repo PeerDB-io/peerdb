@@ -922,12 +922,18 @@ func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error
 	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
 }
 
+var peerDBS3PartSizeCache CachedDynconfSetting[int64]
+
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
+	peerDBS3PartSizeCache.InitOnce("PEERDB_S3_PART_SIZE", 30*time.Second, dynamicConfSigned[int64])
+	return peerDBS3PartSizeCache.Get(ctx, env)
 }
 
+var peerDBS3BytesPerAvroFileCache CachedDynconfSetting[int64]
+
 func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
+	peerDBS3BytesPerAvroFileCache.InitOnce("PEERDB_S3_BYTES_PER_AVRO_FILE", 30*time.Second, dynamicConfSigned[int64])
+	return peerDBS3BytesPerAvroFileCache.Get(ctx, env)
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
