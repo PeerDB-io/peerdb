@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -128,6 +127,10 @@ func (c *BigQueryConnector) PullTableRecords(
 	if err != nil {
 		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
 	}
+	missingColumnRetryAfter, err := internal.PeerDBBigQueryCDCMissingColumnRetryAfter(ctx, req.Env)
+	if err != nil {
+		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC missing column retry interval: %w", err)
+	}
 
 	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
 	if !ok {
@@ -162,14 +165,21 @@ func (c *BigQueryConnector) PullTableRecords(
 		return nil
 	}
 
+	if req.TableSchema == nil {
+		return model.PullTableRecordsResult{}, fmt.Errorf("no table schema mapping found for destination table %s", req.NameAndExclude.Name)
+	}
+	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
+
 	var bytesProcessed int64
 	if cfg.GetBigqueryCdcConfig().ReplicationMode == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
-		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
-			req.NameAndExclude, start, upper, addRecord)
+		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
+			req.SourceTableIdentifier, req.NameAndExclude.Name, columns, missingColumnRetryAfter, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
+		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier,
+			req.NameAndExclude.Name, columns, missingColumnRetryAfter, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
-		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
+		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier,
+			req.NameAndExclude.Name, columns, missingColumnRetryAfter, start, upper, addRecord)
 	} else {
 		// unreachable, but just in case throw an error instead of silently returning an empty result
 		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)
@@ -184,14 +194,16 @@ func (c *BigQueryConnector) PullTableRecords(
 	}, nil
 }
 
-// pullTableAppends runs SELECT * FROM APPENDS(TABLE <table>, @start, @end) for one
+// pullTableAppends runs SELECT <columns> FROM APPENDS(TABLE <table>, @start, @end) for one
 // source table over [start, end), converting and pushing each row via addRecord.
 // Returns the HTTP response bytes BigQuery transferred for this table's query,
 // including pagination fetches (see withByteCounter).
 func (c *BigQueryConnector) pullTableAppends(
 	ctx context.Context,
 	sourceTableIdentifier string,
-	nameAndExclude model.NameAndExclude,
+	destinationTableName string,
+	columns []string,
+	missingColumnRetryAfter time.Duration,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
 ) (int64, error) {
@@ -201,9 +213,10 @@ func (c *BigQueryConnector) pullTableAppends(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
-		func(exclude map[string]struct{}) string {
-			return buildPullQuery("APPENDS", dsTable.stringQuoted(), exclude, "")
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, missingColumnRetryAfter,
+		start, end, func(cols []string) string {
+			selectCols := append(slices.Clone(cols), bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn)
+			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
@@ -248,7 +261,7 @@ func (c *BigQueryConnector) pullTableAppends(
 			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
 			Items:                items,
 			SourceTableName:      sourceTableIdentifier,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: destinationTableName,
 		}); err != nil {
 			return 0, err
 		}
@@ -263,39 +276,59 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 	bigQueryChangeIsForUpdateColumn: {},
 }
 
-// buildPullQuery renders "SELECT * [EXCEPT (...)] FROM fn(TABLE dsTable, @start, @end)
+// buildEventsPullQuery renders "SELECT col1, col2, ... FROM fn(TABLE dsTable, @start, @end)
 // [ORDER BY orderBy]" for the APPENDS()/CHANGES() table-valued functions.
-func buildPullQuery(fn string, dsTable string, exclude map[string]struct{}, orderBy string) string {
-	q := fmt.Sprintf("SELECT *%s FROM %s(TABLE %s, @start, @end)", exceptClause(exclude), fn, dsTable)
+func buildEventsPullQuery(fn string, dsTable string, columns []string, orderBy string) string {
+	q := fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", quotedColumnList(columns), fn, dsTable)
 	if orderBy != "" {
 		q += " ORDER BY " + orderBy
 	}
 	return q
 }
 
-// exceptClause renders a "SELECT * EXCEPT (...)" suffix for the given excluded
-// column names, or "" if there are none.
-func exceptClause(exclude map[string]struct{}) string {
-	if len(exclude) == 0 {
-		return ""
-	}
-	names := slices.Sorted(maps.Keys(exclude))
-	quoted := make([]string, len(names))
-	for i, name := range names {
-		quoted[i] = quotedIdentifier(name)
-	}
-	return fmt.Sprintf(" EXCEPT (%s)", strings.Join(quoted, ", "))
+// buildWatermarkPullQuery renders "SELECT col1, col2, ... FROM dsTable WHERE
+// watermarkColumn > @start AND watermarkColumn <= @end ORDER BY watermarkColumn"
+func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []string) string {
+	col := quotedIdentifier(watermarkColumn)
+	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
+		quotedColumnList(columns), dsTable, col, col, col)
 }
 
-// runPullQuery runs the APPENDS()/CHANGES() query for sourceTableIdentifier,
-// retrying with a shrunk EXCEPT clause if BigQuery rejects a column that no longer
-// exists on the source table (BigQuery reports one such column per error, so this
-// may loop more than once).
+// quotedColumnList renders columns as a comma-separated list of quoted identifiers.
+func quotedColumnList(columns []string) string {
+	quoted := make([]string, len(columns))
+	for i, name := range columns {
+		quoted[i] = quotedIdentifier(name)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// pullColumnNames returns tableSchema's column names, in schema order, minus any
+// in exclude.
+func pullColumnNames(tableSchema *protos.TableSchema, exclude map[string]struct{}) []string {
+	columns := make([]string, 0, len(tableSchema.Columns))
+	for _, col := range tableSchema.Columns {
+		if _, excluded := exclude[col.Name]; excluded {
+			continue
+		}
+		columns = append(columns, col.Name)
+	}
+	return columns
+}
+
+type pullQueryBuilder func(columns []string) string
+
+// runPullQuery runs buildQuery(columns) for the [start, end) window, retrying with a
+// shrunk column list if BigQuery rejects a column that no longer exists on the source
+// table (BigQuery reports one such column per error, so this may loop more than once).
+// Columns found missing are remembered per sourceTableIdentifier so later polls don't
+// have to rediscover them until missingColumnRetryAfter elapses.
 func (c *BigQueryConnector) runPullQuery(
-	ctx context.Context, sourceTableIdentifier string, exclude map[string]struct{}, start, end time.Time,
-	buildQuery func(exclude map[string]struct{}) string,
+	ctx context.Context, sourceTableIdentifier string, columns []string, missingColumnRetryAfter time.Duration,
+	start, end time.Time,
+	buildQuery pullQueryBuilder,
 ) (*bigquery.RowIterator, error) {
-	effective := c.effectiveExclude(sourceTableIdentifier, exclude)
+	effective := c.effectiveColumns(sourceTableIdentifier, columns, missingColumnRetryAfter)
 	for {
 		q := c.client.Query(buildQuery(effective))
 		q.Parameters = []bigquery.QueryParameter{
@@ -308,70 +341,74 @@ func (c *BigQueryConnector) runPullQuery(
 			return it, nil
 		}
 
-		missing := missingExceptColumns(err, effective)
-		if len(missing) == 0 {
+		missingCol, ok := missingSourceColumn(err, effective)
+		if !ok {
 			return nil, err
 		}
-		c.droppedExcludeColumnsMu.Lock()
-		dropped := c.droppedExcludeColumns[sourceTableIdentifier]
-		if dropped == nil {
-			dropped = make(map[string]struct{}, len(missing))
-			c.droppedExcludeColumns[sourceTableIdentifier] = dropped
-		}
-		c.droppedExcludeColumnsMu.Unlock()
-		next := make(map[string]struct{}, len(effective))
-		for col := range effective {
-			if _, gone := missing[col]; gone {
-				dropped[col] = struct{}{}
-				c.logger.Warn("[bigquery] excluded column no longer exists on source table, dropping from EXCEPT clause",
-					slog.String("table", sourceTableIdentifier), slog.String("column", col))
-				continue
-			}
-			next[col] = struct{}{}
-		}
-		effective = next
+		c.logger.Warn("[bigquery] column no longer exists on source table, dropping from SELECT list",
+			slog.String("table", sourceTableIdentifier), slog.String("column", missingCol))
+		c.recordMissingSourceColumn(sourceTableIdentifier, missingCol)
+		effective = slices.DeleteFunc(slices.Clone(effective), func(col string) bool { return col == missingCol })
 	}
 }
 
-// effectiveExclude returns exclude minus any columns already known (from a prior
-// runPullQuery retry) to no longer exist on sourceTableIdentifier.
-func (c *BigQueryConnector) effectiveExclude(sourceTableIdentifier string, exclude map[string]struct{}) map[string]struct{} {
-	c.droppedExcludeColumnsMu.Lock()
-	dropped := c.droppedExcludeColumns[sourceTableIdentifier]
-	c.droppedExcludeColumnsMu.Unlock()
-	if len(dropped) == 0 {
-		return exclude
+// effectiveColumns returns columns minus any known (from a prior runPullQuery retry,
+// within missingColumnRetryAfter) to no longer exist on sourceTableIdentifier.
+func (c *BigQueryConnector) effectiveColumns(sourceTableIdentifier string, columns []string, missingColumnRetryAfter time.Duration) []string {
+	c.missingSourceColumnsMu.Lock()
+	missing := c.missingSourceColumns[sourceTableIdentifier]
+	c.missingSourceColumnsMu.Unlock()
+	if len(missing) == 0 {
+		return columns
 	}
-	effective := make(map[string]struct{}, len(exclude))
-	for col := range exclude {
-		if _, isDropped := dropped[col]; !isDropped {
-			effective[col] = struct{}{}
+	now := time.Now()
+	effective := make([]string, 0, len(columns))
+	for _, col := range columns {
+		if droppedAt, gone := missing[col]; !gone || now.Sub(droppedAt) >= missingColumnRetryAfter {
+			effective = append(effective, col)
 		}
 	}
 	return effective
 }
 
-// Matches BigQuery's invalid-query error for a "SELECT * EXCEPT (col)" column that
-// doesn't exist on the source, e.g. "Column foo in SELECT * EXCEPT list does not
-// exist at [1:18]" (verified against a live table).
-var bqMissingExceptColRe = regexp.MustCompile(`Column (\S+) in SELECT \* EXCEPT list does not exist`)
+// recordMissingSourceColumn remembers that column no longer exists on
+// sourceTableIdentifier's source table, so effectiveColumns excludes it until its
+// caller-supplied retry interval elapses.
+func (c *BigQueryConnector) recordMissingSourceColumn(sourceTableIdentifier, column string) {
+	c.missingSourceColumnsMu.Lock()
+	defer c.missingSourceColumnsMu.Unlock()
+	missing := c.missingSourceColumns[sourceTableIdentifier]
+	if missing == nil {
+		missing = make(map[string]time.Time, 1)
+		c.missingSourceColumns[sourceTableIdentifier] = missing
+	}
+	missing[column] = time.Now()
+}
 
-// missingExceptColumns returns the column named in err's EXCEPT-clause error, as a
-// single-element set, if it's one of candidates. Returns nil otherwise.
-func missingExceptColumns(err error, candidates map[string]struct{}) map[string]struct{} {
+// Matches BigQuery's error for a SELECT list column that doesn't exist on the source.
+// Verified against live BigQuery error messages.
+var bqUnrecognizedNameRe = regexp.MustCompile("Unrecognized name: (?:`([^`]+)`|([^\\s;]+))")
+
+// missingSourceColumn returns the column named in err's "unrecognized name" error, if
+// it's one of candidates. Returns "", false otherwise.
+func missingSourceColumn(err error, candidates []string) (string, bool) {
 	apiErr, ok := errors.AsType[*googleapi.Error](err)
 	if !ok || apiErr.Code != 400 {
-		return nil
+		return "", false
 	}
-	match := bqMissingExceptColRe.FindStringSubmatch(apiErr.Message)
+	match := bqUnrecognizedNameRe.FindStringSubmatch(apiErr.Message)
 	if match == nil {
-		return nil
+		return "", false
 	}
+	// match[1] is the backtick-quoted form, match[2] the bare one; exactly one is set.
 	col := match[1]
-	if _, isCandidate := candidates[col]; !isCandidate {
-		return nil
+	if col == "" {
+		col = match[2]
 	}
-	return map[string]struct{}{col: {}}
+	if !slices.Contains(candidates, col) {
+		return "", false
+	}
+	return col, true
 }
 
 func bigQueryRowToRecordItems(
@@ -413,8 +450,8 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 	return cols
 }
 
-// pullTableChanges runs SELECT * FROM CHANGES(TABLE <table>, @start, @end) ORDER BY
-// _CHANGE_TIMESTAMP for one source table over [start, end), single-pass streaming
+// pullTableChanges runs SELECT <columns> FROM CHANGES(TABLE <table>, @start, @end)
+// ORDER BY _CHANGE_TIMESTAMP for one source table over [start, end), single-pass streaming
 // like pullTableAppends, and pushes the resulting Insert/Update/DeleteRecords via
 // addRecord.
 //
@@ -429,7 +466,9 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
-	nameAndExclude model.NameAndExclude,
+	destinationTableName string,
+	columns []string,
+	missingColumnRetryAfter time.Duration,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
 ) (int64, error) {
@@ -439,9 +478,12 @@ func (c *BigQueryConnector) pullTableChanges(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
-		func(exclude map[string]struct{}) string {
-			return buildPullQuery("CHANGES", dsTable.stringQuoted(), exclude, quotedIdentifier(bigQueryChangeTimestampColumn))
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, missingColumnRetryAfter,
+		start, end, func(cols []string) string {
+			selectCols := append(slices.Clone(cols),
+				bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn, bigQueryChangeIsForUpdateColumn)
+			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), selectCols,
+				quotedIdentifier(bigQueryChangeTimestampColumn))
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
@@ -500,18 +542,21 @@ func (c *BigQueryConnector) pullTableChanges(
 		case bigQueryChangeTypeInsert:
 			record = &model.InsertRecord[model.RecordItems]{
 				BaseRecord: baseRecord, Items: items,
-				SourceTableName: sourceTableIdentifier, DestinationTableName: nameAndExclude.Name,
+				SourceTableName:      sourceTableIdentifier,
+				DestinationTableName: destinationTableName,
 			}
 		case bigQueryChangeTypeUpdate:
 			record = &model.UpdateRecord[model.RecordItems]{
 				BaseRecord: baseRecord, NewItems: items,
-				SourceTableName: sourceTableIdentifier, DestinationTableName: nameAndExclude.Name,
+				SourceTableName:      sourceTableIdentifier,
+				DestinationTableName: destinationTableName,
 			}
 		case bigQueryChangeTypeDelete:
 			// bigQueryChangeTypeDelete, not flagged for update: a genuine delete
 			record = &model.DeleteRecord[model.RecordItems]{
 				BaseRecord: baseRecord, Items: items,
-				SourceTableName: sourceTableIdentifier, DestinationTableName: nameAndExclude.Name,
+				SourceTableName:      sourceTableIdentifier,
+				DestinationTableName: destinationTableName,
 			}
 		default:
 			return 0, fmt.Errorf("unexpected _CHANGE_TYPE %q for table %s", changeType, sourceTableIdentifier)
@@ -522,7 +567,7 @@ func (c *BigQueryConnector) pullTableChanges(
 	}
 }
 
-// pullTableQuery runs SELECT * FROM <table> WHERE watermarkColumn > @start AND
+// pullTableQuery runs SELECT <columns> FROM <table> WHERE watermarkColumn > @start AND
 // watermarkColumn <= @end ORDER BY watermarkColumn for one source table
 // Returns the HTTP response body bytes consumed by BigQuery for this table's
 // query
@@ -530,7 +575,9 @@ func (c *BigQueryConnector) pullTableQuery(
 	ctx context.Context,
 	watermarkColumn string,
 	sourceTableIdentifier string,
-	nameAndExclude model.NameAndExclude,
+	destinationTableName string,
+	columns []string,
+	missingColumnRetryAfter time.Duration,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
 ) (int64, error) {
@@ -539,16 +586,10 @@ func (c *BigQueryConnector) pullTableQuery(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	buildQueryModePullQuery := func(dsTable string, watermarkColumn string, exclude map[string]struct{}) string {
-		col := quotedIdentifier(watermarkColumn)
-		return fmt.Sprintf("SELECT *%s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
-			exceptClause(exclude), dsTable, col, col, col)
-	}
-
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
-		func(exclude map[string]struct{}) string {
-			return buildQueryModePullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, missingColumnRetryAfter,
+		start, end, func(cols []string) string {
+			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, cols)
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
@@ -598,7 +639,7 @@ func (c *BigQueryConnector) pullTableQuery(
 			BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNano},
 			Items:                items,
 			SourceTableName:      sourceTableIdentifier,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: destinationTableName,
 		}); err != nil {
 			return 0, err
 		}

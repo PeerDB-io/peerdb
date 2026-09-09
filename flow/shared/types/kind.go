@@ -1,7 +1,11 @@
 package types
 
 import (
+	"math/big"
 	"strings"
+	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 type QValueKind string
@@ -69,6 +73,83 @@ const (
 
 func (kind QValueKind) IsArray() bool {
 	return strings.HasPrefix(string(kind), "array_")
+}
+
+func (kind QValueKind) DefaultValue() QValue {
+	switch kind {
+	case QValueKindFloat32:
+		return QValueFloat32{}
+	case QValueKindFloat64:
+		return QValueFloat64{}
+	case QValueKindInt8:
+		return QValueInt8{}
+	case QValueKindInt16:
+		return QValueInt16{}
+	case QValueKindInt32:
+		return QValueInt32{}
+	case QValueKindInt64:
+		return QValueInt64{}
+	case QValueKindInt256:
+		return QValueInt256{Val: big.NewInt(0)}
+	case QValueKindUInt8:
+		return QValueUInt8{}
+	case QValueKindUInt16:
+		return QValueUInt16{}
+	case QValueKindUInt32:
+		return QValueUInt32{}
+	case QValueKindUInt64:
+		return QValueUInt64{}
+	case QValueKindUInt256:
+		return QValueUInt256{Val: big.NewInt(0)}
+	case QValueKindBoolean:
+		return QValueBoolean{}
+	case QValueKindQChar:
+		return QValueQChar{}
+	case QValueKindString:
+		return QValueString{}
+	case QValueKindEnum:
+		return QValueEnum{}
+	case QValueKindUint16Enum:
+		return QValueUint16Enum{}
+	case QValueKindUint64Set:
+		return QValueUint64Set{}
+	case QValueKindTimestamp:
+		return QValueTimestamp{Val: time.Unix(0, 0).UTC()}
+	case QValueKindTimestampTZ:
+		return QValueTimestampTZ{Val: time.Unix(0, 0).UTC()}
+	case QValueKindDate:
+		return QValueDate{Val: time.Unix(0, 0).UTC()}
+	case QValueKindTime:
+		return QValueTime{}
+	case QValueKindTimeTZ:
+		return QValueTimeTZ{}
+	case QValueKindInterval:
+		return QValueInterval{}
+	case QValueKindNumeric:
+		return QValueNumeric{Val: decimal.Zero}
+	case QValueKindBytes:
+		return QValueBytes{Val: []byte{}}
+	case QValueKindUUID:
+		return QValueUUID{}
+	case QValueKindJSON:
+		return QValueJSON{Val: "{}"}
+	case QValueKindHStore:
+		return QValueHStore{}
+	case QValueKindGeography:
+		return QValueGeography{}
+	case QValueKindGeometry:
+		return QValueGeometry{}
+	case QValueKindPoint:
+		return QValuePoint{}
+	case QValueKindCIDR:
+		return QValueCIDR{}
+	case QValueKindINET:
+		return QValueINET{}
+	case QValueKindMacaddr:
+		return QValueMacaddr{}
+	default:
+		return QValueNull(kind)
+	}
 }
 
 var QValueKindToSnowflakeTypeMap = map[QValueKind]string{

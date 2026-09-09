@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -77,61 +78,110 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 	assert.Len(t, items.ColToVal, 2)
 }
 
-func TestExceptClause(t *testing.T) {
-	assert.Empty(t, exceptClause(nil))
-	assert.Empty(t, exceptClause(map[string]struct{}{}))
-	assert.Equal(t, " EXCEPT (`a`, `b`)", exceptClause(map[string]struct{}{"b": {}, "a": {}}))
+func TestPullColumnNames(t *testing.T) {
+	schema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id"}, {Name: "secret"}, {Name: "name"},
+		},
+	}
+	assert.Equal(t, []string{"id", "secret", "name"}, pullColumnNames(schema, nil))
+	assert.Equal(t, []string{"id", "secret", "name"}, pullColumnNames(schema, map[string]struct{}{}))
+	assert.Equal(t, []string{"id", "name"}, pullColumnNames(schema, map[string]struct{}{"secret": {}}))
 }
 
-func TestMissingExceptColumns(t *testing.T) {
-	candidates := map[string]struct{}{"secret_column": {}, "large_payload": {}, "id": {}}
+func TestMissingSourceColumn(t *testing.T) {
+	candidates := []string{"secret_column", "large_payload", "id"}
 
 	err := &googleapi.Error{
 		Code:    400,
-		Message: "Column secret_column in SELECT * EXCEPT list does not exist at [1:18]",
+		Message: "Unrecognized name: secret_column at [1:8]",
 	}
-	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingExceptColumns(err, candidates))
-	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingExceptColumns(fmt.Errorf("query failed: %w", err), candidates))
+	col, ok := missingSourceColumn(err, candidates)
+	assert.True(t, ok)
+	assert.Equal(t, "secret_column", col)
 
-	assert.Empty(t, missingExceptColumns(errors.New("some unrelated failure"), candidates))
-	assert.Empty(t, missingExceptColumns(&googleapi.Error{Code: 404, Message: "secret_column"}, candidates))
-	assert.Empty(t, missingExceptColumns(&googleapi.Error{Code: 400, Message: "Unrecognized name: secret_column"}, candidates))
+	col, ok = missingSourceColumn(fmt.Errorf("query failed: %w", err), candidates)
+	assert.True(t, ok)
+	assert.Equal(t, "secret_column", col)
 
-	// Excluding both "id" and "user_id": losing user_id must not also flag "id".
-	idCandidates := map[string]struct{}{"id": {}, "user_id": {}}
-	userIDErr := &googleapi.Error{
-		Code:    400,
-		Message: "Column user_id in SELECT * EXCEPT list does not exist at [1:18]",
-	}
-	assert.Equal(t, map[string]struct{}{"user_id": {}}, missingExceptColumns(userIDErr, idCandidates))
+	_, ok = missingSourceColumn(errors.New("some unrelated failure"), candidates)
+	assert.False(t, ok)
+	_, ok = missingSourceColumn(&googleapi.Error{Code: 404, Message: "secret_column"}, candidates)
+	assert.False(t, ok)
 
-	// A column literally named after a word in the error's fixed boilerplate must
-	// not be flagged by some other column's error.
-	boilerplateCandidates := map[string]struct{}{"at": {}, "list": {}}
-	assert.Empty(t, missingExceptColumns(err, boilerplateCandidates))
+	// Column not among candidates (e.g. already dropped, or a different query
+	// entirely) must not be reported as newly missing.
+	_, ok = missingSourceColumn(&googleapi.Error{Code: 400, Message: "Unrecognized name: other_col at [1:8]"}, candidates)
+	assert.False(t, ok)
 }
 
-func TestEffectiveExclude(t *testing.T) {
-	c := &BigQueryConnector{droppedExcludeColumns: map[string]map[string]struct{}{
-		"ds.tbl": {"secret_column": {}},
-	}}
-	exclude := map[string]struct{}{"secret_column": {}, "large_payload": {}}
+// The message shapes below were all captured from a live BigQuery table, driven through
+// both a plain SELECT and the CHANGES(TABLE ...) query pullTableChanges issues.
+func TestMissingSourceColumnMessageShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{{
+		name:    "bare name, no similarly-named column in scope",
+		message: "Unrecognized name: secret_column at [1:8]",
+		want:    "secret_column",
+	}, {
+		// A rename leaves a similarly-named column in scope, so BigQuery suggests it;
+		// the capture must not swallow the ";" that terminates the name.
+		name:    "bare name with Did you mean suggestion",
+		message: "Unrecognized name: secret_column; Did you mean secret_columns? at [1:8]",
+		want:    "secret_column",
+	}, {
+		// Names needing quoting are echoed back backtick-wrapped.
+		name:    "quoted name, no suggestion",
+		message: "Unrecognized name: `my secret column` at [1:8]",
+		want:    "my secret column",
+	}, {
+		name:    "quoted name with Did you mean suggestion",
+		message: "Unrecognized name: `my secret column`; Did you mean my secret columns? at [1:8]",
+		want:    "my secret column",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			col, ok := missingSourceColumn(
+				&googleapi.Error{Code: 400, Message: tc.message},
+				[]string{"id", tc.want},
+			)
+			assert.True(t, ok)
+			assert.Equal(t, tc.want, col)
+		})
+	}
+}
 
-	assert.Equal(t, map[string]struct{}{"large_payload": {}}, c.effectiveExclude("ds.tbl", exclude))
-	assert.Equal(t, exclude, c.effectiveExclude("ds.other", exclude))
+func TestEffectiveColumns(t *testing.T) {
+	const retryAfter = time.Hour
+	c := &BigQueryConnector{missingSourceColumns: map[string]map[string]time.Time{
+		"ds.tbl": {"secret_column": time.Now()},
+	}}
+	columns := []string{"id", "secret_column", "large_payload"}
+
+	// Still within the retry window: stays excluded.
+	assert.Equal(t, []string{"id", "large_payload"}, c.effectiveColumns("ds.tbl", columns, retryAfter))
+	// A different table was never affected.
+	assert.Equal(t, columns, c.effectiveColumns("ds.other", columns, retryAfter))
+
+	// Retry window elapsed: the customer may have re-added the column, so retry it.
+	c.missingSourceColumns["ds.tbl"]["secret_column"] = time.Now().Add(-retryAfter - time.Minute)
+	assert.Equal(t, columns, c.effectiveColumns("ds.tbl", columns, retryAfter))
 }
 
 func TestBuildPullQuery(t *testing.T) {
 	assert.Equal(t,
-		"SELECT * FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
-		buildPullQuery("APPENDS", "`ds`.`tbl`", nil, ""),
+		"SELECT `id`, `name` FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
+		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}, ""),
 	)
 	assert.Equal(t,
-		"SELECT * EXCEPT (`secret`) FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
-		buildPullQuery("APPENDS", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, ""),
+		"SELECT `id`, `name` FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
+		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}, "`_CHANGE_TIMESTAMP`"),
 	)
 	assert.Equal(t,
-		"SELECT * EXCEPT (`secret`) FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
-		buildPullQuery("CHANGES", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, "`_CHANGE_TIMESTAMP`"),
+		"SELECT `id`, `name` FROM `ds`.`tbl` "+
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end ORDER BY `updated_at`",
+		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
 	)
 }
