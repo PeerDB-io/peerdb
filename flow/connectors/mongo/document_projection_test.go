@@ -195,12 +195,12 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 
 		malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
 		require.True(t, ok, "malformed data should be recorded as JSON")
-		var reported map[string]map[string]map[string]any
+		var reported map[string]map[string]any
 		require.NoError(t, json.Unmarshal([]byte(malformed.Val), &reported))
 		require.Equal(t, map[string]map[string]any{
 			"age":   {"type_mismatch": true, "value": "thirty six"},
 			"email": {"unexpected": true, "value": "ada@example.com"},
-		}, reported["malformed_data"])
+		}, reported)
 	})
 
 	t.Run("missing id", func(t *testing.T) {

@@ -50,11 +50,12 @@ func NewMalformedData() *MalformedData {
 	}
 }
 
-// AddField adds a problematic field along with its reason and optionally its value to the MalformedData.
-func (m *MalformedData) AddField(field string, reason MalformedReason, value *types.QValue) {
+// AddField adds a problematic field along with its reason and, when value is not nil, its value to the
+// MalformedData.
+func (m *MalformedData) AddField(field string, reason MalformedReason, value types.QValue) {
 	m.reasons[field] = reason
 	if value != nil {
-		m.values[field] = *value
+		m.values[field] = value
 	}
 }
 
@@ -65,7 +66,7 @@ func (m *MalformedData) IsEmpty() bool {
 // MarshalJSON implements json.Marshaler, serializing the malformed fields state in the shape of a JSON object
 // which is query friendly if ingested into ClickHouse:
 //
-//	{"malformed_data": {"<field>": {"<reason>": true, "value": <value>}}}
+//	{"<field>": {"<reason>": true, "value": <value>}}
 func (m *MalformedData) MarshalJSON() ([]byte, error) {
 	fields := make(map[string]map[string]any, len(m.reasons))
 	for name, reason := range m.reasons {
@@ -91,7 +92,7 @@ func (m *MalformedData) MarshalJSON() ([]byte, error) {
 			fields[name] = map[string]any{ReasonNaN.String(): true}
 		}
 	}
-	return json.Marshal(map[string]any{"malformed_data": fields})
+	return json.Marshal(fields)
 }
 
 func (m *MalformedData) AsQValue() (types.QValue, error) {

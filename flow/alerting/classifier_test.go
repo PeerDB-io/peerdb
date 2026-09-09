@@ -731,6 +731,27 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresExtensionNotAvailableOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"not available": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  extension "vector" is not available`,
+		"missing control file": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postgresql/16/extension/vector.control": No such file or directory`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresExtensionNotAvailable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "EXTENSION_NOT_AVAILABLE",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+}
+
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
@@ -1257,6 +1278,19 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceMongoDB,
 		Code:   "POOL_CLEARED_ERROR(11602)",
 	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoKeyNotFoundShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    211,
+		Message: "(KeyNotFound) No keys found for HMAC that is valid for time",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "211",
+	}, errInfo)
 }
 
 func TestMongoCursorErrors(t *testing.T) {

@@ -321,6 +321,7 @@ func (c *ClickHouseConnector) insertFromURLBatch(
 		connector:                 c,
 		logger:                    c.logger,
 		fieldExpressionConverters: fieldExpressionConverters,
+		stagedFormat:              format,
 	}
 
 	chSettings := chinternal.NewCHSettings(c.chVersion)

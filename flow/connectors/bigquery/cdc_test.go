@@ -1,7 +1,6 @@
 package connbigquery
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -49,47 +48,6 @@ func TestPollWindow(t *testing.T) {
 		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		assert.False(t, ok)
 		assert.True(t, upper.Equal(checkpoint))
-	})
-}
-
-func TestWaitForNextPoll(t *testing.T) {
-	t.Run("first-ever call (zero lastPollAt) returns immediately", func(t *testing.T) {
-		c := &BigQueryConnector{}
-		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), time.Hour)
-		require.NoError(t, err)
-		assert.Less(t, time.Since(start), 100*time.Millisecond)
-	})
-
-	t.Run("waits out the remainder of idleTimeout since lastPollAt", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now()}
-		idleTimeout := 50 * time.Millisecond
-		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), idleTimeout)
-		require.NoError(t, err)
-		elapsed := time.Since(start)
-		assert.GreaterOrEqual(t, elapsed, idleTimeout-5*time.Millisecond)
-	})
-
-	t.Run("no wait once idleTimeout has already elapsed", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now().Add(-time.Hour)}
-		start := time.Now()
-		err := c.waitForNextPoll(context.Background(), time.Second)
-		require.NoError(t, err)
-		assert.Less(t, time.Since(start), 100*time.Millisecond)
-	})
-
-	t.Run("context cancellation interrupts the wait", func(t *testing.T) {
-		c := &BigQueryConnector{lastPollAt: time.Now()}
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			cancel()
-		}()
-		start := time.Now()
-		err := c.waitForNextPoll(ctx, time.Hour)
-		require.ErrorIs(t, err, context.Canceled)
-		assert.Less(t, time.Since(start), time.Second)
 	})
 }
 

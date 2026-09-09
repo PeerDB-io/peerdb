@@ -10,7 +10,12 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
+
+// ErrNoAvroStage is returned by GetQueryCDCAvroStage when no stage row exists for
+// the requested batch.
+var ErrNoAvroStage = errors.New("no avro stage found")
 
 func SetAvroStage(
 	ctx context.Context,
@@ -65,4 +70,91 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 	}
 
 	return avroFile, nil
+}
+
+// SetQueryCDCAvroStage records a table's staged Avro file for the query-based CDC
+// path (see flow/activities/flowable_query_cdc.go). Unlike
+// SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
+// flow-wide sync batch ID, one row per (flow, table, table's own batch).
+func SetQueryCDCAvroStage(
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
+	rowCounts *model.RecordTypeCounts,
+) error {
+	avroFileJSON, err := json.Marshal(avroFile)
+	if err != nil {
+		return fmt.Errorf("failed to marshal avro file: %w", err)
+	}
+
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO query_cdc_avro_stage (flow_name, source_table_identifier, batch_id, avro_file, inserts_count, updates_count, deletes_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (flow_name, source_table_identifier, batch_id)
+		DO UPDATE SET avro_file = $4, inserts_count = $5, updates_count = $6, deletes_count = $7, created_at = CURRENT_TIMESTAMP`,
+		flowJobName, sourceTableIdentifier, batchID, avroFileJSON,
+		rowCounts.InsertCount.Load(), rowCounts.UpdateCount.Load(), rowCounts.DeleteCount.Load(),
+	); err != nil {
+		return fmt.Errorf("failed to set table avro stage: %w", err)
+	}
+
+	return nil
+}
+
+// GetQueryCDCAvroStage retrieves a table's staged Avro file for batchID, along
+// with the insert/update/delete counts staged with it.
+func GetQueryCDCAvroStage(
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
+) (utils.AvroFile, *model.RecordTypeCounts, error) {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	var avroFileJSON []byte
+	var insertsCount, updatesCount, deletesCount int64
+	if err := conn.QueryRow(ctx, `
+		SELECT avro_file, inserts_count, updates_count, deletes_count FROM query_cdc_avro_stage
+		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
+		flowJobName, sourceTableIdentifier, batchID,
+	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return utils.AvroFile{}, nil, fmt.Errorf(
+				"%w for flow job %s, table %s, batch %d", ErrNoAvroStage, flowJobName, sourceTableIdentifier, batchID)
+		}
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to get table avro stage: %w", err)
+	}
+
+	var avroFile utils.AvroFile
+	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
+		return utils.AvroFile{}, nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
+	}
+
+	rowCounts := &model.RecordTypeCounts{}
+	rowCounts.InsertCount.Store(int32(insertsCount))
+	rowCounts.UpdateCount.Store(int32(updatesCount))
+	rowCounts.DeleteCount.Store(int32(deletesCount))
+
+	return avroFile, rowCounts, nil
+}
+
+// DeleteQueryCDCAvroStage removes a table's staged Avro record for batchID once
+// it's been normalized. The underlying S3/GCS object is not removed here.
+func DeleteQueryCDCAvroStage(ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64) error {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx,
+		`DELETE FROM query_cdc_avro_stage WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3`,
+		flowJobName, sourceTableIdentifier, batchID,
+	); err != nil {
+		return fmt.Errorf("failed to delete table avro stage: %w", err)
+	}
+
+	return nil
 }

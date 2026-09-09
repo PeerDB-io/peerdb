@@ -139,11 +139,15 @@ async fn gcp_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow:
     Err(anyhow::anyhow!("GCP KMS support not compiled in"))
 }
 
-async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
-    let migration_report = embedded::migrations::runner()
-        // Tolerate a schema history that is ahead of the binary to support release rollbacks.
-        // Divergent migrations with same version but different checksum will still abort.
-        .set_abort_missing(false)
+async fn run_migrations(client: &mut Client, target_version: Option<i32>) -> anyhow::Result<()> {
+    let mut runner = embedded::migrations::runner();
+    // Tolerate a schema history that is ahead of the binary to support release rollbacks.
+    // Divergent migrations with same version but different checksum will still abort.
+    runner = runner.set_abort_missing(false);
+    if let Some(version) = target_version {
+        runner = runner.set_target(refinery::Target::Version(version));
+    }
+    let migration_report = runner
         .run_async(client)
         .await
         .context("Failed to run migrations")?;
@@ -207,8 +211,8 @@ impl Catalog {
         })
     }
 
-    pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
-        run_migrations(&mut self.pg).await
+    pub async fn run_migrations(&mut self, target_version: Option<i32>) -> anyhow::Result<()> {
+        run_migrations(&mut self.pg, target_version).await
     }
 
     async fn env_enc_key(&self, enc_key_id: &str) -> anyhow::Result<Vec<u8>> {

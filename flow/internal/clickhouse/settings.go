@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // When adding a new clickhouse setting to this list, check when the setting is introduced to ClickHouse
@@ -72,6 +74,24 @@ func NewCHSettings(version *chproto.Version, settings ...CHSettingEntry) *CHSett
 		chVersion: version,
 	}
 	return chSettings
+}
+
+// NewInsertSettings builds settings common to every INSERT ... SELECT into a ClickHouse
+// destination table
+func NewInsertSettings(chVersion *chproto.Version, internalVersion uint32) *CHSettings {
+	sg := NewCHSettings(chVersion)
+	sg.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	sg.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
+	if internalVersion >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		sg.Add(SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if internalVersion >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		sg.Add(SettingInputFormatTryInferDates, "0")
+		sg.Add(SettingInputFormatTryInferDatetimes, "1")
+		sg.Add(SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
+	}
+
+	return sg
 }
 
 func (sg *CHSettings) Add(key CHSetting, val string) *CHSettings {
