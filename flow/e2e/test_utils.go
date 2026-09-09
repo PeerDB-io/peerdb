@@ -744,6 +744,12 @@ func (env WorkflowRun) Error(ctx context.Context) error {
 
 func (env WorkflowRun) Cancel(ctx context.Context) {
 	_ = env.c.CancelWorkflow(ctx, env.GetID(), "")
+	// otherwise mirrors status stays running forever
+	if catalog, err := internal.GetCatalogConnectionPoolFromEnv(ctx); err == nil {
+		_, _ = catalog.Exec(ctx,
+			"update flows set status = $1 where workflow_id = $2",
+			int32(protos.FlowStatus_STATUS_TERMINATED), env.GetID())
+	}
 }
 
 func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any) (converter.EncodedValue, error) {

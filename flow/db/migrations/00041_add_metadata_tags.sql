@@ -1,0 +1,3 @@
+-- +goose Up
+ALTER TABLE flows
+ADD COLUMN tags JSONB;

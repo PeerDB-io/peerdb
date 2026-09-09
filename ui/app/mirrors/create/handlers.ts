@@ -459,6 +459,9 @@ export async function fetchTables(
         bigqueryCdcEventsFunction:
           BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
         isReplicaIdentityFull: tableObject.isReplicaIdentityFull,
+        isUnlogged: tableObject.isUnlogged,
+        hasPrimaryKeyOrReplicaIdentity:
+          tableObject.hasPrimaryKeyOrReplicaIdentity,
       });
     }
   }

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/auth"
@@ -51,14 +52,15 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 	return &serviceAccount, nil
 }
 
+//nolint:govet // logically grouped, fieldalignment confuses things
 type BigQueryConnector struct {
-	// lastPollAt is the wall-clock time PullRecords last actually queried BigQuery.
-	lastPollAt time.Time
 	// droppedExcludeColumns remembers, per source table, excluded columns that
 	// BigQuery has reported as no longer existing, so later polls stop asking BigQuery
-	// to EXCEPT them.
-	droppedExcludeColumns map[string]map[string]struct{}
-	logger                log.Logger
+	// to EXCEPT them. Guarded by droppedExcludeColumnsMu since concurrent per-table
+	// pull loops share this connector.
+	droppedExcludeColumnsMu sync.Mutex
+	droppedExcludeColumns   map[string]map[string]struct{}
+	logger                  log.Logger
 	*metadataStore.PostgresMetadata
 	bqConfig      *protos.BigqueryConfig
 	credentials   *auth.Credentials
