@@ -644,6 +644,14 @@ func TestShouldReportColumnTypeChange(t *testing.T) {
 		{"maria inet to string", types.QValueKindINET, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, true},
 		// Bytes on the wire for a non-uuid/inet schema kind is a real change.
 		{"maria string to bytes", types.QValueKindString, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, true},
+		// Known TABLE_MAP_EVENT limitations.
+		{"mysql bool as int8", types.QValueKindBoolean, types.QValueKindInt8, protos.MySqlFlavor_MYSQL_MYSQL, false},
+		{"maria bool as int8", types.QValueKindBoolean, types.QValueKindInt8, protos.MySqlFlavor_MYSQL_MARIA, false},
+		{"mysql enum as string", types.QValueKindEnum, types.QValueKindString, protos.MySqlFlavor_MYSQL_MYSQL, false},
+		{"maria enum as string", types.QValueKindEnum, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, false},
+		// Other changes from bool or enum must still be reported.
+		{"bool to int16", types.QValueKindBoolean, types.QValueKindInt16, protos.MySqlFlavor_MYSQL_MYSQL, true},
+		{"enum to integer", types.QValueKindEnum, types.QValueKindInt32, protos.MySqlFlavor_MYSQL_MYSQL, true},
 		// Ordinary type change.
 		{"int to bigint", types.QValueKindInt32, types.QValueKindInt64, protos.MySqlFlavor_MYSQL_MYSQL, true},
 	} {
