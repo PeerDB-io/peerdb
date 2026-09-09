@@ -4,127 +4,71 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-
-	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/storage"
-	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
-	var missingTables []common.QualifiedTable
-	dstDatasetTables := make(map[string]datasetTable, len(cfg.TableMappings))
+	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
+
+	sourceConfig := bqvalidate.SourceConfig{
+		Client:              c.client,
+		StorageClient:       c.storageClient,
+		ProjectID:           c.projectID,
+		DefaultDataset:      c.datasetID,
+		HasSnapshot:         cfg.DoInitialSnapshot,
+		SnapshotOnly:        snapshotOnly,
+		SnapshotStagingPath: cfg.SnapshotStagingPath,
+	}
+	if !snapshotOnly {
+		switch cfg.GetBigqueryCdcConfig().GetReplicationMode() {
+		case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY:
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeQuery
+		case protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS:
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeEvents
+		default:
+			return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMode())
+		}
+	}
+
+	sourceConfig.Tables = make([]bqvalidate.SourceTableConfig, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		dstDatasetTable, err := c.convertToDatasetTable(tableMapping.SourceTableIdentifier)
-		if err != nil {
-			return err
+		t := bqvalidate.SourceTableConfig{
+			SourceTableIdentifier: tableMapping.SourceTableIdentifier,
+			WatermarkColumn:       tableMapping.QueryCdcWatermarkColumn,
+			Exclude:               tableMapping.Exclude,
+			HasOrderingKey:        tableHasOrderingKey(tableMapping),
+			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
+				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
 		}
-		dstDatasetTables[tableMapping.SourceTableIdentifier] = dstDatasetTable
-
-		table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
-
-		if _, err := table.Metadata(ctx); err != nil {
-			if c.isApiErrorWithStatusCode(err, http.StatusNotFound) {
-				missingTables = append(missingTables, common.QualifiedTable{
-					Namespace: dstDatasetTable.dataset,
-					Table:     dstDatasetTable.table,
-				})
-				continue
-			}
-			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.DestinationTableIdentifier, err)
-		}
-	}
-	if len(missingTables) > 0 {
-		return common.NewSourceTablesMissingError(missingTables)
-	}
-
-	if cfg.SnapshotStagingPath == "" {
-		return fmt.Errorf("snapshot bucket is required for BigQuery source connector")
-	}
-
-	stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
-	if err != nil {
-		return fmt.Errorf("invalid snapshot bucket: %w", err)
-	}
-
-	bucket := c.storageClient.Bucket(stagingPath.Bucket())
-
-	it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
-	_, err = it.Next()
-	if err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("failed to access staging bucket: %w", exceptions.NewBigQueryError(err))
-	}
-
-	// snapshot-only mirrors never touch CDC, so no need to validate mode-specific requirements below
-	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
-		return nil
-	}
-
-	replicationMode := cfg.GetBigqueryCdcConfig().GetReplicationMode()
-	if replicationMode == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
-		return fmt.Errorf("BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY is not yet supported")
-	}
-
-	needsChangeHistory := false
-	for _, tableMapping := range cfg.TableMappings {
-		if tableMapping.GetBigqueryCdcEventsFunction() == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-			needsChangeHistory = true
-			break
-		}
-	}
-	var changeHistoryByTable map[bqvalidate.DatasetTable]bool
-	if needsChangeHistory {
-		allDstDatasetTables := make([]bqvalidate.DatasetTable, 0, len(dstDatasetTables))
-		for _, dstDatasetTable := range dstDatasetTables {
-			allDstDatasetTables = append(allDstDatasetTables,
-				bqvalidate.DatasetTable{Dataset: dstDatasetTable.dataset, Table: dstDatasetTable.table})
-		}
-		changeHistoryByTable, err = bqvalidate.TablesHaveChangeHistoryEnabled(ctx, c.client, c.projectID, allDstDatasetTables)
-		if err != nil {
-			return fmt.Errorf("failed to check enable_change_history option: %w", exceptions.NewBigQueryError(err))
-		}
-	}
-
-	for _, tableMapping := range cfg.TableMappings {
-		dstDatasetTable := dstDatasetTables[tableMapping.SourceTableIdentifier]
-		table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
-		metadata, err := table.Metadata(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.SourceTableIdentifier, err)
-		}
-		hasPK := tableHasPrimaryKey(metadata)
-		destinationHasOrderingKey := hasPK || tableHasOrderingKey(tableMapping)
-
-		if tableMapping.GetBigqueryCdcEventsFunction() == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-			if !destinationHasOrderingKey {
-				return fmt.Errorf("table %s has no primary key constraint configured on BigQuery; "+
-					"CHANGES mode requires either a real (NOT ENFORCED) PK constraint on the source table "+
-					"or an explicit ordering key configured via column settings on the table mapping",
-					dstDatasetTable.string())
-			}
-			key := bqvalidate.DatasetTable{Dataset: dstDatasetTable.dataset, Table: dstDatasetTable.table}
-			if !changeHistoryByTable[key] {
-				return fmt.Errorf("table %s does not have enable_change_history=TRUE set; "+
-					"CHANGES mode requires it (run ALTER TABLE ... SET OPTIONS(enable_change_history=true) on the source table)",
-					dstDatasetTable.string())
+		if sourceConfig.ReplicationMode == bqvalidate.ReplicationModeEvents {
+			switch tableMapping.GetBigqueryCdcEventsFunction() {
+			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
+				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionAppends
+			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES:
+				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionChanges
 			}
 		}
+		sourceConfig.Tables = append(sourceConfig.Tables, t)
+	}
+
+	if _, err := bqvalidate.ValidateSource(ctx, sourceConfig); err != nil {
+		return wrapExternalError(err)
 	}
 
 	return nil
 }
 
-// tableHasPrimaryKey reports whether metadata carries a real (BigQuery PKs are
-// always NOT ENFORCED) primary key constraint.
-func tableHasPrimaryKey(metadata *bigquery.TableMetadata) bool {
-	return metadata.TableConstraints != nil &&
-		metadata.TableConstraints.PrimaryKey != nil &&
-		len(metadata.TableConstraints.PrimaryKey.Columns) > 0
+// wrapExternalError converts a bqvalidate.ExternalError (a failed BigQuery
+// API call, as opposed to a mirror configuration problem) into an
+// exceptions.BigQueryError so the alerting classifier can recognize it.
+func wrapExternalError(err error) error {
+	if _, ok := errors.AsType[*bqvalidate.ExternalError](err); ok {
+		return exceptions.NewBigQueryError(err)
+	}
+	return err
 }
 
 // tableHasOrderingKey reports whether the user configured an explicit ordering

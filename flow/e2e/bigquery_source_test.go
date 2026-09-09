@@ -168,22 +168,62 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
+	eventsConfig := &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+		BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+			ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+		},
+	}
 	flowConfig := &protos.FlowConnectionConfigsCore{
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
 				DestinationTableIdentifier: "trips_1k_dst",
 				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+				BigqueryCdcEventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
 			},
 		},
-		SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
-		DoInitialSnapshot:   true,
-		InitialSnapshotOnly: false,
+		SnapshotStagingPath:   bigQueryTestStagingPath(s, "test"),
+		DoInitialSnapshot:     true,
+		InitialSnapshotOnly:   false,
+		SourceConnectorConfig: eventsConfig,
 	}
+
+	t.Run("rejects an unspecified replication mode", func(t *testing.T) {
+		flowConfig.SourceConnectorConfig = nil
+		defer func() { flowConfig.SourceConnectorConfig = eventsConfig }()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.Error(t, err, "a CDC mirror must pick a replication mode explicitly")
+		require.Contains(t, err.Error(), "invalid replication mode")
+	})
 
 	t.Run("CDC now supported", func(t *testing.T) {
 		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 		require.NoError(t, err, "CDC should be allowed now that chunk 3 replaced the blanket rejection")
+	})
+
+	t.Run("snapshot staging access probe is cleaned up", func(t *testing.T) {
+		objectsBefore, err := source.helper.CountObjectsInGCSPath(ctx, flowConfig.SnapshotStagingPath)
+		require.NoError(t, err, "should count staging objects before validation")
+
+		err = bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.NoError(t, err, "snapshot validation should verify GCS object access")
+
+		objectsAfter, err := source.helper.CountObjectsInGCSPath(ctx, flowConfig.SnapshotStagingPath)
+		require.NoError(t, err, "should count staging objects after validation")
+		require.Equal(t, objectsBefore, objectsAfter, "snapshot validation should delete its GCS access-check object")
+	})
+
+	t.Run("CDC-only mirror does not require a staging bucket", func(t *testing.T) {
+		flowConfig.SnapshotStagingPath = ""
+		flowConfig.DoInitialSnapshot = false
+		defer func() {
+			flowConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, "test")
+			flowConfig.DoInitialSnapshot = true
+		}()
+
+		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+		require.NoError(t, err, "CDC-only mirrors don't stage to GCS, so no staging bucket should be required")
 	})
 
 	t.Run("CHANGES mode requires enable_change_history", func(t *testing.T) {
@@ -201,16 +241,116 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 		require.Contains(t, err.Error(), "enable_change_history")
 	})
 
-	t.Run("QUERY replication mode is rejected", func(t *testing.T) {
+	t.Run("QUERY replication mode", func(t *testing.T) {
 		flowConfig.SourceConnectorConfig = &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
 				ReplicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY,
 			},
 		}
-		defer func() { flowConfig.SourceConnectorConfig = nil }()
+		defer func() { flowConfig.SourceConnectorConfig = eventsConfig }()
 
-		err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-		require.Error(t, err, "QUERY replication mode isn't implemented yet")
+		t.Run("requires a watermark column", func(t *testing.T) {
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a table with no watermark_column set")
+			require.Contains(t, err.Error(), "watermark_column")
+		})
+
+		t.Run("rejects a non-timestamp watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.QueryCdcWatermarkColumn = "trip_id" // INTEGER
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.QueryCdcWatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP")
+			require.Contains(t, err.Error(), "must be TIMESTAMP")
+		})
+
+		t.Run("rejects a watermark column that is excluded from replication", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+				tableMapping.Exclude = []string{"pickup_datetime"}
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.QueryCdcWatermarkColumn = ""
+					tableMapping.Exclude = nil
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.Error(t, err, "QUERY mode should reject a watermark column excluded from replication")
+			require.Contains(t, err.Error(), "excluded from replication")
+		})
+
+		t.Run("accepts a TIMESTAMP watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.QueryCdcWatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
+
+		keylessTableName := AddSuffix(s, "source_validation_no_pkey")
+		keylessTableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, keylessTableName)
+		err := source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (trip_id INT64, pickup_datetime TIMESTAMP)",
+			quoteBigQueryTableFQN(keylessTableFQN)))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(keylessTableName)
+			if err := table.Delete(context.Background()); err != nil {
+				t.Logf("Warning: failed to delete test table %s: %v", keylessTableName, err)
+			}
+		})
+		keylessSourceIdentifier := source.config.DatasetId + "." + keylessTableName
+
+		t.Run("requires an ordering key for ReplacingMergeTree", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.SourceTableIdentifier = keylessSourceIdentifier
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+				tableMapping.Engine = protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.SourceTableIdentifier = source.config.DatasetId + ".trips_1k"
+					tableMapping.QueryCdcWatermarkColumn = ""
+					tableMapping.Engine = protos.TableEngine_CH_ENGINE_MERGE_TREE
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.ErrorContains(t, err, "empty sort key is not supported")
+		})
+
+		t.Run("accepts an explicit ordering key for ReplacingMergeTree", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.SourceTableIdentifier = keylessSourceIdentifier
+				tableMapping.QueryCdcWatermarkColumn = "pickup_datetime"
+				tableMapping.Engine = protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+				tableMapping.Columns = []*protos.ColumnSetting{{SourceName: "trip_id", Ordering: 1}}
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.SourceTableIdentifier = source.config.DatasetId + ".trips_1k"
+					tableMapping.QueryCdcWatermarkColumn = ""
+					tableMapping.Engine = protos.TableEngine_CH_ENGINE_MERGE_TREE
+					tableMapping.Columns = nil
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
 	})
 }
 
