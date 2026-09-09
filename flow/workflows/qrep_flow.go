@@ -95,6 +95,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 }
 
 func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName string) error {
+	// PFCOPEREZ: See if we want to add structured ingestion at QRep only pipes level.
 	q.logger.Info("fetching schema for table", slog.String("table", tableName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

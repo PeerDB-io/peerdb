@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -24,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseConnector struct {
@@ -401,79 +399,14 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			continue
 		}
 
-		var qkind types.QValueKind
-		switch column.DatabaseTypeName() {
-		case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
-			qkind = types.QValueKindString
-		case "Bool", "Nullable(Bool)":
-			qkind = types.QValueKindBoolean
-		case "Int8", "Nullable(Int8)":
-			qkind = types.QValueKindInt8
-		case "Int16", "Nullable(Int16)":
-			qkind = types.QValueKindInt16
-		case "Int32", "Nullable(Int32)":
-			qkind = types.QValueKindInt32
-		case "Int64", "Nullable(Int64)":
-			qkind = types.QValueKindInt64
-		case "Int256", "Nullable(Int256)":
-			qkind = types.QValueKindInt256
-		case "UInt8", "Nullable(UInt8)":
-			qkind = types.QValueKindUInt8
-		case "UInt16", "Nullable(UInt16)":
-			qkind = types.QValueKindUInt16
-		case "UInt32", "Nullable(UInt32)":
-			qkind = types.QValueKindUInt32
-		case "UInt64", "Nullable(UInt64)":
-			qkind = types.QValueKindUInt64
-		case "UInt256", "Nullable(UInt256)":
-			qkind = types.QValueKindUInt256
-		case "UUID", "Nullable(UUID)":
-			qkind = types.QValueKindUUID
-		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
-			qkind = types.QValueKindTimestamp
-		case "Time64(6)", "Nullable(Time64(6))":
-			qkind = types.QValueKindTime
-		case "Date32", "Nullable(Date32)":
-			qkind = types.QValueKindDate
-		case "Float32", "Nullable(Float32)":
-			qkind = types.QValueKindFloat32
-		case "Float64", "Nullable(Float64)":
-			qkind = types.QValueKindFloat64
-		case "Array(Int32)":
-			qkind = types.QValueKindArrayInt32
-		case "Array(Float32)":
-			qkind = types.QValueKindArrayFloat32
-		case "Array(Float64)":
-			qkind = types.QValueKindArrayFloat64
-		case "Array(String)", "Array(LowCardinality(String))":
-			qkind = types.QValueKindArrayString
-		case "Array(UUID)":
-			qkind = types.QValueKindArrayUUID
-		case "Array(DateTime64(6))":
-			qkind = types.QValueKindArrayTimestamp
-		case "Array(Int64)":
-			qkind = types.QValueKindArrayInt64
-		case "Array(Bool)":
-			qkind = types.QValueKindArrayBoolean
-		case "Array(Date)":
-			qkind = types.QValueKindArrayDate
-		case "JSON":
-			qkind = types.QValueKindJSON
-		default:
-			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
-				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
-					qkind = types.QValueKindArrayNumeric
-				} else {
-					qkind = types.QValueKindNumeric
-				}
-			} else {
-				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
-			}
+		qkind, err := peerdb_clickhouse.QValueKindForType(column.DatabaseTypeName())
+		if err != nil {
+			return nil, err
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{
 			Name:         column.Name(),
-			Type:         string(qkind),
+			Type:         qkind,
 			TypeModifier: -1,
 			Nullable:     column.Nullable(),
 		})

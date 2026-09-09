@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -143,6 +144,7 @@ func (c *MongoConnector) GetTableSchema(
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	result := make(map[string]*protos.TableSchema, len(tableMappings))
+
 	idFieldDescription := &protos.FieldDescription{
 		Name:         DefaultDocumentKeyColumnName,
 		Type:         string(types.QValueKindString),
@@ -161,16 +163,37 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		columns := []*protos.FieldDescription{idFieldDescription}
+		nullableEnabled := false
+
+		if tm.StructuredIngestion {
+			projector, err := newStructuredSchemaProjector(tm.Columns)
+			if err != nil {
+				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
+			}
+			// Every column but the document key is nullable, a document may lack any of them: the declared
+			// types are expected to be Nullable(...) already.
+			for _, column := range projector.Columns() {
+				columns = append(columns, &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         string(column.Type),
+					TypeModifier: -1,
+					Nullable:     column.Nullable,
+				})
+			}
+			columns = append(columns, structured.MalformedDataFieldDescription())
+			nullableEnabled = true
+		} else {
+			columns = append(columns, dataFieldDescription)
+		}
+
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
-			NullableEnabled:       false,
-			Columns: []*protos.FieldDescription{
-				idFieldDescription,
-				dataFieldDescription,
-			},
+			NullableEnabled:       nullableEnabled,
+			Columns:               columns,
 		}
 	}
 
@@ -378,36 +401,44 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	converter := NewDirectBsonConverter()
-	addRecordItems := func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
-		if len(documentKey) > 0 {
-			rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return exceptions.NewInvalidIdValueError(tableName)
-			}
-			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-			if err != nil {
-				return fmt.Errorf("failed to convert key: %w", err)
-			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
-			return fmt.Errorf("document key is nil")
-		}
 
-		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
-			if err != nil {
-				return fmt.Errorf("failed to convert document: %w", err)
+	structuredIngestion := false // TODO; Load from mappings or config
+
+	var addRecordItems func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error
+	if structuredIngestion {
+		// TODO; Implement
+	} else {
+		addRecordItems = func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
+			if len(documentKey) > 0 {
+				rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
+				if rv.IsZero() || rv.Type == bson.TypeNull {
+					return exceptions.NewInvalidIdValueError(tableName)
+				}
+				qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+				if err != nil {
+					return fmt.Errorf("failed to convert key: %w", err)
+				}
+				items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+			} else {
+				return fmt.Errorf("document key is nil")
 			}
-			items.AddColumn(fullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+
+			if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
+				qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
+				if err != nil {
+					return fmt.Errorf("failed to convert document: %w", err)
+				}
+				items.AddColumn(fullDocumentColumnName, qValue)
+			} else {
+				// `fullDocument` field will not exist in the following scenarios:
+				// 1) operationType is 'delete'
+				// 2) document is deleted / collection is dropped in between update and lookup
+				// 3) update changes the values for at least one of the fields in that collection's
+				//    shard key (although sharding is not supported today)
+				items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			}
+			return nil
 		}
-		return nil
 	}
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
