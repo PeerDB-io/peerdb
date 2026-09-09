@@ -29,10 +29,10 @@ type schemaColumn struct {
 }
 
 type SchemaProjector struct {
-	// Record fields in order: the schema columns as declared, then the malformed data column.
-	fields []types.QField
 	// Schema columns by the record field they read from.
-	columns            map[string]schemaColumn
+	columns map[string]schemaColumn
+	// Record fields in order: the schema columns as declared, then the malformed data column.
+	fields             []types.QField
 	shouldRecordValues bool
 }
 
@@ -123,7 +123,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 
 		// Record fields not present in the schema are recorded as malformed data.
 		if !isSchemaColumn {
-			malformedData.AddField(field, ReasonUnexpected, &value)
+			malformedData.AddField(field, ReasonUnexpected, value)
 			continue
 		}
 
@@ -135,9 +135,9 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 		// Otherwise the kinds must match, or the value is recorded as malformed data.
 		// NOTE: The equals comparison canbe replaced by a call to a equivalence function.
 		if column.kind != value.Kind() {
-			var recordedValue *types.QValue
+			var recordedValue types.QValue
 			if sc.shouldRecordValues {
-				recordedValue = &value
+				recordedValue = value
 			}
 			malformedData.AddField(field, ReasonTypeMismatch, recordedValue)
 			continue

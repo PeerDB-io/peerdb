@@ -50,11 +50,12 @@ func NewMalformedData() *MalformedData {
 	}
 }
 
-// AddField adds a problematic field along with its reason and optionally its value to the MalformedData.
-func (m *MalformedData) AddField(field string, reason MalformedReason, value *types.QValue) {
+// AddField adds a problematic field along with its reason and, when value is not nil, its value to the
+// MalformedData.
+func (m *MalformedData) AddField(field string, reason MalformedReason, value types.QValue) {
 	m.reasons[field] = reason
 	if value != nil {
-		m.values[field] = *value
+		m.values[field] = value
 	}
 }
 
