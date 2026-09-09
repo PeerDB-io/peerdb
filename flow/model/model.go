@@ -14,8 +14,9 @@ import (
 )
 
 type NameAndExclude struct {
-	Exclude map[string]struct{}
-	Name    string
+	Exclude             map[string]struct{}
+	Name                string
+	StructuredIngestion bool
 }
 
 func NewNameAndExclude(name string, exclude []string) NameAndExclude {
@@ -27,6 +28,12 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 		}
 	}
 	return NameAndExclude{Name: name, Exclude: exset}
+}
+
+func NewNameAndExcludeWithStructuredIngestion(name string, exclude []string, structuredIngestion bool) NameAndExclude {
+	nae := NewNameAndExclude(name, exclude)
+	nae.StructuredIngestion = structuredIngestion
+	return nae
 }
 
 type RecordTypeCounts struct {
