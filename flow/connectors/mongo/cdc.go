@@ -65,6 +65,11 @@ type ChangeEvent struct {
 
 const mongoClockOffsetTTL = time.Hour
 
+// cdcStructuredRecordMalformedValues controls whether structured ingestion CDC records the offending
+// values, and not just the reason, in the malformed data column.
+// TODO PFCOPEREZ: make this configurable.
+const cdcStructuredRecordMalformedValues = true
+
 // getMongoClockOffset returns the cached difference between the source server
 // clock and this process's clock.
 func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
@@ -167,7 +172,8 @@ func (c *MongoConnector) GetTableSchema(
 		nullableEnabled := false
 
 		if tm.StructuredIngestion {
-			projector, err := newStructuredSchemaProjector(tm.Columns)
+			// only the schema is derived here, so recording malformed values is inconsequential
+			projector, err := newStructuredSchemaProjector(tm.Columns, cdcStructuredRecordMalformedValues)
 			if err != nil {
 				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
 			}
@@ -402,43 +408,96 @@ func (c *MongoConnector) PullRecords(
 
 	converter := NewDirectBsonConverter()
 
-	structuredIngestion := false // TODO; Load from mappings or config
+	type addRecordItemsFunc func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error
 
-	var addRecordItems func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error
-	if structuredIngestion {
-		// TODO; Implement
-	} else {
-		addRecordItems = func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
-			if len(documentKey) > 0 {
-				rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-				if rv.IsZero() || rv.Type == bson.TypeNull {
-					return exceptions.NewInvalidIdValueError(tableName)
-				}
-				qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-				if err != nil {
-					return fmt.Errorf("failed to convert key: %w", err)
-				}
-				items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-			} else {
-				return fmt.Errorf("document key is nil")
+	// fullDocumentOrEmpty resolves the event's full document, falling back to the empty document when
+	// absent, which happens in the following scenarios:
+	//  1. operationType is 'delete'
+	//  2. document is deleted / collection is dropped in between update and lookup
+	//  3. update changes the values for at least one of the fields in that collection's
+	//     shard key (although sharding is not supported today)
+	//
+	// Both ingestion modes handle those the same way, as an empty document: the default mode stores it
+	// as `{}`, the structured mode projects it (every schema column null, nothing malformed).
+	fullDocumentOrEmpty := func(maybeFullDocument *bson.Raw) bson.Raw {
+		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
+			return *maybeFullDocument
+		}
+		return emptyBsonDocument
+	}
+
+	// addDocumentKey adds the `_id` column, mandatory in every mode.
+	addDocumentKey := func(documentKey bson.Raw, items *model.RecordItems, tableName string) error {
+		if len(documentKey) == 0 {
+			return fmt.Errorf("document key is nil")
+		}
+		rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
+		if rv.IsZero() || rv.Type == bson.TypeNull {
+			return exceptions.NewInvalidIdValueError(tableName)
+		}
+		qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+		if err != nil {
+			return fmt.Errorf("failed to convert key: %w", err)
+		}
+		items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+		return nil
+	}
+
+	// default mode: `_id` plus the whole document as a single JSON column
+	addRawRecordItems := addRecordItemsFunc(func(
+		documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string,
+	) error {
+		if err := addDocumentKey(documentKey, items, tableName); err != nil {
+			return err
+		}
+
+		qValue, err := converter.QValueJSONFromDocument(fullDocumentOrEmpty(maybeFullDocument))
+		if err != nil {
+			return fmt.Errorf("failed to convert document: %w", err)
+		}
+		items.AddColumn(fullDocumentColumnName, qValue)
+		return nil
+	})
+
+	// structured ingestion: `_id` plus the document fields projected onto the table's schema columns
+	newStructuredRecordItemsAdder := func(projector *structured.SchemaProjector) addRecordItemsFunc {
+		return func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
+			if err := addDocumentKey(documentKey, items, tableName); err != nil {
+				return err
 			}
 
-			if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
-				qValue, err := converter.QValueJSONFromDocument(*maybeFullDocument)
-				if err != nil {
-					return fmt.Errorf("failed to convert document: %w", err)
-				}
-				items.AddColumn(fullDocumentColumnName, qValue)
-			} else {
-				// `fullDocument` field will not exist in the following scenarios:
-				// 1) operationType is 'delete'
-				// 2) document is deleted / collection is dropped in between update and lookup
-				// 3) update changes the values for at least one of the fields in that collection's
-				//    shard key (although sharding is not supported today)
-				items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			fields, walkErr := DocumentQValueIterator(fullDocumentOrEmpty(maybeFullDocument), converter)
+			projected, err := projector.ApplyRecordSchema(fields)
+			if err != nil {
+				return fmt.Errorf("failed to project document onto schema: %w", err)
+			}
+			if err := walkErr(); err != nil {
+				return err
+			}
+			for column, value := range projected.ColToVal {
+				items.AddColumn(column, value)
 			}
 			return nil
 		}
+	}
+
+	// structured ingestion is a per-table setting: resolve the implementation per source table, with
+	// structured tables projecting onto the table schema persisted at setup
+	addRecordItemsByTable := make(map[string]addRecordItemsFunc, len(req.TableNameMapping))
+	for sourceTableName, tableMapping := range req.TableNameMapping {
+		if !tableMapping.StructuredIngestion {
+			addRecordItemsByTable[sourceTableName] = addRawRecordItems
+			continue
+		}
+		schema, ok := req.TableNameSchemaMapping[tableMapping.Name]
+		if !ok {
+			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
+		}
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, cdcStructuredRecordMalformedValues)
+		if err != nil {
+			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
+		}
+		addRecordItemsByTable[sourceTableName] = newStructuredRecordItemsAdder(projector)
 	}
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
@@ -569,6 +628,7 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
 			continue
 		}
+		addRecordItems := addRecordItemsByTable[sourceTableName]
 
 		items := model.NewRecordItems(2)
 		switch operationType(changeEvent.OperationType) {
