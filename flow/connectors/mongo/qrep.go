@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -21,6 +20,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+// qrepStructuredRecordMalformedValues controls whether structured ingestion initial load records the
+// offending values, and not just the reason, in the malformed data column.
+// TODO PFCOPEREZ: make this configurable.
+const qrepStructuredRecordMalformedValues = true
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
@@ -103,7 +107,7 @@ func (c *MongoConnector) PullQRepRecords(
 	var schema types.QRecordSchema
 	var qValuesFromBsonRaw func(raw bson.Raw) ([]types.QValue, error)
 	if config.GetStructuredIngestion() {
-		projector, err := newStructuredSchemaProjector(config.Columns)
+		projector, err := newStructuredSchemaProjector(config.Columns, qrepStructuredRecordMalformedValues)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
 		}
@@ -231,26 +235,6 @@ func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
 	return types.QRecordSchema{Fields: schema}
 }
 
-// structuredRecordMalformedValues controls whether structured ingestion records the offending values, and
-// not just the reason, in the malformed data column.
-// TODO PFCOPEREZ: make this configurable.
-const structuredRecordMalformedValues = true
-
-// newStructuredSchemaProjector builds the projector for the columns of a structured ingestion table mapping.
-func newStructuredSchemaProjector(columns []*protos.ColumnSetting) (*structured.SchemaProjector, error) {
-	return structured.NewSchemaProjectorWithDefaultSchemaToKind(columns, structuredRecordMalformedValues)
-}
-
-// GetStructuredSchema is the record schema of a structured ingestion table: the document key followed by
-// the columns projector projects documents onto, the layout StructuredQValuesFromBsonRaw produces.
-func GetStructuredSchema(projector *structured.SchemaProjector) types.QRecordSchema {
-	projected := projector.QRecordSchema()
-	schema := make([]types.QField, 0, len(projected.Fields)+1)
-	schema = append(schema, documentKeyQField())
-	schema = append(schema, projected.Fields...)
-	return types.QRecordSchema{Fields: schema}
-}
-
 func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange) (bson.D, error) {
 	switch r := partitionRange.Range.(type) {
 	case *protos.PartitionRange_ObjectIdRange:
@@ -314,37 +298,4 @@ func QValuesFromBsonRaw(raw bson.Raw, version uint32, converter BsonToQValueConv
 	}
 
 	return []types.QValue{idQValue, docQValue}, nil
-}
-
-// StructuredQValuesFromBsonRaw converts a document into a record laid out as GetStructuredSchema for
-// projector: the document key, then the document fields projected by projector onto the schema columns.
-func StructuredQValuesFromBsonRaw(
-	raw bson.Raw,
-	version uint32,
-	converter BsonToQValueConverter,
-	projector *structured.SchemaProjector,
-	tableName string,
-) ([]types.QValue, error) {
-	rv := raw.Lookup(DefaultDocumentKeyColumnName)
-	if rv.IsZero() || rv.Type == bson.TypeNull {
-		return nil, exceptions.NewInvalidIdValueError(tableName)
-	}
-	idQValue, err := converter.QValueStringFromId(rv, version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
-	}
-
-	fields, walkErr := DocumentQValueIterator(raw, converter)
-	values, err := projector.ProjectRecord(fields)
-	if err != nil {
-		return nil, fmt.Errorf("failed to project document onto schema: %w", err)
-	}
-	if err := walkErr(); err != nil {
-		return nil, err
-	}
-
-	record := make([]types.QValue, 0, len(values)+1)
-	record = append(record, idQValue)
-	record = append(record, values...)
-	return record, nil
 }

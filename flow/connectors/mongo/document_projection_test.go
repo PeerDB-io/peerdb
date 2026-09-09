@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func structuredTestColumns() []*protos.ColumnSetting {
 }
 
 func TestGetStructuredSchema(t *testing.T) {
-	projector, err := newStructuredSchemaProjector(structuredTestColumns())
+	projector, err := newStructuredSchemaProjector(structuredTestColumns(), true)
 	require.NoError(t, err)
 
 	require.Equal(t, []types.QField{
@@ -41,6 +42,22 @@ func TestGetStructuredSchema(t *testing.T) {
 // TestGetTableSchemaStructured checks the table schema of a structured mapping carries the kinds the
 // records are projected to, so the destination types come from the mapping's `destination_type` override,
 // and that every column but the document key is nullable.
+// TestStructuredProjectorPathsAgree checks the two projector construction paths cannot drift: QRep builds
+// it from the mapping's columns, CDC from the table schema GetTableSchema emits for that same mapping.
+// Both must project records with the same layout and kinds.
+func TestStructuredProjectorPathsAgree(t *testing.T) {
+	fromMapping, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	require.NoError(t, err)
+
+	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: "test.t", StructuredIngestion: true, Columns: structuredTestColumns()}})
+	require.NoError(t, err)
+	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.t"], true)
+	require.NoError(t, err)
+
+	require.Equal(t, fromMapping.QRecordSchema(), fromTableSchema.QRecordSchema())
+}
+
 func TestGetTableSchemaStructured(t *testing.T) {
 	structuredTable, plainTable := "test.structured", "test.plain"
 	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
@@ -107,7 +124,7 @@ func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := newStructuredSchemaProjector(tc.columns)
+			_, err := newStructuredSchemaProjector(tc.columns, true)
 			require.ErrorContains(t, err, tc.offender)
 		})
 	}
@@ -116,7 +133,7 @@ func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
 	require.NoError(t, err)
-	projector, err := newStructuredSchemaProjector(structuredTestColumns())
+	projector, err := newStructuredSchemaProjector(structuredTestColumns(), true)
 	require.NoError(t, err)
 	schema := GetStructuredSchema(projector)
 	converter := NewDirectBsonConverter()
@@ -193,3 +210,139 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.
+func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]types.QValue, error) {
+	t.Helper()
+	raw, err := bson.Marshal(doc)
+	require.NoError(t, err)
+
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter())
+	names := []string{}
+	values := map[string]types.QValue{}
+	for field, value := range fields {
+		names = append(names, field)
+		values[field] = value
+	}
+	return names, values, walkErr()
+}
+
+func TestDocumentQValueIterator(t *testing.T) {
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+
+	names, values, err := collectDocumentQValues(t, bson.D{
+		{Key: "_id", Value: oid},
+		{Key: "name", Value: "Ada"},
+		{Key: "age", Value: int32(36)},
+		{Key: "big", Value: int64(1) << 40},
+		{Key: "score", Value: 9.5},
+		{Key: "active", Value: true},
+		{Key: "nickname", Value: nil},
+		{Key: "address", Value: bson.D{{Key: "city", Value: "London"}}},
+		{Key: "tags", Value: bson.A{"math", "cs"}},
+	})
+	require.NoError(t, err)
+
+	// the document key is excluded, the rest is yielded in document order
+	require.Equal(t, []string{"name", "age", "big", "score", "active", "nickname", "address", "tags"}, names)
+	require.Equal(t, types.QValueString{Val: "Ada"}, values["name"])
+	require.Equal(t, types.QValueInt64{Val: 36}, values["age"])
+	require.Equal(t, types.QValueInt64{Val: 1 << 40}, values["big"])
+	require.Equal(t, types.QValueFloat64{Val: 9.5}, values["score"])
+	require.Equal(t, types.QValueBoolean{Val: true}, values["active"])
+	// nulls carry no kind, the consumer gives them the kind of the column they land in
+	require.Equal(t, types.QValueNull(types.QValueKindInvalid), values["nickname"])
+	// embedded documents and arrays are yielded whole, as JSON
+	require.Equal(t, types.QValueJSON{Val: `{"city":"London"}`}, values["address"])
+	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`, IsArray: true}, values["tags"])
+}
+
+func TestDocumentQValueIteratorEmptyAndKeyOnly(t *testing.T) {
+	for name, doc := range map[string]bson.D{
+		"empty document": {},
+		"key only":       {{Key: "_id", Value: "the-key"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			names, _, err := collectDocumentQValues(t, doc)
+			require.NoError(t, err)
+			require.Empty(t, names)
+		})
+	}
+}
+
+// TestDocumentQValueIteratorStopsEarly checks the walk honours a consumer breaking out of the range loop, which
+// ProjectRecord does not do but iter.Seq2 allows.
+func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
+	raw, err := bson.Marshal(bson.D{
+		{Key: "first", Value: 1},
+		{Key: "second", Value: 2},
+		{Key: "third", Value: 3},
+	})
+	require.NoError(t, err)
+
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter())
+	var seen []string
+	for field := range fields {
+		seen = append(seen, field)
+		if len(seen) == 2 {
+			break
+		}
+	}
+	require.Equal(t, []string{"first", "second"}, seen)
+	require.NoError(t, walkErr())
+}
+
+func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
+	// a length header longer than the buffer: elements cannot be read
+	names, _, err := func() ([]string, map[string]types.QValue, error) {
+		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter())
+		names := []string{}
+		values := map[string]types.QValue{}
+		for field, value := range fields {
+			names = append(names, field)
+			values[field] = value
+		}
+		return names, values, walkErr()
+	}()
+	require.ErrorContains(t, err, "failed to read document fields")
+	require.Empty(t, names)
+}
+
+// TestDocumentQValueIteratorConversionError checks a converter failure stops the walk and is reported, rather
+// than being swallowed by the iterator.
+func TestDocumentQValueIteratorConversionError(t *testing.T) {
+	raw, err := bson.Marshal(bson.D{
+		{Key: "ok", Value: "value"},
+		{Key: "boom", Value: "value"},
+		{Key: "unreached", Value: "value"},
+	})
+	require.NoError(t, err)
+
+	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
+	fields, walkErr := DocumentQValueIterator(raw, converter)
+	var seen []string
+	for field := range fields {
+		seen = append(seen, field)
+	}
+	require.Equal(t, []string{"ok"}, seen)
+	require.ErrorIs(t, walkErr(), errConversionFailed)
+	require.ErrorContains(t, walkErr(), "boom")
+}
+
+// failingConverter fails the nth call to QValueFromBsonValue, delegating everything else.
+type failingConverter struct {
+	BsonToQValueConverter
+	failOnCall int
+	calls      int
+}
+
+func (c *failingConverter) QValueFromBsonValue(rv bson.RawValue, nullKind types.QValueKind) (types.QValue, error) {
+	c.calls += 1
+	if c.calls == c.failOnCall {
+		return nil, errConversionFailed
+	}
+	return c.BsonToQValueConverter.QValueFromBsonValue(rv, nullKind)
+}
+
+var errConversionFailed = errors.New("conversion failed")

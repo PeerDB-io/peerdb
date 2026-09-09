@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"iter"
 	"math"
 	"strconv"
 	"time"
@@ -238,38 +237,6 @@ func (c *DirectBsonConverter) QValueStringFromJavaScript(code string) types.QVal
 
 func (c *DirectBsonConverter) QValueNullFromNull(kind types.QValueKind) types.QValueNull {
 	return types.QValueNull(kind)
-}
-
-// DocumentQValueIterator returns an iterator that lazily walks the top-level fields of a document excluding document key and
-// yielding each as a QValue.
-// The walk stops at the first failure, which the returned function reports once the walk is over.
-func DocumentQValueIterator(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error) {
-	var walkErr error
-	return func(yield func(string, types.QValue) bool) {
-		elements, err := raw.Elements()
-		if err != nil {
-			walkErr = fmt.Errorf("failed to read document fields: %w", err)
-			return
-		}
-		for _, element := range elements {
-			field, err := element.KeyErr()
-			if err != nil {
-				walkErr = fmt.Errorf("failed to read document field name: %w", err)
-				return
-			}
-			if field == DefaultDocumentKeyColumnName {
-				continue
-			}
-			value, err := converter.QValueFromBsonValue(element.Value(), types.QValueKindInvalid)
-			if err != nil {
-				walkErr = fmt.Errorf("failed to convert document field to QValue %s: %w", field, err)
-				return
-			}
-			if !yield(field, value) {
-				return
-			}
-		}
-	}, func() error { return walkErr }
 }
 
 func rawDocToJSON(doc bsoncore.Document, stream *jsoniter.Stream) error {
