@@ -57,7 +57,14 @@ export default function Mirrors() {
       </Panel>
       {isLoading && (
         <Panel>
-          <div className='h-screen flex items-center justify-center'>
+          <div
+            style={{
+              height: '100vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <ProgressCircle variant='determinate_progress_circle' />
           </div>
         </Panel>
@@ -68,7 +75,7 @@ export default function Mirrors() {
         </Panel>
       )}
       {!isLoading && (
-        <Panel className='mt-10'>
+        <Panel style={{ marginTop: '2.5rem' }}>
           <QRepFlows title='Query Replication' qrepFlows={qrepFlows} />
         </Panel>
       )}

@@ -39,7 +39,14 @@ export default function Peers() {
       </Panel>
       <Panel>
         {isLoading && (
-          <div className='h-screen flex items-center justify-center'>
+          <div
+            style={{
+              height: '100vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <ProgressCircle variant='determinate_progress_circle' />
           </div>
         )}

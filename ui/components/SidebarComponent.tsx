@@ -123,7 +123,7 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
         >
           {sidebarState === 'open' && (
             <Label as={Link} href='/'>
-              <div className='cursor-pointer'>
+              <div style={{ cursor: 'pointer' }}>
                 <BrandLogo />
               </div>
             </Label>

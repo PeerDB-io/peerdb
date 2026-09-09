@@ -23,7 +23,7 @@ function getStatus(clone: CloneTableSummary) {
     return (
       <Badge type='longText' variant='positive'>
         <Icon name='check' />
-        <div className='font-bold'>Done</div>
+        <div style={{ fontWeight: 700 }}>Done</div>
       </Badge>
     );
   }
@@ -31,7 +31,7 @@ function getStatus(clone: CloneTableSummary) {
     return (
       <Badge type='longText' variant='normal'>
         <Icon name='download' />
-        <div className='font-bold'>Fetching</div>
+        <div style={{ fontWeight: 700 }}>Fetching</div>
       </Badge>
     );
   }
@@ -40,7 +40,7 @@ function getStatus(clone: CloneTableSummary) {
     return (
       <Badge type='longText' variant='normal'>
         <Icon name='upload' />
-        <div className='font-bold'>Consolidating</div>
+        <div style={{ fontWeight: 700 }}>Consolidating</div>
       </Badge>
     );
   }
@@ -48,7 +48,7 @@ function getStatus(clone: CloneTableSummary) {
   return (
     <Badge type='longText' variant='normal'>
       <Icon name='upload' />
-      <div className='font-bold'>Syncing</div>
+      <div style={{ fontWeight: 700 }}>Syncing</div>
     </Badge>
   );
 }

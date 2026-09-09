@@ -223,7 +223,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         }}
       >
         <ReactSelect
-          className='w-1/4'
+          styles={{ container: (base) => ({ ...base, width: '25%' }) }}
           placeholder='Select a replication slot'
           options={
             slotNames.length === 0

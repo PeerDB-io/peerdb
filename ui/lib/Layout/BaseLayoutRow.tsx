@@ -42,7 +42,7 @@ export function BaseLayoutRow({
   const Action = renderObjectWith(action, {
     className: cn('layout-action', {
       'layout-action--flex': actionFlex,
-      'justify-end': actionFlexEnd,
+      'layout-action--end': actionFlexEnd,
     }),
   });
 
