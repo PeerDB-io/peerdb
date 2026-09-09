@@ -16,7 +16,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -231,74 +230,43 @@ func decodeEvent(
 	return nil
 }
 
-// Constants used by PullRecords.
+// Constant used by PullRecords.
 //
-// Buffered channel size for channels to pass records to decode and send loops (see below).
-// This should ideally be larger than decodeWorkerBufSize.
-const workerBufferedChanSize = 10
-
-// Number of recordItems to pass in one chunk to decode/send loops. Doing per-item channel sends
-// results in too much coordination and reduces effective concurrency in practice.
+// Number of recordItems to pass in one chunk to decode/send workers managed by PullRecordsWorkerPool.
+// Doing per-item channel sends results in too much coordination and reduces effective concurrency
+// in practice.
 const pullRecordsItemsChunkSize = 256
 
-type decodeChunk struct {
-	// base64-encoded resume token
-	resumeToken string
-	items       []recordItems
-}
-
-type sendChunk struct {
-	// base64-encoded resume token
-	resumeToken string
-	// records to send to RecordStream.
-	records []model.Record[model.RecordItems]
-}
-
-// PullRecords spins up two kinds of goroutines: one sendLoop that lives for the duration of one
-// ChangeStream and is responsible for updating the latest checkpoint info. The other type is implemented
-// in decodeWorker and is spun up spun up per-chunk (with parallelism managed by decodeWorkerSem), to
-// decode one chunk at a time. The context passed into these goroutines is shared, but is not used
+// PullRecords spins up worker goroutines using PullRecordsWorkerPool.
+// The context passed into these goroutines is not used to signal timeouts
 // to signal timeouts; rather, when cutting a batch, the `records` chan passed to sendLoop below is
 // closed, and we wait for all child goroutines to gracefully drain.
-func (c *MongoConnector) sendLoop(
+func (c *MongoConnector) recordSender(
 	ctx context.Context,
-	records <-chan chan sendChunk,
+	records []model.Record[model.RecordItems],
+	resumeToken string,
 	req *model.PullRecordsRequest[model.RecordItems],
 	signalledAsNonEmpty *bool,
 ) error {
-	for {
-		select {
-		case recordChan, ok := <-records:
-			if !ok {
-				return nil
-			}
-			select {
-			case sendChunk := <-recordChan:
-				for i := range sendChunk.records {
-					if !*signalledAsNonEmpty {
-						// This bool should be shared across any instantiations of sendLoop for
-						// a given RecordStream. However, it's not an atomic and so only one sendLoop
-						// at a given time can own it.
-						*signalledAsNonEmpty = true
-						req.RecordStream.SignalAsNotEmpty()
-					}
-					if err := req.RecordStream.AddRecord(ctx, sendChunk.records[i]); err != nil {
-						return err
-					}
-				}
-				if sendChunk.resumeToken != "" {
-					req.RecordStream.UpdateLatestCheckpointText(sendChunk.resumeToken)
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		case <-ctx.Done():
-			return nil
+	for i := range records {
+		if !*signalledAsNonEmpty {
+			// This bool should be shared across any instantiations of sendLoop for
+			// a given RecordStream. However, it's not an atomic and so only one sendLoop
+			// at a given time can own it.
+			*signalledAsNonEmpty = true
+			req.RecordStream.SignalAsNotEmpty()
+		}
+		if err := req.RecordStream.AddRecord(ctx, records[i]); err != nil {
+			return err
 		}
 	}
+	if resumeToken != "" {
+		req.RecordStream.UpdateLatestCheckpointText(resumeToken)
+	}
+	return nil
 }
 
-type recordItems struct {
+type encodedMongoEvent struct {
 	maybeFullDocument    *bson.Raw
 	operationType        operationType
 	sourceTableName      string
@@ -307,28 +275,26 @@ type recordItems struct {
 	commitTimeNanos      int64
 }
 
-// decodeWorker is spun up by PullRecords in separate goroutines, up to
-// PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS in parallel. The output is sent through `send` to
-// `sendLoop` directly.
-func (c *MongoConnector) decodeWorker(
-	ctx context.Context,
-	chunk decodeChunk,
-	send chan<- sendChunk,
+// decodeEvent is spun up by PullRecordsWorkerPool in separate goroutines, up to
+// PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS in parallel. The output is sent to `recordSender`
+// in order.
+func (c *MongoConnector) decodeEvent(
+	events []encodedMongoEvent,
 	req *model.PullRecordsRequest[model.RecordItems],
-) error {
+) ([]model.Record[model.RecordItems], error) {
 	// Utils used by this routine.
 	converter := NewDirectBsonConverter()
 	fullDocumentColumnName := DefaultFullDocumentColumnName
 	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
-	parseItem := func(item recordItems) (model.Record[model.RecordItems], error) {
+	parseItem := func(event encodedMongoEvent) (model.Record[model.RecordItems], error) {
 		items := model.NewRecordItems(2)
 
-		if len(item.documentKey) > 0 {
-			rv := item.documentKey.Lookup(DefaultDocumentKeyColumnName)
+		if len(event.documentKey) > 0 {
+			rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
 			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return nil, exceptions.NewInvalidIdValueError(item.sourceTableName)
+				return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
 			}
 			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
 			if err != nil {
@@ -339,8 +305,8 @@ func (c *MongoConnector) decodeWorker(
 			return nil, fmt.Errorf("document key is nil")
 		}
 
-		if item.maybeFullDocument != nil && len(*item.maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*item.maybeFullDocument)
+		if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert document: %w", err)
 			}
@@ -354,45 +320,40 @@ func (c *MongoConnector) decodeWorker(
 			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
 		}
 		var record model.Record[model.RecordItems]
-		switch item.operationType {
+		switch event.operationType {
 		case operationTypeInsert:
 			record = &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
 				Items:                items,
-				SourceTableName:      item.sourceTableName,
-				DestinationTableName: item.destinationTableName,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
 			}
 
 		case operationTypeUpdate, operationTypeReplace:
 			record = &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
 				NewItems:             items,
-				SourceTableName:      item.sourceTableName,
-				DestinationTableName: item.destinationTableName,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
 			}
 		case operationTypeDelete:
 			record = &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: item.commitTimeNanos},
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
 				Items:                items,
-				SourceTableName:      item.sourceTableName,
-				DestinationTableName: item.destinationTableName,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
 			}
 		}
 		return record, nil
 	}
-	modelRecords := make([]model.Record[model.RecordItems], len(chunk.items))
-	for i := range chunk.items {
+	modelRecords := make([]model.Record[model.RecordItems], len(events))
+	for i := range events {
 		var err error
-		if modelRecords[i], err = parseItem(chunk.items[i]); err != nil {
-			return err
+		if modelRecords[i], err = parseItem(events[i]); err != nil {
+			return nil, err
 		}
 	}
-	select {
-	case send <- sendChunk{records: modelRecords, resumeToken: chunk.resumeToken}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	return nil
+	return modelRecords, nil
 }
 
 func (c *MongoConnector) PullRecords(
@@ -500,20 +461,24 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
-	// Context inheritance tree: There's a parent ctx (always called ctx in this function).
-	// Off of that, we create two child contexts, one for workers (called workerCtx), that's passed
-	// to children goroutines (eg. decodeWorker). The other, timeoutCtx, is managed by us for timeouts.
-	// Note that when we hit a timeout, we don't want to cancel the workerCtx; we want the workers
-	// to gracefully drain. We recreate workerCtx and workerEg anytime we recreate the changestream.
-	//
-	// Also note that timeoutCtx is occasionally rewritten, such as when the first record arrives,
-	// or when we reset the changestream.
-	workerCtx, workerCtxCancel := context.WithCancel(ctx)
+	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+	workerPool := common.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
+		Concurrency: int(numParallelDecodeWorkers),
+		ChunkSize:   pullRecordsItemsChunkSize,
+		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
+			return c.decodeEvent(events, req)
+		},
+		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
+			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)
+		},
+	}
+	workerPool.Init(ctx)
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
-	var workerEg *errgroup.Group
-	workerEg, workerCtx = errgroup.WithContext(workerCtx)
 
 	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
 		read := deltaBytesProcessed.Swap(0)
@@ -523,8 +488,7 @@ func (c *MongoConnector) PullRecords(
 
 	defer func() {
 		cancelTimeout()
-		workerCtxCancel()
-		_ = workerEg.Wait()
+		_ = workerPool.Wait(ctx)
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
@@ -564,65 +528,6 @@ func (c *MongoConnector) PullRecords(
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
 	}
-	existingChunk := make([]recordItems, 0, pullRecordsItemsChunkSize)
-	sendChan := make(chan chan sendChunk, workerBufferedChanSize)
-	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, req.Env)
-	if err != nil {
-		return err
-	}
-	decodeWorkerSem := make(chan struct{}, max(1, numParallelDecodeWorkers))
-	workerEg.Go(func() error {
-		return c.sendLoop(workerCtx, sendChan, req, &signalledAsNonEmpty)
-	})
-
-	dispatchChunk := func() error {
-		if len(existingChunk) == 0 {
-			// Nothing to send.
-			return nil
-		}
-		rt := changeStream.ResumeToken()
-		var rtText string
-		if rt == nil {
-			c.logger.Warn("change stream does not currently contain a resume token")
-		} else {
-			rtText = base64.StdEncoding.EncodeToString(rt)
-		}
-		select {
-		case decodeWorkerSem <- struct{}{}:
-		case <-workerCtx.Done():
-			return workerEg.Wait()
-		}
-		resultChan := make(chan sendChunk)
-		select {
-		case sendChan <- resultChan:
-		case <-workerCtx.Done():
-			return workerEg.Wait()
-		}
-		workerEg.Go(func(existingChunk []recordItems) func() error {
-			// Two-level method to capture existingChunk before it changes
-			// below.
-			return func() error {
-				defer func() {
-					<-decodeWorkerSem
-				}()
-				return c.decodeWorker(
-					workerCtx, decodeChunk{items: existingChunk, resumeToken: rtText}, resultChan, req)
-			}
-		}(existingChunk))
-		existingChunk = make([]recordItems, 0, pullRecordsItemsChunkSize)
-		return nil
-	}
-
-	drainWorkers := func() error {
-		finishErr := dispatchChunk()
-		// Close the sender chan and wait for events to drain.
-		close(sendChan)
-		// NB: workerEg cannot be reused after wait() has been called.
-		if err := workerEg.Wait(); err != nil {
-			return err
-		}
-		return finishErr
-	}
 
 	recreateChangeStream := func(useOperationTime bool) error {
 		// extract the most recent resumeToken
@@ -640,16 +545,8 @@ func (c *MongoConnector) PullRecords(
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
 
-		// reset worker timeout.
-		workerCtxCancel()
-		workerCtx, workerCtxCancel = context.WithCancel(ctx)
-		workerEg, workerCtx = errgroup.WithContext(workerCtx)
-
-		// Restart the send loop.
-		sendChan = make(chan chan sendChunk, workerBufferedChanSize)
-		workerEg.Go(func() error {
-			return c.sendLoop(workerCtx, sendChan, req, &signalledAsNonEmpty)
-		})
+		// reset worker pool. Wait() has already been called on this workerPool.
+		workerPool.Init(ctx)
 
 		// set resume point based on whether operation time should be used or not
 		if useOperationTime {
@@ -680,7 +577,11 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
-			if err := drainWorkers(); err != nil {
+			if err := workerPool.Flush(ctx); err != nil {
+				return err
+			}
+
+			if err := workerPool.Wait(ctx); err != nil {
 				return err
 			}
 
@@ -752,7 +653,7 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 
-		items := recordItems{
+		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,
 			operationType:        operationType(changeEvent.OperationType),
@@ -760,7 +661,7 @@ func (c *MongoConnector) PullRecords(
 			destinationTableName: destinationTableName,
 			commitTimeNanos:      commitTimeNanos,
 		}
-		switch items.operationType {
+		switch event.operationType {
 		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
 			// Happy path.
 			incrementRecordCount()
@@ -784,15 +685,22 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
-		existingChunk = append(existingChunk, items)
-		if len(existingChunk) >= pullRecordsItemsChunkSize {
-			if err := dispatchChunk(); err != nil {
-				return err
-			}
+		rt := changeStream.ResumeToken()
+		var rtText string
+		if rt == nil {
+			c.logger.Warn("change stream does not currently contain a resume token")
+		} else {
+			rtText = base64.StdEncoding.EncodeToString(rt)
+		}
+		if err := workerPool.AddItem(ctx, event, rtText); err != nil {
+			return err
 		}
 	}
+	if err := workerPool.Flush(ctx); err != nil {
+		return err
+	}
 
-	if err := drainWorkers(); err != nil {
+	if err := workerPool.Wait(ctx); err != nil {
 		return err
 	}
 
