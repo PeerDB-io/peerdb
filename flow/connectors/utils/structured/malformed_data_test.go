@@ -11,8 +11,6 @@ import (
 )
 
 func TestMalformedDataMarshalJSON(t *testing.T) {
-	qv := func(v types.QValue) *types.QValue { return &v }
-
 	tests := []struct {
 		setup    func(m *MalformedData)
 		desc     string
@@ -35,46 +33,46 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 		},
 		{
 			desc:     "string value",
-			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, qv(types.QValueString{Val: "x"})) },
+			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, types.QValueString{Val: "x"}) },
 			expected: `{"a":{"type_mismatch":true,"value":"x"}}`,
 		},
 		{
 			desc:     "JSON value is kept as a quoted string",
-			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, qv(types.QValueJSON{Val: `{"k":1}`})) },
+			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, types.QValueJSON{Val: `{"k":1}`}) },
 			expected: `{"a":{"type_mismatch":true,"value":"{\"k\":1}"}}`,
 		},
 		{
 			desc: "null value",
 			setup: func(m *MalformedData) {
-				m.AddField("a", ReasonTypeMismatch, qv(types.QValueNull(types.QValueKindInt64)))
+				m.AddField("a", ReasonTypeMismatch, types.QValueNull(types.QValueKindInt64))
 			},
 			expected: `{"a":{"type_mismatch":true,"value":null}}`,
 		},
 		{
 			desc: "scalar values are encoded natively",
 			setup: func(m *MalformedData) {
-				m.AddField("i", ReasonTypeMismatch, qv(types.QValueInt64{Val: 1}))
-				m.AddField("b", ReasonTypeMismatch, qv(types.QValueBoolean{Val: true}))
-				m.AddField("f", ReasonTypeMismatch, qv(types.QValueFloat64{Val: 1.5}))
+				m.AddField("i", ReasonTypeMismatch, types.QValueInt64{Val: 1})
+				m.AddField("b", ReasonTypeMismatch, types.QValueBoolean{Val: true})
+				m.AddField("f", ReasonTypeMismatch, types.QValueFloat64{Val: 1.5})
 			},
 			expected: `{"b":{"type_mismatch":true,"value":true},"f":{"type_mismatch":true,"value":1.5},"i":{"type_mismatch":true,"value":1}}`,
 		},
 		{
 			desc: "value is overwritten by a later AddField for the same field",
 			setup: func(m *MalformedData) {
-				m.AddField("a", ReasonUnexpected, qv(types.QValueString{Val: "x"}))
-				m.AddField("a", ReasonTypeMismatch, qv(types.QValueString{Val: "y"}))
+				m.AddField("a", ReasonUnexpected, types.QValueString{Val: "x"})
+				m.AddField("a", ReasonTypeMismatch, types.QValueString{Val: "y"})
 			},
 			expected: `{"a":{"type_mismatch":true,"value":"y"}}`,
 		},
 		{
 			desc: "non-finite float values are dropped and the reason replaced by not_a_number",
 			setup: func(m *MalformedData) {
-				m.AddField("nan", ReasonTypeMismatch, qv(types.QValueFloat64{Val: math.NaN()}))
-				m.AddField("inf", ReasonUnexpected, qv(types.QValueFloat64{Val: math.Inf(1)}))
-				m.AddField("neginf", ReasonTypeMismatch, qv(types.QValueFloat64{Val: math.Inf(-1)}))
-				m.AddField("nan32", ReasonTypeMismatch, qv(types.QValueFloat32{Val: float32(math.NaN())}))
-				m.AddField("finite", ReasonTypeMismatch, qv(types.QValueFloat64{Val: 1.5}))
+				m.AddField("nan", ReasonTypeMismatch, types.QValueFloat64{Val: math.NaN()})
+				m.AddField("inf", ReasonUnexpected, types.QValueFloat64{Val: math.Inf(1)})
+				m.AddField("neginf", ReasonTypeMismatch, types.QValueFloat64{Val: math.Inf(-1)})
+				m.AddField("nan32", ReasonTypeMismatch, types.QValueFloat32{Val: float32(math.NaN())})
+				m.AddField("finite", ReasonTypeMismatch, types.QValueFloat64{Val: 1.5})
 			},
 			expected: `{` +
 				`"finite":{"type_mismatch":true,"value":1.5},` +

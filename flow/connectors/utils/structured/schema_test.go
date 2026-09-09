@@ -53,21 +53,17 @@ func TestNewSchemaProjector(t *testing.T) {
 	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), true)
 	require.NoError(t, err)
 
-	// columns keep their declared order with the kinds schemaToQKind resolved, all nullable as a
-	// record may lack any of them
-	columns := []types.QField{
+	// the record schema is the columns in their declared order with the kinds schemaToQKind resolved,
+	// all nullable as a record may lack any of them, followed by the malformed data column
+	recordFields := []types.QField{
 		{Name: "name", Type: types.QValueKindString, Nullable: true},
 		{Name: "age", Type: types.QValueKindInt64, Nullable: true},
 		{Name: "score", Type: types.QValueKindFloat64, Nullable: true},
+		{Name: MalformedDataColumn, Type: types.QValueKindJSON, Nullable: true},
 	}
-	require.Equal(t, columns, projector.Columns())
-
-	// the record schema appends the malformed data column
-	require.Equal(t, append(columns, types.QField{
-		Name:     MalformedDataColumn,
-		Type:     types.QValueKindJSON,
-		Nullable: true,
-	}), projector.QRecordSchema().Fields)
+	require.Equal(t, recordFields, projector.QRecordSchema().Fields)
+	// Columns leaves the malformed data column out
+	require.Equal(t, recordFields[:len(recordFields)-1], projector.Columns())
 }
 
 func TestNewSchemaProjectorRejects(t *testing.T) {
