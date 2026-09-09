@@ -3,6 +3,8 @@ package mongo
 import (
 	"crypto/tls"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
@@ -41,13 +43,24 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 		return nil, fmt.Errorf("connection string should not contain username and password")
 	}
 
+	// The username/password are supplied separately, so an authMechanism embedded in
+	// the URI (e.g. SCRAM-SHA-256 for Firestore) makes ApplyURI record a
+	// "username required" validation error. Strip it from the URI and apply it on the
+	// credential instead so the mechanism is still honored.
+	uri, authMechanism := extractAuthMechanism(config.Uri)
+
+	credential := options.Credential{
+		Username: config.Username,
+		Password: config.Password,
+	}
+	if authMechanism != "" {
+		credential.AuthMechanism = authMechanism
+	}
+
 	clientOptions := options.Client().
-		ApplyURI(config.Uri).
+		ApplyURI(uri).
 		SetAppName("PeerDB Mongo Connector").
-		SetAuth(options.Credential{
-			Username: config.Username,
-			Password: config.Password,
-		}).
+		SetAuth(credential).
 		SetCompressors([]string{"zstd", "snappy"}).
 		SetReadConcern(readconcern.Majority()).
 		SetDialer(config.Dialer)
@@ -88,4 +101,27 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 	}
 
 	return clientOptions, nil
+}
+
+// extractAuthMechanism removes the authMechanism query parameter from a MongoDB URI,
+// returning the sanitized URI and the mechanism value (empty if not present). Only the
+// query portion is manipulated so comma-separated host lists are left untouched.
+func extractAuthMechanism(uri string) (string, string) {
+	base, query, found := strings.Cut(uri, "?")
+	if !found {
+		return uri, ""
+	}
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return uri, ""
+	}
+	mechanism := values.Get("authMechanism")
+	if mechanism == "" {
+		return uri, ""
+	}
+	values.Del("authMechanism")
+	if len(values) == 0 {
+		return base, mechanism
+	}
+	return base + "?" + values.Encode(), mechanism
 }

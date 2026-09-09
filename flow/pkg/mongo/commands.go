@@ -39,7 +39,8 @@ type ConnectionStatus struct {
 }
 
 type AuthInfo struct {
-	AuthenticatedUserRoles []Role `bson:"authenticatedUserRoles"`
+	AuthenticatedUserRoles      []Role      `bson:"authenticatedUserRoles"`
+	AuthenticatedUserPrivileges []Privilege `bson:"authenticatedUserPrivileges"`
 }
 
 type Role struct {
@@ -47,8 +48,37 @@ type Role struct {
 	DB   string `bson:"db"`
 }
 
+type Privilege struct {
+	Resource PrivilegeResource `bson:"resource"`
+	Actions  []string          `bson:"actions"`
+}
+
+type PrivilegeResource struct {
+	DB         string `bson:"db"`
+	Collection string `bson:"collection"`
+	Cluster    bool   `bson:"cluster"`
+}
+
 func GetConnectionStatus(ctx context.Context, client *mongo.Client) (ConnectionStatus, error) {
 	return runCommand[ConnectionStatus](ctx, client, "connectionStatus")
+}
+
+// GetConnectionStatusWithPrivileges returns the authenticated user's roles and the
+// action-based privileges granted to them. Privilege-based deployments (e.g. Firestore)
+// report no named roles, so callers must inspect privileges instead.
+func GetConnectionStatusWithPrivileges(ctx context.Context, client *mongo.Client) (ConnectionStatus, error) {
+	var result ConnectionStatus
+	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
+		{Key: "connectionStatus", Value: 1},
+		{Key: "showPrivileges", Value: true},
+	})
+	if singleResult.Err() != nil {
+		return result, fmt.Errorf("'connectionStatus' failed: %w", singleResult.Err())
+	}
+	if err := singleResult.Decode(&result); err != nil {
+		return result, fmt.Errorf("'connectionStatus' decoding failed: %w", err)
+	}
+	return result, nil
 }
 
 type HelloResponse struct {

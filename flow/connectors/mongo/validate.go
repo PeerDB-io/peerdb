@@ -9,7 +9,13 @@ import (
 )
 
 func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
-	if err := shared_mongo.ValidateUserRoles(ctx, c.client); err != nil {
+	// Firestore's MongoDB compatibility reports privilege-based auth without named roles,
+	// so validate the required action privileges instead of cluster roles.
+	if shared_mongo.IsFirestore(c.config.Uri) {
+		if err := shared_mongo.ValidateUserPrivileges(ctx, c.client); err != nil {
+			return err
+		}
+	} else if err := shared_mongo.ValidateUserRoles(ctx, c.client); err != nil {
 		return err
 	}
 

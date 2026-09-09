@@ -68,9 +68,25 @@ type MongoConnector struct {
 	ssh                  *utils.SSHTunnel
 	createChangeStream   createChangeStreamFunc
 	excludedOps          []operationType
+	watchDatabase        string
+	isFirestore          bool
 	totalBytesRead       atomic.Int64
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
+}
+
+// firestoreOpTimeout bounds per-operation context deadlines so the driver-computed
+// maxTimeMS stays under Firestore's strictest cap: find/query is 60000 ms (count is
+// 600000 ms). Firestore rejects a maxTimeMS above the per-command cap.
+const firestoreOpTimeout = 55 * time.Second
+
+// boundOpContext caps the context deadline for Firestore sources so driver-issued
+// commands carry a compliant maxTimeMS. For real MongoDB it is a no-op.
+func (c *MongoConnector) boundOpContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if !c.isFirestore {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, firestoreOpTimeout)
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
@@ -85,10 +101,22 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		config:        config,
 		logger:        logger,
 	}
+	// Firestore only supports database-scoped change streams (deployment-level watch runs
+	// against `admin`, which Firestore rejects), so watch the URI's default database.
+	if peerdb_mongo.IsFirestore(config.Uri) {
+		mc.isFirestore = true
+		mc.watchDatabase = peerdb_mongo.DatabaseFromURI(config.Uri)
+	}
 	mc.createChangeStream = func(
 		ctx context.Context, pipeline mongo.Pipeline, opts ...options.Lister[options.ChangeStreamOptions],
 	) (ChangeStream, error) {
-		cs, err := mc.client.Watch(ctx, pipeline, opts...)
+		var cs *mongo.ChangeStream
+		var err error
+		if mc.watchDatabase != "" {
+			cs, err = mc.client.Database(mc.watchDatabase).Watch(ctx, pipeline, opts...)
+		} else {
+			cs, err = mc.client.Watch(ctx, pipeline, opts...)
+		}
 		if err != nil {
 			return nil, err
 		}

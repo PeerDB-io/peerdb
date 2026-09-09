@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
@@ -20,9 +21,28 @@ const (
 
 	AtlasDomain      = ".mongodb.net"
 	DocumentDBDomain = "docdb.amazonaws.com"
+	FirestoreDomain  = ".firestore.goog"
 )
 
 var RequiredRoles = [...]string{"readAnyDatabase", "clusterMonitor"}
+
+// RequiredActions are the privilege actions the connector needs when a deployment
+// reports privilege-based auth without named roles (e.g. Firestore MongoDB compatibility).
+var RequiredActions = [...]string{"find", "listCollections", "changeStream"}
+
+// IsFirestore reports whether the URI points at a Firestore MongoDB-compatible endpoint.
+func IsFirestore(uri string) bool {
+	return strings.Contains(uri, FirestoreDomain)
+}
+
+// DatabaseFromURI returns the default database encoded in a MongoDB URI path, if any.
+func DatabaseFromURI(uri string) string {
+	connStr, err := connstring.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	return connStr.Database
+}
 
 func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) error {
 	buildInfo, err := GetBuildInfo(ctx, client)
@@ -74,6 +94,32 @@ func ValidateUserRoles(ctx context.Context, client *mongo.Client) error {
 			return r.Role == requiredRole
 		}) {
 			return fmt.Errorf("missing required role: %s", requiredRole)
+		}
+	}
+
+	return nil
+}
+
+// ValidateUserPrivileges validates action-based privileges for deployments that do not
+// expose named roles (e.g. Firestore MongoDB compatibility). It requires the actions in
+// RequiredActions to be granted so both snapshot (find/listCollections) and CDC
+// (changeStream) can operate.
+func ValidateUserPrivileges(ctx context.Context, client *mongo.Client) error {
+	connectionStatus, err := GetConnectionStatusWithPrivileges(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	granted := make(map[string]struct{})
+	for _, privilege := range connectionStatus.AuthInfo.AuthenticatedUserPrivileges {
+		for _, action := range privilege.Actions {
+			granted[action] = struct{}{}
+		}
+	}
+
+	for _, requiredAction := range RequiredActions {
+		if _, ok := granted[requiredAction]; !ok {
+			return fmt.Errorf("missing required privilege action: %s", requiredAction)
 		}
 	}
 

@@ -44,6 +44,11 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 	collection := c.client.Database(parseWatermarkTable.Namespace).Collection(parseWatermarkTable.Table)
 
+	// Firestore caps maxTimeMS at 600000; bound the context so count/boundary
+	// commands don't inherit the multi-day activity deadline as maxTimeMS.
+	ctx, cancel := c.boundOpContext(ctx)
+	defer cancel()
+
 	c.logger.Info("[mongo] fetching count of documents for partitioning",
 		slog.String("watermark_table", config.WatermarkTable))
 	// estimated, worst case we are off by a few documents but should be fine for partitioning
@@ -139,15 +144,19 @@ func (c *MongoConnector) PullQRepRecords(
 		{Key: "batchSize", Value: int32(batchSize)},
 		{Key: "readConcern", Value: bson.D{{Key: "level", Value: "majority"}}},
 	}
-	cursor, err := db.RunCommandCursor(ctx, findCmd,
+	// Firestore caps maxTimeMS at 600000; bound the read context so the driver-issued
+	// maxTimeMS is compliant. Sends to the destination stream keep the outer context.
+	readCtx, cancelRead := c.boundOpContext(ctx)
+	defer cancelRead()
+	cursor, err := db.RunCommandCursor(readCtx, findCmd,
 		options.RunCmd().SetReadPreference(protoToReadPref[c.config.ReadPreference]))
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer cursor.Close(readCtx)
 
 	converter := NewDirectBsonConverter()
-	for cursor.Next(ctx) {
+	for cursor.Next(readCtx) {
 		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable, projections)
 		if err != nil {
 			c.logger.Error("failed to convert record",
