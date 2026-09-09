@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
@@ -37,6 +38,7 @@ type MySqlConnector struct {
 	contexts             atomic.Pointer[chan context.Context]
 	ssh                  *utils.SSHTunnel
 	rdsAuth              *utils.RDSAuth
+	cloudSQLAuth         auth.TokenProvider
 	config               *protos.MySqlConfig
 	*metadataStore.PostgresMetadata
 	warnedUnsupportedEventTypes sync.Map
@@ -51,6 +53,10 @@ type MySqlConnector struct {
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
+	cloudSQLAuth, err := newMySQLCloudSQLTokenProvider(ctx, config)
+	if err != nil {
+		return nil, err
+	}
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
@@ -78,6 +84,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		conn:                  atomic.Pointer[client.Conn]{},
 		logger:                logger,
 		rdsAuth:               rdsAuth,
+		cloudSQLAuth:          cloudSQLAuth,
 		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
@@ -117,6 +124,43 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}()
 
 	return c, nil
+}
+
+func newMySQLCloudSQLTokenProvider(
+	ctx context.Context,
+	config *protos.MySqlConfig,
+) (auth.TokenProvider, error) {
+	return newMySQLCloudSQLTokenProviderWithFactory(ctx, config, func(
+		ctx context.Context,
+		scopes []string,
+	) (auth.TokenProvider, error) {
+		return utils.NewGCPWorkloadIdentityCredentials(ctx, scopes)
+	})
+}
+
+func newMySQLCloudSQLTokenProviderWithFactory(
+	ctx context.Context,
+	config *protos.MySqlConfig,
+	credentialsFactory func(context.Context, []string) (auth.TokenProvider, error),
+) (auth.TokenProvider, error) {
+	if config.AuthType != protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH {
+		return nil, nil
+	}
+	if config.DisableTls {
+		return nil, fmt.Errorf("MySQL Cloud SQL IAM authentication requires TLS")
+	}
+	if config.SkipCertVerification {
+		return nil, fmt.Errorf("MySQL Cloud SQL IAM authentication requires certificate verification")
+	}
+	if strings.TrimSpace(config.TlsHost) == "" &&
+		(config.RootCa == nil || strings.TrimSpace(config.GetRootCa()) == "") {
+		return nil, fmt.Errorf("MySQL Cloud SQL IAM authentication without tls_host requires a non-empty root CA")
+	}
+	credentials, err := credentialsFactory(ctx, []string{utils.GCPCloudSQLLoginScope})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MySQL Cloud SQL IAM credentials: %w", err)
+	}
+	return credentials, nil
 }
 
 func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
@@ -189,37 +233,19 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 					return err
 				}
 			}
-			if !c.config.DisableTls {
-				config, err := common.CreateTlsConfig(
-					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
-					nil,
-				)
-				if err != nil {
-					return err
-				}
-				conn.SetTLSConfig(config)
+			tlsConfig, err := mySQLTLSConfig(c.config)
+			if err != nil {
+				return err
+			}
+			if tlsConfig != nil {
+				conn.SetTLSConfig(tlsConfig)
 			}
 			return nil
 		}}
-		config := c.config
-		if c.rdsAuth != nil {
-			c.logger.Info("Setting up IAM auth for MySQL")
-			host := c.config.Host
-			if c.config.TlsHost != "" {
-				host = c.config.TlsHost
-			}
-			token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-				Host: host,
-				Port: config.Port,
-				User: config.User,
-			}, c.rdsAuth, "MYSQL")
-			if err != nil {
-				return nil, err
-			}
-			config = proto.CloneOf(config)
-			config.Password = token
+		config, err := c.configWithAuthToken(ctx, false)
+		if err != nil {
+			return nil, err
 		}
-		var err error
 		conn, err = client.ConnectWithDialer(ctx, "", shared.JoinHostPort(config.Host, config.Port),
 			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
@@ -235,6 +261,66 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		}
 	}
 	return conn, nil
+}
+
+func mySQLTLSConfig(config *protos.MySqlConfig) (*tls.Config, error) {
+	if config.DisableTls {
+		return nil, nil
+	}
+	var tlsOptions []common.TLSConfigOption
+	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH &&
+		strings.TrimSpace(config.TlsHost) == "" {
+		tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
+	}
+	return common.CreateTlsConfig(
+		tls.VersionTLS12,
+		config.RootCa,
+		config.Host,
+		config.TlsHost,
+		config.SkipCertVerification,
+		nil,
+		tlsOptions...,
+	)
+}
+
+func (c *MySqlConnector) configWithAuthToken(
+	ctx context.Context,
+	replicationConnection bool,
+) (*protos.MySqlConfig, error) {
+	config := c.config
+	if c.rdsAuth != nil {
+		if replicationConnection {
+			c.logger.Info("Setting up IAM auth for MySQL replication")
+		} else {
+			c.logger.Info("Setting up IAM auth for MySQL")
+		}
+		host := config.Host
+		if config.TlsHost != "" {
+			host = config.TlsHost
+		}
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: config.Port,
+			User: config.User,
+		}, c.rdsAuth, "MYSQL")
+		if err != nil {
+			return nil, err
+		}
+		config = proto.CloneOf(config)
+		config.Password = token
+	}
+	if c.cloudSQLAuth != nil {
+		token, err := c.cloudSQLAuth.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get MySQL Cloud SQL IAM token: %w", err)
+		}
+		if token == nil || token.Value == "" {
+			return nil, fmt.Errorf("MySQL Cloud SQL IAM token is empty")
+		}
+		config = proto.CloneOf(config)
+		config.Password = token.Value
+	}
+	return config, nil
 }
 
 func (c *MySqlConnector) setSessionSettings() error {

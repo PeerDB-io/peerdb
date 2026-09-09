@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -30,9 +29,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/text/encoding"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -387,39 +384,29 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 }
 
 func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
-	var tlsConfig *tls.Config
-	if !c.config.DisableTls {
-		var err error
-		tlsConfig, err = common.CreateTlsConfig(
-			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
-			nil,
-		)
-		if err != nil {
-			return nil, err
-		}
+	config, err := c.buildBinlogSyncerConfig(ctx, env)
+	if err != nil {
+		return nil, err
 	}
-	config := c.config
-	if c.rdsAuth != nil {
-		c.logger.Info("Setting up IAM auth for MySQL replication")
-		host := c.config.Host
-		if c.config.TlsHost != "" {
-			host = c.config.TlsHost
-		}
-		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: host,
-			Port: config.Port,
-			User: config.User,
-		}, c.rdsAuth, "MYSQL")
-		if err != nil {
-			return nil, err
-		}
-		config = proto.CloneOf(config)
-		config.Password = token
+	return replication.NewBinlogSyncer(config), nil
+}
+
+func (c *MySqlConnector) buildBinlogSyncerConfig(
+	ctx context.Context,
+	env map[string]string,
+) (replication.BinlogSyncerConfig, error) {
+	tlsConfig, err := mySQLTLSConfig(c.config)
+	if err != nil {
+		return replication.BinlogSyncerConfig{}, err
+	}
+	config, err := c.configWithAuthToken(ctx, true)
+	if err != nil {
+		return replication.BinlogSyncerConfig{}, err
 	}
 
 	eventCacheCount, err := internal.PeerDBMySQLEventCacheCount(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get event cache count: %w", err)
+		return replication.BinlogSyncerConfig{}, fmt.Errorf("failed to get event cache count: %w", err)
 	}
 
 	var serverId uint32
@@ -432,7 +419,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
 	}
 
-	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
+	return replication.BinlogSyncerConfig{
 		ServerID:              serverId,
 		Flavor:                c.Flavor(),
 		Host:                  config.Host,
@@ -450,7 +437,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
 		RowsEventDecodeFunc:   decodeRowsEvent,
-	}), nil
+	}, nil
 }
 
 func (c *MySqlConnector) startStreaming(

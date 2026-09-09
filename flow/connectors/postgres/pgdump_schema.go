@@ -13,6 +13,10 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
+
+	"cloud.google.com/go/auth"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -32,6 +36,14 @@ var incompatibleLineRE = regexp.MustCompile(`^(SET\s+transaction_timeout\s*=|\\(
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.
 func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) error {
+	srcConfig, err := postgresConfigForSchemaDump(ctx, srcConfig)
+	if err != nil {
+		return fmt.Errorf("source: %w", err)
+	}
+	dstConfig, err = postgresConfigForSchemaDump(ctx, dstConfig)
+	if err != nil {
+		return fmt.Errorf("destination: %w", err)
+	}
 	srcAddr, err := resolvePgAddr(ctx, srcConfig)
 	if err != nil {
 		return fmt.Errorf("source: %w", err)
@@ -47,6 +59,34 @@ func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstC
 	}
 
 	return nil
+}
+
+func postgresConfigForSchemaDump(
+	ctx context.Context,
+	config *protos.PostgresConfig,
+) (*protos.PostgresConfig, error) {
+	provider, err := newPostgresCloudSQLTokenProvider(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	if provider == nil {
+		return config, nil
+	}
+	return postgresConfigWithCloudSQLToken(ctx, config, provider)
+}
+
+func postgresConfigWithCloudSQLToken(
+	ctx context.Context,
+	config *protos.PostgresConfig,
+	provider auth.TokenProvider,
+) (*protos.PostgresConfig, error) {
+	token, err := postgresCloudSQLToken(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	config = proto.CloneOf(config)
+	config.Password = token
+	return config, nil
 }
 
 // pipeCommand runs srcBinary with the given args, piping its stdout into psql on the destination.
@@ -360,10 +400,14 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 	// carry a matching IP SAN, so we only do name verification for hostnames.
 	_, ipErr := netip.ParseAddr(addr.host)
 	hostIsIP := ipErr == nil
+	cloudSQLChainOnly := config.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH &&
+		strings.TrimSpace(config.TlsHost) == ""
 
 	switch {
 	case config.SkipCertVerification:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
+	case cloudSQLChainOnly:
+		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
 	case hasRootCA && hostIsIP:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
 	case hasRootCA:
