@@ -29,19 +29,22 @@ const (
 type BigqueryCdcEventsFunction int32
 
 const (
-	BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS BigqueryCdcEventsFunction = 0
-	BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES BigqueryCdcEventsFunction = 1
+	BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED BigqueryCdcEventsFunction = 0
+	BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS     BigqueryCdcEventsFunction = 1
+	BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES     BigqueryCdcEventsFunction = 2
 )
 
 // Enum value maps for BigqueryCdcEventsFunction.
 var (
 	BigqueryCdcEventsFunction_name = map[int32]string{
-		0: "BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS",
-		1: "BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES",
+		0: "BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED",
+		1: "BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS",
+		2: "BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES",
 	}
 	BigqueryCdcEventsFunction_value = map[string]int32{
-		"BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS": 0,
-		"BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES": 1,
+		"BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED": 0,
+		"BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS":     1,
+		"BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES":     2,
 	}
 )
 
@@ -75,20 +78,24 @@ func (BigqueryCdcEventsFunction) EnumDescriptor() ([]byte, []int) {
 type BigQueryReplicationMode int32
 
 const (
-	// Default: table-valued function (APPENDS()/CHANGES()) based CDC polling.
-	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS BigQueryReplicationMode = 0
-	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY  BigQueryReplicationMode = 1
+	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_UNSPECIFIED BigQueryReplicationMode = 0
+	// table-valued function (APPENDS()/CHANGES()) based CDC polling.
+	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS BigQueryReplicationMode = 1
+	// query-based CDC polling. (e.g. SELECT * FROM table WHERE watermark_column > last_watermark)
+	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY BigQueryReplicationMode = 2
 )
 
 // Enum value maps for BigQueryReplicationMode.
 var (
 	BigQueryReplicationMode_name = map[int32]string{
-		0: "BIGQUERY_REPLICATION_MODE_EVENTS",
-		1: "BIGQUERY_REPLICATION_MODE_QUERY",
+		0: "BIGQUERY_REPLICATION_MODE_UNSPECIFIED",
+		1: "BIGQUERY_REPLICATION_MODE_EVENTS",
+		2: "BIGQUERY_REPLICATION_MODE_QUERY",
 	}
 	BigQueryReplicationMode_value = map[string]int32{
-		"BIGQUERY_REPLICATION_MODE_EVENTS": 0,
-		"BIGQUERY_REPLICATION_MODE_QUERY":  1,
+		"BIGQUERY_REPLICATION_MODE_UNSPECIFIED": 0,
+		"BIGQUERY_REPLICATION_MODE_EVENTS":      1,
+		"BIGQUERY_REPLICATION_MODE_QUERY":       2,
 	}
 )
 
@@ -777,8 +784,11 @@ type TableMapping struct {
 	// Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
 	// BIGQUERY_REPLICATION_MODE_EVENTS.
 	BigqueryCdcEventsFunction BigqueryCdcEventsFunction `protobuf:"varint,10,opt,name=bigquery_cdc_events_function,json=bigqueryCdcEventsFunction,proto3,enum=peerdb_flow.BigqueryCdcEventsFunction" json:"bigquery_cdc_events_function,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// the column to use as a cursor for query-based CDC replication
+	// required if replication_mode is BIGQUERY_REPLICATION_MODE_QUERY
+	QueryCdcWatermarkColumn string `protobuf:"bytes,11,opt,name=query_cdc_watermark_column,json=queryCdcWatermarkColumn,proto3" json:"query_cdc_watermark_column,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *TableMapping) Reset() {
@@ -878,7 +888,14 @@ func (x *TableMapping) GetBigqueryCdcEventsFunction() BigqueryCdcEventsFunction 
 	if x != nil {
 		return x.BigqueryCdcEventsFunction
 	}
-	return BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	return BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED
+}
+
+func (x *TableMapping) GetQueryCdcWatermarkColumn() string {
+	if x != nil {
+		return x.QueryCdcWatermarkColumn
+	}
+	return ""
 }
 
 type SetupInput struct {
@@ -982,7 +999,7 @@ func (x *BigqueryCdcConfig) GetReplicationMode() BigQueryReplicationMode {
 	if x != nil {
 		return x.ReplicationMode
 	}
-	return BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS
+	return BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_UNSPECIFIED
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
@@ -5848,7 +5865,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x10destination_type\x18\x03 \x01(\tR\x0fdestinationType\x12\x1a\n" +
 	"\bordering\x18\x04 \x01(\x05R\bordering\x12\"\n" +
 	"\fpartitioning\x18\x06 \x01(\x05R\fpartitioning\x12)\n" +
-	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\"\x88\x04\n" +
+	"\x10nullable_enabled\x18\x05 \x01(\bR\x0fnullableEnabled\"\xc5\x04\n" +
 	"\fTableMapping\x126\n" +
 	"\x17source_table_identifier\x18\x01 \x01(\tR\x15sourceTableIdentifier\x12@\n" +
 	"\x1cdestination_table_identifier\x18\x02 \x01(\tR\x1adestinationTableIdentifier\x12#\n" +
@@ -5861,7 +5878,8 @@ const file_flow_proto_rawDesc = "" +
 	"policyName\x12*\n" +
 	"\x11partition_by_expr\x18\t \x01(\tR\x0fpartitionByExpr\x12g\n" +
 	"\x1cbigquery_cdc_events_function\x18\n" +
-	" \x01(\x0e2&.peerdb_flow.BigqueryCdcEventsFunctionR\x19bigqueryCdcEventsFunction\"\xb2\x01\n" +
+	" \x01(\x0e2&.peerdb_flow.BigqueryCdcEventsFunctionR\x19bigqueryCdcEventsFunction\x12;\n" +
+	"\x1aquery_cdc_watermark_column\x18\v \x01(\tR\x17queryCdcWatermarkColumn\"\xb2\x01\n" +
 	"\n" +
 	"SetupInput\x122\n" +
 	"\x03env\x18\x01 \x03(\v2 .peerdb_flow.SetupInput.EnvEntryR\x03env\x12\x1b\n" +
@@ -6300,13 +6318,15 @@ const file_flow_proto_rawDesc = "" +
 	"\x03env\x18\x04 \x03(\v2*.peerdb_flow.RunPgDumpSchemaInput.EnvEntryR\x03env\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*o\n" +
-	"\x19BigqueryCdcEventsFunction\x12(\n" +
-	"$BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS\x10\x00\x12(\n" +
-	"$BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES\x10\x01*d\n" +
-	"\x17BigQueryReplicationMode\x12$\n" +
-	" BIGQUERY_REPLICATION_MODE_EVENTS\x10\x00\x12#\n" +
-	"\x1fBIGQUERY_REPLICATION_MODE_QUERY\x10\x01*\xd8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x9d\x01\n" +
+	"\x19BigqueryCdcEventsFunction\x12,\n" +
+	"(BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED\x10\x00\x12(\n" +
+	"$BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS\x10\x01\x12(\n" +
+	"$BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES\x10\x02*\x8f\x01\n" +
+	"\x17BigQueryReplicationMode\x12)\n" +
+	"%BIGQUERY_REPLICATION_MODE_UNSPECIFIED\x10\x00\x12$\n" +
+	" BIGQUERY_REPLICATION_MODE_EVENTS\x10\x01\x12#\n" +
+	"\x1fBIGQUERY_REPLICATION_MODE_QUERY\x10\x02*\xd8\x01\n" +
 	"\vTableEngine\x12\"\n" +
 	"\x1eCH_ENGINE_REPLACING_MERGE_TREE\x10\x00\x12\x18\n" +
 	"\x14CH_ENGINE_MERGE_TREE\x10\x01\x12\x12\n" +
