@@ -51,6 +51,10 @@ func jsonFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
+	// CAST(NULL, 'JSON') fails, nulls have to be cast to the nullable type
+	if field.Nullable {
+		return fmt.Sprintf("CAST(%s, 'Nullable(JSON)')", sourceFieldIdentifier), nil
+	}
 	return fmt.Sprintf("CAST(%s, 'JSON')", sourceFieldIdentifier), nil
 }
 
