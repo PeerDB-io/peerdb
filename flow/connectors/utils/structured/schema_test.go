@@ -141,10 +141,10 @@ func TestProjectRecord(t *testing.T) {
 		require.Equal(t, types.QValueNull(types.QValueKindInt64), values[1])
 		malformed, ok := values[3].(types.QValueJSON)
 		require.True(t, ok, "malformed data should be recorded as JSON")
-		require.JSONEq(t, `{"malformed_data": {
+		require.JSONEq(t, `{
 			"age": {"type_mismatch": true, "value": "thirty six"},
 			"email": {"unexpected": true, "value": "ada@example.com"}
-		}}`, malformed.Val)
+		}`, malformed.Val)
 	})
 
 	t.Run("shouldRecordValues=false omits mismatched values", func(t *testing.T) {
@@ -158,9 +158,9 @@ func TestProjectRecord(t *testing.T) {
 		malformed, ok := values[3].(types.QValueJSON)
 		require.True(t, ok)
 		// NOTE: unexpected fields record their value regardless of shouldRecordValues
-		require.JSONEq(t, `{"malformed_data": {
+		require.JSONEq(t, `{
 			"age": {"type_mismatch": true},
 			"email": {"unexpected": true, "value": "ada@example.com"}
-		}}`, malformed.Val)
+		}`, malformed.Val)
 	})
 }

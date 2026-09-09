@@ -65,7 +65,7 @@ func (m *MalformedData) IsEmpty() bool {
 // MarshalJSON implements json.Marshaler, serializing the malformed fields state in the shape of a JSON object
 // which is query friendly if ingested into ClickHouse:
 //
-//	{"malformed_data": {"<field>": {"<reason>": true, "value": <value>}}}
+//	{"<field>": {"<reason>": true, "value": <value>}}
 func (m *MalformedData) MarshalJSON() ([]byte, error) {
 	fields := make(map[string]map[string]any, len(m.reasons))
 	for name, reason := range m.reasons {
@@ -91,7 +91,7 @@ func (m *MalformedData) MarshalJSON() ([]byte, error) {
 			fields[name] = map[string]any{ReasonNaN.String(): true}
 		}
 	}
-	return json.Marshal(map[string]any{"malformed_data": fields})
+	return json.Marshal(fields)
 }
 
 func (m *MalformedData) AsQValue() (types.QValue, error) {
