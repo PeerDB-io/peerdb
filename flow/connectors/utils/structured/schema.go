@@ -107,25 +107,34 @@ func NewSchemaProjector(
 	schemaColumns []*protos.ColumnSetting,
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
-	fields := make([]types.QField, 0, len(schemaColumns)+1)
-	columns := make(map[string]schemaColumn, len(schemaColumns))
-
-	// TODO: Potentially handle columns renames.
+	schemaFields := make([]types.QField, 0, len(schemaColumns))
 
 	for _, column := range schemaColumns {
 		kind, err := schemaToQKind(column.DestinationType)
 		if err != nil {
 			return nil, fmt.Errorf("schema column %s: %w", column.SourceName, err)
 		}
-		if _, duplicate := columns[column.SourceName]; duplicate {
-			return nil, fmt.Errorf("schema column %s is declared more than once", column.SourceName)
+		schemaFields = append(schemaFields, types.QField{Name: column.SourceName, Type: kind})
+	}
+
+	return NewSchemaProjectorFromQFields(schemaFields, shouldRecordValues)
+}
+
+// NewSchemaProjectorFromQFields builds a projector for schema columns whose QKinds are already resolved.
+func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValues bool) (*SchemaProjector, error) {
+	fields := make([]types.QField, 0, len(schemaFields)+1)
+	columns := make(map[string]schemaColumn, len(schemaFields))
+
+	for _, field := range schemaFields {
+		if _, duplicate := columns[field.Name]; duplicate {
+			return nil, fmt.Errorf("schema column %s is declared more than once", field.Name)
 		}
-		if column.SourceName == MalformedDataColumn {
-			return nil, fmt.Errorf("schema column %s clashes with the malformed data column", column.SourceName)
+		if field.Name == MalformedDataColumn {
+			return nil, fmt.Errorf("schema column %s clashes with the malformed data column", field.Name)
 		}
-		columns[column.SourceName] = schemaColumn{kind: kind, index: len(fields)}
-		// nullable as a record may lack any of the columns
-		fields = append(fields, types.QField{Name: column.SourceName, Type: kind, Nullable: true})
+		columns[field.Name] = schemaColumn{kind: field.Type, index: len(fields)}
+		// All structured columns are nullable as a record may lack any of the columns
+		fields = append(fields, types.QField{Name: field.Name, Type: field.Type, Nullable: true})
 	}
 
 	malformedData := MalformedDataFieldDescription()
