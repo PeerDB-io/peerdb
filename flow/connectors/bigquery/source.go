@@ -25,9 +25,9 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	if !snapshotOnly {
 		switch cfg.GetBigqueryCdcConfig().GetReplicationMethod() {
 		case protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY:
-			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeQuery
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationMethodQuery
 		case protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS:
-			sourceConfig.ReplicationMode = bqvalidate.ReplicationModeEvents
+			sourceConfig.ReplicationMode = bqvalidate.ReplicationMethodEvents
 		default:
 			return fmt.Errorf("invalid replication mode: %v", cfg.GetBigqueryCdcConfig().GetReplicationMethod())
 		}
@@ -43,7 +43,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 			RequiresOrderingKey: tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE ||
 				tableMapping.Engine == protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE,
 		}
-		if sourceConfig.ReplicationMode == bqvalidate.ReplicationModeEvents {
+		if sourceConfig.ReplicationMode == bqvalidate.ReplicationMethodEvents {
 			switch tableMapping.GetBigqueryCdcEventsFunction() {
 			case protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS:
 				t.CDCEventsFunction = bqvalidate.CDCEventsFunctionAppends

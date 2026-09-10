@@ -155,9 +155,9 @@ func GetTables(
 type ReplicationMode int
 
 const (
-	ReplicationModeUnspecified ReplicationMode = iota
-	ReplicationModeEvents
-	ReplicationModeQuery
+	ReplicationMethodUnspecified ReplicationMode = iota
+	ReplicationMethodEvents
+	ReplicationMethodQuery
 )
 
 // CDCEventsFunction selects which BigQuery CDC function backs a table's events.
@@ -457,7 +457,7 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		key := validateTables[i]
 
 		switch cfg.ReplicationMode {
-		case ReplicationModeQuery:
+		case ReplicationMethodQuery:
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %q has no watermark_column configured; QUERY replication mode requires "+
 					"one TIMESTAMP column per table to incrementally scan", key)
@@ -475,7 +475,7 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
-		case ReplicationModeEvents:
+		case ReplicationMethodEvents:
 			switch t.CDCEventsFunction {
 			case CDCEventsFunctionChanges:
 				if !tablesByKey[key].HasPrimaryKey() && !t.HasOrderingKey {
