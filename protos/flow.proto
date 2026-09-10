@@ -486,8 +486,10 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
-  // mirrors TableMapping.structured_ingestion for the table being snapshotted
-  bool structured_ingestion = 33; // internal
+  // If true, source documents are projected onto the columns declared in `columns` using their
+  // `destination_type`, instead of landing whole in a single JSON column.
+  // Only for structured ingestion enabled sources.
+  bool structured_ingestion = 33;
 }
 
 message ChildTableRange {

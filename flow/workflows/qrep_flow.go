@@ -115,6 +115,8 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 			{
 				SourceTableIdentifier:      tableName,
 				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+				Columns:                    q.config.Columns,
+				StructuredIngestion:        q.config.StructuredIngestion,
 			},
 		},
 		FlowName: q.config.FlowJobName,
@@ -156,6 +158,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
 					Exclude:                    q.config.Exclude,
 					Columns:                    q.config.Columns,
+					StructuredIngestion:        q.config.StructuredIngestion,
 				},
 			},
 			SyncedAtColName:   q.config.SyncedAtColName,
