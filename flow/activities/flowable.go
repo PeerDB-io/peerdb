@@ -460,9 +460,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	// syncDone is closed by SyncFlow to signal the normalize goroutine that no more batches
-	// are coming, whereas normDone is closed by the normalize goroutine upon exit.
-	syncDone := make(chan struct{})
 	normDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
@@ -491,10 +488,11 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
+	normCtx, cancelNormCtx := context.WithCancel(internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE))
+	defer cancelNormCtx()
 	go func() {
 		defer close(normDone)
-		normalizeCtx := internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 	}()
 
 	var syncErr error
@@ -528,7 +526,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 
 	syncState.Store(new("cleanup"))
-	close(syncDone)
+	cancelNormCtx()
 	normRequests.Close()
 	normResponses.Close()
 	<-normDone

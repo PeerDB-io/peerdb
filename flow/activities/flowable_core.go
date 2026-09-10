@@ -792,7 +792,6 @@ func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
-	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
@@ -815,9 +814,6 @@ func (a *FlowableActivity) normalizeLoop(
 				return
 			}
 			select {
-			case <-syncDone:
-				logger.Info("[normalize-loop] syncDone closed")
-				return
 			case <-ctx.Done():
 				logger.Info("[normalize-loop] context closed")
 				return
@@ -835,9 +831,6 @@ func (a *FlowableActivity) normalizeLoop(
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				// update req to latest normalize request & retry
 				select {
-				case <-syncDone:
-					logger.Info("[normalize-loop] syncDone closed before retry")
-					return
 				case <-ctx.Done():
 					logger.Info("[normalize-loop] context closed before retry")
 					return
