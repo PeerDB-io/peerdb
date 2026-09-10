@@ -151,11 +151,11 @@ func GetTables(
 	return result, nil
 }
 
-// ReplicationMode selects how CDC events are produced for a BigQuery source mirror.
-type ReplicationMode int
+// ReplicationMethod selects how CDC events are produced for a BigQuery source mirror.
+type ReplicationMethod int
 
 const (
-	ReplicationMethodUnspecified ReplicationMode = iota
+	ReplicationMethodUnspecified ReplicationMethod = iota
 	ReplicationMethodEvents
 	ReplicationMethodQuery
 )
@@ -202,7 +202,7 @@ type SourceConfig struct {
 	// DefaultDataset is used for table identifiers with no dataset qualifier.
 	DefaultDataset  string
 	Tables          []SourceTableConfig
-	ReplicationMode ReplicationMode
+	ReplicationMode ReplicationMethod
 	// HasSnapshot enables validation of snapshot staging access and export
 	// permissions using SnapshotStagingPath.
 	HasSnapshot         bool
