@@ -24,7 +24,7 @@ const (
 )
 
 // BigqueryCdcEventsFunction selects which BigQuery table-valued function backs
-// EVENTS-mode CDC polling (see BigQueryReplicationMode) for one table:
+// EVENTS-mode CDC polling (see BigQueryReplicationMethod) for one table:
 // APPENDS() (insert-only) or CHANGES() (insert/update/delete).
 type BigqueryCdcEventsFunction int32
 
@@ -75,54 +75,54 @@ func (BigqueryCdcEventsFunction) EnumDescriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{0}
 }
 
-type BigQueryReplicationMode int32
+type BigQueryReplicationMethod int32
 
 const (
-	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_UNSPECIFIED BigQueryReplicationMode = 0
+	BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_UNSPECIFIED BigQueryReplicationMethod = 0
 	// table-valued function (APPENDS()/CHANGES()) based CDC polling.
-	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS BigQueryReplicationMode = 1
+	BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS BigQueryReplicationMethod = 1
 	// query-based CDC polling. (e.g. SELECT * FROM table WHERE watermark_column > last_watermark)
-	BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY BigQueryReplicationMode = 2
+	BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY BigQueryReplicationMethod = 2
 )
 
-// Enum value maps for BigQueryReplicationMode.
+// Enum value maps for BigQueryReplicationMethod.
 var (
-	BigQueryReplicationMode_name = map[int32]string{
-		0: "BIGQUERY_REPLICATION_MODE_UNSPECIFIED",
-		1: "BIGQUERY_REPLICATION_MODE_EVENTS",
-		2: "BIGQUERY_REPLICATION_MODE_QUERY",
+	BigQueryReplicationMethod_name = map[int32]string{
+		0: "BIGQUERY_REPLICATION_METHOD_UNSPECIFIED",
+		1: "BIGQUERY_REPLICATION_METHOD_EVENTS",
+		2: "BIGQUERY_REPLICATION_METHOD_QUERY",
 	}
-	BigQueryReplicationMode_value = map[string]int32{
-		"BIGQUERY_REPLICATION_MODE_UNSPECIFIED": 0,
-		"BIGQUERY_REPLICATION_MODE_EVENTS":      1,
-		"BIGQUERY_REPLICATION_MODE_QUERY":       2,
+	BigQueryReplicationMethod_value = map[string]int32{
+		"BIGQUERY_REPLICATION_METHOD_UNSPECIFIED": 0,
+		"BIGQUERY_REPLICATION_METHOD_EVENTS":      1,
+		"BIGQUERY_REPLICATION_METHOD_QUERY":       2,
 	}
 )
 
-func (x BigQueryReplicationMode) Enum() *BigQueryReplicationMode {
-	p := new(BigQueryReplicationMode)
+func (x BigQueryReplicationMethod) Enum() *BigQueryReplicationMethod {
+	p := new(BigQueryReplicationMethod)
 	*p = x
 	return p
 }
 
-func (x BigQueryReplicationMode) String() string {
+func (x BigQueryReplicationMethod) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (BigQueryReplicationMode) Descriptor() protoreflect.EnumDescriptor {
+func (BigQueryReplicationMethod) Descriptor() protoreflect.EnumDescriptor {
 	return file_flow_proto_enumTypes[1].Descriptor()
 }
 
-func (BigQueryReplicationMode) Type() protoreflect.EnumType {
+func (BigQueryReplicationMethod) Type() protoreflect.EnumType {
 	return &file_flow_proto_enumTypes[1]
 }
 
-func (x BigQueryReplicationMode) Number() protoreflect.EnumNumber {
+func (x BigQueryReplicationMethod) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use BigQueryReplicationMode.Descriptor instead.
-func (BigQueryReplicationMode) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use BigQueryReplicationMethod.Descriptor instead.
+func (BigQueryReplicationMethod) EnumDescriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{1}
 }
 
@@ -781,11 +781,11 @@ type TableMapping struct {
 	ShardingKey                string                 `protobuf:"bytes,7,opt,name=sharding_key,json=shardingKey,proto3" json:"sharding_key,omitempty"`
 	PolicyName                 string                 `protobuf:"bytes,8,opt,name=policy_name,json=policyName,proto3" json:"policy_name,omitempty"`
 	PartitionByExpr            string                 `protobuf:"bytes,9,opt,name=partition_by_expr,json=partitionByExpr,proto3" json:"partition_by_expr,omitempty"`
-	// Only meaningful when the mirror's BigqueryCdcConfig.replication_mode is
-	// BIGQUERY_REPLICATION_MODE_EVENTS.
+	// Only meaningful when the mirror's BigqueryCdcConfig.replication_method is
+	// BIGQUERY_REPLICATION_METHOD_EVENTS.
 	BigqueryCdcEventsFunction BigqueryCdcEventsFunction `protobuf:"varint,10,opt,name=bigquery_cdc_events_function,json=bigqueryCdcEventsFunction,proto3,enum=peerdb_flow.BigqueryCdcEventsFunction" json:"bigquery_cdc_events_function,omitempty"`
 	// the column to use as a cursor for query-based CDC replication
-	// required if replication_mode is BIGQUERY_REPLICATION_MODE_QUERY
+	// required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
 	QueryCdcWatermarkColumn string `protobuf:"bytes,11,opt,name=query_cdc_watermark_column,json=queryCdcWatermarkColumn,proto3" json:"query_cdc_watermark_column,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
@@ -959,10 +959,10 @@ func (x *SetupInput) GetPeerName() string {
 }
 
 type BigqueryCdcConfig struct {
-	state           protoimpl.MessageState  `protogen:"open.v1"`
-	ReplicationMode BigQueryReplicationMode `protobuf:"varint,1,opt,name=replication_mode,json=replicationMode,proto3,enum=peerdb_flow.BigQueryReplicationMode" json:"replication_mode,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state             protoimpl.MessageState    `protogen:"open.v1"`
+	ReplicationMethod BigQueryReplicationMethod `protobuf:"varint,1,opt,name=replication_method,json=replicationMethod,proto3,enum=peerdb_flow.BigQueryReplicationMethod" json:"replication_method,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *BigqueryCdcConfig) Reset() {
@@ -995,11 +995,11 @@ func (*BigqueryCdcConfig) Descriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *BigqueryCdcConfig) GetReplicationMode() BigQueryReplicationMode {
+func (x *BigqueryCdcConfig) GetReplicationMethod() BigQueryReplicationMethod {
 	if x != nil {
-		return x.ReplicationMode
+		return x.ReplicationMethod
 	}
-	return BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_UNSPECIFIED
+	return BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_UNSPECIFIED
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
@@ -5887,9 +5887,9 @@ const file_flow_proto_rawDesc = "" +
 	"\tpeer_name\x18\x03 \x01(\tR\bpeerName\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"d\n" +
-	"\x11BigqueryCdcConfig\x12O\n" +
-	"\x10replication_mode\x18\x01 \x01(\x0e2$.peerdb_flow.BigQueryReplicationModeR\x0freplicationMode\"\xc7\v\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"j\n" +
+	"\x11BigqueryCdcConfig\x12U\n" +
+	"\x12replication_method\x18\x01 \x01(\x0e2&.peerdb_flow.BigQueryReplicationMethodR\x11replicationMethod\"\xc7\v\n" +
 	"\x15FlowConnectionConfigs\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12@\n" +
 	"\x0etable_mappings\x18\x04 \x03(\v2\x19.peerdb_flow.TableMappingR\rtableMappings\x12$\n" +
@@ -6322,11 +6322,11 @@ const file_flow_proto_rawDesc = "" +
 	"\x19BigqueryCdcEventsFunction\x12,\n" +
 	"(BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED\x10\x00\x12(\n" +
 	"$BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS\x10\x01\x12(\n" +
-	"$BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES\x10\x02*\x8f\x01\n" +
-	"\x17BigQueryReplicationMode\x12)\n" +
-	"%BIGQUERY_REPLICATION_MODE_UNSPECIFIED\x10\x00\x12$\n" +
-	" BIGQUERY_REPLICATION_MODE_EVENTS\x10\x01\x12#\n" +
-	"\x1fBIGQUERY_REPLICATION_MODE_QUERY\x10\x02*\xd8\x01\n" +
+	"$BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES\x10\x02*\x97\x01\n" +
+	"\x19BigQueryReplicationMethod\x12+\n" +
+	"'BIGQUERY_REPLICATION_METHOD_UNSPECIFIED\x10\x00\x12&\n" +
+	"\"BIGQUERY_REPLICATION_METHOD_EVENTS\x10\x01\x12%\n" +
+	"!BIGQUERY_REPLICATION_METHOD_QUERY\x10\x02*\xd8\x01\n" +
 	"\vTableEngine\x12\"\n" +
 	"\x1eCH_ENGINE_REPLACING_MERGE_TREE\x10\x00\x12\x18\n" +
 	"\x14CH_ENGINE_MERGE_TREE\x10\x01\x12\x12\n" +
@@ -6405,7 +6405,7 @@ var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
 var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 92)
 var file_flow_proto_goTypes = []any{
 	(BigqueryCdcEventsFunction)(0),                // 0: peerdb_flow.BigqueryCdcEventsFunction
-	(BigQueryReplicationMode)(0),                  // 1: peerdb_flow.BigQueryReplicationMode
+	(BigQueryReplicationMethod)(0),                // 1: peerdb_flow.BigQueryReplicationMethod
 	(TableEngine)(0),                              // 2: peerdb_flow.TableEngine
 	(QRepWriteType)(0),                            // 3: peerdb_flow.QRepWriteType
 	(TypeSystem)(0),                               // 4: peerdb_flow.TypeSystem
@@ -6516,7 +6516,7 @@ var file_flow_proto_depIdxs = []int32{
 	2,   // 1: peerdb_flow.TableMapping.engine:type_name -> peerdb_flow.TableEngine
 	0,   // 2: peerdb_flow.TableMapping.bigquery_cdc_events_function:type_name -> peerdb_flow.BigqueryCdcEventsFunction
 	83,  // 3: peerdb_flow.SetupInput.env:type_name -> peerdb_flow.SetupInput.EnvEntry
-	1,   // 4: peerdb_flow.BigqueryCdcConfig.replication_mode:type_name -> peerdb_flow.BigQueryReplicationMode
+	1,   // 4: peerdb_flow.BigqueryCdcConfig.replication_method:type_name -> peerdb_flow.BigQueryReplicationMethod
 	13,  // 5: peerdb_flow.FlowConnectionConfigs.table_mappings:type_name -> peerdb_flow.TableMapping
 	4,   // 6: peerdb_flow.FlowConnectionConfigs.system:type_name -> peerdb_flow.TypeSystem
 	84,  // 7: peerdb_flow.FlowConnectionConfigs.env:type_name -> peerdb_flow.FlowConnectionConfigs.EnvEntry
