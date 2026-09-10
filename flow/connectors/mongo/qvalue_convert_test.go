@@ -749,14 +749,14 @@ func TestQValuesFromBsonRawInvalidIds(t *testing.T) {
 	t.Run("null _id is rejected", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: nil}})
 		require.NoError(t, err)
-		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, "test_table", nil)
+		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, false, converter, "test_table", nil)
 		require.ErrorAs(t, err, new(*exceptions.MongoInvalidIdValueError))
 	})
 
 	t.Run("missing _id is rejected", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "not_id", Value: "value"}})
 		require.NoError(t, err)
-		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, "test_table", nil)
+		_, err = QValuesFromBsonRaw(raw, shared.InternalVersion_Latest, false, converter, "test_table", nil)
 		require.ErrorAs(t, err, new(*exceptions.MongoInvalidIdValueError))
 	})
 }

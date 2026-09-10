@@ -576,6 +576,25 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_OMIT_FULL_DOCUMENT_COLUMN",
+		Description: "Omit the full-document JSON column (doc) from MongoDB mirror tables, keeping only _id " +
+			"and user-configured typed columns. Unmapped fields are not replicated when enabled",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_MONGODB_STRING_SAMPLE_MAX_SIZE",
+		Description: "Maximum number of _id values sampled to compute quantile partition boundaries for " +
+			"string _id collections. Higher values improve partition balance on very large collections at " +
+			"the cost of a larger $sample/$sort. 0 uses the built-in default",
+		DefaultValue:     "100000",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
 		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
 			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
@@ -1007,6 +1026,14 @@ func PeerDBOffloadPartitionRanges(ctx context.Context, env map[string]string) (b
 
 func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_PG_AUTOMATED_SCHEMA_DUMP")
+}
+
+func PeerDBMongoDBOmitFullDocumentColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_OMIT_FULL_DOCUMENT_COLUMN")
+}
+
+func PeerDBMongoDBStringSampleMaxSize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_STRING_SAMPLE_MAX_SIZE")
 }
 
 func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]string) ([]string, error) {

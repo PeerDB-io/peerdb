@@ -67,14 +67,14 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 	}
 
 	recordBatch := &model.QRecordBatch{
-		Schema:  connmongo.GetDefaultSchema(shared.InternalVersion_MongoDBFullDocumentColumnToDoc, nil),
+		Schema:  connmongo.GetDefaultSchema(shared.InternalVersion_MongoDBFullDocumentColumnToDoc, false, nil),
 		Records: nil,
 	}
 
 	converter := connmongo.NewDirectBsonConverter()
 
 	for cursor.Next(ctx) {
-		record, err := connmongo.QValuesFromBsonRaw(cursor.Current, shared.InternalVersion_Latest, converter, table, nil)
+		record, err := connmongo.QValuesFromBsonRaw(cursor.Current, shared.InternalVersion_Latest, false, converter, table, nil)
 		if err != nil {
 			return nil, err
 		}

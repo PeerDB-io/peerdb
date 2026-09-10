@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -20,8 +21,9 @@ const (
 	// stringSampleOversample draws more samples than partitions so quantile
 	// boundaries are well distributed even with clustered keys.
 	stringSampleOversample = 20
-	// stringSampleMaxSize caps sampling cost on very large collections.
-	stringSampleMaxSize = 100000
+	// defaultStringSampleMaxSize caps sampling cost on very large collections when
+	// PEERDB_MONGODB_STRING_SAMPLE_MAX_SIZE is unset or non-positive.
+	defaultStringSampleMaxSize = 100000
 )
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
@@ -35,6 +37,7 @@ func (c *MongoConnector) buildPartitions(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
+	env map[string]string,
 ) ([]*protos.QRepPartition, error) {
 	minRaw, err := findBoundaryID(ctx, collection, Lower, c.config.ReadPreference)
 	if err != nil {
@@ -61,7 +64,7 @@ func (c *MongoConnector) buildPartitions(
 		maxVal, _ := rawValueToInt64(maxRaw)
 		return c.numericPartitions(minVal, maxVal, numPartitions)
 	case minRaw.Type == bson.TypeString && maxRaw.Type == bson.TypeString:
-		return c.stringPartitions(ctx, collection, minRaw.StringValue(), maxRaw.StringValue(), numPartitions)
+		return c.stringPartitions(ctx, collection, minRaw.StringValue(), maxRaw.StringValue(), numPartitions, env)
 	default:
 		c.logger.Info("[mongo] _id type not supported for partitioning (or mixed types), falling back to full table partition",
 			slog.String("minType", minRaw.Type.String()),
@@ -158,13 +161,14 @@ func (c *MongoConnector) stringPartitions(
 	minVal string,
 	maxVal string,
 	numPartitions int64,
+	env map[string]string,
 ) ([]*protos.QRepPartition, error) {
 	if minVal >= maxVal {
 		c.logger.Info("[mongo] string min/max range is non-positive, falling back to full table partition")
 		return utils.FullTablePartition(), nil
 	}
 
-	samples, err := c.sampleStringIDs(ctx, collection, numPartitions)
+	samples, err := c.sampleStringIDs(ctx, collection, numPartitions, env)
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +199,18 @@ func (c *MongoConnector) sampleStringIDs(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
+	env map[string]string,
 ) ([]string, error) {
+	sampleMaxSize, err := internal.PeerDBMongoDBStringSampleMaxSize(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read string sample max size: %w", err)
+	}
+	if sampleMaxSize <= 0 {
+		sampleMaxSize = defaultStringSampleMaxSize
+	}
 	sampleSize := numPartitions * stringSampleOversample
-	if sampleSize > stringSampleMaxSize {
-		sampleSize = stringSampleMaxSize
+	if sampleSize > sampleMaxSize {
+		sampleSize = sampleMaxSize
 	}
 
 	aggCmd := bson.D{
@@ -208,6 +220,9 @@ func (c *MongoConnector) sampleStringIDs(
 			bson.D{{Key: "$project", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 			bson.D{{Key: "$sort", Value: bson.D{{Key: DefaultDocumentKeyColumnName, Value: 1}}}},
 		}},
+		// Allow the $sort to spill to disk; at large sample sizes it can exceed the
+		// 100 MiB in-memory aggregation limit.
+		{Key: "allowDiskUse", Value: true},
 		{Key: "cursor", Value: bson.D{}},
 	}
 

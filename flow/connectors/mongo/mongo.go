@@ -70,6 +70,7 @@ type MongoConnector struct {
 	excludedOps          []operationType
 	watchDatabase        string
 	isFirestore          bool
+	omitFullDocument     bool
 	totalBytesRead       atomic.Int64
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration

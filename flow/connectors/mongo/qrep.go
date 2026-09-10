@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -70,7 +71,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
+	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions, config.Env)
 }
 
 func (c *MongoConnector) GetDefaultPartitionKeyForTables(
@@ -103,8 +104,13 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	db := c.client.Database(parseWatermarkTable.Namespace)
 
+	omitFullDocument, err := internal.PeerDBMongoDBOmitFullDocumentColumn(ctx, config.Env)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to resolve full-document column setting: %w", err)
+	}
+
 	projections := buildProjections(config.Columns)
-	stream.SetSchema(GetDefaultSchema(config.Version, projections))
+	stream.SetSchema(GetDefaultSchema(config.Version, omitFullDocument, projections))
 
 	c.totalBytesRead.Store(0)
 	c.deltaBytesRead.Store(0)
@@ -157,7 +163,7 @@ func (c *MongoConnector) PullQRepRecords(
 
 	converter := NewDirectBsonConverter()
 	for cursor.Next(readCtx) {
-		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, converter, config.WatermarkTable, projections)
+		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, omitFullDocument, converter, config.WatermarkTable, projections)
 		if err != nil {
 			c.logger.Error("failed to convert record",
 				slog.String("error", err.Error()),
@@ -198,7 +204,7 @@ func (c *MongoConnector) PullQRepRecords(
 	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
-func GetDefaultSchema(internalVersion uint32, projections []mongoProjection) types.QRecordSchema {
+func GetDefaultSchema(internalVersion uint32, omitFullDocument bool, projections []mongoProjection) types.QRecordSchema {
 	fullDocumentColumnName := DefaultFullDocumentColumnName
 	if internalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
 		fullDocumentColumnName = LegacyFullDocumentColumnName
@@ -209,12 +215,14 @@ func GetDefaultSchema(internalVersion uint32, projections []mongoProjection) typ
 			Name:     DefaultDocumentKeyColumnName,
 			Type:     types.QValueKindString,
 			Nullable: false,
-		},
-		types.QField{
+		})
+	if !omitFullDocument {
+		schema = append(schema, types.QField{
 			Name:     fullDocumentColumnName,
 			Type:     types.QValueKindJSON,
 			Nullable: false,
 		})
+	}
 	schema = append(schema, projectedQFields(projections)...)
 	return types.QRecordSchema{Fields: schema}
 }
@@ -265,11 +273,13 @@ func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange
 }
 
 // QValuesFromBsonRaw converts a raw BSON document to QValues, extracting the _id,
-// producing JSON for the full document, and appending any user-configured typed
-// projections (in projection order) using the provided converter.
+// producing JSON for the full document (unless omitFullDocument is set), and
+// appending any user-configured typed projections (in projection order) using the
+// provided converter.
 func QValuesFromBsonRaw(
 	raw bson.Raw,
 	version uint32,
+	omitFullDocument bool,
 	converter BsonToQValueConverter,
 	tableName string,
 	projections []mongoProjection,
@@ -283,12 +293,14 @@ func QValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	docQValue, err := converter.QValueJSONFromDocument(raw)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert document %s: %w", DefaultFullDocumentColumnName, err)
-	}
-
 	values := make([]types.QValue, 0, 2+len(projections))
-	values = append(values, idQValue, docQValue)
+	values = append(values, idQValue)
+	if !omitFullDocument {
+		docQValue, err := converter.QValueJSONFromDocument(raw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert document %s: %w", DefaultFullDocumentColumnName, err)
+		}
+		values = append(values, docQValue)
+	}
 	return appendProjectedValues(values, raw, projections, converter)
 }

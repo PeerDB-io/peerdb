@@ -137,11 +137,16 @@ func (w *changeStreamWrapper) Close() error {
 
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
-	_ map[string]string,
+	env map[string]string,
 	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
+	omitFullDocument, err := internal.PeerDBMongoDBOmitFullDocumentColumn(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve full-document column setting: %w", err)
+	}
+
 	result := make(map[string]*protos.TableSchema, len(tableMappings))
 	idFieldDescription := &protos.FieldDescription{
 		Name:         DefaultDocumentKeyColumnName,
@@ -161,7 +166,10 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
-		columns := []*protos.FieldDescription{idFieldDescription, dataFieldDescription}
+		columns := []*protos.FieldDescription{idFieldDescription}
+		if !omitFullDocument {
+			columns = append(columns, dataFieldDescription)
+		}
 		columns = append(columns, projectedFieldDescriptions(buildProjections(tm.Columns))...)
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
@@ -401,8 +409,10 @@ func (c *MongoConnector) PullRecords(
 			if err != nil {
 				return fmt.Errorf("failed to convert document: %w", err)
 			}
-			items.AddColumn(fullDocumentColumnName, qValue)
-		} else {
+			if !c.omitFullDocument {
+				items.AddColumn(fullDocumentColumnName, qValue)
+			}
+		} else if !c.omitFullDocument {
 			// `fullDocument` field will not exist in the following scenarios:
 			// 1) operationType is 'delete'
 			// 2) document is deleted / collection is dropped in between update and lookup
@@ -715,6 +725,11 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 	if err != nil {
 		return fmt.Errorf("failed to get excluded operation types: %w", err)
 	}
+	omitFullDocument, err := internal.PeerDBMongoDBOmitFullDocumentColumn(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to resolve full-document column setting: %w", err)
+	}
+	c.omitFullDocument = omitFullDocument
 	c.excludedOps = make([]operationType, 0, len(excludedOps))
 	for _, op := range excludedOps {
 		if parsed, ok := parseOperationType(op); ok {
