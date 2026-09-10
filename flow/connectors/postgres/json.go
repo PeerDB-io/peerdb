@@ -163,10 +163,15 @@ func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalled
 				if out.Available() < (end + 2) {
 					out.Grow(out.Len() + end + 2)
 				}
-				savedReader.Read(out.AvailableBuffer()[:start])
+				if _, err := savedReader.Read(out.AvailableBuffer()[:start]); err != nil {
+					return nil, err
+				}
+				// NB: the Buffer.Write methods always return no error.
 				_, _ = out.Write(out.AvailableBuffer()[:start])
 				_ = out.WriteByte('"')
-				savedReader.Read(out.AvailableBuffer()[:len(rawNumber)])
+				if _, err := savedReader.Read(out.AvailableBuffer()[:len(rawNumber)]); err != nil {
+					return nil, err
+				}
 				_, _ = out.Write(out.AvailableBuffer()[:len(rawNumber)])
 				_ = out.WriteByte('"')
 				readSoFar = dec.InputOffset()
@@ -178,6 +183,8 @@ func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalled
 		return preMarshalledJson(inputBytes), nil
 	}
 
-	out.ReadFrom(savedReader)
+	if _, err := out.ReadFrom(savedReader); err != nil {
+		return nil, err
+	}
 	return preMarshalledJson(out.Bytes()), nil
 }
