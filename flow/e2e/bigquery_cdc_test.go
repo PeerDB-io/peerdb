@@ -272,7 +272,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Query_Mode covers BIGQUERY_REPLICATION_MODE_QUERY: a plain
+// Test_BigQuery_CDC_Query_Mode covers BIGQUERY_REPLICATION_METHOD_QUERY: a plain
 // SELECT ... WHERE watermark_column > lower AND watermark_column <= upper scan,
 // rather than APPENDS()/CHANGES(). The initial snapshot is bounded by the
 // watermark column's max value at setup time instead of FOR SYSTEM_TIME AS OF.

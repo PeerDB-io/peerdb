@@ -163,7 +163,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	var bytesProcessed int64
-	if cfg.GetBigqueryCdcConfig().ReplicationMethod == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
+	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
 			req.NameAndExclude, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
