@@ -463,7 +463,7 @@ func (c *MongoConnector) PullRecords(
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
-		Concurrency: int(c.numDecodeWorkers),
+		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
 			return c.decodeEvent(events, req)
