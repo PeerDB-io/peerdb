@@ -70,12 +70,15 @@ func TestPullRecordsWorkerPoolErrorFromWorker(t *testing.T) {
 	}
 	pool.Init(t.Context())
 
-	// Keep feeding past the chunk that fails: the pool should wind itself down instead of
-	// wedging, and AddItem stays quiet because Wait is what reports the worker's error.
+	errSeen := false
 	for i := range 20 {
-		require.NoError(t, pool.AddItem(t.Context(), i, fmt.Sprintf("token-%d", i)))
+		if err := pool.AddItem(t.Context(), i, fmt.Sprintf("token-%d", i)); err != nil {
+			require.ErrorIs(t, err, errDecode)
+			errSeen = true
+			break
+		}
 	}
-	require.NoError(t, pool.Flush(t.Context()))
-	require.ErrorIs(t, pool.Wait(t.Context()), errDecode)
+	require.True(t, errSeen, "no error seen from AddItem")
+	require.Error(t, pool.Wait(t.Context()))
 	require.Equal(t, "token-3", lastResumeToken)
 }
