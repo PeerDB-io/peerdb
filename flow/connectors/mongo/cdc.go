@@ -437,6 +437,7 @@ func (c *MongoConnector) PullRecords(
 	var recordCount uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	var signalledAsNonEmpty bool
+	var receiveTime, processTime, parallelProcessTime, addRecordTime atomic.Int64
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -470,9 +471,17 @@ func (c *MongoConnector) PullRecords(
 		Concurrency: int(numParallelDecodeWorkers),
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
+			decodeStart := time.Now()
+			defer func() {
+				parallelProcessTime.Add(int64(time.Since(decodeStart)))
+			}()
 			return c.decodeEvent(events, req)
 		},
 		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
+			recordSendStart := time.Now()
+			defer func() {
+				addRecordTime.Add(int64(time.Since(recordSendStart)))
+			}()
 			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)
 		},
 	}
@@ -494,6 +503,10 @@ func (c *MongoConnector) PullRecords(
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		otelManager.Metrics.CDCParallelProcessTimeCounter.Add(ctx, parallelProcessTime.Swap(0))
+		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 	}()
 
 	checkpoint := func() string {
@@ -572,6 +585,7 @@ func (c *MongoConnector) PullRecords(
 
 	var lastEventGaugesRecordedAt time.Time
 	for recordCount < req.MaxBatchSize {
+		receiveStart := time.Now()
 		if ok := changeStream.Next(timeoutCtx); !ok {
 			err := changeStream.Err()
 			if err == nil {
@@ -618,6 +632,8 @@ func (c *MongoConnector) PullRecords(
 
 			return fmt.Errorf("change stream error: %w", err)
 		}
+		receiveTime.Add(int64(time.Since(receiveStart)))
+		serialProcessStart := time.Now()
 
 		current := changeStream.Current()
 		changeEventSize := int64(len(current))
@@ -696,7 +712,9 @@ func (c *MongoConnector) PullRecords(
 		if err := workerPool.AddItem(ctx, event, rtText); err != nil {
 			return err
 		}
+		processTime.Add(int64(time.Since(serialProcessStart)))
 	}
+	serialProcessStart := time.Now()
 	if err := workerPool.Flush(ctx); err != nil {
 		return err
 	}
@@ -704,6 +722,7 @@ func (c *MongoConnector) PullRecords(
 	if err := workerPool.Wait(ctx); err != nil {
 		return err
 	}
+	processTime.Add(int64(time.Since(serialProcessStart)))
 
 	return nil
 }
