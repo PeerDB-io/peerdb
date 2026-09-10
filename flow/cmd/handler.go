@@ -261,6 +261,10 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.Flags = flags
 	}
 
+	if apiErr := h.checkQRepStructuredIngestion(ctx, cfg); apiErr != nil {
+		return nil, apiErr
+	}
+
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                    workflowID,
