@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -465,7 +466,7 @@ func (c *MongoConnector) PullRecords(
 	if err != nil {
 		return err
 	}
-	workerPool := common.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
+	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: int(numParallelDecodeWorkers),
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
