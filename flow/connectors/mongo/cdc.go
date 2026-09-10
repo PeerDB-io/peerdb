@@ -462,12 +462,8 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
-	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, req.Env)
-	if err != nil {
-		return err
-	}
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
-		Concurrency: int(numParallelDecodeWorkers),
+		Concurrency: int(c.numDecodeWorkers),
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
 			return c.decodeEvent(events, req)
@@ -811,6 +807,11 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 	if len(c.excludedOps) > 0 {
 		c.logger.Info("excluding operation types from replication", slog.Any("operationTypes", c.excludedOps))
 	}
+	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, env)
+	if err != nil {
+		return err
+	}
+	c.numDecodeWorkers = int(numParallelDecodeWorkers)
 	return nil
 }
 

@@ -589,7 +589,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Number of parallel threads to use when decoding full BSON documents in MongoDB change events.",
 		DefaultValue:     "1",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
