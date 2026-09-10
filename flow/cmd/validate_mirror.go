@@ -38,6 +38,9 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	if req.ConnectionConfigs != nil {
+		if err := internal.ValidateEnv(req.ConnectionConfigs.Env); err != nil {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+		}
 		if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env); err != nil {
 			return nil, NewInternalApiError(err)
 		} else {

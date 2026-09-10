@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -601,6 +603,32 @@ var DynamicIndex = func() map[string]int {
 	}
 	return defaults
 }()
+
+func ValidateEnv(env map[string]string) error {
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		idx, ok := DynamicIndex[key]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s is not a known setting", key))
+			continue
+		}
+		value := env[key]
+		var err error
+		switch DynamicSettings[idx].ValueType {
+		case protos.DynconfValueType_INT:
+			_, err = strconv.ParseInt(value, 10, 64)
+		case protos.DynconfValueType_UINT:
+			_, err = strconv.ParseUint(value, 10, 64)
+		case protos.DynconfValueType_BOOL:
+			_, err = strconv.ParseBool(value)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: invalid value %q for %s setting",
+				key, value, strings.ToLower(DynamicSettings[idx].ValueType.String())))
+		}
+	}
+	return errors.Join(errs...)
+}
 
 type BinaryFormat int
 
