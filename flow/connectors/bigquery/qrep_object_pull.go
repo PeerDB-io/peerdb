@@ -590,7 +590,7 @@ func (c *BigQueryConnector) SetupReplication(
 	}
 
 	var checkpointByTable map[string]time.Time
-	if cfg.GetBigqueryCdcConfig().GetReplicationMode() == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
+	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		checkpointByTable, err = c.setupQueryModeReplication(ctx, req, cfg)
 	} else {
 		checkpointByTable, err = c.setupEventsModeReplication(ctx, req, cfg)
