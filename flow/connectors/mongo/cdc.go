@@ -238,9 +238,9 @@ func decodeEvent(
 const pullRecordsItemsChunkSize = 256
 
 // PullRecords spins up worker goroutines using PullRecordsWorkerPool.
-// The context passed into these goroutines is not used to signal timeouts
-// to signal timeouts; rather, when cutting a batch, the `records` chan passed to sendLoop below is
-// closed, and we wait for all child goroutines to gracefully drain.
+// The context passed into these goroutines is not used to signal timeouts;
+// rather, PullRecordsWorkerPool ensures that after Wait() is called on it,
+// we gracefully drain all items through this function.
 func (c *MongoConnector) recordSender(
 	ctx context.Context,
 	records []model.Record[model.RecordItems],

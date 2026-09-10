@@ -42,8 +42,8 @@ type PullRecordsWorkerPool[E, D, RT any] struct {
 	closed bool
 }
 
-// Buffered channel size for channels to pass records to decode and send loops (see below).
-// This should ideally be larger than decodeWorkerBufSize.
+// Buffered channel size for channels to pass records to the send function (see below).
+// Used as a min; if the passed-in `Concurrency` is higher, that's used instead.
 const workerBufferedChanSize = 10
 
 // Init initializes this PullRecordsWorker. Once Wait() has returned, Init()
@@ -51,8 +51,8 @@ const workerBufferedChanSize = 10
 func (p *PullRecordsWorkerPool[E, D, RT]) Init(ctx context.Context) {
 	p.inProgressChunk = make([]E, 0, p.ChunkSize)
 	p.closed = false
-	p.sem = make(chan struct{}, p.Concurrency)
-	p.sender = make(chan chan sendMsg[D, RT], workerBufferedChanSize)
+	p.sem = make(chan struct{}, max(1, p.Concurrency))
+	p.sender = make(chan chan sendMsg[D, RT], max(workerBufferedChanSize, p.Concurrency))
 	ctx, p.ctxCancel = context.WithCancel(ctx) //nolint:gosec // G118: cancelled in Wait.
 	p.eg, ctx = errgroup.WithContext(ctx)
 	p.workerCtx = ctx
@@ -130,7 +130,7 @@ func (p *PullRecordsWorkerPool[E, D, RT]) Flush(ctx context.Context) error {
 			select {
 			case sendChan <- sendMsg:
 			case <-p.workerCtx.Done():
-				return nil
+				return context.Cause(p.workerCtx)
 			}
 			return nil
 		})
@@ -140,7 +140,7 @@ func (p *PullRecordsWorkerPool[E, D, RT]) Flush(ctx context.Context) error {
 		p.ctxCancel()
 		return ctx.Err()
 	case <-p.workerCtx.Done():
-		return nil
+		return context.Cause(p.workerCtx)
 	}
 }
 
