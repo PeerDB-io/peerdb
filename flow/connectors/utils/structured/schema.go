@@ -96,13 +96,8 @@ func NewSchemaProjectorFromCHtoQValue(
 	return NewSchemaProjector(defaultCHSchemaToQKind, schemaColumns, shouldRecordValues)
 }
 
-// Columns are the structured schema (order is relevant).
-func (sc *SchemaProjector) Columns() []types.QField {
-	return slices.Clone(sc.fields[:len(sc.fields)-1])
-}
-
-// QRecordSchema is the schema of the records ProjectRecord produces: Columns followed by the malformed
-// data column.
+// QRecordSchema is the schema of the records ProjectRecord produces: the schema columns as declared
+// followed by the malformed data column.
 func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
 }

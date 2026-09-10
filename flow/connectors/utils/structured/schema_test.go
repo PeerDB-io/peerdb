@@ -62,8 +62,6 @@ func TestNewSchemaProjector(t *testing.T) {
 		{Name: MalformedDataColumn, Type: types.QValueKindJSON, Nullable: true},
 	}
 	require.Equal(t, recordFields, projector.QRecordSchema().Fields)
-	// Columns leaves the malformed data column out
-	require.Equal(t, recordFields[:len(recordFields)-1], projector.Columns())
 }
 
 func TestNewSchemaProjectorRejects(t *testing.T) {
