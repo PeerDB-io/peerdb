@@ -173,7 +173,7 @@ const (
 type SourceTableConfig struct {
 	// SourceTableIdentifier is "table", "dataset.table", or "project.dataset.table".
 	SourceTableIdentifier string
-	// WatermarkColumn is required when the mirror's ReplicationMode is ReplicationModeQuery.
+	// WatermarkColumn is required when the mirror's ReplicationMethod is ReplicationMethodQuery.
 	WatermarkColumn string
 	// Include, if non-empty, restricts replication to these column names
 	// ("selected_columns"). Mutually exclusive with Exclude.
@@ -200,9 +200,9 @@ type SourceConfig struct {
 	StorageClient *storage.Client
 	ProjectID     string
 	// DefaultDataset is used for table identifiers with no dataset qualifier.
-	DefaultDataset  string
-	Tables          []SourceTableConfig
-	ReplicationMode ReplicationMethod
+	DefaultDataset    string
+	Tables            []SourceTableConfig
+	ReplicationMethod ReplicationMethod
 	// HasSnapshot enables validation of snapshot staging access and export
 	// permissions using SnapshotStagingPath.
 	HasSnapshot         bool
@@ -456,7 +456,7 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
 
-		switch cfg.ReplicationMode {
+		switch cfg.ReplicationMethod {
 		case ReplicationMethodQuery:
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %q has no watermark_column configured; QUERY replication mode requires "+
