@@ -587,6 +587,8 @@ message CDCFlowConfigUpdate {
   uint32 snapshot_max_parallel_workers = 8;
   uint32 snapshot_num_tables_in_parallel = 9;
   bool skip_initial_snapshot_for_table_additions = 11;
+  // removes keys from the env map, applied after updated_env
+  repeated string removed_env = 12;
 }
 
 message QRepFlowConfigUpdate {

@@ -77,6 +77,10 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 	var changes []string
 
 	// Only logging fields that don't need old values to compare to
+	if len(update.RemovedEnv) > 0 {
+		changes = append(changes, fmt.Sprintf("env removed: %v", update.RemovedEnv))
+	}
+
 	if len(update.AdditionalTables) > 0 {
 		addedTables := make([]string, 0, len(update.AdditionalTables))
 		for _, t := range update.AdditionalTables {
@@ -141,6 +145,11 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 			if oldValue := oldValues.Env[key]; oldValue != newValue {
 				changes = append(changes, fmt.Sprintf("env %s: %s->%s", key, oldValue, newValue))
 			}
+		}
+	}
+	for _, key := range update.RemovedEnv {
+		if oldValue, ok := oldValues.Env[key]; ok {
+			changes = append(changes, fmt.Sprintf("env %s: %s->(removed)", key, oldValue))
 		}
 	}
 
