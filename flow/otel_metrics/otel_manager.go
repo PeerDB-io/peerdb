@@ -59,6 +59,7 @@ const (
 	FetchedEventSizeHistogramName        = "fetched_event_size"
 	CDCReceiveTimeCounterName            = "cdc_receive_time"
 	CDCProcessTimeCounterName            = "cdc_process_time"
+	CDCParallelProcessTimeCounterName    = "cdc_parallel_process_time"
 	CDCAddRecordTimeCounterName          = "cdc_add_record_time"
 	SourceLagGaugeName                   = "source_lag"
 	DestinationLagGaugeName              = "destination_lag"
@@ -128,6 +129,7 @@ type Metrics struct {
 	FetchedEventSizeHistogram         metric.Int64Histogram
 	CDCReceiveTimeCounter             metric.Int64Counter
 	CDCProcessTimeCounter             metric.Int64Counter
+	CDCParallelProcessTimeCounter     metric.Int64Counter
 	CDCAddRecordTimeCounter           metric.Int64Counter
 	SourceLagGauge                    metric.Int64Gauge
 	DestinationLagGauge               metric.Int64Gauge
@@ -497,6 +499,13 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.CDCProcessTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCProcessTimeCounterName),
 		metric.WithUnit("ns"),
 		metric.WithDescription("Time the CDC pull loop spent handling received replication messages, excluding time in AddRecord"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CDCParallelProcessTimeCounter, err = om.GetOrInitInt64Counter(BuildMetricName(CDCParallelProcessTimeCounterName),
+		metric.WithUnit("ns"),
+		metric.WithDescription("Time spent inside parallel portions of the CDC pull loop for processing records, excluding time in AddRecords and coordination"),
 	); err != nil {
 		return err
 	}
