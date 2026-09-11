@@ -141,20 +141,88 @@ func TestProjectRecord(t *testing.T) {
 		}`, malformed.Val)
 	})
 
-	t.Run("shouldRecordValues=false omits mismatched and unexpected values", func(t *testing.T) {
+	t.Run("shouldRecordValues=false omits mismatched, unexpected and duplicated values", func(t *testing.T) {
 		blind, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), false)
 		require.NoError(t, err)
 		values, err := blind.ProjectRecord(recordOf(
 			recordField{"age", types.QValueString{Val: "thirty six"}},
 			recordField{"email", types.QValueString{Val: "ada@example.com"}},
+			recordField{"name", types.QValueString{Val: "Ada"}},
+			recordField{"name", types.QValueString{Val: "Lovelace"}},
 		))
 		require.NoError(t, err)
 		malformed, ok := values[3].(types.QValueJSON)
 		require.True(t, ok)
-		// neither the mismatched nor the unexpected field leaks its source value
+		// none of the mismatched, unexpected or duplicated fields leaks its source value
 		require.JSONEq(t, `{
 			"age": {"type_mismatch": true},
-			"email": {"unexpected": true}
+			"email": {"unexpected": true},
+			"name": {"duplicated_fields": true}
 		}`, malformed.Val)
+	})
+
+	t.Run("a duplicated field keeps its first value and reports the later one", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"name", types.QValueString{Val: "Ada"}},
+			recordField{"age", types.QValueInt64{Val: 36}},
+			recordField{"name", types.QValueString{Val: "Lovelace"}},
+		))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueString{Val: "Ada"}, values[0])
+		require.Equal(t, types.QValueInt64{Val: 36}, values[1])
+		malformed, ok := values[3].(types.QValueJSON)
+		require.True(t, ok, "malformed data should be recorded as JSON")
+		require.JSONEq(t, `{"name": {"duplicated_fields": true, "value": "Lovelace"}}`, malformed.Val)
+	})
+
+	t.Run("a field repeated more than twice is reported with its last value", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"name", types.QValueString{Val: "Ada"}},
+			recordField{"name", types.QValueString{Val: "Lovelace"}},
+			recordField{"name", types.QValueString{Val: "Byron"}},
+		))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueString{Val: "Ada"}, values[0])
+		malformed, ok := values[3].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"name": {"duplicated_fields": true, "value": "Byron"}}`, malformed.Val)
+	})
+
+	t.Run("a duplicate of a null first occurrence is reported and does not fill the column", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"age", types.QValueNull(types.QValueKindInt64)},
+			recordField{"age", types.QValueInt64{Val: 36}},
+		))
+		require.NoError(t, err)
+		// the first occurrence, a null, is the one projected
+		require.Equal(t, types.QValueNull(types.QValueKindInt64), values[1])
+		malformed, ok := values[3].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"age": {"duplicated_fields": true, "value": 36}}`, malformed.Val)
+	})
+
+	t.Run("a duplicate of a mismatched first occurrence is reported and does not fill the column", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"age", types.QValueString{Val: "thirty six"}},
+			recordField{"age", types.QValueInt64{Val: 36}},
+		))
+		require.NoError(t, err)
+		// the column stays null: the first occurrence was mismatched and the second is a duplicate
+		require.Equal(t, types.QValueNull(types.QValueKindInt64), values[1])
+		malformed, ok := values[3].(types.QValueJSON)
+		require.True(t, ok)
+		// malformed data holds a single reason per field, so the duplicate supersedes the mismatch
+		require.JSONEq(t, `{"age": {"duplicated_fields": true, "value": 36}}`, malformed.Val)
+	})
+
+	t.Run("a duplicated unexpected field is reported as duplicated", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"email", types.QValueString{Val: "ada@example.com"}},
+			recordField{"email", types.QValueString{Val: "lovelace@example.com"}},
+		))
+		require.NoError(t, err)
+		malformed, ok := values[3].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"email": {"duplicated_fields": true, "value": "lovelace@example.com"}}`, malformed.Val)
 	})
 }

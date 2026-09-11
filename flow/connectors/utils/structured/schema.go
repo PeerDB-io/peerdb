@@ -106,16 +106,32 @@ func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 
 // ProjectRecord projects a record onto the schema, laid out as QRecordSchema. Every schema column gets
 // the record's value, or a null of the column's kind when the record lacks the field or its value does
-// not match the column's kind. Mismatched values and record fields absent from the schema are reported
-// in the malformed data column.
+// not match the column's kind. Mismatched values, record fields absent from the schema and repeated
+// record fields are reported in the malformed data column.
+// When a field is repeated, its first occurrence is the one projected and the later ones are the ones
+// reported as malformed, this is an indication of broken upstream data at source or bugs in the
+// connector.
 func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue]) ([]types.QValue, error) {
 	values := make([]types.QValue, len(sc.fields))
+	seenFields := make(map[string]struct{}, len(sc.fields))
 	for i, field := range sc.fields {
 		values[i] = types.QValueNull(field.Type)
 	}
 	malformedData := NewMalformedData()
 
 	for field, value := range record {
+		// Only the first occurrence of a field is projected, whatever became of it: any later one is
+		// recorded as malformed data.
+		if _, seen := seenFields[field]; seen {
+			var recordedValue types.QValue
+			if sc.shouldRecordValues {
+				recordedValue = value
+			}
+			malformedData.AddField(field, ReasonDuplicatedFields, recordedValue)
+			continue
+		}
+		seenFields[field] = struct{}{}
+
 		column, isSchemaColumn := sc.columns[field]
 
 		// Record fields not present in the schema are recorded as malformed data.

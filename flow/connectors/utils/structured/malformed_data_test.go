@@ -37,6 +37,11 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 			expected: `{"a":{"type_mismatch":true,"value":"x"}}`,
 		},
 		{
+			desc:     "duplicated field with value",
+			setup:    func(m *MalformedData) { m.AddField("a", ReasonDuplicatedFields, types.QValueString{Val: "x"}) },
+			expected: `{"a":{"duplicated_fields":true,"value":"x"}}`,
+		},
+		{
 			desc:     "JSON value is kept as a quoted string",
 			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, types.QValueJSON{Val: `{"k":1}`}) },
 			expected: `{"a":{"type_mismatch":true,"value":"{\"k\":1}"}}`,

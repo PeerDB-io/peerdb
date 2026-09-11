@@ -17,6 +17,7 @@ const (
 	ReasonUnexpected MalformedReason = iota
 	ReasonTypeMismatch
 	ReasonNaN
+	ReasonDuplicatedFields
 )
 
 func (r MalformedReason) String() string {
@@ -27,6 +28,8 @@ func (r MalformedReason) String() string {
 		return "type_mismatch"
 	case ReasonNaN:
 		return "not_a_number"
+	case ReasonDuplicatedFields:
+		return "duplicated_fields"
 	default:
 		return ""
 	}
