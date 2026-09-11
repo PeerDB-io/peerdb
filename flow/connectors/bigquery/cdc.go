@@ -324,6 +324,8 @@ func (c *BigQueryConnector) runPullQuery(
 			{Name: "end", Value: end},
 		}
 
+		// When client has Storage Read enabled, Query.Read decides whether to
+		// consume cached REST rows or use Storage Read for the query result.
 		it, err := q.Read(ctx)
 		if err == nil {
 			return it, nil
@@ -543,8 +545,17 @@ func (c *BigQueryConnector) pullTableChanges(
 	}
 }
 
+func buildWatermarkPullQuery(
+	dsTable string, watermarkColumn string, exclude map[string]struct{},
+) string {
+	col := quotedIdentifier(watermarkColumn)
+	return fmt.Sprintf("SELECT *%s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end",
+		exceptClause(exclude), dsTable, col, col)
+}
+
 // pullTableQuery runs SELECT * FROM <table> WHERE watermarkColumn > @start AND
-// watermarkColumn <= @end ORDER BY watermarkColumn for one source table
+// watermarkColumn <= @end for one source table. Results are intentionally
+// unordered so Storage Read API can consume multiple streams in parallel.
 // Returns the HTTP response body bytes consumed by BigQuery for this table's
 // query
 func (c *BigQueryConnector) pullTableQuery(
@@ -560,16 +571,11 @@ func (c *BigQueryConnector) pullTableQuery(
 		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	buildQueryModePullQuery := func(dsTable string, watermarkColumn string, exclude map[string]struct{}) string {
-		col := quotedIdentifier(watermarkColumn)
-		return fmt.Sprintf("SELECT *%s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
-			exceptClause(exclude), dsTable, col, col, col)
-	}
-
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, nameAndExclude.Exclude, start, end,
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier,
+		nameAndExclude.Exclude, start, end,
 		func(exclude map[string]struct{}) string {
-			return buildQueryModePullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
+			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)

@@ -119,6 +119,10 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
+	if err := client.EnableStorageReadClient(ctx, option.WithAuthCredentials(creds)); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("failed to enable BigQuery Storage Read API: %v", err)
+	}
 
 	if err := validateBigQueryConnection(ctx, client, projectID, datasetID); err != nil {
 		logger.Error("failed to validate BigQuery connection", slog.Any("error", err))
