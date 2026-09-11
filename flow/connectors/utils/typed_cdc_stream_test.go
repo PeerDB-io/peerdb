@@ -13,6 +13,11 @@ import (
 
 func TestRecordsToTypedCDCStream(t *testing.T) {
 	const dstTable = "test_dst_tbl"
+	const (
+		insertCommitNano = int64(1_000_000_001)
+		updateCommitNano = int64(1_000_000_002)
+		deleteCommitNano = int64(1_000_000_003)
+	)
 	businessFields := []types.QField{
 		{Name: "id", Type: types.QValueKindInt32},
 		{Name: "name", Type: types.QValueKindString, Nullable: true},
@@ -31,21 +36,24 @@ func TestRecordsToTypedCDCStream(t *testing.T) {
 	insertItems.AddColumn("id", types.QValueInt32{Val: 1})
 	insertItems.AddColumn("name", types.QValueString{Val: "alice"})
 	records <- &model.InsertRecord[model.RecordItems]{
-		Items: insertItems, SourceTableName: "src", DestinationTableName: dstTable,
+		BaseRecord: model.BaseRecord{CommitTimeNano: insertCommitNano},
+		Items:      insertItems, SourceTableName: "src", DestinationTableName: dstTable,
 	}
 
 	// update record missing the "name" column in NewItems must fall back to NULL, not panic.
 	updateItems := model.NewRecordItems(1)
 	updateItems.AddColumn("id", types.QValueInt32{Val: 1})
 	records <- &model.UpdateRecord[model.RecordItems]{
-		NewItems: updateItems, SourceTableName: "src", DestinationTableName: dstTable,
+		BaseRecord: model.BaseRecord{CommitTimeNano: updateCommitNano},
+		NewItems:   updateItems, SourceTableName: "src", DestinationTableName: dstTable,
 	}
 
 	deleteItems := model.NewRecordItems(2)
 	deleteItems.AddColumn("id", types.QValueInt32{Val: 1})
 	deleteItems.AddColumn("name", types.QValueString{Val: "alice"})
 	records <- &model.DeleteRecord[model.RecordItems]{
-		Items: deleteItems, SourceTableName: "src", DestinationTableName: dstTable,
+		BaseRecord: model.BaseRecord{CommitTimeNano: deleteCommitNano},
+		Items:      deleteItems, SourceTableName: "src", DestinationTableName: dstTable,
 	}
 	close(records)
 
@@ -67,16 +75,19 @@ func TestRecordsToTypedCDCStream(t *testing.T) {
 	assert.Equal(t, int32(1), rows[0][0].Value())
 	assert.Equal(t, "alice", rows[0][1].Value())
 	assert.Equal(t, int64(0), rows[0][2].Value())
+	assert.Equal(t, insertCommitNano, rows[0][3].Value())
 
 	// update with a missing column falls back to NULL rather than panicking
 	assert.Equal(t, int32(1), rows[1][0].Value())
 	assert.Nil(t, rows[1][1].Value())
 	assert.Equal(t, int64(0), rows[1][2].Value())
+	assert.Equal(t, updateCommitNano, rows[1][3].Value())
 
 	// delete is flagged is_deleted=1
 	assert.Equal(t, int32(1), rows[2][0].Value())
 	assert.Equal(t, "alice", rows[2][1].Value())
 	assert.Equal(t, int64(1), rows[2][2].Value())
+	assert.Equal(t, deleteCommitNano, rows[2][3].Value())
 
 	assert.Equal(t, int32(1), rowCounts.InsertCount.Load())
 	assert.Equal(t, int32(1), rowCounts.UpdateCount.Load())
