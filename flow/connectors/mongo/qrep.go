@@ -21,11 +21,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// qrepStructuredRecordMalformedValues controls whether structured ingestion initial load records the
-// offending values, and not just the reason, in the malformed data column.
-// TODO PFCOPEREZ: make this configurable.
-const qrepStructuredRecordMalformedValues = true
-
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -107,7 +102,7 @@ func (c *MongoConnector) PullQRepRecords(
 	var schema types.QRecordSchema
 	var qValuesFromBsonRaw func(raw bson.Raw) ([]types.QValue, error)
 	if config.GetStructuredIngestion() {
-		projector, err := newStructuredSchemaProjector(config.Columns, qrepStructuredRecordMalformedValues)
+		projector, err := newStructuredSchemaProjector(config.Columns, !config.DropUnexpectedValues)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
 		}

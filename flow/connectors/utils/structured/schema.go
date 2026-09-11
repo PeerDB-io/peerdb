@@ -123,7 +123,11 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 
 		// Record fields not present in the schema are recorded as malformed data.
 		if !isSchemaColumn {
-			malformedData.AddField(field, ReasonUnexpected, value)
+			var recordedValue types.QValue
+			if sc.shouldRecordValues {
+				recordedValue = value
+			}
+			malformedData.AddField(field, ReasonUnexpected, recordedValue)
 			continue
 		}
 

@@ -238,7 +238,9 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 
 // Test_Structured_Ingestion_Good_And_Malformed_Data runs a structured ingestion mirror over documents that mix
 // schema columns with stray fields: on every row the schema columns land well structured while the
-// stray fields are reported in malformed_data, both through the initial load and through CDC.
+// stray fields are reported in malformed_data, both through the initial load and through CDC. The
+// mapping sets drop_unexpected_values, so the reports name the field and reason but omit the values
+// themselves; Test_Structured_Ingestion_Nested_And_Arrays covers reports carrying the values.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())
@@ -251,6 +253,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 		{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
 		{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
 	}
+	tableMappings[0].DropUnexpectedValues = true
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:   AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
@@ -304,7 +307,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 			`SELECT "desc", toString(malformed_data) FROM "%s"."%s" FINAL WHERE JSONHas(toString(malformed_data), '%s_key_3')`,
 			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&desc, &malformed))
 		require.Equal(t, fmt.Sprintf("desc_%s_3", prefix), desc)
-		require.JSONEq(t, fmt.Sprintf(`{"%s_key_3": {"unexpected": true, "value": "%s_value_3"}}`, prefix, prefix), malformed)
+		// drop_unexpected_values: the report names the field and reason, without the value
+		require.JSONEq(t, fmt.Sprintf(`{"%s_key_3": {"unexpected": true}}`, prefix), malformed)
 	}
 
 	env.Cancel(t.Context())
