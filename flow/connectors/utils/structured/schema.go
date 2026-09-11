@@ -23,6 +23,8 @@ type SchemaProjector struct {
 	columns map[string]schemaColumn
 	// Record fields in order: the schema columns as declared, then the malformed data column.
 	fields []types.QField
+	// Position of the malformed data column in fields, and so in the records ProjectRecord produces.
+	malformedDataIndex int
 	// Whether malformed data entries carry the offending source value, both for mismatched and for
 	// unexpected fields
 	shouldRecordValues bool
@@ -66,6 +68,7 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 	}
 
 	malformedData := MalformedDataFieldDescription()
+	malformedDataIndex := len(fields)
 	fields = append(fields, types.QField{
 		Name:     malformedData.Name,
 		Type:     types.QValueKind(malformedData.Type),
@@ -74,6 +77,7 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 
 	return &SchemaProjector{
 		fields:             fields,
+		malformedDataIndex: malformedDataIndex,
 		columns:            columns,
 		shouldRecordValues: shouldRecordValues,
 	}, nil
@@ -159,7 +163,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 		if err != nil {
 			return nil, err
 		}
-		values[len(values)-1] = qValue
+		values[sc.malformedDataIndex] = qValue
 	}
 
 	return values, nil
