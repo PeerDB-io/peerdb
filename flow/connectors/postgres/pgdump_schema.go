@@ -29,8 +29,10 @@ import (
 // on roles that may not exist on the destination:
 //   - CREATE/ALTER/DROP ROLE, GRANT/REVOKE
 //   - ALTER DEFAULT PRIVILEGES FOR ROLE <role> ...
-//   - CREATE POLICY ... TO <role> (RLS policies reference roles and are NOT
-//     stripped by --no-owner/--no-privileges)
+//
+// RLS policies (CREATE POLICY) also reference roles and are not stripped by
+// --no-owner/--no-privileges; those are excluded at the source via pg_dump's
+// --no-policies flag instead.
 //
 // These are session/replay housekeeping and safe to drop on the wire so we
 // keep ON_ERROR_STOP=1 for genuine DDL failures while remaining cross-version.
@@ -39,7 +41,6 @@ var incompatibleLineRE = regexp.MustCompile(
 		`|\\(?:un)?restrict(\s|$)` +
 		`|(?:CREATE|ALTER|DROP)\s+ROLE\s` +
 		`|ALTER\s+DEFAULT\s+PRIVILEGES\s` +
-		`|CREATE\s+POLICY\s` +
 		`|GRANT\s|REVOKE\s)`,
 )
 
@@ -326,6 +327,8 @@ func buildPgDumpArgs(config *protos.PostgresConfig, host string) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
+		// RLS policies reference roles that may not exist on the destination.
+		"--no-policies",
 		"--exclude-schema=_peerdb_internal",
 		"-h", host,
 		"-p", strconv.FormatUint(uint64(port), 10),
