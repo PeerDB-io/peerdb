@@ -591,9 +591,6 @@ func PullCdcRecords[Items model.Items](
 	pullStart := time.Now()
 	var latestServerWALEnd, lastXLogDataServerWALEnd atomic.Int64
 	defer func() {
-		if totalRecords == 0 {
-			records.SignalAsEmpty()
-		}
 		trace.SpanFromContext(ctx).SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, totalRecords),
 			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
@@ -664,7 +661,6 @@ func PullCdcRecords[Items model.Items](
 		totalRecords++
 
 		if totalRecords == 1 {
-			records.SignalAsNotEmpty()
 			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextRecordDeadline))
 		}

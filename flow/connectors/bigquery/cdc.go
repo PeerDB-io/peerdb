@@ -99,13 +99,6 @@ func (c *BigQueryConnector) PullTableRecords(
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullTableRecordsRequest,
 ) (model.PullTableRecordsResult, error) {
-	signaledNotEmpty := false
-	defer func() {
-		if !signaledNotEmpty {
-			req.Stream.SignalAsEmpty()
-		}
-	}()
-
 	now, err := c.currentBigQueryTimestamp(ctx)
 	if err != nil {
 		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
@@ -148,28 +141,14 @@ func (c *BigQueryConnector) PullTableRecords(
 		}
 	}
 
-	// The activity waits on this signal before starting sync for this poll, so
-	// a query-based source's schema - known as soon as the first row is read
-	addRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
-		err := req.Stream.AddRecord(addCtx, record)
-		if err != nil {
-			return err
-		}
-		if !signaledNotEmpty {
-			signaledNotEmpty = true
-			req.Stream.SignalAsNotEmpty()
-		}
-		return nil
-	}
-
 	var bytesProcessed int64
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
-			req.NameAndExclude, start, upper, addRecord)
+			req.NameAndExclude, start, upper, req.Stream.AddRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
-		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
+		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
-		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
+		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, req.Stream.AddRecord)
 	} else {
 		// unreachable, but just in case throw an error instead of silently returning an empty result
 		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)
