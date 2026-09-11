@@ -449,7 +449,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	endBatchID := min(req.SyncBatchID, lastNormBatchID+groupBatches)
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version); err != nil {
+	if err := c.copyAvroStagesToDestination(
+		ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version, req.TableMappings,
+	); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -696,7 +698,13 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, lastNormBatchID int64, endBatchID int64, env map[string]string, version uint32,
+	ctx context.Context,
+	flowJobName string,
+	lastNormBatchID int64,
+	endBatchID int64,
+	env map[string]string,
+	version uint32,
+	tableMappings []*protos.TableMapping,
 ) error {
 	// Skip batches already copied to raw table. This can happen if a previous normalization
 	// run failed after copying to raw table but before completing normalization.
@@ -707,6 +715,44 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	lastCopiedBatchID := max(lastBatchIDInRawTable, lastNormBatchID)
 	c.logger.Info("[clickhouse] pushing s3 data to raw table",
 		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
+
+	parallelism, err := internal.PeerDBClickHouseParallelRawIngestion(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to load ClickHouse raw ingestion parallelism: %w", err)
+	}
+	parallelism = max(parallelism, 1)
+	if !allTablesUseReplacingMergeTree(tableMappings) {
+		parallelism = 1
+	}
+	parallelism = min(parallelism, int(endBatchID-lastCopiedBatchID))
+
+	if parallelism > 1 {
+		c.logger.Info("[clickhouse] copying s3 batches to raw table in parallel",
+			slog.Int64("startBatchID", lastCopiedBatchID+1),
+			slog.Int64("endBatchID", endBatchID),
+			slog.Int("parallelism", parallelism))
+
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(parallelism)
+		for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
+			group.Go(func() error {
+				if err := c.copyAvroStageToDestination(groupCtx, flowJobName, batchID, env, version); err != nil {
+					return fmt.Errorf("failed to copy avro stage for batch %d to destination: %w", batchID, err)
+				}
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			return err
+		}
+
+		// The metadata value represents a contiguous high-water mark. Publish it only
+		// after every batch succeeds so an out-of-order partial failure cannot skip a gap.
+		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, endBatchID); err != nil {
+			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
+		}
+		return nil
+	}
 
 	for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
 		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, env, version); err != nil {
@@ -721,6 +767,24 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 		}
 	}
 	return nil
+}
+
+func allTablesUseReplacingMergeTree(tableMappings []*protos.TableMapping) bool {
+	if len(tableMappings) == 0 {
+		return false
+	}
+	for _, tableMapping := range tableMappings {
+		if tableMapping == nil {
+			return false
+		}
+		switch tableMapping.Engine {
+		case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE,
+			protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func getColName(overrides map[string]string, name string) string {

@@ -353,6 +353,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_CLICKHOUSE_PARALLEL_RAW_INGESTION",
+		Description: "Number of concurrent S3-to-raw-table batch inserts. Values above 1 are only applied " +
+			"when every destination table uses a ReplacingMergeTree engine",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name: "PEERDB_CLICKHOUSE_ENABLE_REPLICATED_QUORUM",
 		Description: "On Replicated ClickHouse clusters, write raw/normalize inserts with quorum " +
 			"(insert_quorum=auto, insert_quorum_parallel=0) so that select_sequential_consistency reads " +
@@ -907,6 +916,10 @@ func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]
 
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
+}
+
+func PeerDBClickHouseParallelRawIngestion(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_RAW_INGESTION")
 }
 
 func PeerDBClickHouseEnableReplicatedQuorum(ctx context.Context, env map[string]string) (bool, error) {
