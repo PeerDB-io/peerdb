@@ -9,7 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-const MalformedDataColumn = "malformed_data"
+const MalformedDataColumn = "_peerdb_malformed_data"
 
 type MalformedReason int
 
