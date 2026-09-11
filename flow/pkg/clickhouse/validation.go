@@ -125,7 +125,13 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 }
 
 func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainString string) error {
-	allowedDomains := strings.Split(allowedDomainString, ",")
+	allowedDomains := make([]string, 0)
+	for _, domain := range strings.Split(allowedDomainString, ",") {
+		domain = strings.TrimSpace(domain)
+		if domain != "" {
+			allowedDomains = append(allowedDomains, domain)
+		}
+	}
 	if len(allowedDomains) == 0 {
 		return nil
 	}
