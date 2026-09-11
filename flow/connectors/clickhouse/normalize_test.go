@@ -325,6 +325,114 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	require.Contains(t, query, "_peerdb_record_type = 1")
 }
 
+func TestBuildQuery_JSONColumn(t *testing.T) {
+	ctx := t.Context()
+	tableName := "my_table"
+	rawTableName := "raw_my_table"
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
+	env := map[string]string{}
+
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "meta", Type: string(types.QValueKindJSON)},
+		},
+		NullableEnabled: false,
+	}
+	tableNameSchemaMapping := map[string]*protos.TableSchema{
+		tableName: tableSchema,
+	}
+
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      "public.my_table",
+			DestinationTableIdentifier: tableName,
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "meta", DestinationType: "JSON"},
+			},
+		},
+	}
+
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		tableNameSchemaMapping,
+		tableMappings,
+		endBatchID,
+		lastNormBatchID,
+		false,
+		false,
+		env,
+		rawTableName,
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	// a missing/null key must not be cast directly to JSON (casting '' to JSON throws),
+	// so it goes through ifNull(..., '{}') first.
+	require.Contains(t, query,
+		"ifNull(JSONExtract(_peerdb_data, 'meta', 'Nullable(String)'), '{}')::JSON AS `meta`")
+	require.NotContains(t, query, "JSONExtract(_peerdb_data, 'meta', 'String')::JSON")
+}
+
+func TestBuildQuery_NullableJSONColumn(t *testing.T) {
+	ctx := t.Context()
+	tableName := "my_table"
+	rawTableName := "raw_my_table"
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
+	env := map[string]string{}
+
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "meta", Type: string(types.QValueKindJSON), Nullable: true},
+		},
+		NullableEnabled: false,
+	}
+	tableNameSchemaMapping := map[string]*protos.TableSchema{
+		tableName: tableSchema,
+	}
+
+	tableMappings := []*protos.TableMapping{
+		{
+			SourceTableIdentifier:      "public.my_table",
+			DestinationTableIdentifier: tableName,
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "meta", DestinationType: "Nullable(JSON)"},
+			},
+		},
+	}
+
+	g := NewNormalizeQueryGenerator(
+		tableName,
+		tableNameSchemaMapping,
+		tableMappings,
+		endBatchID,
+		lastNormBatchID,
+		false,
+		false,
+		env,
+		rawTableName,
+		nil,
+		false,
+		"",
+		shared.InternalVersion_Latest,
+		nil,
+	)
+
+	query, err := g.BuildQuery(ctx)
+	require.NoError(t, err)
+	// a missing/null key safely casts NULL to Nullable(JSON); no ifNull needed.
+	require.Contains(t, query,
+		"JSONExtract(_peerdb_data, 'meta', 'Nullable(String)')::Nullable(JSON) AS `meta`")
+}
+
 func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 	ctx := t.Context()
 	tableName := "my_table"
