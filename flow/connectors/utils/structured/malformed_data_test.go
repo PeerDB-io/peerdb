@@ -24,7 +24,7 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 		{
 			desc:     "reason without value",
 			setup:    func(m *MalformedData) { m.AddField("a", ReasonUnexpected, nil) },
-			expected: `{"a":{"unexpected":true}}`,
+			expected: `{"a":{"unexpected_field":true}}`,
 		},
 		{
 			desc:     "not a number is a reason without value",
@@ -35,6 +35,11 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 			desc:     "string value",
 			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, types.QValueString{Val: "x"}) },
 			expected: `{"a":{"type_mismatch":true,"value":"x"}}`,
+		},
+		{
+			desc:     "duplicated field with value",
+			setup:    func(m *MalformedData) { m.AddField("a", ReasonDuplicatedFields, types.QValueString{Val: "x"}) },
+			expected: `{"a":{"duplicated_fields":true,"value":"x"}}`,
 		},
 		{
 			desc:     "JSON value is kept as a quoted string",
@@ -80,6 +85,18 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 				`"nan":{"not_a_number":true},` +
 				`"nan32":{"not_a_number":true},` +
 				`"neginf":{"not_a_number":true}}`,
+		},
+		{
+			desc: "compound values holding non-finite floats fall back to their string representation",
+			setup: func(m *MalformedData) {
+				m.AddField("arr64", ReasonTypeMismatch, types.QValueArrayFloat64{Val: []float64{1, math.NaN()}})
+				m.AddField("arr32", ReasonUnexpected, types.QValueArrayFloat32{Val: []float32{float32(math.Inf(1))}})
+				m.AddField("finite", ReasonTypeMismatch, types.QValueArrayFloat64{Val: []float64{1, 2}})
+			},
+			expected: `{` +
+				`"arr32":{"unexpected_field":true,"value":"[+Inf]"},` +
+				`"arr64":{"type_mismatch":true,"value":"[1 NaN]"},` +
+				`"finite":{"type_mismatch":true,"value":[1,2]}}`,
 		},
 	}
 

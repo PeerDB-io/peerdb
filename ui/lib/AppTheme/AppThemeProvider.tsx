@@ -5,7 +5,7 @@ import { createGlobalStyle } from 'styled-components';
 import { primitives } from './appTheme';
 import { ThemeProvider } from './ThemeContext';
 
-import './tailwind.css';
+import './global.css';
 
 const GlobalStyle = createGlobalStyle`
   html {

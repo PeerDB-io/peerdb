@@ -199,7 +199,7 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(malformed.Val), &reported))
 		require.Equal(t, map[string]map[string]any{
 			"age":   {"type_mismatch": true, "value": "thirty six"},
-			"email": {"unexpected": true, "value": "ada@example.com"},
+			"email": {"unexpected_field": true, "value": "ada@example.com"},
 		}, reported)
 	})
 

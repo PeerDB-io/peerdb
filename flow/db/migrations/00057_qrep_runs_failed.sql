@@ -1,0 +1,2 @@
+-- +goose Up
+ALTER TABLE peerdb_stats.qrep_runs ADD COLUMN IF NOT EXISTS failed BOOLEAN NOT NULL DEFAULT FALSE;

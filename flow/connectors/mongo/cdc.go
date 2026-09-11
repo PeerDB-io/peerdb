@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -173,8 +174,9 @@ func (c *MongoConnector) GetTableSchema(
 				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
 			}
 			// Every column but the document key is nullable, a document may lack any of them: the declared
-			// types are expected to be Nullable(...) already.
-			for _, column := range projector.Columns() {
+			// types are expected to be Nullable(...) already. The projector's record schema already ends
+			// with the malformed data column.
+			for _, column := range projector.QRecordSchema().Fields {
 				columns = append(columns, &protos.FieldDescription{
 					Name:         column.Name,
 					Type:         string(column.Type),
@@ -182,7 +184,6 @@ func (c *MongoConnector) GetTableSchema(
 					Nullable:     column.Nullable,
 				})
 			}
-			columns = append(columns, structured.MalformedDataFieldDescription())
 			nullableEnabled = true
 		} else {
 			columns = append(columns, dataFieldDescription)
@@ -254,6 +255,152 @@ func decodeEvent(
 	return nil
 }
 
+// Constant used by PullRecords.
+//
+// Number of recordItems to pass in one chunk to decode/send workers managed by PullRecordsWorkerPool.
+// Doing per-item channel sends results in too much coordination and reduces effective concurrency
+// in practice.
+const pullRecordsItemsChunkSize = 256
+
+// PullRecords spins up worker goroutines using PullRecordsWorkerPool.
+// The context passed into these goroutines is not used to signal timeouts;
+// rather, PullRecordsWorkerPool ensures that after Wait() is called on it,
+// we gracefully drain all items through this function.
+func (c *MongoConnector) recordSender(
+	ctx context.Context,
+	records []model.Record[model.RecordItems],
+	resumeToken string,
+	req *model.PullRecordsRequest[model.RecordItems],
+	signalledAsNonEmpty *bool,
+) error {
+	for i := range records {
+		if !*signalledAsNonEmpty {
+			// This bool should be shared across any instantiations of sendLoop for
+			// a given RecordStream. However, it's not an atomic and so only one sendLoop
+			// at a given time can own it.
+			*signalledAsNonEmpty = true
+			req.RecordStream.SignalAsNotEmpty()
+		}
+		if err := req.RecordStream.AddRecord(ctx, records[i]); err != nil {
+			return err
+		}
+	}
+	if resumeToken != "" {
+		req.RecordStream.UpdateLatestCheckpointText(resumeToken)
+	}
+	return nil
+}
+
+type encodedMongoEvent struct {
+	maybeFullDocument    *bson.Raw
+	operationType        operationType
+	sourceTableName      string
+	destinationTableName string
+	documentKey          bson.Raw
+	commitTimeNanos      int64
+}
+
+// decodeEvent is spun up by PullRecordsWorkerPool in separate goroutines, up to
+// PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS in parallel. The output is sent to `recordSender`
+// in order.
+func (c *MongoConnector) decodeEvent(
+	events []encodedMongoEvent,
+	req *model.PullRecordsRequest[model.RecordItems],
+	structuredProjectors map[string]*structured.SchemaProjector,
+) ([]model.Record[model.RecordItems], error) {
+	// Utils used by this routine.
+	converter := NewDirectBsonConverter()
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
+	parseItem := func(event encodedMongoEvent) (model.Record[model.RecordItems], error) {
+		items := model.NewRecordItems(2)
+
+		if len(event.documentKey) > 0 {
+			rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
+			if rv.IsZero() || rv.Type == bson.TypeNull {
+				return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
+			}
+			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert key: %w", err)
+			}
+			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+		} else {
+			return nil, fmt.Errorf("document key is nil")
+		}
+
+		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
+			// structured ingestion: the document fields are projected onto the table's schema columns.
+			// An absent `fullDocument` (same scenarios as the default mode below) projects the empty
+			// document: every schema column null, nothing malformed.
+			document := emptyBsonDocument
+			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+				document = *event.maybeFullDocument
+			}
+			fields, walkErr := DocumentQValueIterator(document, converter)
+			projected, err := projector.ApplyRecordSchema(fields)
+			if err != nil {
+				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
+			}
+			if err := walkErr(); err != nil {
+				return nil, err
+			}
+			for column, value := range projected.ColToVal {
+				items.AddColumn(column, value)
+			}
+		} else if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert document: %w", err)
+			}
+			items.AddColumn(fullDocumentColumnName, qValue)
+		} else {
+			// `fullDocument` field will not exist in the following scenarios:
+			// 1) operationType is 'delete'
+			// 2) document is deleted / collection is dropped in between update and lookup
+			// 3) update changes the values for at least one of the fields in that collection's
+			//    shard key (although sharding is not supported today)
+			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+		}
+		var record model.Record[model.RecordItems]
+		switch event.operationType {
+		case operationTypeInsert:
+			record = &model.InsertRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
+				Items:                items,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
+			}
+
+		case operationTypeUpdate, operationTypeReplace:
+			record = &model.UpdateRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
+				NewItems:             items,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
+			}
+		case operationTypeDelete:
+			record = &model.DeleteRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: event.commitTimeNanos},
+				Items:                items,
+				SourceTableName:      event.sourceTableName,
+				DestinationTableName: event.destinationTableName,
+			}
+		}
+		return record, nil
+	}
+	modelRecords := make([]model.Record[model.RecordItems], len(events))
+	for i := range events {
+		var err error
+		if modelRecords[i], err = parseItem(events[i]); err != nil {
+			return nil, err
+		}
+	}
+	return modelRecords, nil
+}
+
 func (c *MongoConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -265,11 +412,6 @@ func (c *MongoConnector) PullRecords(
 	var alerter *alerting.Alerter
 	if catalogPool.Pool != nil {
 		alerter = alerting.NewAlerter(ctx, catalogPool, otelManager)
-	}
-
-	fullDocumentColumnName := DefaultFullDocumentColumnName
-	if req.InternalVersion < shared.InternalVersion_MongoDBFullDocumentColumnToDoc {
-		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
@@ -338,6 +480,7 @@ func (c *MongoConnector) PullRecords(
 
 	var recordCount uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
+	var signalledAsNonEmpty bool
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -363,6 +506,36 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
+	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
+	// as projecting only reads them, while each worker owns its converter.
+	structuredProjectors := make(map[string]*structured.SchemaProjector)
+	for sourceTableName, tableMapping := range req.TableNameMapping {
+		if !tableMapping.StructuredIngestion {
+			continue
+		}
+		schema, ok := req.TableNameSchemaMapping[tableMapping.Name]
+		if !ok {
+			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
+		}
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !tableMapping.DropUnexpectedValues)
+		if err != nil {
+			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
+		}
+		structuredProjectors[sourceTableName] = projector
+	}
+
+	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
+		Concurrency: c.numDecodeWorkers,
+		ChunkSize:   pullRecordsItemsChunkSize,
+		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
+			return c.decodeEvent(events, req, structuredProjectors)
+		},
+		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
+			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)
+		},
+	}
+	workerPool.Init(ctx)
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
@@ -375,6 +548,7 @@ func (c *MongoConnector) PullRecords(
 
 	defer func() {
 		cancelTimeout()
+		_ = workerPool.Wait(ctx)
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
@@ -401,107 +575,9 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	converter := NewDirectBsonConverter()
-
-	type addRecordItemsFunc func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error
-
-	// fullDocumentOrEmpty resolves the event's full document, falling back to the empty document when
-	// absent, which happens in the following scenarios:
-	//  1. operationType is 'delete'
-	//  2. document is deleted / collection is dropped in between update and lookup
-	//  3. update changes the values for at least one of the fields in that collection's
-	//     shard key (although sharding is not supported today)
-	//
-	// Both ingestion modes handle those the same way, as an empty document: the default mode stores it
-	// as `{}`, the structured mode projects it (every schema column null, nothing malformed).
-	fullDocumentOrEmpty := func(maybeFullDocument *bson.Raw) bson.Raw {
-		if maybeFullDocument != nil && len(*maybeFullDocument) > 0 {
-			return *maybeFullDocument
-		}
-		return emptyBsonDocument
-	}
-
-	// addDocumentKey adds the `_id` column, mandatory in every mode.
-	addDocumentKey := func(documentKey bson.Raw, items *model.RecordItems, tableName string) error {
-		if len(documentKey) == 0 {
-			return fmt.Errorf("document key is nil")
-		}
-		rv := documentKey.Lookup(DefaultDocumentKeyColumnName)
-		if rv.IsZero() || rv.Type == bson.TypeNull {
-			return exceptions.NewInvalidIdValueError(tableName)
-		}
-		qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-		if err != nil {
-			return fmt.Errorf("failed to convert key: %w", err)
-		}
-		items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		return nil
-	}
-
-	// default mode: `_id` plus the whole document as a single JSON column
-	addRawRecordItems := addRecordItemsFunc(func(
-		documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string,
-	) error {
-		if err := addDocumentKey(documentKey, items, tableName); err != nil {
-			return err
-		}
-
-		qValue, err := converter.QValueJSONFromDocument(fullDocumentOrEmpty(maybeFullDocument))
-		if err != nil {
-			return fmt.Errorf("failed to convert document: %w", err)
-		}
-		items.AddColumn(fullDocumentColumnName, qValue)
-		return nil
-	})
-
-	// structured ingestion: `_id` plus the document fields projected onto the table's schema columns
-	newStructuredRecordItemsAdder := func(projector *structured.SchemaProjector) addRecordItemsFunc {
-		return func(documentKey bson.Raw, maybeFullDocument *bson.Raw, items *model.RecordItems, tableName string) error {
-			if err := addDocumentKey(documentKey, items, tableName); err != nil {
-				return err
-			}
-
-			fields, walkErr := DocumentQValueIterator(fullDocumentOrEmpty(maybeFullDocument), converter)
-			projected, err := projector.ApplyRecordSchema(fields)
-			if err != nil {
-				return fmt.Errorf("failed to project document onto schema: %w", err)
-			}
-			if err := walkErr(); err != nil {
-				return err
-			}
-			for column, value := range projected.ColToVal {
-				items.AddColumn(column, value)
-			}
-			return nil
-		}
-	}
-
-	// structured ingestion is a per-table setting: resolve the implementation per source table, with
-	// structured tables projecting onto the table schema persisted at setup
-	addRecordItemsByTable := make(map[string]addRecordItemsFunc, len(req.TableNameMapping))
-	for sourceTableName, tableMapping := range req.TableNameMapping {
-		if !tableMapping.StructuredIngestion {
-			addRecordItemsByTable[sourceTableName] = addRawRecordItems
-			continue
-		}
-		schema, ok := req.TableNameSchemaMapping[tableMapping.Name]
-		if !ok {
-			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
-		}
-		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !tableMapping.DropUnexpectedValues)
-		if err != nil {
-			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
-		}
-		addRecordItemsByTable[sourceTableName] = newStructuredRecordItemsAdder(projector)
-	}
-
-	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+	incrementRecordCount := func() {
 		recordCount += 1
-		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
-			return err
-		}
 		if recordCount == 1 {
-			req.RecordStream.SignalAsNotEmpty()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
 		}
 		if recordCount%50000 == 0 {
@@ -511,7 +587,6 @@ func (c *MongoConnector) PullRecords(
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
-		return nil
 	}
 
 	recreateChangeStream := func(useOperationTime bool) error {
@@ -529,6 +604,9 @@ func (c *MongoConnector) PullRecords(
 		// reset context timeout
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+
+		// reset worker pool. Wait() has already been called on this workerPool.
+		workerPool.Init(ctx)
 
 		// set resume point based on whether operation time should be used or not
 		if useOperationTime {
@@ -559,11 +637,22 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
+			if err := workerPool.Flush(ctx); err != nil {
+				return err
+			}
+
+			if err := workerPool.Wait(ctx); err != nil {
+				return err
+			}
+
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount > 0 {
 					// advance offset to the PostBatchResumeToken since the last change event's resume token may be quite old
+					//
+					// This checkpoint is safe to do here as opposed to in sendLoop, because sendLoop has been drained away
+					// above.
 					checkpoint()
-					break
+					return nil
 				}
 				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
 				// it's safe to persist to catalog since no records were handed off to the sync workflow,
@@ -623,49 +712,18 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
 			continue
 		}
-		addRecordItems := addRecordItemsByTable[sourceTableName]
-
-		items := model.NewRecordItems(2)
-		switch operationType(changeEvent.OperationType) {
-		case operationTypeInsert:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add insert record: %w", err)
-			}
-		case operationTypeUpdate, operationTypeReplace:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				NewItems:             items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add update record: %w", err)
-			}
-		case operationTypeDelete:
-			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items, sourceTableName); err != nil {
-				return fmt.Errorf("failed to process document: %w", err)
-			}
-
-			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-				BaseRecord:           model.BaseRecord{CommitTimeNano: commitTimeNanos},
-				Items:                items,
-				SourceTableName:      sourceTableName,
-				DestinationTableName: destinationTableName,
-			}); err != nil {
-				return fmt.Errorf("failed to add delete record: %w", err)
-			}
+		event := encodedMongoEvent{
+			documentKey:          changeEvent.DocumentKey,
+			maybeFullDocument:    changeEvent.FullDocument,
+			operationType:        operationType(changeEvent.OperationType),
+			sourceTableName:      sourceTableName,
+			destinationTableName: destinationTableName,
+			commitTimeNanos:      commitTimeNanos,
+		}
+		switch event.operationType {
+		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
+			// Happy path.
+			incrementRecordCount()
 		default:
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
@@ -686,7 +744,23 @@ func (c *MongoConnector) PullRecords(
 			continue
 		}
 		otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, changeEventSize)
-		checkpoint()
+		rt := changeStream.ResumeToken()
+		var rtText string
+		if rt == nil {
+			c.logger.Warn("change stream does not currently contain a resume token")
+		} else {
+			rtText = base64.StdEncoding.EncodeToString(rt)
+		}
+		if err := workerPool.AddItem(ctx, event, rtText); err != nil {
+			return err
+		}
+	}
+	if err := workerPool.Flush(ctx); err != nil {
+		return err
+	}
+
+	if err := workerPool.Wait(ctx); err != nil {
+		return err
 	}
 
 	return nil
@@ -795,6 +869,11 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 	if len(c.excludedOps) > 0 {
 		c.logger.Info("excluding operation types from replication", slog.Any("operationTypes", c.excludedOps))
 	}
+	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, env)
+	if err != nil {
+		return err
+	}
+	c.numDecodeWorkers = int(numParallelDecodeWorkers)
 	return nil
 }
 

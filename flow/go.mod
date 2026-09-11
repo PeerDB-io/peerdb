@@ -57,6 +57,7 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20260523003111-3697ad564b43
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17
+	github.com/pressly/goose/v3 v3.27.3
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.29.0
@@ -85,6 +86,7 @@ require (
 	go.temporal.io/sdk v1.48.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.8.1
 	go.uber.org/automaxprocs v1.6.0
+	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa
 	golang.org/x/sync v0.22.0
@@ -98,8 +100,6 @@ require (
 	k8s.io/apimachinery v0.36.4
 	k8s.io/client-go v0.35.3 // Note: v0.* are newer than v1.*
 )
-
-require github.com/pressly/goose/v3 v3.27.3
 
 require (
 	cel.dev/expr v0.25.2 // indirect

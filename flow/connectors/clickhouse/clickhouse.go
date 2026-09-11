@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -23,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseConnector struct {
@@ -392,6 +394,76 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
+// QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
+func QValueKindForType(columnType string) (types.QValueKind, error) {
+	switch columnType {
+	case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
+		return types.QValueKindString, nil
+	case "Bool", "Nullable(Bool)":
+		return types.QValueKindBoolean, nil
+	case "Int8", "Nullable(Int8)":
+		return types.QValueKindInt8, nil
+	case "Int16", "Nullable(Int16)":
+		return types.QValueKindInt16, nil
+	case "Int32", "Nullable(Int32)":
+		return types.QValueKindInt32, nil
+	case "Int64", "Nullable(Int64)":
+		return types.QValueKindInt64, nil
+	case "Int256", "Nullable(Int256)":
+		return types.QValueKindInt256, nil
+	case "UInt8", "Nullable(UInt8)":
+		return types.QValueKindUInt8, nil
+	case "UInt16", "Nullable(UInt16)":
+		return types.QValueKindUInt16, nil
+	case "UInt32", "Nullable(UInt32)":
+		return types.QValueKindUInt32, nil
+	case "UInt64", "Nullable(UInt64)":
+		return types.QValueKindUInt64, nil
+	case "UInt256", "Nullable(UInt256)":
+		return types.QValueKindUInt256, nil
+	case "UUID", "Nullable(UUID)":
+		return types.QValueKindUUID, nil
+	case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
+		return types.QValueKindTimestamp, nil
+	case "Time64(6)", "Nullable(Time64(6))":
+		return types.QValueKindTime, nil
+	case "Date32", "Nullable(Date32)":
+		return types.QValueKindDate, nil
+	case "Float32", "Nullable(Float32)":
+		return types.QValueKindFloat32, nil
+	case "Float64", "Nullable(Float64)":
+		return types.QValueKindFloat64, nil
+	case "Array(Int32)":
+		return types.QValueKindArrayInt32, nil
+	case "Array(Float32)":
+		return types.QValueKindArrayFloat32, nil
+	case "Array(Float64)":
+		return types.QValueKindArrayFloat64, nil
+	case "Array(String)", "Array(LowCardinality(String))":
+		return types.QValueKindArrayString, nil
+	case "Array(UUID)":
+		return types.QValueKindArrayUUID, nil
+	case "Array(DateTime64(6))":
+		return types.QValueKindArrayTimestamp, nil
+	case "Array(Int64)":
+		return types.QValueKindArrayInt64, nil
+	case "Array(Bool)":
+		return types.QValueKindArrayBoolean, nil
+	case "Array(Date)":
+		return types.QValueKindArrayDate, nil
+	case "JSON", "Nullable(JSON)":
+		return types.QValueKindJSON, nil
+	default:
+		if strings.Contains(columnType, "Decimal") {
+			if strings.HasPrefix(columnType, "Array(") {
+				return types.QValueKindArrayNumeric, nil
+			}
+			return types.QValueKindNumeric, nil
+		}
+		return types.QValueKindInvalid, fmt.Errorf("failed to resolve QValueKind for %s", columnType)
+	}
+}
+
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
@@ -399,14 +471,14 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			continue
 		}
 
-		qkind, err := peerdb_clickhouse.QValueKindForType(column.DatabaseTypeName())
+		qkind, err := QValueKindForType(column.DatabaseTypeName())
 		if err != nil {
 			return nil, err
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{
 			Name:         column.Name(),
-			Type:         qkind,
+			Type:         string(qkind),
 			TypeModifier: -1,
 			Nullable:     column.Nullable(),
 		})

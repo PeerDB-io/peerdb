@@ -238,7 +238,7 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 
 // Test_Structured_Ingestion_Good_And_Malformed_Data runs a structured ingestion mirror over documents that mix
 // schema columns with stray fields: on every row the schema columns land well structured while the
-// stray fields are reported in malformed_data, both through the initial load and through CDC. The
+// stray fields are reported in _peerdb_malformed_data, both through the initial load and through CDC. The
 // mapping sets drop_unexpected_values, so the reports name the field and reason but omit the values
 // themselves; Test_Structured_Ingestion_Nested_And_Arrays covers reports carrying the values.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data() {
@@ -295,7 +295,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 	// field is reported
 	var structuredRows, nullRows, reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-		`SELECT countIf("desc" IS NOT NULL), countIf(n IS NULL), countIf(malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		`SELECT countIf("desc" IS NOT NULL), countIf(n IS NULL), countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
 		peer.GetClickhouseConfig().Database, dstTable)).Scan(&structuredRows, &nullRows, &reportedRows))
 	require.Equal(t, uint64(20), structuredRows)
 	require.Equal(t, uint64(20), nullRows)
@@ -304,11 +304,11 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 	for _, prefix := range []string{"init", "cdc"} {
 		var desc, malformed string
 		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT "desc", toString(malformed_data) FROM "%s"."%s" FINAL WHERE JSONHas(toString(malformed_data), '%s_key_3')`,
+			`SELECT "desc", toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE JSONHas(toString(_peerdb_malformed_data), '%s_key_3')`,
 			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&desc, &malformed))
 		require.Equal(t, fmt.Sprintf("desc_%s_3", prefix), desc)
 		// drop_unexpected_values: the report names the field and reason, without the value
-		require.JSONEq(t, fmt.Sprintf(`{"%s_key_3": {"unexpected": true}}`, prefix), malformed)
+		require.JSONEq(t, fmt.Sprintf(`{"%s_key_3": {"unexpected_field": true}}`, prefix), malformed)
 	}
 
 	env.Cancel(t.Context())
@@ -317,7 +317,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 
 // Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
 // nested content: embedded documents land whole in JSON columns, arrays included at any depth, while a
-// whole-array value does not fit a scalar column and is reported in malformed_data instead. Note that a
+// whole-array value does not fit a scalar column and is reported in _peerdb_malformed_data instead. Note that a
 // top-level array cannot land in a JSON column either: ClickHouse JSON accepts only objects at the root.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	t := s.T()
@@ -389,7 +389,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	for _, prefix := range []string{"init", "cdc"} {
 		var address, malformed string
 		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT toString(address), toString(malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			`SELECT toString(address), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
 			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &malformed))
 		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
 	}
@@ -492,7 +492,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 	require.NoError(t, err)
 	defer ch.Close()
 	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
-		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('team', 'pts', 'malformed_data')",
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('team', 'pts', '_peerdb_malformed_data')",
 		peer.GetClickhouseConfig().Database, dstTable))
 	require.NoError(t, err)
 	defer columnTypes.Close()
@@ -504,9 +504,9 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 	}
 	require.NoError(t, columnTypes.Err())
 	require.Equal(t, map[string]string{
-		"team":           "Nullable(String)",
-		"pts":            "Nullable(Int64)",
-		"malformed_data": "Nullable(JSON)",
+		"team":                   "Nullable(String)",
+		"pts":                    "Nullable(Int64)",
+		"_peerdb_malformed_data": "Nullable(JSON)",
 	}, actualColumnTypes)
 
 	// and the documents were projected onto them
@@ -629,7 +629,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	// every document is well formed, so no row carries malformed data
 	var reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-		`SELECT countIf(malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		`SELECT countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
 		peer.GetClickhouseConfig().Database, dstTable)).Scan(&reportedRows))
 	require.Equal(t, uint64(0), reportedRows)
 

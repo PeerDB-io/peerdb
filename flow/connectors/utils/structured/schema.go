@@ -5,21 +5,11 @@ import (
 	"iter"
 	"slices"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-// defaultCHSchemaToQKind maps a ClickHouse column type to the QValueKind expected for its values, the
-// same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
-func defaultCHSchemaToQKind(schemaType string) (types.QValueKind, error) {
-	kind, err := peerdb_clickhouse.QValueKindForType(schemaType)
-	if err != nil {
-		return types.QValueKindInvalid, err
-	}
-	return types.QValueKind(kind), nil
-}
 
 // schemaColumn is a schema column resolved once at construction: the kind its values must have and its
 // position in the records ProjectRecord produces.
@@ -32,7 +22,11 @@ type SchemaProjector struct {
 	// Schema columns by the record field they read from.
 	columns map[string]schemaColumn
 	// Record fields in order: the schema columns as declared, then the malformed data column.
-	fields             []types.QField
+	fields []types.QField
+	// Position of the malformed data column in fields, and so in the records ProjectRecord produces.
+	malformedDataIndex int
+	// Whether malformed data entries carry the offending source value, both for mismatched and for
+	// unexpected fields
 	shouldRecordValues bool
 }
 
@@ -74,6 +68,7 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 	}
 
 	malformedData := MalformedDataFieldDescription()
+	malformedDataIndex := len(fields)
 	fields = append(fields, types.QField{
 		Name:     malformedData.Name,
 		Type:     types.QValueKind(malformedData.Type),
@@ -82,43 +77,56 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 
 	return &SchemaProjector{
 		fields:             fields,
+		malformedDataIndex: malformedDataIndex,
 		columns:            columns,
 		shouldRecordValues: shouldRecordValues,
 	}, nil
 }
 
-// NewSchemaProjectorFromCHtoQValue is NewSchemaProjector with defaultCHSchemaToQKind as the
-// schema type to QValueKind conversion, i.e. for schemas declared with ClickHouse column types.
+// NewSchemaProjectorFromCHtoQValue is NewSchemaProjector with connclickhouse.QValueKindForType as the
+// schema type to QValueKind conversion, i.e. for schemas declared with ClickHouse column types. It is
+// the same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
 func NewSchemaProjectorFromCHtoQValue(
 	schemaColumns []*protos.ColumnSetting,
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
-	return NewSchemaProjector(defaultCHSchemaToQKind, schemaColumns, shouldRecordValues)
+	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, shouldRecordValues)
 }
 
-// Columns are the structured schema (order is relevant).
-func (sc *SchemaProjector) Columns() []types.QField {
-	return slices.Clone(sc.fields[:len(sc.fields)-1])
-}
-
-// QRecordSchema is the schema of the records ProjectRecord produces: Columns followed by the malformed
-// data column.
+// QRecordSchema is the schema of the records ProjectRecord produces: the schema columns as declared
+// followed by the malformed data column.
 func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
 }
 
 // ProjectRecord projects a record onto the schema, laid out as QRecordSchema. Every schema column gets
 // the record's value, or a null of the column's kind when the record lacks the field or its value does
-// not match the column's kind. Mismatched values and record fields absent from the schema are reported
-// in the malformed data column.
+// not match the column's kind. Mismatched values, record fields absent from the schema and repeated
+// record fields are reported in the malformed data column.
+// When a field is repeated, its first occurrence is the one projected and the later ones are the ones
+// reported as malformed, this is an indication of broken upstream data at source or bugs in the
+// connector.
 func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue]) ([]types.QValue, error) {
 	values := make([]types.QValue, len(sc.fields))
+	seenFields := make(map[string]struct{}, len(sc.fields))
 	for i, field := range sc.fields {
 		values[i] = types.QValueNull(field.Type)
 	}
 	malformedData := NewMalformedData()
 
 	for field, value := range record {
+		// Only the first occurrence of a field is projected, whatever became of it: any later one is
+		// recorded as malformed data.
+		if _, seen := seenFields[field]; seen {
+			var recordedValue types.QValue
+			if sc.shouldRecordValues {
+				recordedValue = value
+			}
+			malformedData.AddField(field, ReasonDuplicatedFields, recordedValue)
+			continue
+		}
+		seenFields[field] = struct{}{}
+
 		column, isSchemaColumn := sc.columns[field]
 
 		// Record fields not present in the schema are recorded as malformed data.
@@ -155,7 +163,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 		if err != nil {
 			return nil, err
 		}
-		values[len(values)-1] = qValue
+		values[sc.malformedDataIndex] = qValue
 	}
 
 	return values, nil
