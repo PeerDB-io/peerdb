@@ -247,16 +247,8 @@ func (c *MongoConnector) recordSender(
 	records []model.Record[model.RecordItems],
 	resumeToken string,
 	req *model.PullRecordsRequest[model.RecordItems],
-	signalledAsNonEmpty *bool,
 ) error {
 	for i := range records {
-		if !*signalledAsNonEmpty {
-			// This bool should be shared across any instantiations of sendLoop for
-			// a given RecordStream. However, it's not an atomic and so only one sendLoop
-			// at a given time can own it.
-			*signalledAsNonEmpty = true
-			req.RecordStream.SignalAsNotEmpty()
-		}
 		if err := req.RecordStream.AddRecord(ctx, records[i]); err != nil {
 			return err
 		}
@@ -436,12 +428,8 @@ func (c *MongoConnector) PullRecords(
 
 	var recordCount uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
-	var signalledAsNonEmpty bool
 	pullStart := time.Now()
 	defer func() {
-		if recordCount == 0 {
-			req.RecordStream.SignalAsEmpty()
-		}
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
@@ -469,7 +457,7 @@ func (c *MongoConnector) PullRecords(
 			return c.decodeEvent(events, req)
 		},
 		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
-			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)
+			return c.recordSender(ctx, items, resumeToken, req)
 		},
 	}
 	workerPool.Init(ctx)
