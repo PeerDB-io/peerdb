@@ -517,3 +517,49 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 		})
 	}
 }
+
+func TestAllTablesUseReplacingMergeTree(t *testing.T) {
+	tests := []struct {
+		name          string
+		tableMappings []*protos.TableMapping
+		expected      bool
+	}{
+		{
+			name: "replacing merge tree",
+			tableMappings: []*protos.TableMapping{
+				{Engine: protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE},
+			},
+			expected: true,
+		},
+		{
+			name: "replicated replacing merge tree",
+			tableMappings: []*protos.TableMapping{
+				{Engine: protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed engines",
+			tableMappings: []*protos.TableMapping{
+				{Engine: protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE},
+				{Engine: protos.TableEngine_CH_ENGINE_MERGE_TREE},
+			},
+			expected: false,
+		},
+		{
+			name: "no table mappings",
+		},
+		{
+			name: "nil table mapping",
+			tableMappings: []*protos.TableMapping{
+				nil,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, allTablesUseReplacingMergeTree(tc.tableMappings))
+		})
+	}
+}
