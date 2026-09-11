@@ -24,7 +24,7 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 		{
 			desc:     "reason without value",
 			setup:    func(m *MalformedData) { m.AddField("a", ReasonUnexpected, nil) },
-			expected: `{"a":{"unexpected":true}}`,
+			expected: `{"a":{"unexpected_field":true}}`,
 		},
 		{
 			desc:     "not a number is a reason without value",
@@ -94,7 +94,7 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 				m.AddField("finite", ReasonTypeMismatch, types.QValueArrayFloat64{Val: []float64{1, 2}})
 			},
 			expected: `{` +
-				`"arr32":{"unexpected":true,"value":"[+Inf]"},` +
+				`"arr32":{"unexpected_field":true,"value":"[+Inf]"},` +
 				`"arr64":{"type_mismatch":true,"value":"[1 NaN]"},` +
 				`"finite":{"type_mismatch":true,"value":[1,2]}}`,
 		},

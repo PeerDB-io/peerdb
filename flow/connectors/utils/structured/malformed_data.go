@@ -23,7 +23,7 @@ const (
 func (r MalformedReason) String() string {
 	switch r {
 	case ReasonUnexpected:
-		return "unexpected"
+		return "unexpected_field"
 	case ReasonTypeMismatch:
 		return "type_mismatch"
 	case ReasonNaN:

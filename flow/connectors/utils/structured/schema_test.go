@@ -137,7 +137,7 @@ func TestProjectRecord(t *testing.T) {
 		require.True(t, ok, "malformed data should be recorded as JSON")
 		require.JSONEq(t, `{
 			"age": {"type_mismatch": true, "value": "thirty six"},
-			"email": {"unexpected": true, "value": "ada@example.com"}
+			"email": {"unexpected_field": true, "value": "ada@example.com"}
 		}`, malformed.Val)
 	})
 
@@ -156,7 +156,7 @@ func TestProjectRecord(t *testing.T) {
 		// none of the mismatched, unexpected or duplicated fields leaks its source value
 		require.JSONEq(t, `{
 			"age": {"type_mismatch": true},
-			"email": {"unexpected": true},
+			"email": {"unexpected_field": true},
 			"name": {"duplicated_fields": true}
 		}`, malformed.Val)
 	})
