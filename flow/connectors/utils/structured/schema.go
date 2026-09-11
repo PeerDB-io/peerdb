@@ -5,21 +5,11 @@ import (
 	"iter"
 	"slices"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-// defaultCHSchemaToQKind maps a ClickHouse column type to the QValueKind expected for its values, the
-// same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
-func defaultCHSchemaToQKind(schemaType string) (types.QValueKind, error) {
-	kind, err := peerdb_clickhouse.QValueKindForType(schemaType)
-	if err != nil {
-		return types.QValueKindInvalid, err
-	}
-	return types.QValueKind(kind), nil
-}
 
 // schemaColumn is a schema column resolved once at construction: the kind its values must have and its
 // position in the records ProjectRecord produces.
@@ -89,13 +79,14 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 	}, nil
 }
 
-// NewSchemaProjectorFromCHtoQValue is NewSchemaProjector with defaultCHSchemaToQKind as the
-// schema type to QValueKind conversion, i.e. for schemas declared with ClickHouse column types.
+// NewSchemaProjectorFromCHtoQValue is NewSchemaProjector with connclickhouse.QValueKindForType as the
+// schema type to QValueKind conversion, i.e. for schemas declared with ClickHouse column types. It is
+// the same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
 func NewSchemaProjectorFromCHtoQValue(
 	schemaColumns []*protos.ColumnSetting,
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
-	return NewSchemaProjector(defaultCHSchemaToQKind, schemaColumns, shouldRecordValues)
+	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, shouldRecordValues)
 }
 
 // QRecordSchema is the schema of the records ProjectRecord produces: the schema columns as declared
