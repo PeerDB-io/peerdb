@@ -26,6 +26,8 @@ import (
 )
 
 const (
+	pullTableProgressLogInterval = 10_000
+
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
 	// the record.
@@ -99,11 +101,21 @@ func (c *BigQueryConnector) PullTableRecords(
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullTableRecordsRequest,
 ) (model.PullTableRecordsResult, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	pullStartedAt := time.Now()
+	var pulledRecords int64
+	var bytesProcessed int64
 	signaledNotEmpty := false
 	defer func() {
 		if !signaledNotEmpty {
 			req.Stream.SignalAsEmpty()
 		}
+		logger.Info("[bigquery] PullTableRecords finished",
+			slog.String("table", req.SourceTableIdentifier),
+			slog.Int64("records", pulledRecords),
+			slog.Int64("bytes", bytesProcessed),
+			slog.Int("channelLen", req.Stream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStartedAt).Minutes()))
 	}()
 
 	now, err := c.currentBigQueryTimestamp(ctx)
@@ -159,10 +171,19 @@ func (c *BigQueryConnector) PullTableRecords(
 			signaledNotEmpty = true
 			req.Stream.SignalAsNotEmpty()
 		}
+		pulledRecords++
+		if pulledRecords%pullTableProgressLogInterval == 0 {
+			elapsed := time.Since(pullStartedAt)
+			logger.Info("[bigquery] pulled records",
+				slog.String("table", req.SourceTableIdentifier),
+				slog.Int64("records", pulledRecords),
+				slog.Duration("elapsed", elapsed),
+				slog.Float64("recordsPerSecond", float64(pulledRecords)/elapsed.Seconds()),
+				slog.Int("channelLen", req.Stream.ChannelLen()))
+		}
 		return nil
 	}
 
-	var bytesProcessed int64
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
 			req.NameAndExclude, start, upper, addRecord)
