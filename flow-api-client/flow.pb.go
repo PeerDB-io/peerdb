@@ -4445,8 +4445,10 @@ type CDCFlowConfigUpdate struct {
 	SnapshotMaxParallelWorkers           uint32            `protobuf:"varint,8,opt,name=snapshot_max_parallel_workers,json=snapshotMaxParallelWorkers,proto3" json:"snapshot_max_parallel_workers,omitempty"`
 	SnapshotNumTablesInParallel          uint32            `protobuf:"varint,9,opt,name=snapshot_num_tables_in_parallel,json=snapshotNumTablesInParallel,proto3" json:"snapshot_num_tables_in_parallel,omitempty"`
 	SkipInitialSnapshotForTableAdditions bool              `protobuf:"varint,11,opt,name=skip_initial_snapshot_for_table_additions,json=skipInitialSnapshotForTableAdditions,proto3" json:"skip_initial_snapshot_for_table_additions,omitempty"`
-	unknownFields                        protoimpl.UnknownFields
-	sizeCache                            protoimpl.SizeCache
+	// removes keys from the env map, applied after updated_env
+	RemovedEnv    []string `protobuf:"bytes,12,rep,name=removed_env,json=removedEnv,proto3" json:"removed_env,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CDCFlowConfigUpdate) Reset() {
@@ -4547,6 +4549,13 @@ func (x *CDCFlowConfigUpdate) GetSkipInitialSnapshotForTableAdditions() bool {
 		return x.SkipInitialSnapshotForTableAdditions
 	}
 	return false
+}
+
+func (x *CDCFlowConfigUpdate) GetRemovedEnv() []string {
+	if x != nil {
+		return x.RemovedEnv
+	}
+	return nil
 }
 
 type QRepFlowConfigUpdate struct {
@@ -6205,7 +6214,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x12synced_at_col_name\x18\x02 \x01(\tR\x0fsyncedAtColNameJ\x04\b\x03\x10\x04\"x\n" +
 	"\x1fGetOpenConnectionsForUserResult\x12\x1b\n" +
 	"\tuser_name\x18\x01 \x01(\tR\buserName\x128\n" +
-	"\x18current_open_connections\x18\x02 \x01(\x03R\x16currentOpenConnections\"\xea\x05\n" +
+	"\x18current_open_connections\x18\x02 \x01(\x03R\x16currentOpenConnections\"\x8b\x06\n" +
 	"\x13CDCFlowConfigUpdate\x12F\n" +
 	"\x11additional_tables\x18\x01 \x03(\v2\x19.peerdb_flow.TableMappingR\x10additionalTables\x12\x1d\n" +
 	"\n" +
@@ -6219,7 +6228,9 @@ const file_flow_proto_rawDesc = "" +
 	" \x01(\rR\x1dsnapshotNumPartitionsOverride\x12A\n" +
 	"\x1dsnapshot_max_parallel_workers\x18\b \x01(\rR\x1asnapshotMaxParallelWorkers\x12D\n" +
 	"\x1fsnapshot_num_tables_in_parallel\x18\t \x01(\rR\x1bsnapshotNumTablesInParallel\x12W\n" +
-	")skip_initial_snapshot_for_table_additions\x18\v \x01(\bR$skipInitialSnapshotForTableAdditions\x1a=\n" +
+	")skip_initial_snapshot_for_table_additions\x18\v \x01(\bR$skipInitialSnapshotForTableAdditions\x12\x1f\n" +
+	"\vremoved_env\x18\f \x03(\tR\n" +
+	"removedEnv\x1a=\n" +
 	"\x0fUpdatedEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x04\x10\x05\"\x16\n" +
