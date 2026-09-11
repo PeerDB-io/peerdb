@@ -621,10 +621,13 @@ func ValidateEnv(env map[string]string) error {
 			_, err = strconv.ParseUint(value, 10, 64)
 		case protos.DynconfValueType_BOOL:
 			_, err = strconv.ParseBool(value)
+		case protos.DynconfValueType_STRING:
+		default:
+			err = fmt.Errorf("unsupported value type %s", DynamicSettings[idx].ValueType)
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: invalid value %q for %s setting",
-				key, value, strings.ToLower(DynamicSettings[idx].ValueType.String())))
+			errs = append(errs, fmt.Errorf("%s: invalid value %q for %s setting: %w",
+				key, value, strings.ToLower(DynamicSettings[idx].ValueType.String()), err))
 		}
 	}
 	return errors.Join(errs...)
