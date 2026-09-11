@@ -4,8 +4,20 @@ import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import React, { useMemo, useState } from 'react';
-import { useTheme as useStyledTheme } from 'styled-components';
+import styled, { useTheme as useStyledTheme } from 'styled-components';
 import ColumnDisplayModal from './columnDisplayModal';
+
+const ClickableTableRow = styled(TableRow)`
+  cursor: pointer;
+
+  &:hover {
+    background-color: oklch(98.5% 0.002 247.839);
+  }
+
+  .dark &:hover {
+    background-color: oklch(27.8% 0.033 256.848);
+  }
+`;
 
 export default function TablePairs({
   tables,
@@ -68,17 +80,15 @@ export default function TablePairs({
             }
           >
             {shownTables?.map((table) => (
-              <TableRow
+              <ClickableTableRow
                 key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
                 onClick={() => handleTableClick(table)}
-                style={{ cursor: 'pointer' }}
-                className='hover:bg-gray-50 dark:hover:bg-gray-800'
               >
                 <TableCell>{table.sourceTableIdentifier}</TableCell>
                 <TableCell style={{ padding: '0.5rem' }}>
                   {table.destinationTableIdentifier}
                 </TableCell>
-              </TableRow>
+              </ClickableTableRow>
             ))}
           </Table>
         </div>

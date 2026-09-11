@@ -21,7 +21,9 @@ export default function MirrorLink({ flowName }: { flowName: string }) {
           }}
         >
           <Label>
-            <div className='cursor-pointer underline'>{flowName}</div>
+            <div style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+              {flowName}
+            </div>
           </Label>
         </Link>
       )}

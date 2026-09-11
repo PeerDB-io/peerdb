@@ -27,6 +27,9 @@ const baseStyles = css<WrapperProps>`
   .layout-action.layout-action--flex-auto {
     flex: 1 1 auto;
   }
+  .layout-action--end {
+    justify-content: flex-end;
+  }
   .layout-action-slot {
     flex: 0 0 0%;
   }

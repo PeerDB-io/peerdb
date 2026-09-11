@@ -10,10 +10,23 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import styled from 'styled-components';
 import MirrorValues from './configValues';
 import { getCurrentIdleTimeout } from './handlers';
 import { RowDataFormatter } from './rowsDisplay';
 import TablePairs from './tablePairs';
+
+const DetailsRow = styled.div<{ $responsive?: boolean }>`
+  display: flex;
+
+  > div {
+    flex-basis: 25%;
+
+    @media (min-width: 48rem) {
+      flex-basis: ${({ $responsive }) => ($responsive ? '33.333333%' : '25%')};
+    }
+  }
+`;
 
 type props = {
   mirrorConfig: CDCMirrorStatus;
@@ -36,9 +49,9 @@ export default function CdcDetails({
   }, [mirrorConfig.config?.flowJobName]);
   return (
     <>
-      <div className='mt-10'>
-        <div className='flex flex-row'>
-          <div className='basis-1/4 md:basis-1/3'>
+      <div style={{ marginTop: '2.5rem' }}>
+        <DetailsRow $responsive>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Status
@@ -59,7 +72,7 @@ export default function CdcDetails({
               </Link>
             </div>
           </div>
-          <div className='basis-1/4 md:basis-1/3'>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Mirror Type
@@ -69,7 +82,7 @@ export default function CdcDetails({
               <Label variant='body'>CDC</Label>
             </div>
           </div>
-          <div className='basis-1/4 md:basis-1/3'>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Source
@@ -82,7 +95,7 @@ export default function CdcDetails({
               />
             </div>
           </div>
-          <div className='basis-1/4 md:basis-1/3'>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Destination
@@ -95,9 +108,9 @@ export default function CdcDetails({
               />
             </div>
           </div>
-        </div>
-        <div className='flex flex-row mt-10'>
-          <div className='basis-1/4'>
+        </DetailsRow>
+        <DetailsRow style={{ marginTop: '2.5rem' }}>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Sync Interval
@@ -107,7 +120,7 @@ export default function CdcDetails({
               <SyncIntervalLabel syncInterval={syncInterval} />
             </div>
           </div>
-          <div className='basis-1/4'>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Created At
@@ -117,7 +130,7 @@ export default function CdcDetails({
               <TimeLabel timeVal={createdAt || ''} />
             </div>
           </div>
-          <div className='basis-1/4'>
+          <div>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
                 Rows synced
@@ -130,10 +143,10 @@ export default function CdcDetails({
             </div>
           </div>
 
-          <div className='basis-1/4'>
+          <div>
             <MirrorInfo configs={MirrorValues(mirrorConfig.config)} />
           </div>
-        </div>
+        </DetailsRow>
       </div>
 
       <TablePairs

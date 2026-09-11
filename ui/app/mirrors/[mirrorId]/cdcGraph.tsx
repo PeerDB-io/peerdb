@@ -118,7 +118,7 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
 
   return (
     <div>
-      <div className='float-right'>
+      <div style={{ float: 'right' }}>
         <ReactSelect
           id={aggregateType.toString()}
           placeholder='Select a timeframe'

@@ -353,15 +353,15 @@ export default function SchemaBox({
         </div>
         {/* TABLE BOX */}
         {schemaIsExpanded(schema) && (
-          <div className='ml-5 mt-3'>
+          <div style={{ marginLeft: '1.25rem', marginTop: '0.75rem' }}>
             {searchedTables.length ? (
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
                 return (
                   <div key={row.source} style={tableBoxStyle(styledTheme)}>
                     <div
-                      className='ml-5'
                       style={{
+                        marginLeft: '1.25rem',
                         display: 'flex',
                         flexDirection: 'column',
                         rowGap: '1rem',
@@ -539,7 +539,13 @@ export default function SchemaBox({
 
                     {/* COLUMN BOX */}
                     {row.selected && (
-                      <div className='ml-5 mt-3' style={{ width: '100%' }}>
+                      <div
+                        style={{
+                          marginLeft: '1.25rem',
+                          marginTop: '0.75rem',
+                          width: '100%',
+                        }}
+                      >
                         <hr style={columnBoxDividerStyle} />
                         <div
                           style={{
