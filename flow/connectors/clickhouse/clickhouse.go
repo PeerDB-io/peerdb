@@ -394,6 +394,76 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
+// QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
+func QValueKindForType(columnType string) (types.QValueKind, error) {
+	switch columnType {
+	case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
+		return types.QValueKindString, nil
+	case "Bool", "Nullable(Bool)":
+		return types.QValueKindBoolean, nil
+	case "Int8", "Nullable(Int8)":
+		return types.QValueKindInt8, nil
+	case "Int16", "Nullable(Int16)":
+		return types.QValueKindInt16, nil
+	case "Int32", "Nullable(Int32)":
+		return types.QValueKindInt32, nil
+	case "Int64", "Nullable(Int64)":
+		return types.QValueKindInt64, nil
+	case "Int256", "Nullable(Int256)":
+		return types.QValueKindInt256, nil
+	case "UInt8", "Nullable(UInt8)":
+		return types.QValueKindUInt8, nil
+	case "UInt16", "Nullable(UInt16)":
+		return types.QValueKindUInt16, nil
+	case "UInt32", "Nullable(UInt32)":
+		return types.QValueKindUInt32, nil
+	case "UInt64", "Nullable(UInt64)":
+		return types.QValueKindUInt64, nil
+	case "UInt256", "Nullable(UInt256)":
+		return types.QValueKindUInt256, nil
+	case "UUID", "Nullable(UUID)":
+		return types.QValueKindUUID, nil
+	case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
+		return types.QValueKindTimestamp, nil
+	case "Time64(6)", "Nullable(Time64(6))":
+		return types.QValueKindTime, nil
+	case "Date32", "Nullable(Date32)":
+		return types.QValueKindDate, nil
+	case "Float32", "Nullable(Float32)":
+		return types.QValueKindFloat32, nil
+	case "Float64", "Nullable(Float64)":
+		return types.QValueKindFloat64, nil
+	case "Array(Int32)":
+		return types.QValueKindArrayInt32, nil
+	case "Array(Float32)":
+		return types.QValueKindArrayFloat32, nil
+	case "Array(Float64)":
+		return types.QValueKindArrayFloat64, nil
+	case "Array(String)", "Array(LowCardinality(String))":
+		return types.QValueKindArrayString, nil
+	case "Array(UUID)":
+		return types.QValueKindArrayUUID, nil
+	case "Array(DateTime64(6))":
+		return types.QValueKindArrayTimestamp, nil
+	case "Array(Int64)":
+		return types.QValueKindArrayInt64, nil
+	case "Array(Bool)":
+		return types.QValueKindArrayBoolean, nil
+	case "Array(Date)":
+		return types.QValueKindArrayDate, nil
+	case "JSON", "Nullable(JSON)":
+		return types.QValueKindJSON, nil
+	default:
+		if strings.Contains(columnType, "Decimal") {
+			if strings.HasPrefix(columnType, "Array(") {
+				return types.QValueKindArrayNumeric, nil
+			}
+			return types.QValueKindNumeric, nil
+		}
+		return types.QValueKindInvalid, fmt.Errorf("failed to resolve QValueKind for %s", columnType)
+	}
+}
+
 func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
@@ -401,74 +471,9 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			continue
 		}
 
-		var qkind types.QValueKind
-		switch column.DatabaseTypeName() {
-		case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
-			qkind = types.QValueKindString
-		case "Bool", "Nullable(Bool)":
-			qkind = types.QValueKindBoolean
-		case "Int8", "Nullable(Int8)":
-			qkind = types.QValueKindInt8
-		case "Int16", "Nullable(Int16)":
-			qkind = types.QValueKindInt16
-		case "Int32", "Nullable(Int32)":
-			qkind = types.QValueKindInt32
-		case "Int64", "Nullable(Int64)":
-			qkind = types.QValueKindInt64
-		case "Int256", "Nullable(Int256)":
-			qkind = types.QValueKindInt256
-		case "UInt8", "Nullable(UInt8)":
-			qkind = types.QValueKindUInt8
-		case "UInt16", "Nullable(UInt16)":
-			qkind = types.QValueKindUInt16
-		case "UInt32", "Nullable(UInt32)":
-			qkind = types.QValueKindUInt32
-		case "UInt64", "Nullable(UInt64)":
-			qkind = types.QValueKindUInt64
-		case "UInt256", "Nullable(UInt256)":
-			qkind = types.QValueKindUInt256
-		case "UUID", "Nullable(UUID)":
-			qkind = types.QValueKindUUID
-		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
-			qkind = types.QValueKindTimestamp
-		case "Time64(6)", "Nullable(Time64(6))":
-			qkind = types.QValueKindTime
-		case "Date32", "Nullable(Date32)":
-			qkind = types.QValueKindDate
-		case "Float32", "Nullable(Float32)":
-			qkind = types.QValueKindFloat32
-		case "Float64", "Nullable(Float64)":
-			qkind = types.QValueKindFloat64
-		case "Array(Int32)":
-			qkind = types.QValueKindArrayInt32
-		case "Array(Float32)":
-			qkind = types.QValueKindArrayFloat32
-		case "Array(Float64)":
-			qkind = types.QValueKindArrayFloat64
-		case "Array(String)", "Array(LowCardinality(String))":
-			qkind = types.QValueKindArrayString
-		case "Array(UUID)":
-			qkind = types.QValueKindArrayUUID
-		case "Array(DateTime64(6))":
-			qkind = types.QValueKindArrayTimestamp
-		case "Array(Int64)":
-			qkind = types.QValueKindArrayInt64
-		case "Array(Bool)":
-			qkind = types.QValueKindArrayBoolean
-		case "Array(Date)":
-			qkind = types.QValueKindArrayDate
-		case "JSON":
-			qkind = types.QValueKindJSON
-		default:
-			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
-				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
-					qkind = types.QValueKindArrayNumeric
-				} else {
-					qkind = types.QValueKindNumeric
-				}
-			} else {
-				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
-			}
+		qkind, err := QValueKindForType(column.DatabaseTypeName())
+		if err != nil {
+			return nil, err
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{
