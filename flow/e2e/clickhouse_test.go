@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	protojson "google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -4072,4 +4073,62 @@ func (s ClickHouseSuite) Test_Offload_Partition_Ranges() {
 		`SELECT COUNT(*) FROM metadata_qrep_offloaded_partition_ranges WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName).Scan(&remainingRanges))
 	require.Zero(s.t, remainingRanges)
+}
+
+func (s ClickHouseSuite) Test_Sync_Error_Cancels_InProgress_Normalize() {
+	if s.cluster {
+		s.t.Skip("slow materialized view helper is not cluster-aware")
+	}
+	const table = "test_sync_error_cancels_norm"
+	srcTable := s.attachSchemaSuffix(table)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE %s (id INT PRIMARY KEY, val TEXT NOT NULL)`, srcTable)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("sync_error_norm"),
+		TableNameMapping: map[string]string{srcTable: table},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 1
+	flowConnConfig.IdleTimeoutSeconds = 1
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	defer func() {
+		env.Cancel(s.t.Context())
+		RequireEnvCanceled(s.t, env)
+	}()
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	cleanupSlowInsert, err := s.CreateSlowInsertViaMV(table, 600)
+	require.NoError(s.t, err)
+	defer cleanupSlowInsert()
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES (1, 'a')`, srcTable)))
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+	EnvWaitFor(s.t, env, time.Minute, "normalize insert to be running", func() bool {
+		var count uint64
+		err := ch.QueryRow(s.t.Context(), fmt.Sprintf(
+			`SELECT count() FROM system.processes WHERE current_database = currentDatabase() AND query ILIKE '%s'`,
+			"INSERT INTO%"+table+"%")).Scan(&count)
+		return err == nil && count > 0
+	})
+
+	// set an invalid s3 access key which will trigger a sync error
+	peer := s.Peer()
+	peer.GetClickhouseConfig().S3 = proto.CloneOf(peer.GetClickhouseConfig().S3)
+	peer.GetClickhouseConfig().S3.SecretAccessKey = proto.String("bad")
+	CreatePeer(s.t, peer)
+
+	lastErrorBefore := EnvGetWorkflowState(s.t, env).LastError
+	require.True(s.t, lastErrorBefore.IsZero())
+
+	EnvNoError(s.t, env, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES (2, 'b')`, srcTable)))
+
+	EnvWaitFor(s.t, env, 10*time.Second, "timed out waiting for SyncFlow to return an error", func() bool {
+		return EnvGetWorkflowState(s.t, env).LastError.After(lastErrorBefore)
+	})
 }

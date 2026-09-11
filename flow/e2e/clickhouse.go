@@ -408,6 +408,31 @@ func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols 
 	)
 }
 
+// CreateSlowInsertViaMV attaches a materialized view to tableName that makes every insert into it takes sleepSeconds
+func (s ClickHouseSuite) CreateSlowInsertViaMV(tableName string, sleepSeconds int) (func(), error) {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return nil, err
+	}
+	mvName := fmt.Sprintf(`"%s_slow_insert_mv"`, tableName)
+	if err := ch.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE MATERIALIZED VIEW %s ENGINE = Null AS SELECT * FROM "%s"
+		WHERE 0 IN (SELECT number FROM numbers(%d) WHERE sleepEachRow(1) = 0 SETTINGS max_block_size = 1)`,
+		mvName, tableName, sleepSeconds)); err != nil {
+		ch.Close()
+		return nil, err
+	}
+	cleanup := func() {
+		defer ch.Close()
+		rows, err := ch.Query(s.t.Context(), fmt.Sprintf(
+			`KILL QUERY WHERE current_database = currentDatabase() AND query ILIKE 'INSERT INTO%%%s%%' SYNC`, tableName))
+		require.NoError(s.t, err)
+		rows.Close()
+		require.NoError(s.t, ch.Exec(s.t.Context(), "DROP VIEW IF EXISTS "+mvName))
+	}
+	return cleanup, nil
+}
+
 func SetupClickHouseSuite[TSource SuiteSource](
 	t *testing.T,
 	cluster bool,
