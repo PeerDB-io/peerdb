@@ -17,6 +17,9 @@ type NameAndExclude struct {
 	Exclude             map[string]struct{}
 	Name                string
 	StructuredIngestion bool
+	// DropUnexpectedValues only applies to structured ingestion: if true, reports of unfitting
+	// values omit the values themselves, keeping just the field and why it did not fit.
+	DropUnexpectedValues bool
 }
 
 func NewNameAndExclude(name string, exclude []string) NameAndExclude {
@@ -30,9 +33,12 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 	return NameAndExclude{Name: name, Exclude: exset}
 }
 
-func NewNameAndExcludeWithStructuredIngestion(name string, exclude []string, structuredIngestion bool) NameAndExclude {
+func NewNameAndExcludeWithStructuredIngestion(
+	name string, exclude []string, structuredIngestion bool, dropUnexpectedValues bool,
+) NameAndExclude {
 	nae := NewNameAndExclude(name, exclude)
 	nae.StructuredIngestion = structuredIngestion
+	nae.DropUnexpectedValues = dropUnexpectedValues
 	return nae
 }
 

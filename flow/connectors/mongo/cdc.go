@@ -65,11 +65,6 @@ type ChangeEvent struct {
 
 const mongoClockOffsetTTL = time.Hour
 
-// cdcStructuredRecordMalformedValues controls whether structured ingestion CDC records the offending
-// values, and not just the reason, in the malformed data column.
-// TODO PFCOPEREZ: make this configurable.
-const cdcStructuredRecordMalformedValues = true
-
 // getMongoClockOffset returns the cached difference between the source server
 // clock and this process's clock.
 func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
@@ -173,7 +168,7 @@ func (c *MongoConnector) GetTableSchema(
 
 		if tm.StructuredIngestion {
 			// only the schema is derived here, so recording malformed values is inconsequential
-			projector, err := newStructuredSchemaProjector(tm.Columns, cdcStructuredRecordMalformedValues)
+			projector, err := newStructuredSchemaProjector(tm.Columns, !tm.DropUnexpectedValues)
 			if err != nil {
 				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
 			}
@@ -493,7 +488,7 @@ func (c *MongoConnector) PullRecords(
 		if !ok {
 			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
 		}
-		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, cdcStructuredRecordMalformedValues)
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !tableMapping.DropUnexpectedValues)
 		if err != nil {
 			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
 		}

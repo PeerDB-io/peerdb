@@ -143,7 +143,7 @@ func TestProjectRecord(t *testing.T) {
 		}`, malformed.Val)
 	})
 
-	t.Run("shouldRecordValues=false omits mismatched values", func(t *testing.T) {
+	t.Run("shouldRecordValues=false omits the unfitting values", func(t *testing.T) {
 		blind, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), false)
 		require.NoError(t, err)
 		values, err := blind.ProjectRecord(recordOf(
@@ -153,10 +153,9 @@ func TestProjectRecord(t *testing.T) {
 		require.NoError(t, err)
 		malformed, ok := values[3].(types.QValueJSON)
 		require.True(t, ok)
-		// NOTE: unexpected fields record their value regardless of shouldRecordValues
 		require.JSONEq(t, `{
 			"age": {"type_mismatch": true},
-			"email": {"unexpected": true, "value": "ada@example.com"}
+			"email": {"unexpected": true}
 		}`, malformed.Val)
 	})
 }

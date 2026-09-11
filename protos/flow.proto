@@ -55,6 +55,9 @@ message TableMapping {
   // If true, the mirror will use structured ingestion on sources without schemas
   // using the column types given by the `columns` (`destination_type`) field in the TableMapping.
   bool structured_ingestion = 11;
+  // If true, when structured ingestion is enabled, reports of unfitting values will not include
+  // the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 12;
 }
 
 message SetupInput {
@@ -490,6 +493,9 @@ message QRepConfig {
   // `destination_type`, instead of landing whole in a single JSON column.
   // Only for structured ingestion enabled sources.
   bool structured_ingestion = 33;
+  // Mirrors TableMapping.drop_unexpected_values for the table being replicated: if true, reports of
+  // unfitting values will not include the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 34;
 }
 
 message ChildTableRange {
