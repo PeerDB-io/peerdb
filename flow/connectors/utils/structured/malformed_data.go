@@ -87,7 +87,12 @@ func (m *MalformedData) MarshalJSON() ([]byte, error) {
 			jsonValue = value.Value()
 		}
 		if isJSONRepresentable(jsonValue) {
-			field["value"] = jsonValue
+			marshaledValue, err := json.Marshal(jsonValue)
+			if err != nil {
+				field["value"] = fmt.Sprintf("%v", jsonValue)
+			} else {
+				field["value"] = json.RawMessage(marshaledValue)
+			}
 		} else {
 			fields[name] = map[string]any{ReasonNaN.String(): true}
 		}

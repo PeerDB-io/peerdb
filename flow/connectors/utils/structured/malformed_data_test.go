@@ -81,6 +81,18 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 				`"nan32":{"not_a_number":true},` +
 				`"neginf":{"not_a_number":true}}`,
 		},
+		{
+			desc: "compound values holding non-finite floats fall back to their string representation",
+			setup: func(m *MalformedData) {
+				m.AddField("arr64", ReasonTypeMismatch, types.QValueArrayFloat64{Val: []float64{1, math.NaN()}})
+				m.AddField("arr32", ReasonUnexpected, types.QValueArrayFloat32{Val: []float32{float32(math.Inf(1))}})
+				m.AddField("finite", ReasonTypeMismatch, types.QValueArrayFloat64{Val: []float64{1, 2}})
+			},
+			expected: `{` +
+				`"arr32":{"unexpected":true,"value":"[+Inf]"},` +
+				`"arr64":{"type_mismatch":true,"value":"[1 NaN]"},` +
+				`"finite":{"type_mismatch":true,"value":[1,2]}}`,
+		},
 	}
 
 	for _, test := range tests {
