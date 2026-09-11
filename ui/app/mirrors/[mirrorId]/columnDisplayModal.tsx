@@ -7,6 +7,16 @@ import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
+import {
+  ColumnBody,
+  ColumnContent,
+  ColumnFooter,
+  ColumnHeader,
+  ColumnMessage,
+  ColumnOverlay,
+  ColumnRow,
+  ExcludedColumnNote,
+} from './styles/columnDisplayModal.styles';
 
 interface ColumnDisplayModalProps {
   isOpen: boolean;
@@ -91,17 +101,15 @@ export default function ColumnDisplayModal({
   return (
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
-        <Dialog.Overlay className='fixed inset-0 z-50' />
-        <Dialog.Content className='fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden z-50'>
+        <ColumnOverlay />
+        <ColumnContent>
           {/* Header */}
-          <div className='flex items-center justify-between p-6 border-b'>
+          <ColumnHeader>
             <div>
               <Dialog.Title asChild>
-                <Label variant='headline' className='text-xl font-semibold'>
-                  Column Details
-                </Label>
+                <Label variant='headline'>Column Details</Label>
               </Dialog.Title>
-              <div className='mt-2 space-y-1'>
+              <div style={{ marginTop: '0.5rem' }}>
                 <Label variant='subheadline' colorName='lowContrast'>
                   Source: {sourceTableIdentifier}
                 </Label>
@@ -111,39 +119,34 @@ export default function ColumnDisplayModal({
               </div>
             </div>
             <Dialog.Close asChild>
-              <Button variant='normalBorderless' className='p-2'>
+              <Button variant='normalBorderless'>
                 <Icon name='close' />
               </Button>
             </Dialog.Close>
-          </div>
+          </ColumnHeader>
 
           {/* Content */}
-          <div
-            className='p-6 overflow-auto max-h-[60vh]'
-            style={{ height: '30em' }}
-          >
+          <ColumnBody>
             {loading && (
-              <div className='text-center py-8'>
+              <ColumnMessage>
                 <Label variant='body' colorName='lowContrast'>
                   Loading column information...
                 </Label>
-              </div>
+              </ColumnMessage>
             )}
 
             {error && (
-              <div className='text-center py-8'>
-                <Label variant='body' className='text-red-500'>
-                  Error: {error}
-                </Label>
-              </div>
+              <ColumnMessage>
+                <Label variant='body'>Error: {error}</Label>
+              </ColumnMessage>
             )}
 
             {!loading && !error && columns.length === 0 && (
-              <div className='text-center py-8'>
+              <ColumnMessage>
                 <Label variant='body' colorName='lowContrast'>
                   No columns found for this table.
                 </Label>
-              </div>
+              </ColumnMessage>
             )}
 
             {!loading && !error && columns.length > 0 && (
@@ -161,61 +164,38 @@ export default function ColumnDisplayModal({
                 {sortedColumns.map((column) => {
                   const isExcluded = excludedColumns.has(column.name);
                   return (
-                    <TableRow
-                      key={column.name}
-                      className={
-                        isExcluded
-                          ? 'opacity-60 bg-gray-50 dark:bg-gray-800'
-                          : ''
-                      }
-                    >
-                      <TableCell className={isExcluded ? 'line-through' : ''}>
-                        {column.name}
-                      </TableCell>
-                      <TableCell className={isExcluded ? 'line-through' : ''}>
-                        {column.type}
-                      </TableCell>
-                      <TableCell className={isExcluded ? 'line-through' : ''}>
-                        {column.nullable ? 'Yes' : 'No'}
-                      </TableCell>
-                      <TableCell className={isExcluded ? 'line-through' : ''}>
-                        {column.isKey ? 'Yes' : 'No'}
-                      </TableCell>
+                    <ColumnRow key={column.name} $excluded={isExcluded}>
+                      <TableCell>{column.name}</TableCell>
+                      <TableCell>{column.type}</TableCell>
+                      <TableCell>{column.nullable ? 'Yes' : 'No'}</TableCell>
+                      <TableCell>{column.isKey ? 'Yes' : 'No'}</TableCell>
                       <TableCell>
-                        {isExcluded ? (
-                          <Label className='text-red-600 dark:text-red-400 font-medium'>
-                            Excluded
-                          </Label>
-                        ) : (
-                          <Label className='text-green-600 dark:text-green-400 font-medium'>
-                            Included
-                          </Label>
-                        )}
+                        <Label>{isExcluded ? 'Excluded' : 'Included'}</Label>
                       </TableCell>
-                    </TableRow>
+                    </ColumnRow>
                   );
                 })}
               </Table>
             )}
 
             {!loading && !error && excludedColumns.size > 0 && (
-              <div className='text-xs text-gray-500 dark:text-gray-400 pt-4 border-t mt-4'>
+              <ExcludedColumnNote>
                 <Label variant='body' colorName='lowContrast'>
                   <strong>Note:</strong> Excluded columns are shown with
                   strikethrough text and grayed out. They appear at the bottom
                   of the list.
                 </Label>
-              </div>
+              </ExcludedColumnNote>
             )}
-          </div>
+          </ColumnBody>
 
           {/* Footer */}
-          <div className='flex justify-end p-6 border-t'>
+          <ColumnFooter>
             <Dialog.Close asChild>
               <Button variant='normalBorderless'>Close</Button>
             </Dialog.Close>
-          </div>
-        </Dialog.Content>
+          </ColumnFooter>
+        </ColumnContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

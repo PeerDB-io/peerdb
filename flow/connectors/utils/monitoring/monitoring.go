@@ -268,7 +268,24 @@ func AddCDCBatchTablesForFlow(
 	return nil
 }
 
-func InitializeQRepRun(
+func RecordQRepRun(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	config *protos.QRepConfig,
+	runUUID string,
+	parentMirrorName string,
+) error {
+	if _, err := pool.Exec(ctx,
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name)"+
+			" VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+		config.GetFlowJobName(), runUUID, config.WatermarkTable, config.DestinationTableIdentifier, parentMirrorName,
+	); err != nil {
+		return fmt.Errorf("error inserting into qrep_runs: %w", err)
+	}
+	return nil
+}
+
+func RecordQRepPartitions(
 	ctx context.Context,
 	logger log.Logger,
 	pool shared.CatalogPool,
@@ -280,17 +297,9 @@ func InitializeQRepRun(
 	flowJobName := config.GetFlowJobName()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("error while starting transaction to initialize qrep run: %w", err)
+		return fmt.Errorf("error while starting transaction to add qrep partitions: %w", err)
 	}
 	defer shared.RollbackTx(tx, logger)
-
-	if _, err := tx.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,source_table,destination_table,parent_mirror_name)"+
-			" VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID, config.WatermarkTable, config.DestinationTableIdentifier, parentMirrorName,
-	); err != nil {
-		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
-	}
 
 	for _, partition := range partitions {
 		if err := addPartitionToQRepRun(ctx, tx, flowJobName, runUUID, partition, parentMirrorName); err != nil {
@@ -307,6 +316,18 @@ func UpdateStartTimeForQRepRun(ctx context.Context, pool shared.CatalogPool, run
 		time.Now(), runUUID,
 	); err != nil {
 		return fmt.Errorf("error while updating start time for run_uuid %s in qrep_runs: %w", runUUID, err)
+	}
+
+	return nil
+}
+
+func MarkQRepRunFailed(ctx context.Context, pool shared.CatalogPool, runUUID string) error {
+	if _, err := pool.Exec(ctx,
+		"UPDATE peerdb_stats.qrep_runs SET failed=true, end_time=COALESCE(end_time,$1)"+
+			" WHERE run_uuid=$2 AND consolidate_complete=false",
+		time.Now(), runUUID,
+	); err != nil {
+		return fmt.Errorf("error while marking run_uuid %s as failed in qrep_runs: %w", runUUID, err)
 	}
 
 	return nil
@@ -458,26 +479,16 @@ func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool shared.Catal
 	return nil
 }
 
-func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, runUUID string,
+func UpdateEndTimeAndRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
 	if _, err := pool.Exec(ctx,
-		`UPDATE peerdb_stats.qrep_partitions SET end_time=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
-		time.Now(), runUUID, partition.PartitionId,
+		`UPDATE peerdb_stats.qrep_partitions
+		SET end_time=$1, rows_synced=CASE WHEN $2::bigint > 0 THEN $2 ELSE rows_synced END
+		WHERE run_uuid=$3 AND partition_uuid=$4`,
+		time.Now(), rowsSynced, runUUID, partition.PartitionId,
 	); err != nil {
-		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
-	}
-	return nil
-}
-
-func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
-	partition *protos.QRepPartition,
-) error {
-	if _, err := pool.Exec(ctx,
-		`UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
-		rowsSynced, runUUID, partition.PartitionId,
-	); err != nil {
-		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
+		return fmt.Errorf("error while completing qrep partition in qrep_partitions: %w", err)
 	}
 	return nil
 }

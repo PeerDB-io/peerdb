@@ -9,7 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-const MalformedDataColumn = "malformed_data"
+const MalformedDataColumn = "_peerdb_malformed_data"
 
 type MalformedReason int
 
@@ -17,16 +17,19 @@ const (
 	ReasonUnexpected MalformedReason = iota
 	ReasonTypeMismatch
 	ReasonNaN
+	ReasonDuplicatedFields
 )
 
 func (r MalformedReason) String() string {
 	switch r {
 	case ReasonUnexpected:
-		return "unexpected"
+		return "unexpected_field"
 	case ReasonTypeMismatch:
 		return "type_mismatch"
 	case ReasonNaN:
 		return "not_a_number"
+	case ReasonDuplicatedFields:
+		return "duplicated_fields"
 	default:
 		return ""
 	}
@@ -87,7 +90,12 @@ func (m *MalformedData) MarshalJSON() ([]byte, error) {
 			jsonValue = value.Value()
 		}
 		if isJSONRepresentable(jsonValue) {
-			field["value"] = jsonValue
+			marshaledValue, err := json.Marshal(jsonValue)
+			if err != nil {
+				field["value"] = fmt.Sprintf("%v", jsonValue)
+			} else {
+				field["value"] = json.RawMessage(marshaledValue)
+			}
 		} else {
 			fields[name] = map[string]any{ReasonNaN.String(): true}
 		}
@@ -115,11 +123,14 @@ func MalformedDataFieldDescription() *protos.FieldDescription {
 
 // isJSONRepresentable reports whether v can be encoded by encoding/json, which rejects NaN and ±Inf floats.
 func isJSONRepresentable(v any) bool {
+	validateFloat := func(f float64) bool {
+		return !math.IsNaN(f) && !math.IsInf(f, 0)
+	}
 	switch f := v.(type) {
 	case float64:
-		return !math.IsNaN(f) && !math.IsInf(f, 0)
+		return validateFloat(f)
 	case float32:
-		return !math.IsNaN(float64(f)) && !math.IsInf(float64(f), 0)
+		return validateFloat(float64(f))
 	default:
 		return true
 	}

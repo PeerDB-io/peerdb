@@ -460,9 +460,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	// syncDone is closed by SyncFlow to signal the normalize goroutine that no more batches
-	// are coming, whereas normDone is closed by the normalize goroutine upon exit.
-	syncDone := make(chan struct{})
 	normDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
@@ -491,10 +488,11 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
+	normCtx, cancelNormCtx := context.WithCancel(internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE))
+	defer cancelNormCtx()
 	go func() {
 		defer close(normDone)
-		normalizeCtx := internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 	}()
 
 	var syncErr error
@@ -528,7 +526,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 
 	syncState.Store(new("cleanup"))
-	close(syncDone)
+	cancelNormCtx()
 	normRequests.Close()
 	normResponses.Close()
 	<-normDone
@@ -631,6 +629,11 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 	return nil
 }
 
+func (a *FlowableActivity) InitializeQRepRun(ctx context.Context, config *protos.QRepConfig, runUUID string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.RecordQRepRun(ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName)
+}
+
 // GetQRepPartitions returns the partitions for a given QRepConfig.
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
@@ -644,9 +647,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
-	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
-		return nil, err
-	}
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep pull connector: %w", err))
@@ -686,7 +686,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepPartitions(
 			ctx,
 			logger,
 			a.CatalogPool,
@@ -871,6 +871,15 @@ func initializeReplicatePartitionFunc(
 	default:
 		return nil, fmt.Errorf("unsupported QRepSyncConnectorCore type %T", qRepPullCoreConn)
 	}
+}
+
+// MarkQRepRunFailed records a qrep workflow failure against its run in peerdb_stats.qrep_runs
+// so the run is excluded from the initial load summary instead of showing as in progress forever.
+func (a *FlowableActivity) MarkQRepRunFailed(ctx context.Context, config *protos.QRepConfig,
+	runUUID string,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.MarkQRepRunFailed(ctx, a.CatalogPool, runUUID)
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
