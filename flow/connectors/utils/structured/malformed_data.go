@@ -115,11 +115,14 @@ func MalformedDataFieldDescription() *protos.FieldDescription {
 
 // isJSONRepresentable reports whether v can be encoded by encoding/json, which rejects NaN and ±Inf floats.
 func isJSONRepresentable(v any) bool {
+	validateFloat := func(f float64) bool {
+		return !math.IsNaN(f) && !math.IsInf(f, 0)
+	}
 	switch f := v.(type) {
 	case float64:
-		return !math.IsNaN(f) && !math.IsInf(f, 0)
+		return validateFloat(f)
 	case float32:
-		return !math.IsNaN(float64(f)) && !math.IsInf(float64(f), 0)
+		return validateFloat(float64(f))
 	default:
 		return true
 	}
