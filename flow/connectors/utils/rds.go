@@ -22,10 +22,11 @@ import (
 const RDSAuthTokenTTL = 10 * time.Minute
 
 type RDSAuth struct {
-	updateTime    time.Time
-	AwsAuthConfig *protos.AwsAuthenticationConfig
-	token         string
-	lock          sync.Mutex
+	updateTime       time.Time
+	AwsAuthConfig    *protos.AwsAuthenticationConfig
+	ConnectionConfig RDSConnectionConfig
+	token            string
+	lock             sync.Mutex
 }
 
 func (r *RDSAuth) VerifyAuthConfig() error {
@@ -79,7 +80,7 @@ func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCre
 
 var regionRegex = regexp.MustCompile(`^.*?\..*?\.([a-z0-9-]+)\.rds\.amazonaws\.com$`)
 
-func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *RDSAuth, connectorName string) (string, error) {
+func GetRDSToken(ctx context.Context, rdsAuth *RDSAuth, connectorName string) (string, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	now := time.Now()
 	if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
@@ -87,7 +88,7 @@ func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *R
 		return rdsAuth.token, nil
 	}
 	logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
-	return rdsAuth.GetFreshRdsToken(ctx, connConfig, connectorName)
+	return rdsAuth.GetFreshRdsToken(ctx, rdsAuth.ConnectionConfig, connectorName)
 }
 
 // GetFreshRdsToken bypasses the cache TTL and immediately fetches a new RDS IAM token.
