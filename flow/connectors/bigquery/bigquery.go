@@ -18,6 +18,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -119,7 +120,11 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
-	if err := client.EnableStorageReadClient(ctx, option.WithAuthCredentials(creds)); err != nil {
+	if err := client.EnableStorageReadClient(
+		ctx,
+		option.WithAuthCredentials(creds),
+		option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
+	); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("failed to enable BigQuery Storage Read API: %v", err)
 	}
