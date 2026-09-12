@@ -30,6 +30,11 @@ RUN --mount=type=cache,target="/root/.cache/go-build" if [[ "$DEBUG_BUILD" = "1"
     go install github.com/go-delve/delve/cmd/dlv@latest; \
   fi
 
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS temporal-cli
+ARG TARGETARCH
+ADD https://github.com/temporalio/cli/releases/download/v1.8.1/temporal_cli_1.8.1_linux_${TARGETARCH}.tar.gz /tmp/temporal_cli.tar.gz
+RUN tar -xzf /tmp/temporal_cli.tar.gz -C /usr/local/bin temporal
+
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS flow-base
 ENV TZ=UTC
 ADD --checksum=sha256:e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
@@ -38,6 +43,7 @@ RUN apk add --no-cache ca-certificates geos && \
   adduser -s /bin/sh -D peerdb
 USER peerdb
 WORKDIR /home/peerdb
+COPY --from=temporal-cli /usr/local/bin/temporal /usr/local/bin/temporal
 COPY --from=builder --chown=peerdb /root/peer-flow .
 ENTRYPOINT [ "/home/peerdb/peer-flow" ]
 
