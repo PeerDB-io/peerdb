@@ -135,3 +135,17 @@ func TestBuildPullQuery(t *testing.T) {
 		buildPullQuery("CHANGES", "`ds`.`tbl`", map[string]struct{}{"secret": {}}, "`_CHANGE_TIMESTAMP`"),
 	)
 }
+
+func TestBuildWatermarkPullQuery(t *testing.T) {
+	query := buildWatermarkPullQuery(
+		"`project`.`dataset`.`table`",
+		"updated_at",
+		map[string]struct{}{"secret": {}},
+	)
+	assert.Equal(t,
+		"SELECT * EXCEPT (`secret`) FROM `project`.`dataset`.`table` "+
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
+		query,
+	)
+	assert.NotContains(t, query, "ORDER BY")
+}
