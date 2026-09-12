@@ -874,3 +874,126 @@ func TestQValueFromBsonValue(t *testing.T) {
 		}
 	})
 }
+
+// rawArrayOf marshals values as a BSON array, as the typed array conversions consume them.
+func rawArrayOf(t *testing.T, values bson.A) bson.RawArray {
+	t.Helper()
+	raw, err := bson.Marshal(bson.D{{Key: "a", Value: values}})
+	require.NoError(t, err)
+	return bson.Raw(raw).Lookup("a").Array()
+}
+
+func TestTypedArraysFromBson(t *testing.T) {
+	converter := NewDirectBsonConverter()
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	decimal, err := bson.ParseDecimal128("12.34")
+	require.NoError(t, err)
+	date := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	t.Run("integers of both widths land as Int64", func(t *testing.T) {
+		values, err := converter.QValueArrayInt64FromArray(rawArrayOf(t, bson.A{int32(1), int64(2), int32(3)}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2, 3}}, values)
+	})
+
+	t.Run("doubles land as Float64", func(t *testing.T) {
+		values, err := converter.QValueArrayFloat64FromArray(rawArrayOf(t, bson.A{1.5, -2.25}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayFloat64{Val: []float64{1.5, -2.25}}, values)
+	})
+
+	t.Run("booleans land as Boolean", func(t *testing.T) {
+		values, err := converter.QValueArrayBooleanFromArray(rawArrayOf(t, bson.A{true, false}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayBoolean{Val: []bool{true, false}}, values)
+	})
+
+	t.Run("every string-mapped scalar lands as String", func(t *testing.T) {
+		values, err := converter.QValueArrayStringFromArray(rawArrayOf(t, bson.A{"plain", oid, date, decimal}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayString{
+			Val: []string{"plain", "507f1f77bcf86cd799439011", "2024-01-02T03:04:05Z", "12.34"},
+		}, values)
+	})
+
+	t.Run("an empty array converts to an empty, non-nil slice", func(t *testing.T) {
+		values, err := converter.QValueArrayInt64FromArray(rawArrayOf(t, bson.A{}))
+		require.NoError(t, err)
+		require.NotNil(t, values.Val)
+		require.Empty(t, values.Val)
+	})
+
+	t.Run("an element mapping to another type fails", func(t *testing.T) {
+		_, err := converter.QValueArrayInt64FromArray(rawArrayOf(t, bson.A{int64(1), "two"}))
+		require.ErrorContains(t, err, "array element 1 maps to string, not int64")
+	})
+
+	t.Run("a null element fails", func(t *testing.T) {
+		_, err := converter.QValueArrayStringFromArray(rawArrayOf(t, bson.A{"one", nil}))
+		require.ErrorContains(t, err, "array element 1 is null, not string")
+	})
+
+	t.Run("a nested array or document element fails", func(t *testing.T) {
+		_, err := converter.QValueArrayStringFromArray(rawArrayOf(t, bson.A{bson.A{"nested"}}))
+		require.ErrorContains(t, err, "array element 0 maps to json, not string")
+		_, err = converter.QValueArrayStringFromArray(rawArrayOf(t, bson.A{bson.D{{Key: "k", Value: 1}}}))
+		require.ErrorContains(t, err, "array element 0 maps to json, not string")
+	})
+
+	t.Run("JSON-mapped elements, documents and nested arrays included, land as an array of JSON", func(t *testing.T) {
+		values, err := converter.QValueArrayJSONFromArray(rawArrayOf(t, bson.A{
+			bson.D{{Key: "k", Value: int64(1)}},
+			bson.A{int64(1), "two"},
+			bson.D{},
+		}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueJSON{Val: `[{"k":1},[1,"two"],{}]`, IsArray: true}, values)
+
+		// a scalar element maps to its own kind, not JSON
+		_, err = converter.QValueArrayJSONFromArray(rawArrayOf(t, bson.A{bson.D{}, "scalar"}))
+		require.ErrorContains(t, err, "array element 1 maps to string, not json")
+
+		// an empty array of JSON is the empty JSON array
+		empty, err := converter.QValueArrayJSONFromArray(rawArrayOf(t, bson.A{}))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueJSON{Val: "[]", IsArray: true}, empty)
+	})
+
+	t.Run("QValueFromBsonValue yields the typed array for array destination kinds", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{{Key: "a", Value: bson.A{int32(1), int64(2)}}})
+		require.NoError(t, err)
+		rawValue := bson.Raw(raw).Lookup("a")
+
+		typed, err := converter.QValueFromBsonValue(rawValue, types.QValueKindArrayInt64)
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2}}, typed)
+
+		// an unfitting element fails instead of degrading to JSON
+		_, err = converter.QValueFromBsonValue(rawValue, types.QValueKindArrayBoolean)
+		require.ErrorContains(t, err, "array element 0 maps to int64, not bool")
+
+		// array-of-JSON destination kinds route through the JSON-element validation
+		docsRaw, err := bson.Marshal(bson.D{{Key: "a", Value: bson.A{bson.D{{Key: "k", Value: int64(1)}}}}})
+		require.NoError(t, err)
+		for _, kind := range []types.QValueKind{types.QValueKindArrayJSON, types.QValueKindArrayJSONB} {
+			asJSONArray, err := converter.QValueFromBsonValue(bson.Raw(docsRaw).Lookup("a"), kind)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}, asJSONArray)
+		}
+		_, err = converter.QValueFromBsonValue(rawValue, types.QValueKindArrayJSON)
+		require.ErrorContains(t, err, "array element 0 maps to int64, not json")
+
+		// any other destination kind keeps the whole array as JSON
+		for _, kind := range []types.QValueKind{types.QValueKindJSON, types.QValueKindInvalid} {
+			asJSON, err := converter.QValueFromBsonValue(rawValue, kind)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueJSON{Val: "[1,2]", IsArray: true}, asJSON)
+		}
+	})
+
+	t.Run("an unreadable array fails", func(t *testing.T) {
+		_, err := converter.QValueArrayInt64FromArray(bson.RawArray{0xff, 0x00, 0x00, 0x00, 0x00})
+		require.ErrorContains(t, err, "failed to read array elements")
+	})
+}

@@ -107,8 +107,9 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
 		}
 		schema = GetStructuredSchema(projector)
+		projection := NewStructuredProjection(projector)
 		qValuesFromBsonRaw = func(raw bson.Raw) ([]types.QValue, error) {
-			return StructuredQValuesFromBsonRaw(raw, config.Version, converter, projector, config.WatermarkTable)
+			return StructuredQValuesFromBsonRaw(raw, config.Version, converter, projection, config.WatermarkTable)
 		}
 	} else {
 		schema = GetDefaultSchema(config.Version)

@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -306,7 +305,7 @@ type encodedMongoEvent struct {
 func (c *MongoConnector) decodeEvent(
 	events []encodedMongoEvent,
 	req *model.PullRecordsRequest[model.RecordItems],
-	structuredProjectors map[string]*structured.SchemaProjector,
+	structuredProjections map[string]StructuredProjection,
 ) ([]model.Record[model.RecordItems], error) {
 	// Utils used by this routine.
 	converter := NewDirectBsonConverter()
@@ -331,7 +330,7 @@ func (c *MongoConnector) decodeEvent(
 			return nil, fmt.Errorf("document key is nil")
 		}
 
-		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
+		if projection, isStructured := structuredProjections[event.sourceTableName]; isStructured {
 			// structured ingestion: the document fields are projected onto the table's schema columns.
 			// An absent `fullDocument` (same scenarios as the default mode below) projects the empty
 			// document: every schema column null, nothing malformed.
@@ -339,8 +338,8 @@ func (c *MongoConnector) decodeEvent(
 			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
 				document = *event.maybeFullDocument
 			}
-			fields, walkErr := DocumentQValueIterator(document, converter)
-			projected, err := projector.ApplyRecordSchema(fields)
+			fields, walkErr := DocumentQValueIterator(document, converter, projection.ColumnKinds)
+			projected, err := projection.Projector.ApplyRecordSchema(fields)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
 			}
@@ -509,7 +508,7 @@ func (c *MongoConnector) PullRecords(
 	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
 	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
 	// as projecting only reads them, while each worker owns its converter.
-	structuredProjectors := make(map[string]*structured.SchemaProjector)
+	structuredProjections := make(map[string]StructuredProjection)
 	for sourceTableName, tableMapping := range req.TableNameMapping {
 		if !tableMapping.StructuredIngestion {
 			continue
@@ -522,14 +521,14 @@ func (c *MongoConnector) PullRecords(
 		if err != nil {
 			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
 		}
-		structuredProjectors[sourceTableName] = projector
+		structuredProjections[sourceTableName] = NewStructuredProjection(projector)
 	}
 
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
-			return c.decodeEvent(events, req, structuredProjectors)
+			return c.decodeEvent(events, req, structuredProjections)
 		},
 		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
 			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)

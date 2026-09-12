@@ -433,26 +433,28 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindFloat32, nil
 	case "Float64", "Nullable(Float64)":
 		return types.QValueKindFloat64, nil
-	case "Array(Int32)":
+	case "Array(Int32)", "Array(Nullable(Int32))":
 		return types.QValueKindArrayInt32, nil
-	case "Array(Float32)":
+	case "Array(Float32)", "Array(Nullable(Float32))":
 		return types.QValueKindArrayFloat32, nil
-	case "Array(Float64)":
+	case "Array(Float64)", "Array(Nullable(Float64))":
 		return types.QValueKindArrayFloat64, nil
-	case "Array(String)", "Array(LowCardinality(String))":
+	case "Array(String)", "Array(Nullable(String))", "Array(LowCardinality(String))", "Array(LowCardinality(Nullable(String)))":
 		return types.QValueKindArrayString, nil
-	case "Array(UUID)":
+	case "Array(UUID)", "Array(Nullable(UUID))":
 		return types.QValueKindArrayUUID, nil
-	case "Array(DateTime64(6))":
+	case "Array(DateTime64(6))", "Array(Nullable(DateTime64(6)))":
 		return types.QValueKindArrayTimestamp, nil
-	case "Array(Int64)":
+	case "Array(Int64)", "Array(Nullable(Int64))":
 		return types.QValueKindArrayInt64, nil
-	case "Array(Bool)":
+	case "Array(Bool)", "Array(Nullable(Bool))":
 		return types.QValueKindArrayBoolean, nil
-	case "Array(Date)":
+	case "Array(Date)", "Array(Nullable(Date))":
 		return types.QValueKindArrayDate, nil
 	case "JSON", "Nullable(JSON)":
 		return types.QValueKindJSON, nil
+	case "Array(JSON)", "Array(Nullable(JSON))":
+		return types.QValueKindArrayJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
 			if strings.HasPrefix(columnType, "Array(") {
