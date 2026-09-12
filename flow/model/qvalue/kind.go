@@ -71,7 +71,7 @@ func ToDWHColumnType(
 		} else if val, ok := types.QValueKindToSnowflakeTypeMap[kind]; ok {
 			colType = val
 		} else {
-			colType = "STRING"
+			colType = types.SnowflakeMaxVarchar
 		}
 		if nullableEnabled && !column.Nullable {
 			colType += " NOT NULL"
