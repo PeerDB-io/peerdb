@@ -410,7 +410,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 	errResolve := fmt.Errorf("failed to resolve QValueKind for %s", columnType)
 
 	for _, notNullablePrefix := range notNullableTypesPrefixes {
-		if strings.Contains(columnType, fmt.Sprintf("Nullable(%s", notNullablePrefix)) {
+		if strings.Contains(columnType, "Nullable("+notNullablePrefix) {
 			return types.QValueKindInvalid, errResolve
 		}
 	}
