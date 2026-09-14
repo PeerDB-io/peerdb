@@ -111,32 +111,22 @@ func reencodeWithRelaxedNumbers(input io.Reader, sizeHint int) (preMarshalledJso
 	return bytes.TrimRight(out.Bytes(), "\n"), nil
 }
 
-func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalledJson, error) {
+func convertWithRelaxedNumbers(input []byte, sizeHint int) (preMarshalledJson, error) {
 	// First pass: Try to copy the input byte-for-byte into an output buffer,
-	// while walking through it with a jsontext encoder that's expected to
+	// while walking through it with a jsontext decoder that's expected to
 	// reject invalid UTF8 strings. If we see an invalid utf8 string,
 	// revert to reencodeWithRelaxedNumbers, which is less performant.
 	//
-	// We also reuse the input bytes.Buffer directly as jsontext.NewDecoder is
-	// optimized for bytes.Buffer. We need to create two new readers, as the
-	// decoder would advance the internal reader state of `input` itself. One
-	// is for use with reencodeWithRelaxedNumbers, and another is for our own
-	// manual byte copying.
-	savedReaderForReencode := bytes.NewReader(input.Bytes())
-	savedReader := bytes.NewReader(input.Bytes())
-	inputBytes := input.Bytes()
+	// We also pass in an input bytes.Buffer directly as jsontext.NewDecoder is
+	// optimized for bytes.Buffer.
+	inputBuf := bytes.NewBuffer(input)
 	var readSoFar int64
 	dec := jsontext.NewDecoder(
-		input,
+		inputBuf,
 		jsontext.AllowInvalidUTF8(false),
 		jsontext.AllowDuplicateNames(true),
 	)
 	out := new(bytes.Buffer)
-	if sizeHint > 0 {
-		// Grow slightly past the sizeHint to account for any whitespace added by
-		// the encoder below. We want to avoid repeat allocations as much as possible.
-		out.Grow(int(float64(sizeHint) * 1.5))
-	}
 	for {
 		// Read a token from the input.
 		tok, err := dec.ReadToken()
@@ -144,7 +134,7 @@ func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalled
 			if err == io.EOF {
 				break
 			}
-			return reencodeWithRelaxedNumbers(savedReaderForReencode, sizeHint)
+			return reencodeWithRelaxedNumbers(bytes.NewReader(input), sizeHint)
 		}
 
 		// Check if the token is a number.
@@ -158,21 +148,21 @@ func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalled
 				// Float is out of range. Convert tok to a string.
 				rawNumber := tok.String()
 
-				end := int(dec.InputOffset() - readSoFar)
-				start := end - len(rawNumber)
-				if out.Available() < (end + 2) {
-					out.Grow(out.Len() + end + 2)
+				// It's possible this is the first time we're writing to `out`. Do the first
+				// alloc if it hasn't been done yet.
+				if out.Available() < sizeHint {
+					out.Grow(sizeHint)
 				}
-				if _, err := savedReader.Read(out.AvailableBuffer()[:start]); err != nil {
-					return nil, err
+
+				end := int(dec.InputOffset())
+				start := end - len(rawNumber)
+				if readSoFar > int64(start) {
+					panic("invalid token start during")
 				}
 				// NB: the Buffer.Write methods always return no error.
-				_, _ = out.Write(out.AvailableBuffer()[:start])
+				_, _ = out.Write(input[readSoFar:start])
 				_ = out.WriteByte('"')
-				if _, err := savedReader.Read(out.AvailableBuffer()[:len(rawNumber)]); err != nil {
-					return nil, err
-				}
-				_, _ = out.Write(out.AvailableBuffer()[:len(rawNumber)])
+				_, _ = out.Write(input[start:end])
 				_ = out.WriteByte('"')
 				readSoFar = dec.InputOffset()
 			}
@@ -180,11 +170,9 @@ func convertWithRelaxedNumbers(input *bytes.Buffer, sizeHint int) (preMarshalled
 	}
 	if readSoFar == 0 {
 		// Zero-copy fast path.
-		return preMarshalledJson(inputBytes), nil
+		return preMarshalledJson(input), nil
 	}
 
-	if _, err := out.ReadFrom(savedReader); err != nil {
-		return nil, err
-	}
+	_, _ = out.Write(input[readSoFar:])
 	return preMarshalledJson(out.Bytes()), nil
 }

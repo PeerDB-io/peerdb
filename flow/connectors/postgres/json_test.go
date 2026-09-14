@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -108,7 +107,7 @@ func testRelaxedNumber(t *testing.T, useJsonMarshaller bool) {
 			if useJsonMarshaller {
 				err = jsonApi.UnmarshalFromString(tc.input, &result)
 			} else {
-				transformed, err2 := convertWithRelaxedNumbers(bytes.NewBufferString(tc.input), len(tc.input))
+				transformed, err2 := convertWithRelaxedNumbers([]byte(tc.input), len(tc.input))
 				require.NoError(t, err2)
 				require.True(t, json.Valid(transformed), "output is not valid JSON: %q", transformed)
 				err = json.Unmarshal(transformed, &result)
@@ -174,7 +173,7 @@ func TestConvertRelaxedNumberInvalidUTF8(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			transformed, err := convertWithRelaxedNumbers(bytes.NewBufferString(tc.input), len(tc.input))
+			transformed, err := convertWithRelaxedNumbers([]byte(tc.input), len(tc.input))
 			require.NoError(t, err)
 			require.True(t, json.Valid(transformed), "output is not valid JSON: %q", transformed)
 			require.True(t, utf8.Valid(transformed), "output is not valid UTF-8: %q", transformed)
@@ -229,7 +228,7 @@ func TestConvertRelaxedNumberMultiple(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			transformed, err := convertWithRelaxedNumbers(bytes.NewBufferString(tc.input), len(tc.input))
+			transformed, err := convertWithRelaxedNumbers([]byte(tc.input), len(tc.input))
 			require.NoError(t, err)
 			require.True(t, json.Valid(transformed), "output is not valid JSON: %q", transformed)
 			require.Equal(t, tc.expected, string(transformed))
@@ -280,7 +279,7 @@ func benchmarkJsonProcessing(b *testing.B, fastPath bool, numFields, maxDepth in
 
 	for b.Loop() {
 		if fastPath {
-			_, err := convertWithRelaxedNumbers(bytes.NewBuffer(marshaledDoc), len(marshaledDoc))
+			_, err := convertWithRelaxedNumbers(marshaledDoc, len(marshaledDoc))
 			require.NoError(b, err)
 		} else {
 			require.NoError(b, jsonIter.UnmarshalFromString(string(marshaledDoc), &result))

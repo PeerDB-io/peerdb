@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -404,14 +403,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 		}
 		if text.Valid {
 			if p.fastProcessJsonColumns {
-				convertedData, err := convertWithRelaxedNumbers(bytes.NewBufferString(text.String), len(text.String))
+				convertedData, err := convertWithRelaxedNumbers(shared.UnsafeFastStringToReadOnlyBytes(text.String), len(text.String))
 				if err != nil {
 					p.logger.Error("[pg_cdc] failed to process json", slog.Any("error", err))
 					return nil, fmt.Errorf("failed to process json: %w", err)
-				}
-				if len(convertedData) == 0 {
-					// avoid confusing SQL null & JSON null by using pre-marshaled value
-					convertedData = jsonNullLiteral
 				}
 				parsedData = convertedData
 			} else {
@@ -439,7 +434,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 			arr := make([]preMarshalledJson, len(textArr))
 			for j, text := range textArr {
 				if text.Valid {
-					convertedData, err := convertWithRelaxedNumbers(bytes.NewBufferString(text.String), len(text.String))
+					convertedData, err := convertWithRelaxedNumbers(shared.UnsafeFastStringToReadOnlyBytes(text.String), len(text.String))
 					if err != nil {
 						p.logger.Error("[pg_cdc] failed to process json array element", slog.Any("error", err))
 						return nil, fmt.Errorf("failed to process json array element: %w", err)

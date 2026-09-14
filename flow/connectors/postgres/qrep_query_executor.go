@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -528,14 +527,10 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		switch fd.DataTypeOID {
 		case pgtype.JSONOID, pgtype.JSONBOID:
 			if fastProcessJsonColumns {
-				convertedData, err := convertWithRelaxedNumbers(bytes.NewBuffer(buf), len(buf))
+				convertedData, err := convertWithRelaxedNumbers(buf, len(buf))
 				if err != nil {
 					qe.logger.Error("[pg_query_executor] failed to process json", slog.Any("error", err))
 					return nil, fmt.Errorf("failed to process json: %w", err)
-				}
-				if len(convertedData) == 0 {
-					// avoid confusing SQL null & JSON null by using pre-marshaled value
-					convertedData = jsonNullLiteral
 				}
 				values[i] = convertedData
 			} else {
@@ -559,7 +554,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				arr := make([]preMarshalledJson, len(textArr))
 				for j, text := range textArr {
 					if text.Valid {
-						convertedData, err := convertWithRelaxedNumbers(bytes.NewBufferString(text.String), len(text.String))
+						convertedData, err := convertWithRelaxedNumbers(shared.UnsafeFastStringToReadOnlyBytes(text.String), len(text.String))
 						if err != nil {
 							qe.logger.Error("[pg_query_executor] failed to process json array element", slog.Any("error", err))
 							return nil, fmt.Errorf("failed to process json array element: %w", err)

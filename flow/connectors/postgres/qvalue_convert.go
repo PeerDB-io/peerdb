@@ -488,10 +488,6 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		return types.QValueBoolean{Val: boolVal}, nil
 	case types.QValueKindJSON, types.QValueKindJSONB:
 		if preMarshalled, ok := value.(preMarshalledJson); ok {
-			// value is a pre-marshalled JSON document, see convertWithRelaxedNumbers.
-			if len(preMarshalled) == 0 {
-				preMarshalled = jsonNullLiteral
-			}
 			return types.QValueJSON{Val: string(preMarshalled), IsArray: false}, nil
 		}
 		parsed, err := parseJSON(value, false)
