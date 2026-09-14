@@ -79,9 +79,13 @@ func TestQValueKindForType(t *testing.T) {
 		{"Array(Bool)", types.QValueKindArrayBoolean},
 		{"Array(Date)", types.QValueKindArrayDate},
 
+		// Nullable element spellings are supported only where listed explicitly
+		{"Array(Nullable(Int64))", types.QValueKindArrayInt64},
+
 		// JSON
 		{"JSON", types.QValueKindJSON},
 		{"Nullable(JSON)", types.QValueKindJSON},
+		{"Array(JSON)", types.QValueKindArrayJSON},
 
 		// Decimal is matched by substring, with any precision/scale
 		{"Decimal(38, 9)", types.QValueKindNumeric},
@@ -111,6 +115,9 @@ func TestQValueKindForTypeUnsupported(t *testing.T) {
 		"DateTime64(3)",
 		"Nullable(Array(Int32))",
 		"Array(Int8)",
+		"Array(Nullable(String))",
+		"Array(Nullable(JSON))",
+		"Array(LowCardinality(Nullable(String)))",
 		"Map(String, String)",
 		"Tuple(Int32, String)",
 		"FixedString(16)",

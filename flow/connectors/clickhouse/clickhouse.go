@@ -474,7 +474,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayUUID, nil
 	case "Array(DateTime64(6))":
 		return types.QValueKindArrayTimestamp, nil
-	case "Array(Int64)":
+	case "Array(Int64)", "Array(Nullable(Int64))":
 		return types.QValueKindArrayInt64, nil
 	case "Array(Bool)":
 		return types.QValueKindArrayBoolean, nil
@@ -482,6 +482,8 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayDate, nil
 	case "JSON":
 		return types.QValueKindJSON, nil
+	case "Array(JSON)":
+		return types.QValueKindArrayJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
 			if strings.HasPrefix(columnType, "Array(") {

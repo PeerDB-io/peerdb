@@ -19,9 +19,14 @@ import (
 var emptyBsonDocument = bson.Raw{0x05, 0x00, 0x00, 0x00, 0x00}
 
 // DocumentQValueIterator returns an iterator that lazily walks the top-level fields of a document excluding document key and
-// yielding each as a QValue.
+// yielding each as a QValue, converting each field toward the kind of the projector column reading it
+// (fields without a column, or all of them under a nil projector, convert as usual). An array that does
+// not fit its typed array column degrades to JSON, for the projector to report it as a type mismatch
+// instead of failing the record.
 // The walk stops at the first failure, which the returned function reports once the walk is over.
-func DocumentQValueIterator(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error) {
+func DocumentQValueIterator(
+	raw bson.Raw, converter BsonToQValueConverter, projector *structured.SchemaProjector,
+) (iter.Seq2[string, types.QValue], func() error) {
 	var walkErr error
 	return func(yield func(string, types.QValue) bool) {
 		elements, err := raw.Elements()
@@ -38,7 +43,16 @@ func DocumentQValueIterator(raw bson.Raw, converter BsonToQValueConverter) (iter
 			if field == DefaultDocumentKeyColumnName {
 				continue
 			}
-			value, err := converter.QValueFromBsonValue(element.Value(), types.QValueKindInvalid)
+			columnKind := types.QValueKindInvalid
+			if projector != nil {
+				if kind, isSchemaColumn := projector.ColumnKind(field); isSchemaColumn {
+					columnKind = kind
+				}
+			}
+			value, err := converter.QValueFromBsonValue(element.Value(), columnKind)
+			if err != nil && columnKind.IsArray() && element.Value().Type == bson.TypeArray {
+				value, err = converter.QValueJSONFromArray(element.Value().Array())
+			}
 			if err != nil {
 				walkErr = fmt.Errorf("failed to convert document field to QValue %s: %w", field, err)
 				return
@@ -85,7 +99,8 @@ func GetStructuredSchema(projector *structured.SchemaProjector) types.QRecordSch
 }
 
 // StructuredQValuesFromBsonRaw converts a document into a record laid out as GetStructuredSchema for
-// projector: the document key, then the document fields projected by projector onto the schema columns.
+// the projector: the document key, then the document fields projected onto the schema columns, arrays
+// converted toward their columns' typed array kinds.
 func StructuredQValuesFromBsonRaw(
 	raw bson.Raw,
 	version uint32,
@@ -102,7 +117,7 @@ func StructuredQValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	fields, walkErr := DocumentQValueIterator(raw, converter)
+	fields, walkErr := DocumentQValueIterator(raw, converter, projector)
 	values, err := projector.ProjectRecord(fields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to project document onto schema: %w", err)
