@@ -339,9 +339,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch()
 		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
 		watermarkColumn:   "updated_at",
 	})
-	// Every CDC row is larger than one byte, forcing one row per staged Avro
-	// file and making the test independent of compression ratios.
-	flowConnConfig.Env["PEERDB_S3_BYTES_PER_AVRO_FILE"] = "1"
+	// The first CDC row is much larger than this limit, while the two small rows
+	// fit together in the next file. This guarantees multiple non-empty chunks
+	// without ending exactly on a chunk boundary.
+	flowConnConfig.Env["PEERDB_S3_BYTES_PER_AVRO_FILE"] = "4096"
 	flowConnConfig.Env["PEERDB_S3_UUID_PREFIX"] = "false"
 
 	tc := NewTemporalClient(t)
@@ -353,12 +354,13 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch()
 	// Use one explicit watermark for every row to emulate a daily ingestion job
 	// that makes a large batch visible at a single watermark timestamp.
 	watermark := time.Now().UTC().Format("2006-01-02 15:04:05.999999")
+	largeValue := strings.Repeat("a", 16*1024)
 	require.NoError(t, source.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s (id, val, updated_at) VALUES
-			(2, 'same-watermark-a', TIMESTAMP '%s'),
-			(3, 'same-watermark-b', TIMESTAMP '%s'),
-			(4, 'same-watermark-c', TIMESTAMP '%s')`,
-		quoteBigQueryTableFQN(tableFQN), watermark, watermark, watermark)))
+			(2, '%s', TIMESTAMP '%s'),
+			(3, 'b', TIMESTAMP '%s'),
+			(4, 'c', TIMESTAMP '%s')`,
+		quoteBigQueryTableFQN(tableFQN), largeValue, watermark, watermark, watermark)))
 
 	EnvWaitFor(t, env, 4*time.Minute, "multi-file CDC batch normalized", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")
@@ -376,16 +378,13 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch()
 	}
 	require.Equal(t, map[int64]string{
 		1: "pre-snapshot",
-		2: "same-watermark-a",
-		3: "same-watermark-b",
-		4: "same-watermark-c",
+		2: largeValue,
+		3: "b",
+		4: "c",
 	}, valByID)
 
-	// Staged S3 objects are retained after normalization. With a one-byte
-	// threshold, the three records in batch 1 must have produced three data
-	// chunks. The writer can also leave a terminal zero-record Avro object when
-	// the final record lands exactly on a chunk boundary; that object is not
-	// included in the ingestion manifest.
+	// Staged S3 objects are retained after normalization. The oversized first
+	// record and the two smaller records in batch 1 must produce two data chunks.
 	s3Helper := s.GenericSuite.(ClickHouseSuite).s3Helper
 	stagedObjects, err := s3Helper.ListAllFiles(ctx, flowConnConfig.FlowJobName)
 	require.NoError(t, err)
@@ -396,7 +395,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch()
 			cdcFileKeys = append(cdcFileKeys, *object.Key)
 		}
 	}
-	for chunk := range 3 {
+	require.Len(t, cdcFileKeys, 2, "one logical CDC batch should be split into two staged Avro files")
+	for chunk := range 2 {
 		require.Condition(t, func() bool {
 			expectedSuffix := fmt.Sprintf("%s%06d.avro", cdcFilePrefix, chunk)
 			return slices.ContainsFunc(cdcFileKeys, func(key string) bool {
