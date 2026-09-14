@@ -405,13 +405,16 @@ var notNullableTypesPrefixes = []string{
 	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
 }
 
+func typeResolutionError(columnType string) error {
+	return fmt.Errorf("failed to resolve QValueKind for %s", columnType)
+}
+
 // QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
 func QValueKindForType(columnType string) (types.QValueKind, error) {
-	errResolve := fmt.Errorf("failed to resolve QValueKind for %s", columnType)
 
 	for _, notNullablePrefix := range notNullableTypesPrefixes {
 		if strings.Contains(columnType, "Nullable("+notNullablePrefix) {
-			return types.QValueKindInvalid, errResolve
+			return types.QValueKindInvalid, typeResolutionError(columnType)
 		}
 	}
 
@@ -419,7 +422,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
 			inner, found = strings.CutSuffix(inner, ")")
 			if !found {
-				return types.QValueKindInvalid, errResolve
+				return types.QValueKindInvalid, typeResolutionError(columnType)
 			}
 			return QValueKindForType(inner)
 		}
@@ -489,7 +492,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 			}
 			return types.QValueKindNumeric, nil
 		}
-		return types.QValueKindInvalid, errResolve
+		return types.QValueKindInvalid, typeResolutionError(columnType)
 	}
 }
 
