@@ -72,15 +72,15 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (u
 	return avroFile, nil
 }
 
-// SetQueryCDCAvroStage records a table's staged Avro file for the query-based CDC
+// SetQueryCDCAvroStage records a table's staged Avro files for the query-based CDC
 // path (see flow/activities/flowable_query_cdc.go). Unlike
 // SetAvroStage/GetAvroStage, batchID here is a per-table sequence, not the
 // flow-wide sync batch ID, one row per (flow, table, table's own batch).
 func SetQueryCDCAvroStage(
-	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFile utils.AvroFile,
+	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64, avroFiles []utils.AvroFile,
 	rowCounts *model.RecordTypeCounts,
 ) error {
-	avroFileJSON, err := json.Marshal(avroFile)
+	avroFileJSON, err := json.Marshal(avroFiles)
 	if err != nil {
 		return fmt.Errorf("failed to marshal avro file: %w", err)
 	}
@@ -104,14 +104,14 @@ func SetQueryCDCAvroStage(
 	return nil
 }
 
-// GetQueryCDCAvroStage retrieves a table's staged Avro file for batchID, along
+// GetQueryCDCAvroStage retrieves a table's remaining staged Avro files for batchID, along
 // with the insert/update/delete counts staged with it.
 func GetQueryCDCAvroStage(
 	ctx context.Context, flowJobName string, sourceTableIdentifier string, batchID int64,
-) (utils.AvroFile, *model.RecordTypeCounts, error) {
+) ([]utils.AvroFile, *model.RecordTypeCounts, error) {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to get connection: %w", err)
+		return nil, nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
 	var avroFileJSON []byte
@@ -122,15 +122,15 @@ func GetQueryCDCAvroStage(
 		flowJobName, sourceTableIdentifier, batchID,
 	).Scan(&avroFileJSON, &insertsCount, &updatesCount, &deletesCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return utils.AvroFile{}, nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"%w for flow job %s, table %s, batch %d", ErrNoAvroStage, flowJobName, sourceTableIdentifier, batchID)
 		}
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to get table avro stage: %w", err)
+		return nil, nil, fmt.Errorf("failed to get table avro stage: %w", err)
 	}
 
-	var avroFile utils.AvroFile
-	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
-		return utils.AvroFile{}, nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
+	var avroFiles []utils.AvroFile
+	if err := json.Unmarshal(avroFileJSON, &avroFiles); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal avro files: %w", err)
 	}
 
 	rowCounts := &model.RecordTypeCounts{}
@@ -138,7 +138,7 @@ func GetQueryCDCAvroStage(
 	rowCounts.UpdateCount.Store(int32(updatesCount))
 	rowCounts.DeleteCount.Store(int32(deletesCount))
 
-	return avroFile, rowCounts, nil
+	return avroFiles, rowCounts, nil
 }
 
 // DeleteQueryCDCAvroStage removes a table's staged Avro record for batchID once

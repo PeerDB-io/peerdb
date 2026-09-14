@@ -57,7 +57,7 @@ func typedCDCTableSchema(
 }
 
 // SyncQueryCDC replays any pending schema deltas onto the destination table,
-// then converts one table's CDC records directly into a typed Avro file
+// then converts one table's CDC records directly into size-bounded typed Avro files
 // staged to S3/GCS under req.BatchID, this table's own batch sequence,
 // without inserting into the final destination table. Used by the query-based
 // CDC path, see flow/activities/flowable_query_cdc.go. Pair with
@@ -97,20 +97,21 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 	}
 
 	batchIdentifier := fmt.Sprintf("%s_%d", req.TableMapping.DestinationTableIdentifier, req.BatchID)
-	avroFile, err := avroSyncer.writeToAvroFile(ctx, req.Env, stream, nil, avroSchema, batchIdentifier, req.FlowJobName, nil, nil)
+	avroFiles, numRecords, err := avroSyncer.writeToAvroFiles(
+		ctx, req.Env, stream, avroSchema, batchIdentifier, req.FlowJobName, nil, nil,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write typed CDC avro file: %w", err)
+		return nil, fmt.Errorf("failed to write typed CDC avro files: %w", err)
 	}
 
-	// rowCounts is fully populated once writeToAvroFile (which drains stream to
+	// rowCounts is fully populated once writeToAvroFiles (which drains stream to
 	// completion) returns.
-	if avroFile.NumRecords == 0 {
-		avroFile.Cleanup(ctx)
+	if numRecords == 0 {
 		return rowCounts, nil
 	}
 
 	if err := SetQueryCDCAvroStage(
-		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFile, rowCounts,
+		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFiles, rowCounts,
 	); err != nil {
 		return nil, fmt.Errorf("failed to set table avro stage: %w", err)
 	}
@@ -120,8 +121,8 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 
 // NormalizeQueryCDC inserts every batch in [req.StartBatchID, req.EndBatchID],
 // previously staged by SyncQueryCDC, straight into the final destination
-// table, one INSERT ... SELECT per batch from that batch's staged Avro file,
-// deleting each stage record once applied. Returns the summed
+// table, one INSERT ... SELECT per staged Avro file. Each successfully inserted
+// file is removed from the manifest so retries resume at the next file. Returns the summed
 // insert/update/delete counts across every batch actually applied.
 func (c *ClickHouseConnector) NormalizeQueryCDC(
 	ctx context.Context, req *model.NormalizeQueryCDCRequest,
@@ -153,7 +154,7 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 
 	rowCounts := &model.RecordTypeCounts{}
 	for batchID := req.StartBatchID; batchID <= req.EndBatchID; batchID++ {
-		avroFile, batchCounts, err := GetQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
+		avroFiles, batchCounts, err := GetQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID)
 		if err != nil {
 			if errors.Is(err, ErrNoAvroStage) {
 				// this function is the only thing that deletes stage rows, so a missing
@@ -164,26 +165,39 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 			return nil, fmt.Errorf("failed to get table avro stage for batch %d: %w", batchID, err)
 		}
 
-		stagingTableFunction, err := c.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
-		if err != nil {
-			avroFile.Cleanup(ctx)
-			return nil, fmt.Errorf("failed to build staging table function for batch %d: %w", batchID, err)
+		if len(avroFiles) == 0 {
+			return nil, fmt.Errorf("no Avro files staged for batch %d", batchID)
 		}
 
-		query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
-		if err != nil {
-			avroFile.Cleanup(ctx)
-			return nil, fmt.Errorf("failed to build insert query for %s batch %d: %w", req.TableMapping.DestinationTableIdentifier,
-				batchID, err)
-		}
-		if err := c.exec(ctx, query); err != nil {
-			avroFile.Cleanup(ctx)
-			return nil, fmt.Errorf("failed to insert into %s for batch %d: %w", req.TableMapping.DestinationTableIdentifier, batchID, err)
-		}
-		avroFile.Cleanup(ctx)
+		for fileIdx, avroFile := range avroFiles {
+			stagingTableFunction, err := c.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build staging table function for batch %d: %w", batchID, err)
+			}
 
-		if err := DeleteQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID); err != nil {
-			return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
+			query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, stagingTableFunction, chSettings)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build insert query for %s batch %d file %d/%d: %w",
+					req.TableMapping.DestinationTableIdentifier, batchID, fileIdx+1, len(avroFiles), err)
+			}
+			if err := c.exec(ctx, query); err != nil {
+				return nil, fmt.Errorf("failed to insert into %s for batch %d file %d/%d: %w",
+					req.TableMapping.DestinationTableIdentifier, batchID, fileIdx+1, len(avroFiles), err)
+			}
+			avroFile.Cleanup(ctx)
+
+			remainingFiles := avroFiles[fileIdx+1:]
+			if len(remainingFiles) > 0 {
+				if err := SetQueryCDCAvroStage(ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier,
+					batchID, remainingFiles, batchCounts); err != nil {
+					return nil, fmt.Errorf("failed to checkpoint batch %d after file %d/%d: %w",
+						batchID, fileIdx+1, len(avroFiles), err)
+				}
+			} else if err := DeleteQueryCDCAvroStage(
+				ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID,
+			); err != nil {
+				return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
+			}
 		}
 
 		rowCounts.InsertCount.Add(batchCounts.InsertCount.Load())
