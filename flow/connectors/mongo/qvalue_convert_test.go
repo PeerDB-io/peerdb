@@ -809,7 +809,11 @@ func TestQValueFromBsonValue(t *testing.T) {
 			input:    bson.A{int32(1), "two", 3.0, nil, bson.D{{Key: "k", Value: true}}},
 			expected: types.QValueJSON{Val: `[1,"two",3.0,null,{"k":true}]`, IsArray: true},
 		},
-		{desc: "Object", input: bson.D{{Key: "x", Value: int64(1)}, {Key: "y", Value: bson.A{}}}, expected: types.QValueJSON{Val: `{"x":1,"y":[]}`}},
+		{
+			desc:     "Object",
+			input:    bson.D{{Key: "x", Value: int64(1)}, {Key: "y", Value: bson.A{}}},
+			expected: types.QValueJSON{Val: `{"x":1,"y":[]}`},
+		},
 		// deprecated types, rendered as inside a full document
 		{desc: "Symbol", input: bson.Symbol("sym"), expected: types.QValueString{Val: "sym"}},
 		{desc: "Undefined", input: bson.Undefined{}, expected: types.QValueJSON{Val: `{}`}},
@@ -869,8 +873,8 @@ func TestQValueFromBsonValue(t *testing.T) {
 			result, err := converter.QValueFromBsonValue(bson.Raw(raw).Lookup("a"), types.QValueKindFloat64)
 			require.NoError(t, err)
 			require.Equal(t, types.QValueKindFloat64, result.Kind())
-			require.True(t, math.IsNaN(value) == math.IsNaN(result.Value().(float64)))
-			require.True(t, math.IsInf(value, 0) == math.IsInf(result.Value().(float64), 0))
+			require.Equal(t, math.IsNaN(value), math.IsNaN(result.Value().(float64)))
+			require.Equal(t, math.IsInf(value, 0), math.IsInf(result.Value().(float64), 0))
 		}
 	})
 }
