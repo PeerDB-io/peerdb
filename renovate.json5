@@ -119,12 +119,11 @@
       "matchUpdateTypes": ["digest"],
       "enabled": false
     },
-    // The x/crypto fork is consumed via a replace directive. It ships Go-team x/crypto releases
-    // plus a one-line patch, so minimumReleaseAge adds no supply-chain protection and would
-    // delay CVE fixes; opt it out.
+    // In case of a CVE, original `crypto` will be bumped, which is a no-op for us.
+    // We're expecting CVEs more often than supply chain attacks here, so opt out both original and the fork of minimumReleaseAge.
     {
       "matchManagers": ["gomod"],
-      "matchPackageNames": ["github.com/PeerDB-io/crypto"],
+      "matchPackageNames": ["github.com/PeerDB-io/crypto", "golang.org/x/crypto"],
       "minimumReleaseAge": null
     },
     // This package rule instruct renovate to require approval from
