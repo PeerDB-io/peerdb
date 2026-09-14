@@ -425,6 +425,24 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		}
 	}
 
+	// Wrappers on an array's element type do not change the QValueKind either:
+	// resolve through the canonical element spelling.
+	if element, isArray := strings.CutPrefix(columnType, "Array("); isArray {
+		element, isArray = strings.CutSuffix(element, ")")
+		if !isArray {
+			return types.QValueKindInvalid, errResolve
+		}
+		for _, parametricPrefix := range parametricTypesPrefixes {
+			if inner, found := strings.CutPrefix(element, parametricPrefix); found {
+				inner, found = strings.CutSuffix(inner, ")")
+				if !found {
+					return types.QValueKindInvalid, errResolve
+				}
+				return QValueKindForType("Array(" + inner + ")")
+			}
+		}
+	}
+
 	switch columnType {
 	case "String":
 		return types.QValueKindString, nil
@@ -468,7 +486,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayFloat32, nil
 	case "Array(Float64)":
 		return types.QValueKindArrayFloat64, nil
-	case "Array(String)", "Array(LowCardinality(String))":
+	case "Array(String)":
 		return types.QValueKindArrayString, nil
 	case "Array(UUID)":
 		return types.QValueKindArrayUUID, nil
@@ -482,6 +500,8 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayDate, nil
 	case "JSON":
 		return types.QValueKindJSON, nil
+	case "Array(JSON)":
+		return types.QValueKindArrayJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
 			if strings.HasPrefix(columnType, "Array(") {

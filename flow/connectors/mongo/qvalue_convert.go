@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -32,8 +33,15 @@ import (
 //	Binary data        -> JSON {Subtype: Int64, Data: String (base64)}
 //	JavaScript         -> String
 //	Null               -> Null
-//	Array              -> JSON (Dynamic on the destination)
+//	Array              -> the destination kind's array QValue, else JSON (Dynamic on the destination)
 //	Object             -> JSON (Dynamic on the destination)
+//
+// Arrays correspond to typed array QValues when the destination column kind is one of the array kinds
+// QValueFromBsonValue dispatches: each element must map, under this same table, to the kind's element
+// type, e.g. an array of 32/64-bit integers into an Int64 array, or one mixing ObjectIds, Dates and
+// Decimal128s into a String array. Arrays of JSON take the elements mapping to JSON: embedded documents
+// and nested arrays included. An element mapping elsewhere, nulls included, fails the conversion.
+// For any other destination kind, arrays land whole as JSON.
 type BsonToQValueConverter interface {
 	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
@@ -43,9 +51,10 @@ type BsonToQValueConverter interface {
 	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
 
 	// QValueFromBsonValue converts any BSON value to the QValue prescribed by the type mapping above,
-	// dispatching on the BSON type to the per-type converters below. BSON null (and a missing value)
-	// yields a QValueNull of nullKind, the kind of the destination column.
-	QValueFromBsonValue(v bson.RawValue, nullKind types.QValueKind) (types.QValue, error)
+	// dispatching on the BSON type to the per-type converters below. columnKind is the kind of the
+	// destination column: BSON null (and a missing value) yields a QValueNull of it, and an array
+	// converts to its corresponding typed array QValue when it names an array kind.
+	QValueFromBsonValue(v bson.RawValue, columnKind types.QValueKind) (types.QValue, error)
 
 	QValueStringFromObjectID(oid bson.ObjectID) types.QValueString
 	QValueStringFromString(s string) types.QValueString
@@ -93,6 +102,32 @@ func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QVal
 	return types.QValueJSON{Val: string(c.stream.Buffer()), IsArray: true}, nil
 }
 
+func typedArrayFromBson[Q types.QValue, T any](
+	c *DirectBsonConverter, arr bson.RawArray, element func(Q) T,
+) ([]T, error) {
+	rawValues, err := arr.Values()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read array elements: %w", err)
+	}
+	var want Q
+	values := make([]T, 0, len(rawValues))
+	for i, rawValue := range rawValues {
+		qValue, err := c.QValueFromBsonValue(rawValue, types.QValueKindInvalid)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert array element %d: %w", i, err)
+		}
+		typed, ok := qValue.(Q)
+		if !ok {
+			if _, isNull := qValue.(types.QValueNull); isNull {
+				return nil, fmt.Errorf("array element %d is null, not %s", i, want.Kind())
+			}
+			return nil, fmt.Errorf("array element %d maps to %s, not %s", i, qValue.Kind(), want.Kind())
+		}
+		values = append(values, element(typed))
+	}
+	return values, nil
+}
+
 func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error) {
 	if version >= shared.InternalVersion_MongoDBIdWithoutRedundantQuotes {
 		switch id.Type {
@@ -109,9 +144,9 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
 }
 
-func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind types.QValueKind) (types.QValue, error) {
+func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, columnKind types.QValueKind) (types.QValue, error) {
 	if rv.IsZero() {
-		return c.QValueNullFromNull(nullKind), nil
+		return c.QValueNullFromNull(columnKind), nil
 	}
 	v := bsoncore.Value{Type: bsoncore.Type(rv.Type), Data: rv.Value}
 	switch v.Type {
@@ -126,8 +161,34 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		return c.QValueJSONFromDocument(bson.Raw(v.Document()))
 
 	case bsoncore.TypeArray:
-		// ... as well as Arrays.
-		return c.QValueJSONFromArray(bson.RawArray(v.Array()))
+		// ... as well as Arrays, unless the destination column is of an array kind, with
+		// corresponding QValue s corresponding to typed arrays.
+		arr := bson.RawArray(v.Array())
+		switch columnKind {
+		case types.QValueKindArrayString:
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueString) string { return q.Val })
+			return types.QValueArrayString{Val: values}, err
+		case types.QValueKindArrayInt64:
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueInt64) int64 { return q.Val })
+			return types.QValueArrayInt64{Val: values}, err
+		case types.QValueKindArrayFloat64:
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueFloat64) float64 { return q.Val })
+			return types.QValueArrayFloat64{Val: values}, err
+		case types.QValueKindArrayBoolean:
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueBoolean) bool { return q.Val })
+			return types.QValueArrayBoolean{Val: values}, err
+		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			// The array kinds of JSON have no dedicated QValue struct: as the other connectors
+			// producing JSON arrays, this yield a QValueJSON holding the whole array serialized in
+			// Val and IsArray: true.
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueJSON) string { return q.Val })
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueJSON{Val: "[" + strings.Join(values, ",") + "]", IsArray: true}, nil
+		default:
+			return c.QValueJSONFromArray(arr)
+		}
 
 	case bsoncore.TypeBinary:
 		subtype, data := v.Binary()
@@ -143,7 +204,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		return c.QValueStringFromDateTime(v.Time()), nil
 
 	case bsoncore.TypeNull:
-		return c.QValueNullFromNull(nullKind), nil
+		return c.QValueNullFromNull(columnKind), nil
 
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()

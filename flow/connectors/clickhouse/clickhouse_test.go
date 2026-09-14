@@ -79,9 +79,23 @@ func TestQValueKindForType(t *testing.T) {
 		{"Array(Bool)", types.QValueKindArrayBoolean},
 		{"Array(Date)", types.QValueKindArrayDate},
 
+		// Wrappers on array elements resolve to the same array kind
+		{"Array(Nullable(Int32))", types.QValueKindArrayInt32},
+		{"Array(Nullable(Int64))", types.QValueKindArrayInt64},
+		{"Array(Nullable(Float32))", types.QValueKindArrayFloat32},
+		{"Array(Nullable(Float64))", types.QValueKindArrayFloat64},
+		{"Array(Nullable(String))", types.QValueKindArrayString},
+		{"Array(LowCardinality(Nullable(String)))", types.QValueKindArrayString},
+		{"Array(Nullable(UUID))", types.QValueKindArrayUUID},
+		{"Array(Nullable(DateTime64(6)))", types.QValueKindArrayTimestamp},
+		{"Array(Nullable(Bool))", types.QValueKindArrayBoolean},
+		{"Array(Nullable(Date))", types.QValueKindArrayDate},
+
 		// JSON
 		{"JSON", types.QValueKindJSON},
 		{"Nullable(JSON)", types.QValueKindJSON},
+		{"Array(JSON)", types.QValueKindArrayJSON},
+		{"Array(Nullable(JSON))", types.QValueKindArrayJSON},
 
 		// Decimal is matched by substring, with any precision/scale
 		{"Decimal(38, 9)", types.QValueKindNumeric},

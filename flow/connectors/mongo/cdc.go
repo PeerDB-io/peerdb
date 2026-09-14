@@ -331,7 +331,7 @@ func (c *MongoConnector) decodeEvent(
 			return nil, fmt.Errorf("document key is nil")
 		}
 
-		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
+		if projector, isStructured := structuredProjectors[event.sourceTableName]; isStructured {
 			// structured ingestion: the document fields are projected onto the table's schema columns.
 			// An absent `fullDocument` (same scenarios as the default mode below) projects the empty
 			// document: every schema column null, nothing malformed.
@@ -339,7 +339,7 @@ func (c *MongoConnector) decodeEvent(
 			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
 				document = *event.maybeFullDocument
 			}
-			fields, walkErr := DocumentQValueIterator(document, converter)
+			fields, walkErr := DocumentQValueIterator(document, converter, projector)
 			projected, err := projector.ApplyRecordSchema(fields)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
