@@ -411,7 +411,6 @@ func typeResolutionError(columnType string) error {
 
 // QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
 func QValueKindForType(columnType string) (types.QValueKind, error) {
-
 	for _, notNullablePrefix := range notNullableTypesPrefixes {
 		if strings.Contains(columnType, "Nullable("+notNullablePrefix) {
 			return types.QValueKindInvalid, typeResolutionError(columnType)
