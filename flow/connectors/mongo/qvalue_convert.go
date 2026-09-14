@@ -106,7 +106,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		return c.QValueStringFromString(v.StringValue()), nil
 
 	case bsoncore.TypeEmbeddedDocument:
-		// Nested documents are are encoded as `QValueJSON` ...
+		// Nested documents are encoded as `QValueJSON` ...
 		return c.QValueJSONFromDocument(bson.Raw(v.Document()))
 
 	case bsoncore.TypeArray:
