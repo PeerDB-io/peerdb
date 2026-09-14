@@ -394,44 +394,75 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
+var parametricTypesPrefixes = []string{
+	"Nullable(",
+	"LowCardinality(",
+}
+
+var notNullableTypesPrefixes = []string{
+	"Array(",
+	"Map(",
+	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
+}
+
+func typeResolutionError(columnType string) error {
+	return fmt.Errorf("failed to resolve QValueKind for %s", columnType)
+}
+
 // QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
 func QValueKindForType(columnType string) (types.QValueKind, error) {
+	for _, notNullablePrefix := range notNullableTypesPrefixes {
+		if strings.Contains(columnType, "Nullable("+notNullablePrefix) {
+			return types.QValueKindInvalid, typeResolutionError(columnType)
+		}
+	}
+
+	for _, parametricPrefix := range parametricTypesPrefixes {
+		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
+			inner, found = strings.CutSuffix(inner, ")")
+			if !found {
+				return types.QValueKindInvalid, typeResolutionError(columnType)
+			}
+			return QValueKindForType(inner)
+		}
+	}
+
 	switch columnType {
-	case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
+	case "String":
 		return types.QValueKindString, nil
-	case "Bool", "Nullable(Bool)":
+	case "Bool":
 		return types.QValueKindBoolean, nil
-	case "Int8", "Nullable(Int8)":
+	case "Int8":
 		return types.QValueKindInt8, nil
-	case "Int16", "Nullable(Int16)":
+	case "Int16":
 		return types.QValueKindInt16, nil
-	case "Int32", "Nullable(Int32)":
+	case "Int32":
 		return types.QValueKindInt32, nil
-	case "Int64", "Nullable(Int64)":
+	case "Int64":
 		return types.QValueKindInt64, nil
-	case "Int256", "Nullable(Int256)":
+	case "Int256":
 		return types.QValueKindInt256, nil
-	case "UInt8", "Nullable(UInt8)":
+	case "UInt8":
 		return types.QValueKindUInt8, nil
-	case "UInt16", "Nullable(UInt16)":
+	case "UInt16":
 		return types.QValueKindUInt16, nil
-	case "UInt32", "Nullable(UInt32)":
+	case "UInt32":
 		return types.QValueKindUInt32, nil
-	case "UInt64", "Nullable(UInt64)":
+	case "UInt64":
 		return types.QValueKindUInt64, nil
-	case "UInt256", "Nullable(UInt256)":
+	case "UInt256":
 		return types.QValueKindUInt256, nil
-	case "UUID", "Nullable(UUID)":
+	case "UUID":
 		return types.QValueKindUUID, nil
-	case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
+	case "DateTime64(6)", "DateTime64(9)":
 		return types.QValueKindTimestamp, nil
-	case "Time64(6)", "Nullable(Time64(6))":
+	case "Time64(6)":
 		return types.QValueKindTime, nil
-	case "Date32", "Nullable(Date32)":
+	case "Date32":
 		return types.QValueKindDate, nil
-	case "Float32", "Nullable(Float32)":
+	case "Float32":
 		return types.QValueKindFloat32, nil
-	case "Float64", "Nullable(Float64)":
+	case "Float64":
 		return types.QValueKindFloat64, nil
 	case "Array(Int32)":
 		return types.QValueKindArrayInt32, nil
@@ -451,7 +482,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayBoolean, nil
 	case "Array(Date)":
 		return types.QValueKindArrayDate, nil
-	case "JSON", "Nullable(JSON)":
+	case "JSON":
 		return types.QValueKindJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
@@ -460,7 +491,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 			}
 			return types.QValueKindNumeric, nil
 		}
-		return types.QValueKindInvalid, fmt.Errorf("failed to resolve QValueKind for %s", columnType)
+		return types.QValueKindInvalid, typeResolutionError(columnType)
 	}
 }
 
