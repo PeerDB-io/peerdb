@@ -399,19 +399,23 @@ var parametricTypesPrefixes = []string{
 	"LowCardinality(",
 }
 
-var notNullableTypesPrefixes = []string{
-	"Array(",
-	"Map(",
-	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
+// Types which cannot be wrapped in `Nullable`, already prefixed with it so that
+// the guard in QValueKindForType doesn't have to build these strings on each call.
+var nullableWrappedNotNullableTypesPrefixes = []string{
+	"Nullable(Array(",
+	"Nullable(Map(",
+	"Nullable(Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
+}
+
+func errResolveQValueKind(columnType string) error {
+	return fmt.Errorf("failed to resolve QValueKind for %s", columnType)
 }
 
 // QValueKindForType maps a ClickHouse column type to the QValueKind expected for its values.
 func QValueKindForType(columnType string) (types.QValueKind, error) {
-	errResolve := fmt.Errorf("failed to resolve QValueKind for %s", columnType)
-
-	for _, notNullablePrefix := range notNullableTypesPrefixes {
-		if strings.Contains(columnType, "Nullable("+notNullablePrefix) {
-			return types.QValueKindInvalid, errResolve
+	for _, invalidPrefix := range nullableWrappedNotNullableTypesPrefixes {
+		if strings.Contains(columnType, invalidPrefix) {
+			return types.QValueKindInvalid, errResolveQValueKind(columnType)
 		}
 	}
 
@@ -419,7 +423,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
 			inner, found = strings.CutSuffix(inner, ")")
 			if !found {
-				return types.QValueKindInvalid, errResolve
+				return types.QValueKindInvalid, errResolveQValueKind(columnType)
 			}
 			return QValueKindForType(inner)
 		}
@@ -489,7 +493,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 			}
 			return types.QValueKindNumeric, nil
 		}
-		return types.QValueKindInvalid, errResolve
+		return types.QValueKindInvalid, errResolveQValueKind(columnType)
 	}
 }
 
