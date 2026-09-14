@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"cloud.google.com/go/bigquery"
+	storageapi "cloud.google.com/go/bigquery/storage/apiv1"
+	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 
@@ -196,9 +198,10 @@ type SourceTableConfig struct {
 //
 //nolint:govet // logically grouped, fieldalignment confuses things
 type SourceConfig struct {
-	Client        *bigquery.Client
-	StorageClient *storage.Client
-	ProjectID     string
+	Client            *bigquery.Client
+	StorageClient     *storage.Client
+	StorageReadClient *storageapi.BigQueryReadClient
+	ProjectID         string
 	// DefaultDataset is used for table identifiers with no dataset qualifier.
 	DefaultDataset    string
 	Tables            []SourceTableConfig
@@ -209,7 +212,8 @@ type SourceConfig struct {
 	SnapshotStagingPath string
 	// SnapshotOnly skips CDC-specific validation after the source tables have
 	// been validated.
-	SnapshotOnly bool
+	SnapshotOnly          bool
+	DisableStorageReadApi bool
 }
 
 // ExternalError marks a failure as coming from a BigQuery API call rather
@@ -453,6 +457,12 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		}
 	}
 
+	if !cfg.DisableStorageReadApi {
+		if err := validateStorageReadAPI(ctx, cfg); err != nil {
+			return err
+		}
+	}
+
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
 
@@ -500,5 +510,36 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		}
 	}
 
+	return nil
+}
+
+// validateStorageReadAPI creates a read session for the first source table to
+// verify that the BigQuery Storage Read API is enabled and accessible. Creating
+// the session does not read any table data.
+func validateStorageReadAPI(ctx context.Context, cfg SourceConfig) error {
+	if len(cfg.Tables) == 0 {
+		return nil
+	}
+	if cfg.StorageReadClient == nil {
+		return errors.New("BigQuery Storage Read client is required when the Storage Read API is enabled")
+	}
+
+	key, err := ResolveDatasetTable(cfg.Tables[0].SourceTableIdentifier, cfg.DefaultDataset)
+	if err != nil {
+		return err
+	}
+	_, err = cfg.StorageReadClient.CreateReadSession(ctx, &storagepb.CreateReadSessionRequest{
+		Parent: "projects/" + cfg.ProjectID,
+		ReadSession: &storagepb.ReadSession{
+			Table:      fmt.Sprintf("projects/%s/datasets/%s/tables/%s", cfg.ProjectID, key.Dataset, key.Table),
+			DataFormat: storagepb.DataFormat_ARROW,
+		},
+		MaxStreamCount: 1,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to validate BigQuery Storage Read API: %w; enable the API by following %s",
+			&ExternalError{err},
+			"https://docs.cloud.google.com/bigquery/docs/reference/storage#enabling_the_api")
+	}
 	return nil
 }

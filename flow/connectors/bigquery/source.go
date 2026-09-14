@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	storageapi "cloud.google.com/go/bigquery/storage/apiv1"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -12,15 +16,33 @@ import (
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
+	disableStorageReadAPI := cfg.GetBigqueryCdcConfig().GetDisableStorageReadApi()
+
+	var storageReadClient *storageapi.BigQueryReadClient
+	if !snapshotOnly && !disableStorageReadAPI {
+		var err error
+		storageReadClient, err = storageapi.NewBigQueryReadClient(
+			ctx,
+			option.WithAuthCredentials(c.credentials),
+			option.WithGRPCConnectionPool(1),
+			option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create BigQuery Storage Read client: %w", err)
+		}
+		defer storageReadClient.Close()
+	}
 
 	sourceConfig := bqvalidate.SourceConfig{
-		Client:              c.client,
-		StorageClient:       c.storageClient,
-		ProjectID:           c.projectID,
-		DefaultDataset:      c.datasetID,
-		HasSnapshot:         cfg.DoInitialSnapshot,
-		SnapshotOnly:        snapshotOnly,
-		SnapshotStagingPath: cfg.SnapshotStagingPath,
+		Client:                c.client,
+		StorageClient:         c.storageClient,
+		StorageReadClient:     storageReadClient,
+		ProjectID:             c.projectID,
+		DefaultDataset:        c.datasetID,
+		HasSnapshot:           cfg.DoInitialSnapshot,
+		SnapshotOnly:          snapshotOnly,
+		SnapshotStagingPath:   cfg.SnapshotStagingPath,
+		DisableStorageReadApi: disableStorageReadAPI,
 	}
 	if !snapshotOnly {
 		switch cfg.GetBigqueryCdcConfig().GetReplicationMethod() {

@@ -74,6 +74,8 @@ enum BigQueryReplicationMethod {
 
 message BigqueryCdcConfig {
   BigQueryReplicationMethod replication_method = 1;
+  // use storage read api by default
+  bool disable_storage_read_api = 2;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
