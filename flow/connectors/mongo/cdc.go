@@ -144,6 +144,7 @@ func (c *MongoConnector) GetTableSchema(
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	result := make(map[string]*protos.TableSchema, len(tableMappings))
+
 	idFieldDescription := &protos.FieldDescription{
 		Name:         DefaultDocumentKeyColumnName,
 		Type:         string(types.QValueKindString),
@@ -162,16 +163,38 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		columns := []*protos.FieldDescription{idFieldDescription}
+		nullableEnabled := false
+
+		if tm.StructuredIngestion {
+			// only the schema is derived here, so recording malformed values is inconsequential
+			projector, err := newStructuredSchemaProjector(tm.Columns, !tm.DropUnexpectedValues)
+			if err != nil {
+				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
+			}
+			// Every column but the document key is nullable, a document may lack any of them: the declared
+			// types are expected to be Nullable(...) already. The projector's record schema already ends
+			// with the malformed data column.
+			for _, column := range projector.QRecordSchema().Fields {
+				columns = append(columns, &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         string(column.Type),
+					TypeModifier: -1,
+					Nullable:     column.Nullable,
+				})
+			}
+			nullableEnabled = true
+		} else {
+			columns = append(columns, dataFieldDescription)
+		}
+
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
-			NullableEnabled:       false,
-			Columns: []*protos.FieldDescription{
-				idFieldDescription,
-				dataFieldDescription,
-			},
+			NullableEnabled:       nullableEnabled,
+			Columns:               columns,
 		}
 	}
 
@@ -282,6 +305,7 @@ type encodedMongoEvent struct {
 func (c *MongoConnector) decodeEvent(
 	events []encodedMongoEvent,
 	req *model.PullRecordsRequest[model.RecordItems],
+	structuredProjections map[string]StructuredProjection,
 ) ([]model.Record[model.RecordItems], error) {
 	// Utils used by this routine.
 	converter := NewDirectBsonConverter()
@@ -306,7 +330,26 @@ func (c *MongoConnector) decodeEvent(
 			return nil, fmt.Errorf("document key is nil")
 		}
 
-		if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+		if projection, isStructured := structuredProjections[event.sourceTableName]; isStructured {
+			// structured ingestion: the document fields are projected onto the table's schema columns.
+			// An absent `fullDocument` (same scenarios as the default mode below) projects the empty
+			// document: every schema column null, nothing malformed.
+			document := emptyBsonDocument
+			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+				document = *event.maybeFullDocument
+			}
+			fields, walkErr := DocumentQValueIterator(document, converter, projection.ColumnKinds)
+			projected, err := projection.Projector.ApplyRecordSchema(fields)
+			if err != nil {
+				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
+			}
+			if err := walkErr(); err != nil {
+				return nil, err
+			}
+			for column, value := range projected.ColToVal {
+				items.AddColumn(column, value)
+			}
+		} else if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
 			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert document: %w", err)
@@ -462,11 +505,30 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
+	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
+	// as projecting only reads them, while each worker owns its converter.
+	structuredProjections := make(map[string]StructuredProjection)
+	for sourceTableName, tableMapping := range req.TableNameMapping {
+		if !tableMapping.StructuredIngestion {
+			continue
+		}
+		schema, ok := req.TableNameSchemaMapping[tableMapping.Name]
+		if !ok {
+			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
+		}
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !tableMapping.DropUnexpectedValues)
+		if err != nil {
+			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
+		}
+		structuredProjections[sourceTableName] = NewStructuredProjection(projector)
+	}
+
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
-			return c.decodeEvent(events, req)
+			return c.decodeEvent(events, req, structuredProjections)
 		},
 		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
 			return c.recordSender(ctx, items, resumeToken, req, &signalledAsNonEmpty)
@@ -649,7 +711,6 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
 			continue
 		}
-
 		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,

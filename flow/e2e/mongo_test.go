@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -23,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type MongoClickhouseSuite struct {
@@ -92,6 +96,566 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	}
 
 	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Flow_With_Schema() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_schema"
+	dstTable := "test_schema_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "n", NullableEnabled: true},
+		{SourceName: "desc", NullableEnabled: true},
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 10 rows into the source table for initial load
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Flow_With_Structured_Ingestion_Validations covers the structured ingestion validations.
+func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() {
+	// This test can be generalized to future connectors using structured ingestion.
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured"
+	dstTable := "test_structured_dst"
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+
+	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
+		tableMappings := TableMappings(s, srcTable, dstTable)
+		tableMappings[0].StructuredIngestion = true
+		tableMappings[0].Columns = columns
+		return tableMappings
+	}
+
+	for _, testCase := range []struct {
+		name          string
+		flowName      string
+		columns       []*protos.ColumnSetting
+		expectedError string
+	}{
+		{
+			name:          "no columns",
+			flowName:      "structured_no_columns",
+			expectedError: "structured ingestion is enabled but no columns are specified",
+		},
+		{
+			name:     "column without destination type",
+			flowName: "structured_untyped_column",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64"},
+				{SourceName: "desc"},
+			},
+			expectedError: "the following columns have no destination type specified",
+		},
+		{
+			name:     "invalid destination type",
+			flowName: "structured_invalid_type",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
+			},
+			expectedError: "invalid custom column type",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName:   AddSuffix(s, testCase.flowName),
+				TableMappings: structuredMappings(testCase.columns),
+				Destination:   s.Peer().Name,
+			}
+			flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+			flowConnConfig.DoInitialSnapshot = true
+
+			_, err := apiClient.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			require.Error(t, err)
+			grpcStatus, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+			require.Equal(t, codes.InvalidArgument, grpcStatus.Code())
+			require.Contains(t, grpcStatus.Message(), testCase.expectedError)
+		})
+	}
+
+	// A fully typed structured mapping passes validation. The collection has to exist, as validation
+	// also checks the source tables.
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: structuredMappings([]*protos.ColumnSetting{
+			{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
+			{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
+		}),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
+}
+
+// Test_Structured_Ingestion_Good_And_Malformed_Data runs a structured ingestion mirror over documents that mix
+// schema columns with stray fields: on every row the schema columns land well structured while the
+// stray fields are reported in _peerdb_malformed_data, both through the initial load and through CDC. The
+// mapping sets drop_unexpected_values, so the reports name the field and reason but omit the values
+// themselves; Test_Structured_Ingestion_Nested_And_Arrays covers reports carrying the values.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_malformed"
+	dstTable := "test_structured_malformed_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestion = true
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
+		{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
+	}
+	tableMappings[0].DropUnexpectedValues = true
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// every document carries the `desc` schema column plus a field the schema does not know
+	insertMixedDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "desc", Value: fmt.Sprintf("desc_%s_%d", prefix, i)},
+				{Key: fmt.Sprintf("%s_key_%d", prefix, i), Value: fmt.Sprintf("%s_value_%d", prefix, i)},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertMixedDocuments("init")
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load", dstTable, "_id,n", 10)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertMixedDocuments("cdc")
+
+	EnvWaitForCount(env, s, "cdc", dstTable, "_id,n", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	// on every row the `desc` column is well structured, the absent `n` is null, and the stray
+	// field is reported
+	var structuredRows, nullRows, reportedRows uint64
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		`SELECT countIf("desc" IS NOT NULL), countIf(n IS NULL), countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&structuredRows, &nullRows, &reportedRows))
+	require.Equal(t, uint64(20), structuredRows)
+	require.Equal(t, uint64(20), nullRows)
+	require.Equal(t, uint64(20), reportedRows)
+	// the same row holds the structured value and the report of its stray field
+	for _, prefix := range []string{"init", "cdc"} {
+		var desc, malformed string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT "desc", toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE JSONHas(toString(_peerdb_malformed_data), '%s_key_3')`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&desc, &malformed))
+		require.Equal(t, fmt.Sprintf("desc_%s_3", prefix), desc)
+		// drop_unexpected_values: the report names the field and reason, without the value
+		require.JSONEq(t, fmt.Sprintf(`{"%s_key_3": {"unexpected_field": true}}`, prefix), malformed)
+	}
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
+// nested content: embedded documents land whole in JSON columns, arrays included at any depth, and
+// top-level arrays land typed in array columns, while an array that does not fit its column is reported
+// in _peerdb_malformed_data with the column left empty. Note that a top-level array cannot land in a
+// JSON column: ClickHouse JSON accepts only objects at the root.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_nested"
+	dstTable := "test_structured_nested_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestion = true
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		// embedded documents, arrays included, land whole as JSON
+		{SourceName: "address", DestinationType: "Nullable(JSON)"},
+		// top-level arrays land typed in array columns
+		{SourceName: "items", DestinationType: "Array(String)"},
+		// receives an array its element types do not fit
+		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
+	}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertNestedDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "address", Value: bson.D{
+					{Key: "city", Value: fmt.Sprintf("city_%s_%d", prefix, i)},
+					{Key: "geo", Value: bson.D{{Key: "lat", Value: int64(51)}, {Key: "lon", Value: int64(i)}}},
+					{Key: "tags", Value: bson.A{"a", "b", int64(i)}},
+				}},
+				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
+				{Key: "mixed", Value: bson.A{int64(i), true}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertNestedDocuments("init")
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertNestedDocuments("cdc")
+
+	EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	// the array columns were created with their declared types: verbatim, never Nullable-wrapped
+	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{"items": "Array(String)", "mixed": "Array(Nullable(Int64))"}, actualColumnTypes)
+
+	// every row got its embedded document and its typed array, while the unfitting array left its
+	// column empty and was reported instead
+	var nestedRows, arrayRows, emptyMixedRows, reportedRows uint64
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)),
+			countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &reportedRows))
+	require.Equal(t, uint64(20), nestedRows)
+	require.Equal(t, uint64(20), arrayRows)
+	require.Equal(t, uint64(20), emptyMixedRows)
+	require.Equal(t, uint64(20), reportedRows)
+	// per leg, the nested document survives whole, the typed array lands element by element, and the
+	// unfitting array is reported verbatim in its JSON form
+	for _, prefix := range []string{"init", "cdc"} {
+		var address, items, malformed string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT toString(address), toString("items"), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &items, &malformed))
+		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
+		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
+		require.JSONEq(t, `{"mixed": {"type_mismatch": true, "value": "[3,true]"}}`, malformed)
+	}
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_QRep_Structured_Ingestion covers structured ingestion on standalone QRep mirrors: invalid
+// configurations are rejected at creation, and a valid one creates the destination table from the
+// declared columns and projects the documents onto it.
+func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_qrep_structured"
+	dstTable := "test_qrep_structured_dst"
+
+	newQRepConfig := func(flowName, sourceName string, columns []*protos.ColumnSetting) *protos.QRepConfig {
+		return &protos.QRepConfig{
+			FlowJobName:                      AddSuffix(s, flowName),
+			SourceName:                       sourceName,
+			DestinationName:                  s.Peer().Name,
+			WatermarkTable:                   fmt.Sprintf("%s.%s", srcDatabase, srcTable),
+			WatermarkColumn:                  "_id",
+			DestinationTableIdentifier:       dstTable,
+			InitialCopyOnly:                  true,
+			SetupWatermarkTableOnDestination: true,
+			NumRowsPerPartition:              1000,
+			WriteMode:                        &protos.QRepWriteMode{WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND},
+			StructuredIngestion:              true,
+			Columns:                          columns,
+			Env:                              map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"},
+			Version:                          shared.InternalVersion_Latest,
+		}
+	}
+	typedColumns := []*protos.ColumnSetting{
+		{SourceName: "team", DestinationType: "Nullable(String)"},
+		{SourceName: "pts", DestinationType: "Nullable(Int64)"},
+	}
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+	for _, testCase := range []struct {
+		name          string
+		config        *protos.QRepConfig
+		expectedError string
+	}{
+		{
+			name:          "no columns",
+			config:        newQRepConfig("qrep_structured_no_columns", s.Source().GeneratePeer(t).Name, nil),
+			expectedError: "structured ingestion is enabled but no columns are specified",
+		},
+		{
+			name: "column without destination type",
+			config: newQRepConfig("qrep_structured_untyped", s.Source().GeneratePeer(t).Name,
+				[]*protos.ColumnSetting{{SourceName: "team"}}),
+			expectedError: "the following columns have no destination type specified",
+		},
+		{
+			name: "invalid destination type",
+			config: newQRepConfig("qrep_structured_invalid_type", s.Source().GeneratePeer(t).Name,
+				[]*protos.ColumnSetting{{SourceName: "pts", DestinationType: "Int64 NOT NULL"}}),
+			expectedError: "invalid custom column type",
+		},
+		{
+			name:          "unsupported source peer",
+			config:        newQRepConfig("qrep_structured_bad_source", s.Peer().Name, typedColumns),
+			expectedError: "structured ingestion is not supported for the selected source peer",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := apiClient.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: testCase.config})
+			require.Error(t, err)
+			grpcStatus, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+			require.Equal(t, codes.InvalidArgument, grpcStatus.Code())
+			require.Contains(t, grpcStatus.Message(), testCase.expectedError)
+		})
+	}
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	for i := range 5 {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "team", Value: fmt.Sprintf("team_%d", i)},
+			{Key: "pts", Value: int64(i * 10)},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := NewTemporalClient(t)
+	env := RunQRepFlowWorkflow(t, tc, newQRepConfig(srcTable, s.Source().GeneratePeer(t).Name, typedColumns))
+	EnvWaitForFinished(t, env, 3*time.Minute)
+	require.NoError(t, env.Error(t.Context()))
+
+	// the destination table was created from the declared columns
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('team', 'pts', '_peerdb_malformed_data')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{
+		"team":                   "Nullable(String)",
+		"pts":                    "Nullable(Int64)",
+		"_peerdb_malformed_data": "Nullable(JSON)",
+	}, actualColumnTypes)
+
+	// and the documents were projected onto them
+	rows, err := s.GetRows(dstTable, "team,pts")
+	require.NoError(t, err)
+	require.Len(t, rows.Records, 5)
+	for i, record := range rows.Records {
+		require.Equal(t, types.QValueString{Val: fmt.Sprintf("team_%d", i)}, record[0])
+		require.Equal(t, types.QValueInt64{Val: int64(i * 10)}, record[1])
+	}
+}
+
+// Test_Structured_Ingestion_Flow runs a structured ingestion mirror end to end: the destination table
+// gets the columns and types the mapping declares, and documents shaped as the mapping land in them,
+// both through the initial load and through CDC.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_flow"
+	dstTable := "test_structured_flow_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestion = true
+	// as an inferred schema declares them: all nullable, a document may lack any field
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "teamA", DestinationType: "Nullable(String)"},
+		{SourceName: "teamB", DestinationType: "Nullable(String)"},
+		{SourceName: "scoreA", DestinationType: "Nullable(Int64)"},
+		{SourceName: "scoreB", DestinationType: "Nullable(Int64)"},
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	type match struct {
+		teamA, teamB   string
+		scoreA, scoreB int64
+	}
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertMatches := func(matches []match) {
+		for _, m := range matches {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "teamA", Value: m.teamA},
+				{Key: "teamB", Value: m.teamB},
+				{Key: "scoreA", Value: m.scoreA},
+				{Key: "scoreB", Value: m.scoreB},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	// the destination rows, read back as matches in teamA order, which is how GetRows sorts them
+	matchColumns := "teamA,teamB,scoreA,scoreB"
+	requireMatches := func(reason string, expected []match) {
+		rows, err := s.GetRows(dstTable, matchColumns)
+		require.NoError(t, err, reason)
+		actual := make([]match, 0, len(rows.Records))
+		for _, record := range rows.Records {
+			require.Len(t, record, 4, reason)
+			actual = append(actual, match{
+				teamA:  record[0].Value().(string),
+				teamB:  record[1].Value().(string),
+				scoreA: record[2].Value().(int64),
+				scoreB: record[3].Value().(int64),
+			})
+		}
+		expected = slices.Clone(expected)
+		slices.SortFunc(expected, func(a, b match) int { return strings.Compare(a.teamA, b.teamA) })
+		require.Equal(t, expected, actual, reason)
+	}
+
+	initialMatches := []match{
+		{teamA: "FulhamFC", teamB: "Other team", scoreA: 3, scoreB: 0},
+		{teamA: "Arsenal", teamB: "Chelsea", scoreA: 1, scoreB: 1},
+		{teamA: "Liverpool", teamB: "Everton", scoreA: 2, scoreB: 0},
+	}
+	insertMatches(initialMatches)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load", dstTable, matchColumns, len(initialMatches))
+	requireMatches("initial load", initialMatches)
+
+	// the table was created from the mapping, with the declared types
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	columnTypes, err := ch.Query(t.Context(),
+		fmt.Sprintf("SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('teamA', 'scoreA')",
+			peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{"teamA": "Nullable(String)", "scoreA": "Nullable(Int64)"}, actualColumnTypes)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	cdcMatches := []match{
+		{teamA: "Brentford", teamB: "FulhamFC", scoreA: 0, scoreB: 2},
+	}
+	insertMatches(cdcMatches)
+
+	allMatches := append(slices.Clone(initialMatches), cdcMatches...)
+	EnvWaitForCount(env, s, "cdc", dstTable, matchColumns, len(allMatches))
+	requireMatches("cdc", allMatches)
+
+	// every document is well formed, so no row carries malformed data
+	var reportedRows uint64
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		`SELECT countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&reportedRows))
+	require.Equal(t, uint64(0), reportedRows)
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }

@@ -144,9 +144,8 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 			continue
 		}
 
-		// Otherwise the kinds must match, or the value is recorded as malformed data.
-		// NOTE: The equals comparison canbe replaced by a call to a equivalence function.
-		if column.kind != value.Kind() {
+		// Otherwise the value must fit the column's kind, or it is recorded as malformed data.
+		if !kindMatches(column.kind, value) {
 			var recordedValue types.QValue
 			if sc.shouldRecordValues {
 				recordedValue = value
@@ -167,6 +166,17 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	}
 
 	return values, nil
+}
+
+// kindMatches reports whether value fits a column of kind. Kinds must be equal, except for the
+// array-of-JSON kinds, whose values are, by codebase convention, QValueJSONs flagged IsArray, as those
+// kinds have no dedicated QValue type.
+func kindMatches(kind types.QValueKind, value types.QValue) bool {
+	if jsonValue, isJSON := value.(types.QValueJSON); isJSON &&
+		(kind == types.QValueKindArrayJSON || kind == types.QValueKindArrayJSONB) {
+		return jsonValue.IsArray
+	}
+	return kind == value.Kind()
 }
 
 // ApplyRecordSchema is ProjectRecord for consumers taking records as RecordItems, such as CDC.

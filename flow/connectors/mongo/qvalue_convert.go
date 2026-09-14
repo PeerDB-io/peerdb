@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -16,11 +17,68 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// BsonToQValueConverter converts BSON values into QValues following the MongoDB ClickPipes type mapping
+// (https://clickhouse.com/docs/integrations/clickpipes/mongodb/datatypes):
+//
+//	ObjectId           -> String (hex)
+//	String             -> String
+//	32-bit integer     -> Int64
+//	64-bit integer     -> Int64
+//	Double             -> Float64
+//	Boolean            -> Bool
+//	Date               -> String (ISO 8601)
+//	Regular Expression -> JSON {Pattern: String, Options: String}
+//	Timestamp          -> JSON {T: Int64, I: Int64}
+//	Decimal128         -> String
+//	Binary data        -> JSON {Subtype: Int64, Data: String (base64)}
+//	JavaScript         -> String
+//	Null               -> Null
+//	Array              -> the destination kind's array QValue, else JSON (Dynamic on the destination)
+//	Object             -> JSON (Dynamic on the destination)
+//
+// Arrays correspond to typed array QValues when the destination column kind is one of the array kinds
+// the QValueArray* methods cover: each element must map, under this same table, to the method's element
+// type, e.g. an array of 32/64-bit integers into an Int64 array, or one mixing ObjectIds, Dates and
+// Decimal128s into a String array. Arrays of JSON take the elements mapping to JSON: embedded documents
+// and nested arrays included. An element mapping elsewhere, nulls included, fails the conversion.
+// For any other destination kind, arrays land whole as JSON.
 type BsonToQValueConverter interface {
 	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
-	// QValueJSONFromDocument converts a raw BSON document to a QValueJSON.
+	// QValueJSONFromDocument converts a raw BSON document (Object) to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
+	// QValueJSONFromArray converts a raw BSON array to a QValueJSON.
+	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
+
+	// Typed array conversions, as documented on the interface: every element must map to the method's
+	// element type under the scalar table above.
+	QValueArrayStringFromArray(arr bson.RawArray) (types.QValueArrayString, error)
+	QValueArrayInt64FromArray(arr bson.RawArray) (types.QValueArrayInt64, error)
+	QValueArrayFloat64FromArray(arr bson.RawArray) (types.QValueArrayFloat64, error)
+	QValueArrayBooleanFromArray(arr bson.RawArray) (types.QValueArrayBoolean, error)
+	// The array-of-JSON QValue is, by codebase convention, a QValueJSON flagged IsArray, as the
+	// `array_json` kind has no dedicated struct.
+	QValueArrayJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
+
+	// QValueFromBsonValue converts any BSON value to the QValue prescribed by the type mapping above,
+	// dispatching on the BSON type to the per-type converters below. columnKind is the kind of the
+	// destination column: BSON null (and a missing value) yields a QValueNull of it, and an array
+	// converts to its corresponding typed array QValue when it names an array kind.
+	QValueFromBsonValue(v bson.RawValue, columnKind types.QValueKind) (types.QValue, error)
+
+	QValueStringFromObjectID(oid bson.ObjectID) types.QValueString
+	QValueStringFromString(s string) types.QValueString
+	QValueInt64FromInt32(i int32) types.QValueInt64
+	QValueInt64FromInt64(i int64) types.QValueInt64
+	QValueFloat64FromDouble(f float64) types.QValueFloat64
+	QValueBooleanFromBoolean(b bool) types.QValueBoolean
+	QValueStringFromDateTime(t time.Time) types.QValueString
+	QValueJSONFromRegex(pattern string, options string) types.QValueJSON
+	QValueJSONFromTimestamp(t uint32, i uint32) types.QValueJSON
+	QValueStringFromDecimal128(d bson.Decimal128) types.QValueString
+	QValueJSONFromBinary(subtype byte, data []byte) types.QValueJSON
+	QValueStringFromJavaScript(code string) types.QValueString
+	QValueNullFromNull(kind types.QValueKind) types.QValueNull
 }
 
 // DirectBsonConverter converts BSON directly to JSON string without intermediate deserialization,
@@ -46,13 +104,79 @@ func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValue
 	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 }
 
+func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error) {
+	c.stream.Reset(nil)
+	if err := rawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
+		return types.QValueJSON{}, fmt.Errorf("failed to convert array: %w", err)
+	}
+	return types.QValueJSON{Val: string(c.stream.Buffer()), IsArray: true}, nil
+}
+
+// typedArrayFromBson converts every element of arr through the converter's scalar mapping
+// (QValueFromBsonValue) and collects the values the elements of QValue type Q hold, as extracted by
+// element. It fails on the first element whose scalar conversion fails or lands on any other QValue
+// type, nulls included.
+func typedArrayFromBson[Q types.QValue, T any](
+	c *DirectBsonConverter, arr bson.RawArray, element func(Q) T,
+) ([]T, error) {
+	rawValues, err := arr.Values()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read array elements: %w", err)
+	}
+	var want Q
+	values := make([]T, 0, len(rawValues))
+	for i, rawValue := range rawValues {
+		qValue, err := c.QValueFromBsonValue(rawValue, types.QValueKindInvalid)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert array element %d: %w", i, err)
+		}
+		typed, ok := qValue.(Q)
+		if !ok {
+			if _, isNull := qValue.(types.QValueNull); isNull {
+				return nil, fmt.Errorf("array element %d is null, not %s", i, want.Kind())
+			}
+			return nil, fmt.Errorf("array element %d maps to %s, not %s", i, qValue.Kind(), want.Kind())
+		}
+		values = append(values, element(typed))
+	}
+	return values, nil
+}
+
+func (c *DirectBsonConverter) QValueArrayStringFromArray(arr bson.RawArray) (types.QValueArrayString, error) {
+	values, err := typedArrayFromBson(c, arr, func(q types.QValueString) string { return q.Val })
+	return types.QValueArrayString{Val: values}, err
+}
+
+func (c *DirectBsonConverter) QValueArrayInt64FromArray(arr bson.RawArray) (types.QValueArrayInt64, error) {
+	values, err := typedArrayFromBson(c, arr, func(q types.QValueInt64) int64 { return q.Val })
+	return types.QValueArrayInt64{Val: values}, err
+}
+
+func (c *DirectBsonConverter) QValueArrayFloat64FromArray(arr bson.RawArray) (types.QValueArrayFloat64, error) {
+	values, err := typedArrayFromBson(c, arr, func(q types.QValueFloat64) float64 { return q.Val })
+	return types.QValueArrayFloat64{Val: values}, err
+}
+
+func (c *DirectBsonConverter) QValueArrayBooleanFromArray(arr bson.RawArray) (types.QValueArrayBoolean, error) {
+	values, err := typedArrayFromBson(c, arr, func(q types.QValueBoolean) bool { return q.Val })
+	return types.QValueArrayBoolean{Val: values}, err
+}
+
+func (c *DirectBsonConverter) QValueArrayJSONFromArray(arr bson.RawArray) (types.QValueJSON, error) {
+	values, err := typedArrayFromBson(c, arr, func(q types.QValueJSON) string { return q.Val })
+	if err != nil {
+		return types.QValueJSON{}, err
+	}
+	return types.QValueJSON{Val: "[" + strings.Join(values, ",") + "]", IsArray: true}, nil
+}
+
 func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error) {
 	if version >= shared.InternalVersion_MongoDBIdWithoutRedundantQuotes {
 		switch id.Type {
 		case bson.TypeObjectID:
-			return types.QValueString{Val: id.ObjectID().Hex()}, nil
+			return c.QValueStringFromObjectID(id.ObjectID()), nil
 		case bson.TypeString:
-			return types.QValueString{Val: id.StringValue()}, nil
+			return c.QValueStringFromString(id.StringValue()), nil
 		}
 	}
 	c.stream.Reset(nil)
@@ -60,6 +184,150 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 		return types.QValueString{}, fmt.Errorf("failed to convert %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
+}
+
+func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, columnKind types.QValueKind) (types.QValue, error) {
+	if rv.IsZero() {
+		return c.QValueNullFromNull(columnKind), nil
+	}
+	v := bsoncore.Value{Type: bsoncore.Type(rv.Type), Data: rv.Value}
+	switch v.Type {
+	case bsoncore.TypeDouble:
+		return c.QValueFloat64FromDouble(v.Double()), nil
+
+	case bsoncore.TypeString:
+		return c.QValueStringFromString(v.StringValue()), nil
+
+	case bsoncore.TypeEmbeddedDocument:
+		// Nested documents are are encoded as `QValueJSON` ...
+		return c.QValueJSONFromDocument(bson.Raw(v.Document()))
+
+	case bsoncore.TypeArray:
+		// ... as well as Arrays, unless the destination column is of an array kind, whose
+		// corresponding QValue must be the typed array.
+		switch columnKind {
+		case types.QValueKindArrayString:
+			return c.QValueArrayStringFromArray(bson.RawArray(v.Array()))
+		case types.QValueKindArrayInt64:
+			return c.QValueArrayInt64FromArray(bson.RawArray(v.Array()))
+		case types.QValueKindArrayFloat64:
+			return c.QValueArrayFloat64FromArray(bson.RawArray(v.Array()))
+		case types.QValueKindArrayBoolean:
+			return c.QValueArrayBooleanFromArray(bson.RawArray(v.Array()))
+		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			return c.QValueArrayJSONFromArray(bson.RawArray(v.Array()))
+		default:
+			return c.QValueJSONFromArray(bson.RawArray(v.Array()))
+		}
+
+	case bsoncore.TypeBinary:
+		subtype, data := v.Binary()
+		return c.QValueJSONFromBinary(subtype, data), nil
+
+	case bsoncore.TypeObjectID:
+		return c.QValueStringFromObjectID(v.ObjectID()), nil
+
+	case bsoncore.TypeBoolean:
+		return c.QValueBooleanFromBoolean(v.Boolean()), nil
+
+	case bsoncore.TypeDateTime:
+		return c.QValueStringFromDateTime(v.Time()), nil
+
+	case bsoncore.TypeNull:
+		return c.QValueNullFromNull(columnKind), nil
+
+	case bsoncore.TypeRegex:
+		pattern, options := v.Regex()
+		return c.QValueJSONFromRegex(pattern, options), nil
+
+	case bsoncore.TypeJavaScript:
+		// Code is interpreted as a string.
+		return c.QValueStringFromJavaScript(v.JavaScript()), nil
+
+	case bsoncore.TypeSymbol: // deprecated type, kept for backwards-compatibility
+		return c.QValueStringFromString(v.Symbol()), nil
+
+	case bsoncore.TypeInt32:
+		return c.QValueInt64FromInt32(v.Int32()), nil
+
+	case bsoncore.TypeTimestamp:
+		t, i := v.Timestamp()
+		return c.QValueJSONFromTimestamp(t, i), nil
+
+	case bsoncore.TypeInt64:
+		return c.QValueInt64FromInt64(v.Int64()), nil
+
+	case bsoncore.TypeDecimal128:
+		h, l := v.Decimal128()
+		return c.QValueStringFromDecimal128(bson.NewDecimal128(h, l)), nil
+
+	default:
+		// Undefined, MinKey, MaxKey, DBPointer and CodeWithScope are deprecated and not part of the documented
+		// mapping; they are rendered as JSON exactly as they are inside a full document.
+		c.stream.Reset(nil)
+		if err := rawValueToJSON(v, c.stream); err != nil {
+			return nil, fmt.Errorf("failed to convert %s value: %w", v.Type.String(), err)
+		}
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
+	}
+}
+
+func (c *DirectBsonConverter) QValueStringFromObjectID(oid bson.ObjectID) types.QValueString {
+	return types.QValueString{Val: oid.Hex()}
+}
+
+func (c *DirectBsonConverter) QValueStringFromString(s string) types.QValueString {
+	return types.QValueString{Val: s}
+}
+
+func (c *DirectBsonConverter) QValueInt64FromInt32(i int32) types.QValueInt64 {
+	return types.QValueInt64{Val: int64(i)}
+}
+
+func (c *DirectBsonConverter) QValueInt64FromInt64(i int64) types.QValueInt64 {
+	return types.QValueInt64{Val: i}
+}
+
+func (c *DirectBsonConverter) QValueFloat64FromDouble(f float64) types.QValueFloat64 {
+	return types.QValueFloat64{Val: f}
+}
+
+func (c *DirectBsonConverter) QValueBooleanFromBoolean(b bool) types.QValueBoolean {
+	return types.QValueBoolean{Val: b}
+}
+
+func (c *DirectBsonConverter) QValueStringFromDateTime(t time.Time) types.QValueString {
+	return types.QValueString{Val: t.UTC().Format(time.RFC3339Nano)}
+}
+
+func (c *DirectBsonConverter) QValueJSONFromRegex(pattern string, options string) types.QValueJSON {
+	c.stream.Reset(nil)
+	writeRegexJSON(c.stream, pattern, options)
+	return types.QValueJSON{Val: string(c.stream.Buffer())}
+}
+
+func (c *DirectBsonConverter) QValueJSONFromTimestamp(t uint32, i uint32) types.QValueJSON {
+	c.stream.Reset(nil)
+	writeTimestampJSON(c.stream, t, i)
+	return types.QValueJSON{Val: string(c.stream.Buffer())}
+}
+
+func (c *DirectBsonConverter) QValueStringFromDecimal128(d bson.Decimal128) types.QValueString {
+	return types.QValueString{Val: d.String()}
+}
+
+func (c *DirectBsonConverter) QValueJSONFromBinary(subtype byte, data []byte) types.QValueJSON {
+	c.stream.Reset(nil)
+	writeBinaryJSON(c.stream, subtype, data)
+	return types.QValueJSON{Val: string(c.stream.Buffer())}
+}
+
+func (c *DirectBsonConverter) QValueStringFromJavaScript(code string) types.QValueString {
+	return types.QValueString{Val: code}
+}
+
+func (c *DirectBsonConverter) QValueNullFromNull(kind types.QValueKind) types.QValueNull {
+	return types.QValueNull(kind)
 }
 
 func rawDocToJSON(doc bsoncore.Document, stream *jsoniter.Stream) error {
@@ -140,11 +408,7 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 
 	case bsoncore.TypeBinary:
 		subtype, data := v.Binary()
-		stream.WriteRaw(`{"Subtype":`)
-		stream.WriteUint8(subtype)
-		stream.WriteRaw(`,"Data":"`)
-		stream.SetBuffer(base64.StdEncoding.AppendEncode(stream.Buffer(), data))
-		stream.WriteRaw(`"}`)
+		writeBinaryJSON(stream, subtype, data)
 
 	case bsoncore.TypeUndefined:
 		stream.WriteEmptyObject()
@@ -168,11 +432,7 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()
-		stream.WriteRaw(`{"Pattern":`)
-		stream.WriteStringWithHTMLEscaped(pattern)
-		stream.WriteRaw(`,"Options":`)
-		stream.WriteStringWithHTMLEscaped(options)
-		stream.WriteRaw("}")
+		writeRegexJSON(stream, pattern, options)
 
 	case bsoncore.TypeJavaScript:
 		stream.WriteStringWithHTMLEscaped(v.JavaScript())
@@ -185,11 +445,7 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 
 	case bsoncore.TypeTimestamp:
 		t, i := v.Timestamp()
-		stream.WriteRaw(`{"T":`)
-		stream.WriteUint32(t)
-		stream.WriteRaw(`,"I":`)
-		stream.WriteUint32(i)
-		stream.WriteRaw("}")
+		writeTimestampJSON(stream, t, i)
 
 	case bsoncore.TypeInt64:
 		stream.WriteInt64(v.Int64())
@@ -223,6 +479,33 @@ func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 		return fmt.Errorf("unknown type: %v", v.Type.String())
 	}
 	return nil
+}
+
+// writeBinaryJSON encodes BSON binary data as {"Subtype": <int>, "Data": "<base64>"}.
+func writeBinaryJSON(stream *jsoniter.Stream, subtype byte, data []byte) {
+	stream.WriteRaw(`{"Subtype":`)
+	stream.WriteUint8(subtype)
+	stream.WriteRaw(`,"Data":"`)
+	stream.SetBuffer(base64.StdEncoding.AppendEncode(stream.Buffer(), data))
+	stream.WriteRaw(`"}`)
+}
+
+// writeRegexJSON encodes a BSON regular expression as {"Pattern": "<pattern>", "Options": "<flags>"}.
+func writeRegexJSON(stream *jsoniter.Stream, pattern string, options string) {
+	stream.WriteRaw(`{"Pattern":`)
+	stream.WriteStringWithHTMLEscaped(pattern)
+	stream.WriteRaw(`,"Options":`)
+	stream.WriteStringWithHTMLEscaped(options)
+	stream.WriteRaw("}")
+}
+
+// writeTimestampJSON encodes a BSON (internal) timestamp as {"T": <seconds>, "I": <increment>}.
+func writeTimestampJSON(stream *jsoniter.Stream, t uint32, i uint32) {
+	stream.WriteRaw(`{"T":`)
+	stream.WriteUint32(t)
+	stream.WriteRaw(`,"I":`)
+	stream.WriteUint32(i)
+	stream.WriteRaw("}")
 }
 
 // Assume (and test) that values outside of these limits will come out in scientific notation
