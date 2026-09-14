@@ -318,9 +318,10 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 }
 
 // Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
-// nested content: embedded documents land whole in JSON columns, arrays included at any depth, while a
-// whole-array value does not fit a scalar column and is reported in _peerdb_malformed_data instead. Note that a
-// top-level array cannot land in a JSON column either: ClickHouse JSON accepts only objects at the root.
+// nested content: embedded documents land whole in JSON columns, arrays included at any depth, and
+// top-level arrays land typed in array columns, while an array that does not fit its column is reported
+// in _peerdb_malformed_data with the column left empty. Note that a top-level array cannot land in a
+// JSON column: ClickHouse JSON accepts only objects at the root.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
@@ -333,8 +334,10 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "name", DestinationType: "Nullable(String)"},
 		// embedded documents, arrays included, land whole as JSON
 		{SourceName: "address", DestinationType: "Nullable(JSON)"},
-		// array top level field
+		// top-level arrays land typed in array columns
 		{SourceName: "items", DestinationType: "Array(String)"},
+		// receives an array its element types do not fit
+		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
 	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -355,8 +358,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 					{Key: "geo", Value: bson.D{{Key: "lat", Value: int64(51)}, {Key: "lon", Value: int64(i)}}},
 					{Key: "tags", Value: bson.A{"a", "b", int64(i)}},
 				}},
-				// TODO: Complete support for Arrays so this case is covered (and uncomment the case column)
-				// {Key: "items", Value: bson.A{int64(i), int64(i + 1)}},
+				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
+				{Key: "mixed", Value: bson.A{int64(i), true}},
 			}, options.InsertOne())
 			require.NoError(t, err)
 			require.True(t, res.Acknowledged)
@@ -378,22 +381,42 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
 	require.NoError(t, err)
 	defer ch.Close()
-	// every row got its embedded document, while the array value never fits the scalar column
-	var nestedRows, arrayRows, reportedRows uint64
+	// the array columns were created with their declared types: verbatim, never Nullable-wrapped
+	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{"items": "Array(String)", "mixed": "Array(Nullable(Int64))"}, actualColumnTypes)
+
+	// every row got its embedded document and its typed array, while the unfitting array left its
+	// column empty and was reported instead
+	var nestedRows, arrayRows, emptyMixedRows, reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-		`SELECT countIf(address IS NOT NULL), countIf("items" IS NULL), countIf(1) FROM "%s"."%s" FINAL`,
-		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &reportedRows))
+		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)),
+			countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &reportedRows))
 	require.Equal(t, uint64(20), nestedRows)
-	// TODO: Complete support for Arrays so this case is covered (and uncomment this case)
-	// require.Equal(t, uint64(20), arrayRows)
+	require.Equal(t, uint64(20), arrayRows)
+	require.Equal(t, uint64(20), emptyMixedRows)
 	require.Equal(t, uint64(20), reportedRows)
-	// per leg, the nested document survives whole and the array value is reported verbatim
+	// per leg, the nested document survives whole, the typed array lands element by element, and the
+	// unfitting array is reported verbatim in its JSON form
 	for _, prefix := range []string{"init", "cdc"} {
-		var address, malformed string
+		var address, items, malformed string
 		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT toString(address), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
-			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &malformed))
+			`SELECT toString(address), toString("items"), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &items, &malformed))
 		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
+		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
+		require.JSONEq(t, `{"mixed": {"type_mismatch": true, "value": "[3,true]"}}`, malformed)
 	}
 
 	env.Cancel(t.Context())

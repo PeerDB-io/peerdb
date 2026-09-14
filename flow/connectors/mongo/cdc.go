@@ -344,7 +344,7 @@ func (c *MongoConnector) decodeEvent(
 			// created and passed to the generic structured ingestion logic.
 			// `DocumentQValueIterator` is the entry point for the document
 			// to QValue translation.
-			fieldsIterator, walkErr := DocumentQValueIterator(document, converter)
+			fieldsIterator, walkErr := DocumentQValueIterator(document, converter, projector)
 			items, err = projector.ApplyRecordSchema(fieldsIterator)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)

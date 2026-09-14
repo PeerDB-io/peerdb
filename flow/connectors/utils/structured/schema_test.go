@@ -226,3 +226,28 @@ func TestProjectRecord(t *testing.T) {
 		require.JSONEq(t, `{"email": {"duplicated_fields": true, "value": "lovelace@example.com"}}`, malformed.Val)
 	})
 }
+
+func TestProjectRecordArrayOfJSON(t *testing.T) {
+	// the array-of-JSON kinds have no dedicated QValue type: their values are QValueJSONs flagged
+	// IsArray, which must fit the column while plain JSON values must not
+	projector, err := NewSchemaProjectorFromQFields([]types.QField{
+		{Name: "attachments", Type: types.QValueKindArrayJSON},
+	}, true)
+	require.NoError(t, err)
+
+	values, err := projector.ProjectRecord(recordOf(
+		recordField{"attachments", types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}},
+	))
+	require.NoError(t, err)
+	require.Equal(t, types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}, values[0])
+	require.Equal(t, types.QValueNull(types.QValueKindJSON), values[1])
+
+	values, err = projector.ProjectRecord(recordOf(
+		recordField{"attachments", types.QValueJSON{Val: `{"k":1}`}},
+	))
+	require.NoError(t, err)
+	require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values[0])
+	malformed, ok := values[1].(types.QValueJSON)
+	require.True(t, ok)
+	require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "{\"k\":1}"}}`, malformed.Val)
+}
