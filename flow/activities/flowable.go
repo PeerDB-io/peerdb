@@ -935,9 +935,9 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 			logger.Warn("auth error, skipping to avoid triggering security tools", slog.String("peer", req.PeerName))
 			return nil
 		}
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
-			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
-		)
+		getConnErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err))
+		a.Alerter.LogFlowWarning(ctx, req.FlowJobName, getConnErr)
+		return getConnErr
 	}
 	defer srcClose(ctx)
 
@@ -949,7 +949,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 			pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
 			if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
 				// don't alert when PID active
-				_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+				a.Alerter.LogFlowWarning(ctx, req.FlowJobName, pullCleanupErr)
 			}
 			return pullCleanupErr
 		}
