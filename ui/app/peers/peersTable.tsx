@@ -72,7 +72,7 @@ export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
         right: (
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <ReactSelect
-              className='w-48'
+              styles={{ container: (base) => ({ ...base, width: '12rem' }) }}
               options={availableTypes}
               onChange={(val, _) => {
                 setFilteredType(val?.value);

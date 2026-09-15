@@ -465,7 +465,7 @@ func (c *BigQueryConnector) bigQueryExportQueryStatement(
 // buildBigQueryExportSQL builds the EXPORT DATA SQL string. With watermarkColumn
 // empty, tables are read consistently as of bound via FOR SYSTEM_TIME AS OF
 // (EVENTS mode's shared BigQuery-clock snapshot). With watermarkColumn set
-// (BIGQUERY_REPLICATION_MODE_QUERY), tables are instead filtered to
+// (BIGQUERY_REPLICATION_METHOD_QUERY), tables are instead filtered to
 // watermarkColumn <= bound, matching that table's own watermark progress.
 func buildBigQueryExportSQL(
 	dsTable datasetTable,
@@ -590,7 +590,7 @@ func (c *BigQueryConnector) SetupReplication(
 	}
 
 	var checkpointByTable map[string]time.Time
-	if cfg.GetBigqueryCdcConfig().GetReplicationMode() == protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_QUERY {
+	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		checkpointByTable, err = c.setupQueryModeReplication(ctx, req, cfg)
 	} else {
 		checkpointByTable, err = c.setupEventsModeReplication(ctx, req, cfg)

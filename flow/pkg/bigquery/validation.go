@@ -151,13 +151,13 @@ func GetTables(
 	return result, nil
 }
 
-// ReplicationMode selects how CDC events are produced for a BigQuery source mirror.
-type ReplicationMode int
+// ReplicationMethod selects how CDC events are produced for a BigQuery source mirror.
+type ReplicationMethod int
 
 const (
-	ReplicationModeUnspecified ReplicationMode = iota
-	ReplicationModeEvents
-	ReplicationModeQuery
+	ReplicationMethodUnspecified ReplicationMethod = iota
+	ReplicationMethodEvents
+	ReplicationMethodQuery
 )
 
 // CDCEventsFunction selects which BigQuery CDC function backs a table's events.
@@ -173,7 +173,7 @@ const (
 type SourceTableConfig struct {
 	// SourceTableIdentifier is "table", "dataset.table", or "project.dataset.table".
 	SourceTableIdentifier string
-	// WatermarkColumn is required when the mirror's ReplicationMode is ReplicationModeQuery.
+	// WatermarkColumn is required when the mirror's ReplicationMethod is ReplicationMethodQuery.
 	WatermarkColumn string
 	// Include, if non-empty, restricts replication to these column names
 	// ("selected_columns"). Mutually exclusive with Exclude.
@@ -200,9 +200,9 @@ type SourceConfig struct {
 	StorageClient *storage.Client
 	ProjectID     string
 	// DefaultDataset is used for table identifiers with no dataset qualifier.
-	DefaultDataset  string
-	Tables          []SourceTableConfig
-	ReplicationMode ReplicationMode
+	DefaultDataset    string
+	Tables            []SourceTableConfig
+	ReplicationMethod ReplicationMethod
 	// HasSnapshot enables validation of snapshot staging access and export
 	// permissions using SnapshotStagingPath.
 	HasSnapshot         bool
@@ -456,8 +456,8 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
 
-		switch cfg.ReplicationMode {
-		case ReplicationModeQuery:
+		switch cfg.ReplicationMethod {
+		case ReplicationMethodQuery:
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %q has no watermark_column configured; QUERY replication mode requires "+
 					"one TIMESTAMP column per table to incrementally scan", key)
@@ -475,7 +475,7 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
-		case ReplicationModeEvents:
+		case ReplicationMethodEvents:
 			switch t.CDCEventsFunction {
 			case CDCEventsFunctionChanges:
 				if !tablesByKey[key].HasPrimaryKey() && !t.HasOrderingKey {

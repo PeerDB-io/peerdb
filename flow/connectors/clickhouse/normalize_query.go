@@ -168,6 +168,11 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
+		} else if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
+			!strings.HasPrefix(clickHouseType, "Nullable(") {
+			// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be
+			// extracted as Nullable(...), or JSON nulls turn into the type's default value
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		switch clickHouseType {

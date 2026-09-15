@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -33,6 +34,15 @@ const (
 	insert
 	// rawEvent returns true on Next() with the next event queued in mockChangeStream.rawEvents
 	rawEvent
+	// nullIdInsert returns true on Next() with an insert event whose documentKey._id
+	// is null, which a decode worker rejects.
+	nullIdInsert
+	// unsupportedOp returns true on Next() with an event carrying an operationType
+	// PullRecords does not replicate.
+	unsupportedOp
+	// fatal returns false on Next() with an error that is neither a timeout nor a
+	// missing resume token, so PullRecords has to give up.
+	fatal
 )
 
 type mockChangeStream struct {
@@ -44,6 +54,11 @@ type mockChangeStream struct {
 	iterations   []iterationType
 	emittedTimes []time.Time
 	rawEvents    []bson.Raw
+	deadlines    []time.Duration
+	inserts      int
+	// beforeNext, when set, runs at the start of each Next() call with the index of the
+	// iteration about to be served, letting a test interfere mid-pull.
+	beforeNext func(idx int)
 
 	t *testing.T
 }
@@ -53,10 +68,25 @@ func newMockChangeStream(t *testing.T, iter ...iterationType) *mockChangeStream 
 	return &mockChangeStream{t: t, iterations: iter}
 }
 
-func (cs *mockChangeStream) Next(context.Context) bool {
+func (cs *mockChangeStream) Next(ctx context.Context) bool {
+	if cs.beforeNext != nil {
+		cs.beforeNext(cs.idx)
+	}
+	// A real cursor cannot serve an event once its context is gone, whatever iterations
+	// the test still had scripted.
+	if err := ctx.Err(); err != nil {
+		cs.err = err
+		return false
+	}
 	if cs.idx >= len(cs.iterations) {
 		cs.t.Fatalf("mockChangeStream: Next past end of mocked iterations (%d iterations)", len(cs.iterations))
 	}
+	var remaining time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = time.Until(deadline)
+	}
+	cs.deadlines = append(cs.deadlines, remaining)
+
 	ts := time.Now()
 	cs.emittedTimes = append(cs.emittedTimes, ts)
 	cs.resumeToken = toResumeToken(ts)
@@ -66,7 +96,16 @@ func (cs *mockChangeStream) Next(context.Context) bool {
 
 	switch label {
 	case insert:
-		cs.current = newInsertChangeEvent(bson.NewObjectID(), ts)
+		cs.current = newChangeEvent("insert", mockEventID(cs.inserts), ts)
+		cs.inserts++
+		cs.err = nil
+		return true
+	case nullIdInsert:
+		cs.current = newChangeEvent("insert", nil, ts)
+		cs.err = nil
+		return true
+	case unsupportedOp:
+		cs.current = newChangeEvent("drop", "ev-dropped", ts)
 		cs.err = nil
 		return true
 	case rawEvent:
@@ -80,10 +119,58 @@ func (cs *mockChangeStream) Next(context.Context) bool {
 	case idle:
 		cs.err = context.DeadlineExceeded
 		return false
+	case fatal:
+		cs.err = errFatalChangeStream
+		return false
 	default:
 		cs.t.Fatalf("mockChangeStream: unknown label %d", label)
 		return false
 	}
+}
+
+var errFatalChangeStream = errors.New("mock change stream failure")
+
+func mockEventID(n int) string { return fmt.Sprintf("ev-%04d", n) }
+
+// tokenAt is the checkpoint text corresponding to the resume token the mock exposed
+// during its idx'th Next() call.
+func (cs *mockChangeStream) tokenAt(idx int) string {
+	cs.t.Helper()
+	require.Less(cs.t, idx, len(cs.emittedTimes), "change stream never reached iteration %d", idx)
+	return b64(toResumeToken(cs.emittedTimes[idx]))
+}
+
+// iterationOfToken maps a checkpoint back to the change stream iteration that produced
+// it, which is what lets tests compare a committed offset against delivered records.
+func (cs *mockChangeStream) iterationOfToken(text string) int {
+	cs.t.Helper()
+	for idx := range cs.emittedTimes {
+		if b64(toResumeToken(cs.emittedTimes[idx])) == text {
+			return idx
+		}
+	}
+	cs.t.Fatalf("checkpoint %q does not match any resume token the change stream emitted", text)
+	return -1
+}
+
+// replicableThrough is the _id of every event emitted at or before iteration idx that
+// PullRecords is expected to replicate. An event that can never be decoded is included
+// under a sentinel id, so that a checkpoint advancing past it shows up as a violation
+// rather than passing silently.
+func (cs *mockChangeStream) replicableThrough(idx int) []string {
+	ids := make([]string, 0, idx+1)
+	inserts := 0
+	for _, iteration := range cs.iterations[:min(idx+1, len(cs.iterations))] {
+		switch iteration {
+		case insert:
+			ids = append(ids, mockEventID(inserts))
+			inserts++
+		case nullIdInsert:
+			ids = append(ids, "ev-undecodable")
+		case idle, unsupportedOp, fatal:
+		}
+	}
+	return ids
 }
 
 func (cs *mockChangeStream) ResumeToken() bson.Raw { return cs.resumeToken }
@@ -116,13 +203,19 @@ func drainMongoCDCRecordsAsync(t *testing.T, stream *model.CDCStream[model.Recor
 }
 
 func newInsertChangeEvent(id bson.ObjectID, ts time.Time) bson.Raw {
+	return newChangeEvent("insert", id, ts)
+}
+
+// newChangeEvent builds a change event shaped the way the connector's aggregation
+// pipeline projects it.
+func newChangeEvent(operationType string, id any, ts time.Time) bson.Raw {
 	wallTime := ts.UTC().Truncate(time.Millisecond)
 	event, _ := bson.Marshal(bson.D{
 		{Key: "ns", Value: bson.D{
 			{Key: "db", Value: "db"},
 			{Key: "coll", Value: "coll"},
 		}},
-		{Key: "operationType", Value: "insert"},
+		{Key: "operationType", Value: operationType},
 		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
 		{Key: "fullDocument", Value: bson.D{
 			{Key: "_id", Value: id},
