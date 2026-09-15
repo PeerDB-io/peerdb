@@ -586,7 +586,9 @@ func (c *MongoConnector) PullRecords(
 	var lastEventGaugesRecordedAt time.Time
 	for recordCount < req.MaxBatchSize {
 		receiveStart := time.Now()
-		if ok := changeStream.Next(timeoutCtx); !ok {
+		ok := changeStream.Next(timeoutCtx)
+		receiveTime.Add(int64(time.Since(receiveStart)))
+		if !ok {
 			err := changeStream.Err()
 			if err == nil {
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
@@ -632,7 +634,6 @@ func (c *MongoConnector) PullRecords(
 
 			return fmt.Errorf("change stream error: %w", err)
 		}
-		receiveTime.Add(int64(time.Since(receiveStart)))
 		serialProcessStart := time.Now()
 
 		current := changeStream.Current()
