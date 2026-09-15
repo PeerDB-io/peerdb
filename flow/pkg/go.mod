@@ -11,8 +11,8 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.12.1
-	go.mongodb.org/mongo-driver/v2 v2.8.0
-	go.temporal.io/sdk v1.47.0
+	go.mongodb.org/mongo-driver/v2 v2.9.0
+	go.temporal.io/sdk v1.48.0
 	google.golang.org/api v0.287.1
 )
 
@@ -54,7 +54,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/nexus-rpc/nexus-proto-annotations v0.1.0 // indirect
 	github.com/nexus-rpc/sdk-go v0.7.0 // indirect

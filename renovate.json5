@@ -119,12 +119,14 @@
       "matchUpdateTypes": ["digest"],
       "enabled": false
     },
-    // The x/crypto fork is consumed via a replace directive. It ships Go-team x/crypto releases
-    // plus a one-line patch, so minimumReleaseAge adds no supply-chain protection and would
-    // delay CVE fixes; opt it out.
+    // flow/go.mod replaces x/crypto with our fork. Exempt the fork from
+    // minimumReleaseAge so upstream security fixes can reach us without delay:
+    // vulnerability alerts target upstream, not the fork we actually build.
+    // Exempt upstream too so the age gate doesn't leave the require version
+    // behind the fork's upstream version.
     {
       "matchManagers": ["gomod"],
-      "matchPackageNames": ["github.com/PeerDB-io/crypto"],
+      "matchPackageNames": ["github.com/PeerDB-io/crypto", "golang.org/x/crypto"],
       "minimumReleaseAge": null
     },
     // This package rule instruct renovate to require approval from
