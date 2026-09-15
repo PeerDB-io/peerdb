@@ -115,3 +115,27 @@ func TestRemoveTablesFromPublication(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"custom_stay"}, remaining)
 }
+
+func TestDefaultReplicationNamesRespectPostgresIdentifierLimit(t *testing.T) {
+	t.Parallel()
+
+	shortJobName := "short_flow_name"
+	require.Equal(t, DefaultSlotPrefix+shortJobName, GetDefaultSlotName(shortJobName))
+	require.Equal(t, defaultPublicationPrefix+shortJobName, GetDefaultPublicationName(shortJobName))
+
+	longJobNameA := "test_nullable_sc_ch_replident_full_pgchcl_xdewih2p"
+	longJobNameB := "test_nullable_sc_ch_replident_full_pgchcl_vzqtozn8"
+
+	slotNameA := GetDefaultSlotName(longJobNameA)
+	slotNameB := GetDefaultSlotName(longJobNameB)
+	pubNameA := GetDefaultPublicationName(longJobNameA)
+	pubNameB := GetDefaultPublicationName(longJobNameB)
+
+	require.LessOrEqual(t, len(slotNameA), maxPostgresIdentifierLength)
+	require.LessOrEqual(t, len(slotNameB), maxPostgresIdentifierLength)
+	require.LessOrEqual(t, len(pubNameA), maxPostgresIdentifierLength)
+	require.LessOrEqual(t, len(pubNameB), maxPostgresIdentifierLength)
+
+	require.NotEqual(t, slotNameA, slotNameB)
+	require.NotEqual(t, pubNameA, pubNameB)
+}

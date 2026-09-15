@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -885,14 +886,34 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, err
 	return NullableLSN{LSN: lsn}, nil
 }
 
-const DefaultSlotPrefix = "peerflow_slot_"
+const (
+	DefaultSlotPrefix           = "peerflow_slot_"
+	defaultPublicationPrefix    = "peerflow_pub_"
+	maxPostgresIdentifierLength = 63
+)
+
+func getDefaultReplicationName(prefix string, jobName string) string {
+	name := prefix + jobName
+	if len(name) <= maxPostgresIdentifierLength {
+		return name
+	}
+
+	hash := sha1.Sum([]byte(jobName))
+	hashSuffix := fmt.Sprintf("_%x", hash[:4])
+	maxJobNameLength := maxPostgresIdentifierLength - len(prefix) - len(hashSuffix)
+	if maxJobNameLength <= 0 {
+		return prefix[:maxPostgresIdentifierLength-len(hashSuffix)] + hashSuffix
+	}
+
+	return prefix + jobName[:maxJobNameLength] + hashSuffix
+}
 
 func GetDefaultSlotName(jobName string) string {
-	return DefaultSlotPrefix + jobName
+	return getDefaultReplicationName(DefaultSlotPrefix, jobName)
 }
 
 func GetDefaultPublicationName(jobName string) string {
-	return "peerflow_pub_" + jobName
+	return getDefaultReplicationName(defaultPublicationPrefix, jobName)
 }
 
 func (c *PostgresConnector) checkIfTableExistsWithTx(
