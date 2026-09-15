@@ -105,11 +105,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	pullStartedAt := time.Now()
 	var pulledRecords int64
 	var bytesProcessed int64
-	signaledNotEmpty := false
 	defer func() {
-		if !signaledNotEmpty {
-			req.Stream.SignalAsEmpty()
-		}
 		logger.Info("[bigquery] PullTableRecords finished",
 			slog.String("table", req.SourceTableIdentifier),
 			slog.Int64("records", pulledRecords),
@@ -166,10 +162,6 @@ func (c *BigQueryConnector) PullTableRecords(
 		err := req.Stream.AddRecord(addCtx, record)
 		if err != nil {
 			return err
-		}
-		if !signaledNotEmpty {
-			signaledNotEmpty = true
-			req.Stream.SignalAsNotEmpty()
 		}
 		pulledRecords++
 		if pulledRecords%pullTableProgressLogInterval == 0 {
