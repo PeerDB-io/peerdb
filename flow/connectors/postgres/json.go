@@ -134,7 +134,7 @@ func convertWithRelaxedNumbers(input []byte, sizeHint int) (preMarshalledJson, e
 			if err == io.EOF {
 				break
 			}
-			return reencodeWithRelaxedNumbers(bytes.NewReader(input), sizeHint)
+			return reencodeWithRelaxedNumbers(bytes.NewBuffer(input), sizeHint)
 		}
 
 		// Check if the token is a number.
@@ -150,7 +150,7 @@ func convertWithRelaxedNumbers(input []byte, sizeHint int) (preMarshalledJson, e
 
 				// It's possible this is the first time we're writing to `out`. Do the first
 				// alloc if it hasn't been done yet.
-				if out.Available() < sizeHint {
+				if readSoFar == 0 {
 					out.Grow(sizeHint)
 				}
 
