@@ -222,7 +222,10 @@ func typedCDCRow(
 		}
 		row = append(row, val)
 	}
-	row = append(row, types.QValueInt64{Val: isDeleted}, types.QValueInt64{Val: time.Now().UnixNano()})
+	row = append(row,
+		types.QValueInt64{Val: isDeleted},
+		types.QValueInt64{Val: record.GetCommitTime().UnixNano()},
+	)
 	if len(row) != len(schema.Fields) {
 		return nil, fmt.Errorf("typed CDC row has %d values for a %d-field schema", len(row), len(schema.Fields))
 	}
