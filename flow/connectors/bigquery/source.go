@@ -16,10 +16,9 @@ import (
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
-	disableStorageReadAPI := cfg.GetBigqueryCdcConfig().GetDisableStorageReadApi()
 
 	var storageReadClient *storageapi.BigQueryReadClient
-	if !snapshotOnly && !disableStorageReadAPI {
+	if !snapshotOnly {
 		var err error
 		storageReadClient, err = storageapi.NewBigQueryReadClient(
 			ctx,
@@ -34,15 +33,14 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	sourceConfig := bqvalidate.SourceConfig{
-		Client:                c.client,
-		StorageClient:         c.storageClient,
-		StorageReadClient:     storageReadClient,
-		ProjectID:             c.projectID,
-		DefaultDataset:        c.datasetID,
-		HasSnapshot:           cfg.DoInitialSnapshot,
-		SnapshotOnly:          snapshotOnly,
-		SnapshotStagingPath:   cfg.SnapshotStagingPath,
-		DisableStorageReadApi: disableStorageReadAPI,
+		Client:              c.client,
+		StorageClient:       c.storageClient,
+		StorageReadClient:   storageReadClient,
+		ProjectID:           c.projectID,
+		DefaultDataset:      c.datasetID,
+		HasSnapshot:         cfg.DoInitialSnapshot,
+		SnapshotOnly:        snapshotOnly,
+		SnapshotStagingPath: cfg.SnapshotStagingPath,
 	}
 	if !snapshotOnly {
 		switch cfg.GetBigqueryCdcConfig().GetReplicationMethod() {
