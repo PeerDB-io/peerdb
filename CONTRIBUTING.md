@@ -27,8 +27,8 @@ are implied by every tag rather than having tags of their own.
 
 Files without a constraint are unit tests and run with a plain `go test ./...`.
 They need no source database and no ClickHouse. Some of them do read PeerDB's
-dynamic settings, which go through the catalog, so CI's `unit_tests` job
-provides a migrated catalog and nothing else. Files with a constraint are compiled only when the tag
+dynamic settings, which go through the catalog, so CI's `unit_tests` job runs
+them on the Tilt stack with no ancillary services enabled. Files with a constraint are compiled only when the tag
 is passed, so a bare `go test ./e2e/` finds no tests. Pass the tags for the
 resources you have running, for example:
 

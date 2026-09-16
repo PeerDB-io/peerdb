@@ -39,69 +39,21 @@ jobs:
         run: echo "Run approved for ${{ github.event_name }}."
 
   # Unit tests: everything not gated behind a resource build tag (see
-  # CONTRIBUTING.md, "Test selection with build tags"). They need no source
-  # databases and no ClickHouse, only the catalog, which PeerDB's dynamic
-  # settings lookups read from.
+  # CONTRIBUTING.md, "Test selection with build tags"). Runs on the same Tilt
+  # stack as the e2e jobs, with no build tags and no ancillary services: the
+  # core stack already provides the migrated catalog that dynamic settings
+  # lookups (and the goose bootstrap test) need. Runs in parallel with
+  # flow_test so the stack start-up does not add to the critical path.
   unit_tests:
     needs: [gate]
-    runs-on: ubuntu-latest-16-cores
-    timeout-minutes: 30
-    services:
-      catalog:
-        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
-        ports:
-          - 5432:5432
-        env:
-          PGUSER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      PEERDB_CATALOG_HOST: localhost
-      PEERDB_CATALOG_PORT: 5432
-      PEERDB_CATALOG_USER: postgres
-      PEERDB_CATALOG_PASSWORD: postgres
-      PEERDB_CATALOG_DATABASE: postgres
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-          # checkout refuses fork code under pull_request_target unless opted in;
-          # the gate job's external-contributor environment is the human review.
-          allow-unsafe-pr-checkout: true
-
-      - name: generate or hydrate protos
-        uses: ./.github/actions/genprotos
-
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.27.1'
-          cache-dependency-path: |
-            flow/go.sum
-            flow/pkg/go.sum
-
-      - name: install lib-geos
-        run: |
-          sudo apt-get remove --purge man-db
-          sudo apt-get update
-          sudo apt-get install -y libgeos-dev
-
-      - name: Run catalog migrations
-        working-directory: ./flow
-        run: go run . migrate
-
-      # No -tags: only the untagged (unit) test files compile. flow/pkg is a
-      # nested module, so ./... from flow does not include it.
-      - name: Run unit tests
-        working-directory: ./flow
-        run: |
-          go test -count=1 -p 32 -timeout 600s ./...
-          (cd pkg && go test -count=1 -p 32 -timeout 300s ./...)
+    uses: ./.github/workflows/tilt-flow.yml
+    with:
+      build_tags: ''
+      test_matcher: ''
+      ancillary_services: ''
+      checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+      run_label: unit
+    secrets: inherit
 
   # One job per (source, ClickHouse version). The source picks the build tags,
   # which select the e2e/integration test files that compile (see
@@ -110,7 +62,7 @@ jobs:
   # (the API suites use it whatever the source) and the ClickHouse destination.
   flow_test:
     name: flow_test (${{ matrix.source }}, ch-${{ matrix.db-version.ch }}, pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, crdb-${{ matrix.db-version.crdb }})
-    needs: [gate, unit_tests]
+    needs: [gate]
     strategy:
       fail-fast: false
       matrix:

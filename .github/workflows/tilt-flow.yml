@@ -32,6 +32,8 @@ on:
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
+          Leave empty to start none: the core PeerDB stack (catalog included)
+          still comes up, which is all the untagged unit tests need.
         type: string
         required: false
         default: postgres clickhouse
@@ -335,8 +337,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ANCILLARY_SERVICES// /}" ]; then
-            echo "::error::No ancillary services specified."
-            exit 1
+            echo "No ancillary services requested; running against the core stack only."
+            exit 0
           fi
 
           echo "Enabling ancillary services: $ANCILLARY_SERVICES"
