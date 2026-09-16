@@ -346,24 +346,26 @@ def e2e_test(name, tags, test_run, extra_deps=[], vars_overrides={}):
         allow_parallel=True,
     )
 
-def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_run=''):
+# Connector and pkg module tests run the package's unit tests plus the
+# integration tests gated behind `tags` (same tag vocabulary as e2e_test).
+def connector_test(connector, tags, extra_deps=[], vars_overrides={}, name='', test_run=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'connector_' + (name or connector),
-        cmd='cd flow && %s go test -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
+        cmd='cd flow && %s go test -count=1 -v -tags %s%s ./connectors/%s/...' % (overrides_str, tags.replace(' ', ','), test_run_arg, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
         allow_parallel=True,
     )
 
-def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
+def pkg_test(pkg, tags, extra_deps=[], vars_overrides={}, test_run=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'pkg_' + pkg,
-        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        cmd='cd flow/pkg && %s go test -count=1 -v -tags %s%s ./%s/...' % (overrides_str, tags.replace(' ', ','), test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
         resource_deps=extra_deps,
@@ -409,7 +411,7 @@ e2e_test('mongodb', 'mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb']
 
 # CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
 e2e_test('cockroachdb', 'cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
-connector_test('cockroachdb', ['provision-cockroachdb'])
+connector_test('cockroachdb', 'cockroachdb', ['provision-cockroachdb'])
 
 # Switchboard tests
 
@@ -441,18 +443,18 @@ e2e_test('api-mongodb', 'mongodb', 'TestApiMongo', ['provision-mongodb'])
 
 # Connectors tests
 
-connector_test('postgres', ['provision-postgres'])
+connector_test('postgres', 'postgres', ['provision-postgres'])
 
-connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
+connector_test('mysql', 'mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', 'mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', 'mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
 
-connector_test('mongo', ['provision-mongodb'])
+connector_test('mongo', 'mongodb', ['provision-mongodb'])
 
-connector_test('clickhouse', ['provision-clickhouse'])
+connector_test('clickhouse', 'clickhouse', ['provision-clickhouse'])
 
 # flow/pkg module tests
 
-pkg_test('mongo', ['provision-mongodb'])
+pkg_test('mongo', 'mongodb', ['provision-mongodb'])
 
-pkg_test('clickhouse', ['provision-clickhouse'])
+pkg_test('clickhouse', 'clickhouse', ['provision-clickhouse'])
