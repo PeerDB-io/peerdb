@@ -3,7 +3,6 @@ package structured
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -16,7 +15,6 @@ type MalformedReason int
 const (
 	ReasonUnexpected MalformedReason = iota
 	ReasonTypeMismatch
-	ReasonNaN
 	ReasonDuplicatedFields
 )
 
@@ -26,8 +24,6 @@ func (r MalformedReason) String() string {
 		return "unexpected_field"
 	case ReasonTypeMismatch:
 		return "type_mismatch"
-	case ReasonNaN:
-		return "not_a_number"
 	case ReasonDuplicatedFields:
 		return "duplicated_fields"
 	default:
@@ -84,20 +80,14 @@ func (m *MalformedData) MarshalJSON() ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("malformed field %q has a value but no reason", name)
 		}
-		// encoded from the Go value: nulls become JSON null, QValueJSON stays a (quoted) string
 		var jsonValue any
 		if value != nil {
 			jsonValue = value.Value()
 		}
-		if isJSONRepresentable(jsonValue) {
-			marshaledValue, err := json.Marshal(jsonValue)
-			if err != nil {
-				field["value"] = fmt.Sprintf("%v", jsonValue)
-			} else {
-				field["value"] = json.RawMessage(marshaledValue)
-			}
+		if marshaledValue, err := json.Marshal(jsonValue); err != nil {
+			field["value"] = fmt.Sprintf("%v", jsonValue)
 		} else {
-			fields[name] = map[string]any{ReasonNaN.String(): true}
+			field["value"] = json.RawMessage(marshaledValue)
 		}
 	}
 	return json.Marshal(fields)
@@ -118,20 +108,5 @@ func MalformedDataFieldDescription() *protos.FieldDescription {
 		Type:         string(types.QValueKindJSON),
 		TypeModifier: -1,
 		Nullable:     true,
-	}
-}
-
-// isJSONRepresentable reports whether v can be encoded by encoding/json, which rejects NaN and ±Inf floats.
-func isJSONRepresentable(v any) bool {
-	validateFloat := func(f float64) bool {
-		return !math.IsNaN(f) && !math.IsInf(f, 0)
-	}
-	switch f := v.(type) {
-	case float64:
-		return validateFloat(f)
-	case float32:
-		return validateFloat(float64(f))
-	default:
-		return true
 	}
 }
