@@ -1,3 +1,5 @@
+//go:build mongodb
+
 package e2e
 
 import (

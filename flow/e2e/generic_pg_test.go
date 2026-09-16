@@ -1,3 +1,5 @@
+//go:build postgres
+
 package e2e
 
 import (
