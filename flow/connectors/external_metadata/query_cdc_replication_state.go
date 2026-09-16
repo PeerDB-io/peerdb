@@ -100,15 +100,16 @@ func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	return nil
 }
 
-// RecordQueryCDCAttempt records when a poll starts. SetupReplication creates
-// the state row before query CDC starts, so this is intentionally an update.
+// RecordQueryCDCAttempt records that a poll attempt for this table
+// started at attemptedAt, creating the row if this is the table's first poll.
 func (p *PostgresMetadata) RecordQueryCDCAttempt(
 	ctx context.Context, jobName string, sourceTableIdentifier string, attemptedAt time.Time,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
-		UPDATE `+queryCDCReplicationStateTableName+`
-		SET last_attempt_at = $3, updated_at = now()
-		WHERE flow_name = $1 AND source_table_identifier = $2
+		INSERT INTO `+queryCDCReplicationStateTableName+` (flow_name, source_table_identifier, last_attempt_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (flow_name, source_table_identifier)
+		DO UPDATE SET last_attempt_at = excluded.last_attempt_at, updated_at = now()
 	`, jobName, sourceTableIdentifier, attemptedAt); err != nil {
 		p.logger.Error("failed to record table replication attempt", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication attempt for %s: %w", sourceTableIdentifier, err)
