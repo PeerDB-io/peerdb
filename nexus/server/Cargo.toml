@@ -2,7 +2,13 @@
 name = "peerdb-server"
 version = "0.1.0"
 edition = "2024"
+autobins = false
 authors = ["PeerDB <copyright@peerdb.io>"]
+
+# Select the full server or migration-only entry point based on enabled features.
+[[bin]]
+name = "peerdb-server"
+path = "src/entrypoint.rs"
 
 [package.metadata.deb]
 revision = ""
@@ -30,43 +36,65 @@ assets = [
 
 
 [features]
-default = ["tls", "aws"]
-bigquery = ["dep:peer-bigquery"]
-mysql = ["dep:peer-mysql"]
-snowflake = ["dep:peer-snowflake"]
-tls = ["dep:tokio-rustls", "dep:rustls-pemfile", "dep:rustls-pki-types"]
-aws = ["catalog/aws"]
+default = ["server", "tls", "aws"]
+# Without server, the same binary only runs catalog migrations.
+server = [
+  "dep:analyzer",
+  "dep:async-trait",
+  "dep:bytes",
+  "dep:dashmap",
+  "dep:flow-rs",
+  "dep:futures",
+  "dep:peer-cursor",
+  "dep:peer-postgres",
+  "dep:query-router",
+  "dep:pgwire",
+  "dep:pt",
+  "dep:sqlparser",
+  "dep:serde_json",
+  "dep:rand",
+  "dep:tracing-appender",
+  "dep:uuid",
+  "catalog/server",
+  "tokio/full",
+]
+bigquery = ["server", "dep:peer-bigquery"]
+mysql = ["server", "dep:peer-mysql"]
+snowflake = ["server", "dep:peer-snowflake"]
+tls = ["server", "dep:tokio-rustls", "dep:rustls-pemfile", "dep:rustls-pki-types"]
+aws = ["server", "catalog/aws"]
 
 [dependencies]
-analyzer = { path = "../analyzer" }
+analyzer = { path = "../analyzer", optional = true }
 anyhow = "1"
-async-trait = "0.1"
-bytes = "1.0"
+async-trait = { version = "0.1", optional = true }
+bytes = { version = "1.0", optional = true }
 catalog = { path = "../catalog", default-features = false }
 clap = { version = "4.0", features = ["derive", "env"] }
-dashmap.workspace = true
+dashmap = { workspace = true, optional = true }
 dotenvy = "0.15.7"
-flow-rs = { path = "../flow-rs" }
-futures = { version = "0.3.28", features = ["executor"] }
+flow-rs = { path = "../flow-rs", optional = true }
+futures = { version = "0.3.28", features = ["executor"], optional = true }
 peer-bigquery = { path = "../peer-bigquery", optional = true }
-peer-cursor = { path = "../peer-cursor" }
+peer-cursor = { path = "../peer-cursor", optional = true }
 peer-mysql = { path = "../peer-mysql", optional = true }
-peer-postgres = { path = "../peer-postgres" }
+peer-postgres = { path = "../peer-postgres", optional = true }
 peer-snowflake = { path = "../peer-snowflake", optional = true }
-query-router = { path = "../query-router" }
-pgwire.workspace = true
-pt = { path = "../pt" }
-sqlparser = { workspace = true, features = ["visitor"] }
-serde_json = "1.0"
-rand = "0.10"
+query-router = { path = "../query-router", optional = true }
+pgwire = { workspace = true, optional = true }
+pt = { path = "../pt", optional = true }
+sqlparser = { workspace = true, features = ["visitor"], optional = true }
+serde_json = { version = "1.0", optional = true }
+rand = { version = "0.10", optional = true }
 rustls-pemfile = { version = "2.0", optional = true }
 rustls-pki-types = { version = "1.0", optional = true }
-tokio.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio-postgres = "0.7.6"
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
 tracing.workspace = true
-tracing-appender = "0.2"
+tracing-appender = { version = "0.2", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = "1"
+uuid = { version = "1", optional = true }
 
 [dev-dependencies]
 postgres = "0.19.10"

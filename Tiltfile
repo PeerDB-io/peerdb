@@ -14,6 +14,7 @@ def resolve_ancillary_env(var_name, default=None):
             return line.strip().split('=', 1)[1]
     return default
 
+ci = os.getenv('PEERDB_CI') == '1'
 docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
@@ -53,6 +54,7 @@ docker_build('flow-snapshot-worker', '.',
 
 docker_build('peerdb', '.',
     dockerfile='stacks/peerdb-server.Dockerfile',
+    target='migrations' if ci else 'server',
     only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
     build_args={
         'BUILD_MODE': 'debug',
