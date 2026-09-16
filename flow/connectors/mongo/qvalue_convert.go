@@ -27,23 +27,12 @@ type BsonToQValueConverter interface {
 	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
 
 	// QValueFromBsonValue converts any BSON value to the QValue prescribed by the type mapping above,
-	// dispatching on the BSON type to the per-type converters below. BSON null (and a missing value)
-	// yields a QValueNull of nullKind, the kind of the destination column.
+	// dispatching on the BSON type. BSON null (and a missing value) yields a QValueNull of nullKind,
+	// the kind of the destination column.
 	QValueFromBsonValue(v bson.RawValue, nullKind types.QValueKind) (types.QValue, error)
 
 	QValueStringFromObjectID(oid bson.ObjectID) types.QValueString
 	QValueStringFromString(s string) types.QValueString
-	QValueInt64FromInt32(i int32) types.QValueInt64
-	QValueInt64FromInt64(i int64) types.QValueInt64
-	QValueFloat64FromDouble(f float64) types.QValueFloat64
-	QValueBooleanFromBoolean(b bool) types.QValueBoolean
-	QValueStringFromDateTime(t time.Time) types.QValueString
-	QValueJSONFromRegex(pattern string, options string) types.QValueJSON
-	QValueJSONFromTimestamp(t uint32, i uint32) types.QValueJSON
-	QValueStringFromDecimal128(d bson.Decimal128) types.QValueString
-	QValueJSONFromBinary(subtype byte, data []byte) types.QValueJSON
-	QValueStringFromJavaScript(code string) types.QValueString
-	QValueNullFromNull(kind types.QValueKind) types.QValueNull
 }
 
 // DirectBsonConverter converts BSON directly to JSON string without intermediate deserialization,
@@ -95,12 +84,12 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 
 func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind types.QValueKind) (types.QValue, error) {
 	if rv.IsZero() {
-		return c.QValueNullFromNull(nullKind), nil
+		return types.QValueNull(nullKind), nil
 	}
 	v := bsoncore.Value{Type: bsoncore.Type(rv.Type), Data: rv.Value}
 	switch v.Type {
 	case bsoncore.TypeDouble:
-		return c.QValueFloat64FromDouble(v.Double()), nil
+		return types.QValueFloat64{Val: v.Double()}, nil
 
 	case bsoncore.TypeString:
 		return c.QValueStringFromString(v.StringValue()), nil
@@ -115,44 +104,50 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 
 	case bsoncore.TypeBinary:
 		subtype, data := v.Binary()
-		return c.QValueJSONFromBinary(subtype, data), nil
+		c.stream.Reset(nil)
+		writeBinaryJSON(c.stream, subtype, data)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeObjectID:
 		return c.QValueStringFromObjectID(v.ObjectID()), nil
 
 	case bsoncore.TypeBoolean:
-		return c.QValueBooleanFromBoolean(v.Boolean()), nil
+		return types.QValueBoolean{Val: v.Boolean()}, nil
 
 	case bsoncore.TypeDateTime:
-		return c.QValueStringFromDateTime(v.Time()), nil
+		return types.QValueString{Val: v.Time().UTC().Format(time.RFC3339Nano)}, nil
 
 	case bsoncore.TypeNull:
-		return c.QValueNullFromNull(nullKind), nil
+		return types.QValueNull(nullKind), nil
 
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()
-		return c.QValueJSONFromRegex(pattern, options), nil
+		c.stream.Reset(nil)
+		writeRegexJSON(c.stream, pattern, options)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeJavaScript:
 		// Code is interpreted as a string.
-		return c.QValueStringFromJavaScript(v.JavaScript()), nil
+		return types.QValueString{Val: v.JavaScript()}, nil
 
 	case bsoncore.TypeSymbol: // deprecated type, kept for backwards-compatibility
 		return c.QValueStringFromString(v.Symbol()), nil
 
 	case bsoncore.TypeInt32:
-		return c.QValueInt64FromInt32(v.Int32()), nil
+		return types.QValueInt64{Val: int64(v.Int32())}, nil
 
 	case bsoncore.TypeTimestamp:
 		t, i := v.Timestamp()
-		return c.QValueJSONFromTimestamp(t, i), nil
+		c.stream.Reset(nil)
+		writeTimestampJSON(c.stream, t, i)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeInt64:
-		return c.QValueInt64FromInt64(v.Int64()), nil
+		return types.QValueInt64{Val: v.Int64()}, nil
 
 	case bsoncore.TypeDecimal128:
 		h, l := v.Decimal128()
-		return c.QValueStringFromDecimal128(bson.NewDecimal128(h, l)), nil
+		return types.QValueString{Val: bson.NewDecimal128(h, l).String()}, nil
 
 	default:
 		// Undefined, MinKey, MaxKey, DBPointer and CodeWithScope are deprecated and not part of the documented
@@ -171,56 +166,6 @@ func (c *DirectBsonConverter) QValueStringFromObjectID(oid bson.ObjectID) types.
 
 func (c *DirectBsonConverter) QValueStringFromString(s string) types.QValueString {
 	return types.QValueString{Val: s}
-}
-
-func (c *DirectBsonConverter) QValueInt64FromInt32(i int32) types.QValueInt64 {
-	return types.QValueInt64{Val: int64(i)}
-}
-
-func (c *DirectBsonConverter) QValueInt64FromInt64(i int64) types.QValueInt64 {
-	return types.QValueInt64{Val: i}
-}
-
-func (c *DirectBsonConverter) QValueFloat64FromDouble(f float64) types.QValueFloat64 {
-	return types.QValueFloat64{Val: f}
-}
-
-func (c *DirectBsonConverter) QValueBooleanFromBoolean(b bool) types.QValueBoolean {
-	return types.QValueBoolean{Val: b}
-}
-
-func (c *DirectBsonConverter) QValueStringFromDateTime(t time.Time) types.QValueString {
-	return types.QValueString{Val: t.UTC().Format(time.RFC3339Nano)}
-}
-
-func (c *DirectBsonConverter) QValueJSONFromRegex(pattern string, options string) types.QValueJSON {
-	c.stream.Reset(nil)
-	writeRegexJSON(c.stream, pattern, options)
-	return types.QValueJSON{Val: string(c.stream.Buffer())}
-}
-
-func (c *DirectBsonConverter) QValueJSONFromTimestamp(t uint32, i uint32) types.QValueJSON {
-	c.stream.Reset(nil)
-	writeTimestampJSON(c.stream, t, i)
-	return types.QValueJSON{Val: string(c.stream.Buffer())}
-}
-
-func (c *DirectBsonConverter) QValueStringFromDecimal128(d bson.Decimal128) types.QValueString {
-	return types.QValueString{Val: d.String()}
-}
-
-func (c *DirectBsonConverter) QValueJSONFromBinary(subtype byte, data []byte) types.QValueJSON {
-	c.stream.Reset(nil)
-	writeBinaryJSON(c.stream, subtype, data)
-	return types.QValueJSON{Val: string(c.stream.Buffer())}
-}
-
-func (c *DirectBsonConverter) QValueStringFromJavaScript(code string) types.QValueString {
-	return types.QValueString{Val: code}
-}
-
-func (c *DirectBsonConverter) QValueNullFromNull(kind types.QValueKind) types.QValueNull {
-	return types.QValueNull(kind)
 }
 
 func rawDocToJSON(doc bsoncore.Document, stream *jsoniter.Stream) error {
