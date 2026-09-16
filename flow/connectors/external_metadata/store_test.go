@@ -37,11 +37,12 @@ func TestInitializeQueryCDCReplicationState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "snapshot-checkpoint", state.CursorText)
 
-	// A successful sync advances its cursor and poll timestamps atomically.
+	// Attempts and successful syncs advance their respective timestamps.
 	attemptedAt := time.Now().UTC().Truncate(time.Microsecond)
 	syncedAt := attemptedAt.Add(time.Second)
+	require.NoError(t, metadata.RecordQueryCDCAttempt(ctx, flowName, firstTable, attemptedAt))
 	require.NoError(t, metadata.RecordQueryCDCSync(
-		ctx, flowName, firstTable, "next-checkpoint", attemptedAt, syncedAt, 0,
+		ctx, flowName, firstTable, "next-checkpoint", syncedAt, 0,
 	))
 	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
 	require.NoError(t, err)

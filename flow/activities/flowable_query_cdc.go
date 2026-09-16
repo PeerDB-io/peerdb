@@ -144,12 +144,12 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once syncInterval has
-// passed since its last successful poll started.
-func queryCDCPollWait(lastAttemptAt time.Time, now time.Time, syncInterval time.Duration) time.Duration {
-	if lastAttemptAt.IsZero() {
+// passed since its last successful poll completed.
+func queryCDCPollWait(lastSyncedAt time.Time, now time.Time, syncInterval time.Duration) time.Duration {
+	if lastSyncedAt.IsZero() {
 		return 0
 	}
-	nextPollAt := lastAttemptAt.Add(syncInterval)
+	nextPollAt := lastSyncedAt.Add(syncInterval)
 	if !nextPollAt.After(now) {
 		return 0
 	}
@@ -262,7 +262,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			continue
 		}
 
-		if wait := queryCDCPollWait(state.LastAttemptAt, time.Now(), syncInterval); wait > 0 {
+		if wait := queryCDCPollWait(state.LastSyncedAt, time.Now(), syncInterval); wait > 0 {
 			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
@@ -274,7 +274,6 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		var pullResult model.PullTableRecordsResult
 		var rowCounts *model.RecordTypeCounts
-		var attemptedAt time.Time
 		pollErr, fatalErr := func() (error, error) {
 			// bounded parallelism: only pull+sync for up to parallelism tables at once
 			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
@@ -283,8 +282,10 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			}
 			defer release()
 
-			attemptedAt = time.Now()
 			logger.Info("[cdc] starting poll")
+			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
+				return nil, err
+			}
 
 			pollGroup, pollCtx := errgroup.WithContext(ctx)
 			pollGroup.Go(func() error {
@@ -378,7 +379,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			newBatchID = nextBatchID
 		}
 		if err := pgMetadata.RecordQueryCDCSync(
-			ctx, flowName, sourceTable, pullResult.NextCursor, attemptedAt, time.Now(), newBatchID,
+			ctx, flowName, sourceTable, pullResult.NextCursor, time.Now(), newBatchID,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}

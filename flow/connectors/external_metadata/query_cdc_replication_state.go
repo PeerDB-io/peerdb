@@ -25,8 +25,9 @@ type QueryCDCReplicationState struct {
 	// CursorText is the opaque cursor last returned by PullTableRecords for
 	// this table, empty if this table has never been synced.
 	CursorText string
-	// LastAttemptAt is when the last successful poll for this table started,
-	// zero if no poll has completed successfully.
+	// LastAttemptAt is when the latest poll attempt for this table started,
+	// whether or not it completed successfully. It is informational and does
+	// not control poll scheduling.
 	LastAttemptAt time.Time
 	// LastSyncedAt is when this table last completed a poll successfully,
 	// zero if never synced.
@@ -99,25 +100,38 @@ func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	return nil
 }
 
+// RecordQueryCDCAttempt records when a poll starts. SetupReplication creates
+// the state row before query CDC starts, so this is intentionally an update.
+func (p *PostgresMetadata) RecordQueryCDCAttempt(
+	ctx context.Context, jobName string, sourceTableIdentifier string, attemptedAt time.Time,
+) error {
+	if _, err := p.pool.Exec(ctx, `
+		UPDATE `+queryCDCReplicationStateTableName+`
+		SET last_attempt_at = $3, updated_at = now()
+		WHERE flow_name = $1 AND source_table_identifier = $2
+	`, jobName, sourceTableIdentifier, attemptedAt); err != nil {
+		p.logger.Error("failed to record table replication attempt", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
+		return fmt.Errorf("failed to record table replication attempt for %s: %w", sourceTableIdentifier, err)
+	}
+	return nil
+}
+
 // RecordQueryCDCSync updates a table's state with its new cursor and, if
 // newBatchID is non-zero, advances its synced_batch_id after a
 // successful poll that produced records staged for normalize. newBatchID is zero for a poll that
-// found nothing new; the cursor and successful attempt time still advance but
-// there's no batch to normalize. Recording the attempt in the same update as
-// the checkpoint lets a worker restart immediately after an interrupted poll.
+// found nothing new; the cursor and successful sync time still advance but
+// there's no batch to normalize.
 func (p *PostgresMetadata) RecordQueryCDCSync(
-	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string,
-	attemptedAt time.Time, syncedAt time.Time, newBatchID int64,
+	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string, syncedAt time.Time, newBatchID int64,
 ) error {
 	if _, err := p.pool.Exec(ctx, `
 		UPDATE `+queryCDCReplicationStateTableName+`
 		SET cursor_text = $3,
-			last_attempt_at = $4,
-			last_synced_at = $5,
-			synced_batch_id = GREATEST(synced_batch_id, $6),
+			last_synced_at = $4,
+			synced_batch_id = GREATEST(synced_batch_id, $5),
 			updated_at = now()
 		WHERE flow_name = $1 AND source_table_identifier = $2
-	`, jobName, sourceTableIdentifier, cursor, attemptedAt, syncedAt, newBatchID); err != nil {
+	`, jobName, sourceTableIdentifier, cursor, syncedAt, newBatchID); err != nil {
 		p.logger.Error("failed to record table replication sync", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication sync for %s: %w", sourceTableIdentifier, err)
 	}
