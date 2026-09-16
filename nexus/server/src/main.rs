@@ -66,6 +66,7 @@ use {
     tokio_rustls::rustls::ServerConfig,
 };
 
+#[path = "cursor.rs"]
 mod cursor;
 
 #[derive(Debug)]

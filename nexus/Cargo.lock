@@ -2668,6 +2668,7 @@ dependencies = [
  "similar",
  "sqlparser",
  "tokio",
+ "tokio-postgres",
  "tokio-rustls",
  "tracing",
  "tracing-appender",
