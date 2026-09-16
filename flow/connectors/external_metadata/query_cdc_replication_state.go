@@ -116,11 +116,12 @@ func (p *PostgresMetadata) RecordQueryCDCAttempt(
 	return nil
 }
 
-// RecordQueryCDCSync updates a table's state with its new cursor and, if
-// newBatchID is non-zero, advances its synced_batch_id after a
-// successful poll that produced records staged for normalize. newBatchID is zero for a poll that
-// found nothing new; the cursor and successful sync time still advance but
-// there's no batch to normalize.
+// RecordQueryCDCSync persists a table's new cursor and, if newBatchID
+// is non-zero, advances its synced_batch_id after a successful poll that
+// produced records staged for normalize. newBatchID is zero for a poll that
+// found nothing new; the cursor still advances but there's no batch to
+// normalize. The state row always exists by now, RecordQueryCDCAttempt
+// created it before the poll started.
 func (p *PostgresMetadata) RecordQueryCDCSync(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string, syncedAt time.Time, newBatchID int64,
 ) error {
