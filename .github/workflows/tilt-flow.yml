@@ -295,8 +295,20 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          nohup tilt up --port "$TILT_PORT" --stream=true > "$RUNNER_TEMP/tilt-up.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/tilt.pid"
+          # Retain timestamped startup output until initialization finishes.
+          rm -f "$RUNNER_TEMP/tilt-startup-complete"
+          nohup bash -o pipefail -c '
+            export TZ=UTC
+            tilt up --port "$TILT_PORT" --stream=true --log-source=all 2>&1 |
+              while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ -e "$RUNNER_TEMP/tilt-startup-complete" ]]; then
+                  # Keep draining so Tilt cannot block or get a broken pipe.
+                  cat >/dev/null
+                  break
+                fi
+                printf "[%(%Y-%m-%dT%H:%M:%SZ)T] %s\n" -1 "$line"
+              done
+          ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
           for i in $(seq 1 60); do
@@ -306,7 +318,7 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "::error::Tilt API did not become reachable."
-              cat "$RUNNER_TEMP/tilt-up.log" || true
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
               exit 1
             fi
             sleep 2
@@ -315,7 +327,7 @@ jobs:
           echo "Waiting for the Tiltfile evaluation to complete..."
           if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
             echo "::error::Tiltfile evaluation did not complete."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
 
@@ -446,10 +458,22 @@ jobs:
 
           if [ "$rc" -ne 0 ]; then
             echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
           echo "Core PeerDB services are up."
+
+      - name: Stop capturing Tilt startup logs
+        if: always()
+        run: touch "$RUNNER_TEMP/tilt-startup-complete"
+
+      - name: Upload Tilt startup log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tilt-startup-${{ steps.run-identity.outputs.suffix }}
+          path: ${{ runner.temp }}/tilt-startup.log
+          retention-days: 30
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
