@@ -144,12 +144,23 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once syncInterval has
-// passed since its last successful poll completed.
-func queryCDCPollWait(lastSyncedAt time.Time, now time.Time, syncInterval time.Duration) time.Duration {
+// passed since its last successful poll started. LastSyncedAt distinguishes a
+// completed attempt from a newer failed or interrupted one, which is due now.
+func queryCDCPollWait(
+	lastAttemptAt time.Time, lastSyncedAt time.Time, now time.Time, syncInterval time.Duration,
+) time.Duration {
 	if lastSyncedAt.IsZero() {
 		return 0
 	}
-	nextPollAt := lastSyncedAt.Add(syncInterval)
+	if lastAttemptAt.After(lastSyncedAt) {
+		return 0
+	}
+	// State written before last_attempt_at was introduced still has a valid
+	// successful-sync timestamp. Preserve its completion-based cadence once.
+	if lastAttemptAt.IsZero() {
+		lastAttemptAt = lastSyncedAt
+	}
+	nextPollAt := lastAttemptAt.Add(syncInterval)
 	if !nextPollAt.After(now) {
 		return 0
 	}
@@ -262,7 +273,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			continue
 		}
 
-		if wait := queryCDCPollWait(state.LastSyncedAt, time.Now(), syncInterval); wait > 0 {
+		if wait := queryCDCPollWait(
+			state.LastAttemptAt, state.LastSyncedAt, time.Now(), syncInterval,
+		); wait > 0 {
 			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
