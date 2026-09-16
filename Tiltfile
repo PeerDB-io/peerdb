@@ -15,7 +15,11 @@ def resolve_ancillary_env(var_name, default=None):
     return default
 
 ci = os.getenv('PEERDB_CI') == '1'
-docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
+compose = read_yaml('./docker-compose-dev.yml')
+if ci:
+    compose['services'].pop('peerdb-ui')
+
+docker_compose(encode_yaml(compose), project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
 temporal_port = resolve_env('TEMPORAL_PORT', '7233')
@@ -62,11 +66,12 @@ docker_build('peerdb', '.',
     },
 )
 
-docker_build('peerdb-ui', '.',
-    dockerfile='stacks/peerdb-ui.Dockerfile',
-    target='dev',
-    only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
-)
+if not ci:
+    docker_build('peerdb-ui', '.',
+        dockerfile='stacks/peerdb-ui.Dockerfile',
+        target='dev',
+        only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
+    )
 
 local_resource(
     'proto-gen',
@@ -75,9 +80,10 @@ local_resource(
     labels=['PeerDB'],
 )
 
-dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
-])
+if not ci:
+    dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
+        link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
+    ])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
