@@ -149,16 +149,13 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 func queryCDCPollWait(
 	lastAttemptAt time.Time, lastSyncedAt time.Time, now time.Time, syncInterval time.Duration,
 ) time.Duration {
-	if lastSyncedAt.IsZero() {
+	if lastAttemptAt.IsZero() || lastSyncedAt.IsZero() {
 		return 0
 	}
+	// lastAttemptAt > lastSyncedAt means that the last attempt has failed
+	// so, we don't need to wait before retry
 	if lastAttemptAt.After(lastSyncedAt) {
 		return 0
-	}
-	// State written before last_attempt_at was introduced still has a valid
-	// successful-sync timestamp. Preserve its completion-based cadence once.
-	if lastAttemptAt.IsZero() {
-		lastAttemptAt = lastSyncedAt
 	}
 	nextPollAt := lastAttemptAt.Add(syncInterval)
 	if !nextPollAt.After(now) {

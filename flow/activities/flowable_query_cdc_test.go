@@ -33,8 +33,8 @@ func TestQueryCDCPollWait(t *testing.T) {
 		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval))
 	})
 
-	t.Run("legacy state without attempt uses successful completion", func(t *testing.T) {
-		require.Equal(t, syncInterval, queryCDCPollWait(time.Time{}, now, now, syncInterval))
+	t.Run("state without attempt is due immediately", func(t *testing.T) {
+		require.Zero(t, queryCDCPollWait(time.Time{}, now, now, syncInterval))
 	})
 }
 
