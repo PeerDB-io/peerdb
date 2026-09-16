@@ -31,30 +31,41 @@ docker_go_debug_port_flow_snapshot_worker = resolve_env('DOCKER_GO_DEBUG_PORT_FL
 docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14003')
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
+# Build Flow images after proto-gen, independently of runtime dependencies.
+for service, debug_env in [
+    ('flow-api', 'DOCKER_GO_DEBUG_FLOW_API'),
+    ('flow-worker', 'DOCKER_GO_DEBUG_FLOW_WORKER'),
+    ('flow-snapshot-worker', 'DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER'),
+]:
+    debug_build = resolve_env(debug_env, '')
+    target = service + '-debug' if debug_build in ('1', 'true') else service
+    image_id_file = 'tmp/tilt-images/' + service + '.id'
+    build_cmd = [
+        'sh', 'scripts/build-image.sh', image_id_file,
+        '--file', 'stacks/flow.Dockerfile', '--target', target,
+        '--build-arg', 'DEBUG_BUILD=' + debug_build,
+    ]
+    if service == 'flow-api':
+        build_cmd += ['--build-arg', 'PEERDB_VERSION_SHA_SHORT=' + os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')]
 
-docker_build('flow-api', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    ignore=flow_ignore,
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
-)
-
-docker_build('flow-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
-    ignore=flow_ignore,
-)
-
-docker_build('flow-snapshot-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
-    ignore=flow_ignore,
-)
+    local_resource(service + '-build',
+        cmd=build_cmd,
+        deps=['flow/', 'stacks/flow.Dockerfile', 'stacks/flow.Dockerfile.dockerignore', 'scripts/build-image.sh'],
+        ignore=flow_ignore,
+        resource_deps=['proto-gen'],
+        allow_parallel=True,
+        labels=['PeerDB-Build'],
+    )
+    # Pass the built image to Tilt. Watching its ID also redeploys on source edits.
+    custom_build(service,
+        command='''
+            image_id=$(cat %s)
+            # Tilt supplies EXPECTED_REF: the image name and tag it will deploy.
+            docker tag "$image_id" "$EXPECTED_REF"
+        ''' % shlex.quote(image_id_file),
+        deps=[image_id_file],
+        disable_push=True,
+    )
 
 docker_build('peerdb', '.',
     dockerfile='stacks/peerdb-server.Dockerfile',
@@ -84,7 +95,7 @@ if not ci:
     dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
         link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
     ])
-dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
+dc_resource('flow-api', resource_deps=['flow-api-build'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
 ])
@@ -94,8 +105,8 @@ dc_resource('temporal-ui', labels=['PeerDB'], links=[
 dc_resource('catalog', labels=['PeerDB'])
 dc_resource('temporal', labels=['PeerDB'])
 dc_resource('temporal-admin-tools', labels=['PeerDB'])
-dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
+dc_resource('flow-worker', resource_deps=['flow-worker-build'], labels=['PeerDB'])
+dc_resource('flow-snapshot-worker', resource_deps=['flow-snapshot-worker-build'], labels=['PeerDB'])
 dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])
 
