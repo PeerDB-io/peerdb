@@ -29,6 +29,8 @@ payload=$(jq -n \
     "allowUpdate": true
   }')
 
+wait_for_flow_api
+
 echo "Creating mongodb peer..."
 call_api "POST" "/v1/peers/create" "$payload"
 echo "mongodb peer created successfully."
