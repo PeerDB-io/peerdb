@@ -260,8 +260,7 @@ jobs:
           sudo apt-get update
           # libgeos-dev: geometry support; retry: used by the test-results
           # ingestion composite action's upload backoff.
-          # moreutils: ts adds UTC timestamps to the saved Tilt build log.
-          sudo apt-get install -y libgeos-dev retry moreutils
+          sudo apt-get install -y libgeos-dev retry
           # pg_dump must be >= the server major version; install v18 so it
           # can dump PG 16, 17, and 18 (backward compatible).
           sudo apt-get install -y postgresql-client-18
@@ -293,11 +292,11 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          # Timestamp at emission time, so later log dumps retain startup timing.
+          rm -f "$RUNNER_TEMP/tilt-startup-complete"
           nohup bash -o pipefail -c '
-            tilt up --port "$TILT_PORT" --stream=true --log-source=build 2>&1 |
-              TZ=UTC ts "[%Y-%m-%dT%H:%M:%SZ]"
-          ' > "$RUNNER_TEMP/tilt-build.log" 2>&1 &
+            tilt up --port "$TILT_PORT" --stream=true --log-source=all 2>&1 |
+              python3 .github/scripts/capture-tilt-startup.py "$RUNNER_TEMP/tilt-startup-complete"
+          ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
           for i in $(seq 1 60); do
@@ -307,7 +306,7 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "::error::Tilt API did not become reachable."
-              cat "$RUNNER_TEMP/tilt-build.log" || true
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
               exit 1
             fi
             sleep 2
@@ -316,7 +315,7 @@ jobs:
           echo "Waiting for the Tiltfile evaluation to complete..."
           if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
             echo "::error::Tiltfile evaluation did not complete."
-            cat "$RUNNER_TEMP/tilt-build.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
 
@@ -447,7 +446,7 @@ jobs:
 
           if [ "$rc" -ne 0 ]; then
             echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-build.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
           echo "Core PeerDB services are up."
@@ -538,6 +537,7 @@ jobs:
           # Disable errexit so we can capture both gotestsum exit codes and still
           # emit coverage for the artifact upload; keep nounset.
           set +e -u
+          touch "$RUNNER_TEMP/tilt-startup-complete" || exit 1
 
           # The Configure AWS credentials step exports real AWS_* variables into
           # the job env. Drop them so the tests fall back to the minio values in
@@ -602,6 +602,7 @@ jobs:
         if: failure()
         run: |
           set +e -u
+          touch "$RUNNER_TEMP/tilt-startup-complete" || exit 1
           mkdir -p logs
 
           # Full resource state -> step log + artifact (queryable with jq).
@@ -635,12 +636,12 @@ jobs:
             docker logs --timestamps "$c" > "logs/docker-$c.log" 2>&1 || true
           done
 
-      - name: Collect Tilt build log
+      - name: Collect Tilt startup log
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/tilt-build.log" ]; then
+          if [ -f "$RUNNER_TEMP/tilt-startup.log" ]; then
             mkdir -p logs
-            cp "$RUNNER_TEMP/tilt-build.log" logs/tilt-build.log
+            cp "$RUNNER_TEMP/tilt-startup.log" logs/tilt-startup.log
           fi
 
       - name: Upload logs and test results
