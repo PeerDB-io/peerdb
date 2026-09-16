@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,12 +70,13 @@ func (c *BigQueryConnector) EnsurePullability(
 
 // pollWindow computes the upper bound of the next APPENDS()/CHANGES() poll window
 // given the last-scanned checkpoint and BigQuery's current clock (now).
-func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
+func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool, bool) {
 	upper := checkpoint.Add(maxQueryWindow)
-	if safe := now.Add(-safetyLag); safe.Before(upper) {
+	safe := now.Add(-safetyLag)
+	if safe.Before(upper) {
 		upper = safe
 	}
-	return upper, upper.After(checkpoint)
+	return upper, upper.After(checkpoint), upper.Before(safe)
 }
 
 func EncodeBigQueryTableCursor(t time.Time) string {
@@ -103,49 +105,22 @@ func (c *BigQueryConnector) PullTableRecords(
 ) (model.PullTableRecordsResult, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pullStartedAt := time.Now()
-	var pulledRecords int64
+	var pulledRecords atomic.Int64
 	var bytesProcessed int64
-	signaledNotEmpty := false
+	var signaledNotEmpty atomic.Bool
+	var signalNotEmptyOnce sync.Once
+	var addRecordMu sync.Mutex
 	defer func() {
-		if !signaledNotEmpty {
+		if !signaledNotEmpty.Load() {
 			req.Stream.SignalAsEmpty()
 		}
 		logger.Info("[bigquery] PullTableRecords finished",
 			slog.String("table", req.SourceTableIdentifier),
-			slog.Int64("records", pulledRecords),
+			slog.Int64("records", pulledRecords.Load()),
 			slog.Int64("bytes", bytesProcessed),
 			slog.Int("channelLen", req.Stream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStartedAt).Minutes()))
 	}()
-
-	now, err := c.currentBigQueryTimestamp(ctx)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
-	}
-
-	start, err := DecodeBigQueryTableCursor(req.Cursor)
-	if err != nil {
-		return model.PullTableRecordsResult{}, err
-	}
-	if start.IsZero() {
-		// seed from now if cursor is empty (first poll for this table).
-		start = now
-	}
-
-	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
-	}
-	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
-	}
-
-	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
-	if !ok {
-		// No safe window to scan yet; cursor is unchanged.
-		return model.PullTableRecordsResult{NextCursor: req.Cursor}, nil
-	}
 
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
 	if err != nil {
@@ -159,32 +134,97 @@ func (c *BigQueryConnector) PullTableRecords(
 			break
 		}
 	}
+	if tm == nil {
+		return model.PullTableRecordsResult{}, fmt.Errorf("table mapping not found for %s", req.SourceTableIdentifier)
+	}
+
+	var start, upper time.Time
+	var sourceHasMore bool
+	if req.InflightState != nil {
+		start, upper = req.InflightState.WindowStart, req.InflightState.WindowEnd
+		sourceHasMore = req.InflightState.SourceHasMore
+	} else {
+		now, err := c.currentBigQueryTimestamp(ctx)
+		if err != nil {
+			return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+		}
+		start, err = DecodeBigQueryTableCursor(req.Cursor)
+		if err != nil {
+			return model.PullTableRecordsResult{}, err
+		}
+		if start.IsZero() {
+			start = now
+		}
+		safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
+		if err != nil {
+			return model.PullTableRecordsResult{}, err
+		}
+		maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
+		if err != nil {
+			return model.PullTableRecordsResult{}, err
+		}
+		var ok bool
+		upper, ok, sourceHasMore = pollWindow(start, now, safetyLag, maxQueryWindow)
+		if !ok {
+			return model.PullTableRecordsResult{NextCursor: req.Cursor, WindowComplete: true}, nil
+		}
+	}
 
 	// The activity waits on this signal before starting sync for this poll, so
 	// a query-based source's schema - known as soon as the first row is read
 	addRecord := func(addCtx context.Context, record model.Record[model.RecordItems]) error {
+		// CDCStream tracks first-row metadata in addition to its channel and is
+		// not itself safe for concurrent producers.
+		addRecordMu.Lock()
+		defer addRecordMu.Unlock()
 		err := req.Stream.AddRecord(addCtx, record)
 		if err != nil {
 			return err
 		}
-		if !signaledNotEmpty {
-			signaledNotEmpty = true
+		signalNotEmptyOnce.Do(func() {
+			signaledNotEmpty.Store(true)
 			req.Stream.SignalAsNotEmpty()
-		}
-		pulledRecords++
-		if pulledRecords%pullTableProgressLogInterval == 0 {
+		})
+		count := pulledRecords.Add(1)
+		if count%pullTableProgressLogInterval == 0 {
 			elapsed := time.Since(pullStartedAt)
 			logger.Info("[bigquery] pulled records",
 				slog.String("table", req.SourceTableIdentifier),
-				slog.Int64("records", pulledRecords),
+				slog.Int64("records", count),
 				slog.Duration("elapsed", elapsed),
-				slog.Float64("recordsPerSecond", float64(pulledRecords)/elapsed.Seconds()),
+				slog.Float64("recordsPerSecond", float64(count)/elapsed.Seconds()),
 				slog.Int("channelLen", req.Stream.ChannelLen()))
 		}
 		return nil
 	}
 
-	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
+	queryMode := cfg.GetBigqueryCdcConfig().GetReplicationMethod() ==
+		protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY
+	useExplicitStorageRead, err := internal.PeerDBBigQueryCDCUseExplicitStorageRead(ctx, req.Env)
+	if err != nil {
+		return model.PullTableRecordsResult{}, err
+	}
+	// Once a resumable window exists, finish it with the same mechanism even if
+	// the rollout flag is disabled in the meantime.
+	if useExplicitStorageRead || req.InflightState != nil {
+		inflight, complete, rawBytesProcessed, err := c.pullQueryCDCStorageSlice(
+			ctx, req, tm, queryMode, start, upper, sourceHasMore, addRecord)
+		bytesProcessed = rawBytesProcessed
+		if err != nil {
+			return model.PullTableRecordsResult{}, err
+		}
+		nextCursor := req.Cursor
+		if complete {
+			nextCursor = EncodeBigQueryTableCursor(upper)
+			inflight = nil
+		}
+		return model.PullTableRecordsResult{
+			NextCursor: nextCursor, InflightState: inflight, WindowComplete: complete,
+			HasMore: !complete || sourceHasMore, BytesProcessed: bytesProcessed,
+		}, nil
+	}
+
+	if queryMode {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
 			req.NameAndExclude, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
@@ -192,16 +232,14 @@ func (c *BigQueryConnector) PullTableRecords(
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
 		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
 	} else {
-		// unreachable, but just in case throw an error instead of silently returning an empty result
 		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)
 	}
 	if err != nil {
 		return model.PullTableRecordsResult{}, err
 	}
-
 	return model.PullTableRecordsResult{
-		NextCursor:     EncodeBigQueryTableCursor(upper),
-		BytesProcessed: bytesProcessed,
+		NextCursor: EncodeBigQueryTableCursor(upper), WindowComplete: true,
+		HasMore: sourceHasMore, BytesProcessed: bytesProcessed,
 	}, nil
 }
 
