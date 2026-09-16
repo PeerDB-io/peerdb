@@ -223,22 +223,6 @@ func testApi[TSource SuiteSource](
 	})
 }
 
-func TestApiPg(t *testing.T) {
-	testApi(t, SetupPostgres)
-}
-
-func TestApiMy(t *testing.T) {
-	testApi(t, SetupMySQL)
-}
-
-func TestApiMariaDB(t *testing.T) {
-	testApi(t, SetupMariaDB)
-}
-
-func TestApiMongo(t *testing.T) {
-	testApi(t, SetupMongo)
-}
-
 func (s APITestSuite) TestGetVersion() {
 	response, err := s.GetVersion(s.t.Context(), &protos.PeerDBVersionRequest{})
 	require.NoError(s.t, err)

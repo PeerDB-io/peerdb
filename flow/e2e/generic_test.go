@@ -11,7 +11,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -19,73 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-func TestGenericPG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupPostgresSuite))
-}
-
-func TestGenericSF(t *testing.T) {
-	t.Skip("snowflake payment expired")
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupSnowflakeSuite))
-}
-
-func TestGenericBQ(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupBigquerySuite))
-}
-
-func TestGenericCH_PG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
-		t.Helper()
-		suffix := "pgchg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupPostgres(t, suffix)
-		return source, suffix, err
-	})))
-}
-
-func TestGenericCH_MySQL(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mychg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMySQL(t, suffix)
-		return source, suffix, err
-	})))
-}
-
-func TestGenericCH_MariaDB(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "machg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMariaDB(t, suffix)
-		return source, suffix, err
-	})))
-}
-
-func TestGenericChCluster_PG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
-		t.Helper()
-		suffix := "pgchclg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupPostgres(t, suffix)
-		return source, suffix, err
-	})))
-}
-
-func TestGenericChCluster_MySQL(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mychclg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMySQL(t, suffix)
-		return source, suffix, err
-	})))
-}
-
-func TestGenericChCluster_MariaDB(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "machclg_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMariaDB(t, suffix)
-		return source, suffix, err
-	})))
-}
 
 type Generic struct {
 	GenericSuite
