@@ -61,10 +61,8 @@ jobs:
   # services Tilt starts. Every job gets the catalog and the ClickHouse
   # destination; the source databases are started only for their own job.
   flow_test:
-    # Job name: the source under test (= its build tag) with the version(s)
-    # of that source's own resources, then the ClickHouse destination version.
-    # e.g. "flow_test (mysql: mysql-gtid + maria-11, ch: lts)".
-    name: "flow_test (${{ matrix.source }}${{ matrix.source == 'postgres' && format(': pg{0}', matrix.db-version.pg) || matrix.source == 'mysql' && format(': {0} + {1}', matrix.db-version.mysql, matrix.db-version.mariadb) || matrix.source == 'mongodb' && format(': {0}', matrix.db-version.mongo) || matrix.source == 'cockroachdb' && format(': {0}', matrix.db-version.crdb) || '' }}, ch: ${{ matrix.db-version.ch }})"
+    # e.g. "flow_test (mysql: mysql-gtid + maria-11, ch: lts)", "flow_test (bigquery, ch: latest)"
+    name: "flow_test (${{ matrix.source }}${{ matrix.version && format(': {0}', matrix.version) || '' }}${{ matrix.mariadb && format(' + {0}', matrix.mariadb) || '' }}, ch: ${{ matrix.ch }})"
     needs: [gate]
     strategy:
       fail-fast: false
@@ -73,18 +71,31 @@ jobs:
         # carry the clickhouse tag for the destination-only ClickHouse tests, so
         # those run once per ClickHouse version instead of once per source.
         source: [postgres, mysql, mongodb, cockroachdb, bigquery]
-        # Version rows, keyed by the ClickHouse release. Only the versions of
-        # the row's source and of ClickHouse matter to a given job; the rest
-        # are carried along so the images stay pinned consistently.
-        db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts', crdb: 'v24'},
-          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable', crdb: 'v25'},
-          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest', crdb: 'v26'},
-        ]
-        # Per-version container settings.
-        # Wrapped in a single-item list because matrix values must be arrays; it stays
-        # a single shared value (no extra jobs).
-        version-configs:
+        # ClickHouse destination release every source is checked against.
+        ch: [lts, stable, latest]
+        # The source's own version for each (source, ch) cell. Each row only
+        # adds keys to the cell it matches, so a source with fewer or more
+        # versions than ClickHouse releases just lists what it has; cells
+        # without a row (bigquery) run with no local version. MySQL rows carry
+        # the MySQL flavor as version and a MariaDB release alongside, since
+        # both share the mysql tag and job.
+        include:
+          - {source: postgres, ch: lts,    version: '16'}
+          - {source: postgres, ch: stable, version: '17'}
+          - {source: postgres, ch: latest, version: '18'}
+          - {source: mysql, ch: lts,    version: mysql-gtid, mariadb: maria-11}
+          - {source: mysql, ch: stable, version: mysql-pos,  mariadb: maria-12}
+          - {source: mysql, ch: latest, version: mysql-gtid, mariadb: maria-13}
+          - {source: mongodb, ch: lts,    version: '6.0'}
+          - {source: mongodb, ch: stable, version: '7.0'}
+          - {source: mongodb, ch: latest, version: '8.0'}
+          - {source: cockroachdb, ch: lts,    version: v24}
+          - {source: cockroachdb, ch: stable, version: v25}
+          - {source: cockroachdb, ch: latest, version: v26}
+        # Container images per version key. Wrapped in a single-item list
+        # because matrix values must be arrays; it stays a single shared value
+        # (no extra jobs).
+        images:
           - mysql:
               mysql-gtid: mysql:9.5
               mysql-pos: mysql:5.7
@@ -116,24 +127,29 @@ jobs:
       ancillary_services: >-
         otel-collector clickhouse clickhouse-keeper clickhouse-02 toxiproxy openssh
         ${{ matrix.source == 'postgres' && 'postgres postgres2' || '' }}
-        ${{ matrix.source == 'mysql' && format('{0} mariadb', matrix.db-version.mysql) || '' }}
+        ${{ matrix.source == 'mysql' && format('{0} mariadb', matrix.version) || '' }}
         ${{ matrix.source == 'mongodb' && 'mongodb' || '' }}
         ${{ matrix.source == 'cockroachdb' && 'cockroachdb' || '' }}
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      run_label: ${{ matrix.source }}-pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}-crdb${{ matrix.db-version.crdb }}
-      postgres_image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
-      mysql_gtid_image: ${{ matrix.version-configs.mysql['mysql-gtid'] }}
-      mysql_pos_image: ${{ matrix.version-configs.mysql['mysql-pos'] }}
-      mariadb_image: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb] }}
-      mongodb_image: mongo:${{ matrix.db-version.mongo }}
-      clickhouse_image: ${{ matrix.version-configs.clickhouse[matrix.db-version.ch] }}
-      cockroachdb_image: ${{ matrix.version-configs.cockroachdb[matrix.db-version.crdb] }}
-      # Point the tests at this combination's flavors; overrides what they load
+      # e.g. "postgres-16-ch-lts", "mysql-mysql-gtid-maria-11-ch-lts", "bigquery-ch-lts";
+      # becomes the compatibility_matrix_id of the ingested test results.
+      run_label: ${{ matrix.source }}${{ matrix.version && format('-{0}', matrix.version) || '' }}${{ matrix.mariadb && format('-{0}', matrix.mariadb) || '' }}-ch-${{ matrix.ch }}
+      # Images only for the services this job starts; the rest stay empty and
+      # fall back to generate-test-environment.sh's defaults (unused anyway).
+      postgres_image: ${{ matrix.source == 'postgres' && format('imresamu/postgis:{0}-3.5-alpine', matrix.version) || '' }}
+      mysql_gtid_image: ${{ matrix.source == 'mysql' && matrix.version == 'mysql-gtid' && matrix.images.mysql['mysql-gtid'] || '' }}
+      mysql_pos_image: ${{ matrix.source == 'mysql' && matrix.version == 'mysql-pos' && matrix.images.mysql['mysql-pos'] || '' }}
+      mariadb_image: ${{ matrix.source == 'mysql' && matrix.images.mariadb[matrix.mariadb] || '' }}
+      mongodb_image: ${{ matrix.source == 'mongodb' && format('mongo:{0}', matrix.version) || '' }}
+      clickhouse_image: ${{ matrix.images.clickhouse[matrix.ch] }}
+      cockroachdb_image: ${{ matrix.source == 'cockroachdb' && matrix.images.cockroachdb[matrix.version] || '' }}
+      # Point the tests at this job's MySQL flavors; overrides what they load
       # from .env. The ports must match CI_MYSQL_GTID_PORT/CI_MYSQL_POS_PORT in
-      # .env.example (the CI .env is seeded from it).
+      # .env.example (the CI .env is seeded from it). Empty on other sources,
+      # whose jobs compile no MySQL tests.
       test_env: |
-        CI_MYSQL_VERSION=${{ matrix.db-version.mysql }}
-        CI_MYSQL_PORT=${{ matrix.db-version.mysql == 'mysql-pos' && '3307' || '3306' }}
-        CI_MARIADB_VERSION=${{ matrix.db-version.mariadb }}
+        CI_MYSQL_VERSION=${{ matrix.source == 'mysql' && matrix.version || '' }}
+        CI_MYSQL_PORT=${{ matrix.version == 'mysql-pos' && '3307' || '3306' }}
+        CI_MARIADB_VERSION=${{ matrix.mariadb }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
