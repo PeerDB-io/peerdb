@@ -58,8 +58,8 @@ jobs:
   # One job per (source, ClickHouse version). The source picks the build tags,
   # which select the e2e/integration test files that compile (see
   # CONTRIBUTING.md, "Test selection with build tags"), and the ancillary
-  # services Tilt starts. Every job gets the catalog, the ancillary Postgres
-  # (the API suites use it whatever the source) and the ClickHouse destination.
+  # services Tilt starts. Every job gets the catalog and the ClickHouse
+  # destination; the source databases are started only for their own job.
   flow_test:
     # Job name: the source under test (= its build tag) with the version(s)
     # of that source's own resources, then the ClickHouse destination version.
@@ -114,8 +114,8 @@ jobs:
       # postgres2 backs the pg_dump schema tests; mariadb rides with the MySQL
       # flavor since both share the mysql tag.
       ancillary_services: >-
-        otel-collector postgres clickhouse clickhouse-keeper clickhouse-02 toxiproxy openssh
-        ${{ matrix.source == 'postgres' && 'postgres2' || '' }}
+        otel-collector clickhouse clickhouse-keeper clickhouse-02 toxiproxy openssh
+        ${{ matrix.source == 'postgres' && 'postgres postgres2' || '' }}
         ${{ matrix.source == 'mysql' && format('{0} mariadb', matrix.db-version.mysql) || '' }}
         ${{ matrix.source == 'mongodb' && 'mongodb' || '' }}
         ${{ matrix.source == 'cockroachdb' && 'cockroachdb' || '' }}

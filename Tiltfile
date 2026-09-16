@@ -435,9 +435,9 @@ e2e_test('peer-flow-mariadb', 'mysql', '^TestPeerFlowE2ETestSuiteMariaDB_CH$', [
 
 e2e_test('api-postgres', 'postgres', 'TestApiPg', ['provision-postgres'])
 
-e2e_test('api-mysql-gtid', 'mysql', 'TestApiMy', ['provision-mysql-gtid', 'provision-postgres'], vars_overrides=mysql_gtid_vars)
-e2e_test('api-mysql-pos', 'mysql', 'TestApiMy', ['provision-mysql-pos', 'provision-postgres'], vars_overrides=mysql_pos_vars)
-e2e_test('api-mariadb', 'mysql', 'TestApiMariaDB', ['provision-mariadb', 'provision-postgres'], vars_overrides=mariadb_vars)
+e2e_test('api-mysql-gtid', 'mysql', 'TestApiMy', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('api-mysql-pos', 'mysql', 'TestApiMy', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('api-mariadb', 'mysql', 'TestApiMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 e2e_test('api-mongodb', 'mongodb', 'TestApiMongo', ['provision-mongodb'])
 
