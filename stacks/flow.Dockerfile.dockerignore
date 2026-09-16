@@ -1,0 +1,8 @@
+# Keep the CLI build context aligned with Tilt's Flow source dependencies.
+**
+!flow/
+!flow/**
+!stacks/
+!stacks/flow.Dockerfile
+flow/e2e/
+flow/**/*_test.go
