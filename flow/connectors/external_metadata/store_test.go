@@ -47,8 +47,8 @@ func TestInitializeQueryCDCReplicationState(t *testing.T) {
 	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
 	require.NoError(t, err)
 	require.Equal(t, "next-checkpoint", state.CursorText)
-	require.Equal(t, attemptedAt, state.LastAttemptAt)
-	require.Equal(t, syncedAt, state.LastSyncedAt)
+	require.WithinDuration(t, attemptedAt, state.LastAttemptAt, 0)
+	require.WithinDuration(t, syncedAt, state.LastSyncedAt, 0)
 }
 
 func TestOffloadRestoreSensitivePartitionRanges(t *testing.T) {
