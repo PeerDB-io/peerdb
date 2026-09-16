@@ -1,3 +1,5 @@
+//go:build cockroachdb
+
 package e2e
 
 import (

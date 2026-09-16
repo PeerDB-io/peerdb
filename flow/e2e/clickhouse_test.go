@@ -24,13 +24,11 @@ import (
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -38,60 +36,6 @@ import (
 
 //go:embed test_data/*
 var testData embed.FS
-
-func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*PostgresSource, string, error) {
-		t.Helper()
-		suffix := "pgch_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupPostgres(t, suffix)
-		return source, suffix, err
-	}))
-}
-
-func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mych_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMySQL(t, suffix)
-		return source, suffix, err
-	}))
-}
-
-func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, false, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mach_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMariaDB(t, suffix)
-		return source, suffix, err
-	}))
-}
-
-func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*PostgresSource, string, error) {
-		t.Helper()
-		suffix := "pgchcl_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupPostgres(t, suffix)
-		return source, suffix, err
-	}))
-}
-
-func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mychcl_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMySQL(t, suffix)
-		return source, suffix, err
-	}))
-}
-
-func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
-	e2eshared.RunSuite(t, SetupClickHouseSuite(t, true, func(t *testing.T) (*MySqlSource, string, error) {
-		t.Helper()
-		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
-		source, err := SetupMariaDB(t, suffix)
-		return source, suffix, err
-	}))
-}
 
 func (s ClickHouseSuite) attachSchemaSuffix(tableName string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)

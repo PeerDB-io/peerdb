@@ -1,4 +1,14 @@
 version: "2"
+run:
+  # Test files gated by resource build tags (see CONTRIBUTING.md, "Test
+  # selection with build tags"). Listed here so the linters still see them.
+  build-tags:
+    - postgres
+    - mysql
+    - mongodb
+    - cockroachdb
+    - bigquery
+    - clickhouse
 linters:
   enable:
     - asasalint
