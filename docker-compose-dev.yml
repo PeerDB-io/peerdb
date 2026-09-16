@@ -285,6 +285,12 @@ services:
       mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
       wait
       "
+    healthcheck:
+      test: ["CMD-SHELL", "mc stat myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
 volumes:
   pgdata:

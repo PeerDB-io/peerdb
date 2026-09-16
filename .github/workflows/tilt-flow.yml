@@ -260,7 +260,8 @@ jobs:
           sudo apt-get update
           # libgeos-dev: geometry support; retry: used by the test-results
           # ingestion composite action's upload backoff.
-          sudo apt-get install -y libgeos-dev retry
+          # moreutils: ts adds UTC timestamps to the saved Tilt build log.
+          sudo apt-get install -y libgeos-dev retry moreutils
           # pg_dump must be >= the server major version; install v18 so it
           # can dump PG 16, 17, and 18 (backward compatible).
           sudo apt-get install -y postgresql-client-18
@@ -292,8 +293,11 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          nohup tilt up --port "$TILT_PORT" --stream=true > "$RUNNER_TEMP/tilt-up.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/tilt.pid"
+          # Timestamp at emission time, so later log dumps retain startup timing.
+          nohup bash -o pipefail -c '
+            tilt up --port "$TILT_PORT" --stream=true --log-source=build 2>&1 |
+              TZ=UTC ts "[%Y-%m-%dT%H:%M:%SZ]"
+          ' > "$RUNNER_TEMP/tilt-build.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
           for i in $(seq 1 60); do
@@ -303,7 +307,7 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "::error::Tilt API did not become reachable."
-              cat "$RUNNER_TEMP/tilt-up.log" || true
+              cat "$RUNNER_TEMP/tilt-build.log" || true
               exit 1
             fi
             sleep 2
@@ -312,7 +316,7 @@ jobs:
           echo "Waiting for the Tiltfile evaluation to complete..."
           if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
             echo "::error::Tiltfile evaluation did not complete."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-build.log" || true
             exit 1
           fi
 
@@ -443,7 +447,7 @@ jobs:
 
           if [ "$rc" -ne 0 ]; then
             echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-build.log" || true
             exit 1
           fi
           echo "Core PeerDB services are up."
@@ -630,6 +634,14 @@ jobs:
             echo "  $c -> logs/docker-$c.log"
             docker logs --timestamps "$c" > "logs/docker-$c.log" 2>&1 || true
           done
+
+      - name: Collect Tilt build log
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/tilt-build.log" ]; then
+            mkdir -p logs
+            cp "$RUNNER_TEMP/tilt-build.log" logs/tilt-build.log
+          fi
 
       - name: Upload logs and test results
         if: always()
