@@ -30,6 +30,8 @@ payload=$(jq -n \
     "allowUpdate": true
   }')
 
+wait_for_flow_api
+
 echo "Creating postgres peer..."
 call_api "POST" "/v1/peers/create" "$payload"
 echo "postgres peer created successfully."

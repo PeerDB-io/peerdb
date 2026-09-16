@@ -292,10 +292,19 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
+          # Capture all startup output until the test step creates this marker.
           rm -f "$RUNNER_TEMP/tilt-startup-complete"
           nohup bash -o pipefail -c '
+            export TZ=UTC
             tilt up --port "$TILT_PORT" --stream=true --log-source=all 2>&1 |
-              python3 .github/scripts/capture-tilt-startup.py "$RUNNER_TEMP/tilt-startup-complete"
+              while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ -e "$RUNNER_TEMP/tilt-startup-complete" ]]; then
+                  # Keep draining so Tilt cannot block or get a broken pipe.
+                  cat >/dev/null
+                  break
+                fi
+                printf "[%(%Y-%m-%dT%H:%M:%SZ)T] %s\n" -1 "$line"
+              done
           ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
@@ -537,6 +546,7 @@ jobs:
           # Disable errexit so we can capture both gotestsum exit codes and still
           # emit coverage for the artifact upload; keep nounset.
           set +e -u
+          # Stop retaining Tilt output before tests generate bulky service logs.
           touch "$RUNNER_TEMP/tilt-startup-complete" || exit 1
 
           # The Configure AWS credentials step exports real AWS_* variables into
@@ -602,7 +612,6 @@ jobs:
         if: failure()
         run: |
           set +e -u
-          touch "$RUNNER_TEMP/tilt-startup-complete" || exit 1
           mkdir -p logs
 
           # Full resource state -> step log + artifact (queryable with jq).

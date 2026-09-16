@@ -30,6 +30,8 @@ payload=$(jq -n \
     "allowUpdate": true
   }')
 
+wait_for_flow_api
+
 echo "Creating mysql-pos peer..."
 call_api "POST" "/v1/peers/create" "$payload"
 echo "mysql-pos peer created successfully."
