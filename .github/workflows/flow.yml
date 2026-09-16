@@ -61,7 +61,10 @@ jobs:
   # services Tilt starts. Every job gets the catalog, the ancillary Postgres
   # (the API suites use it whatever the source) and the ClickHouse destination.
   flow_test:
-    name: flow_test (${{ matrix.source }}, ch-${{ matrix.db-version.ch }}, pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, crdb-${{ matrix.db-version.crdb }})
+    # Job name: the source under test (= its build tag) with the version(s)
+    # of that source's own resources, then the ClickHouse destination version.
+    # e.g. "flow_test (mysql: mysql-gtid + maria-11, ch: lts)".
+    name: "flow_test (${{ matrix.source }}${{ matrix.source == 'postgres' && format(': pg{0}', matrix.db-version.pg) || matrix.source == 'mysql' && format(': {0} + {1}', matrix.db-version.mysql, matrix.db-version.mariadb) || matrix.source == 'mongodb' && format(': {0}', matrix.db-version.mongo) || matrix.source == 'cockroachdb' && format(': {0}', matrix.db-version.crdb) || '' }}, ch: ${{ matrix.db-version.ch }})"
     needs: [gate]
     strategy:
       fail-fast: false
