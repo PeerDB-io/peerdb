@@ -292,7 +292,7 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          # Capture all startup output until the test step creates this marker.
+          # Capture all startup output until initialization creates this marker.
           rm -f "$RUNNER_TEMP/tilt-startup-complete"
           nohup bash -o pipefail -c '
             export TZ=UTC
@@ -460,6 +460,18 @@ jobs:
           fi
           echo "Core PeerDB services are up."
 
+      - name: Stop capturing Tilt startup logs
+        if: always()
+        run: touch "$RUNNER_TEMP/tilt-startup-complete"
+
+      - name: Upload Tilt startup log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tilt-startup-${{ steps.run-identity.outputs.suffix }}
+          path: ${{ runner.temp }}/tilt-startup.log
+          retention-days: 30
+
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
@@ -546,9 +558,6 @@ jobs:
           # Disable errexit so we can capture both gotestsum exit codes and still
           # emit coverage for the artifact upload; keep nounset.
           set +e -u
-          # Stop retaining Tilt output before tests generate bulky service logs.
-          touch "$RUNNER_TEMP/tilt-startup-complete" || exit 1
-
           # The Configure AWS credentials step exports real AWS_* variables into
           # the job env. Drop them so the tests fall back to the minio values in
           # .env (godotenv never overrides variables already present in the
@@ -644,14 +653,6 @@ jobs:
             echo "  $c -> logs/docker-$c.log"
             docker logs --timestamps "$c" > "logs/docker-$c.log" 2>&1 || true
           done
-
-      - name: Collect Tilt startup log
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/tilt-startup.log" ]; then
-            mkdir -p logs
-            cp "$RUNNER_TEMP/tilt-startup.log" logs/tilt-startup.log
-          fi
 
       - name: Upload logs and test results
         if: always()
