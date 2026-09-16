@@ -244,6 +244,9 @@ func (s APITestSuite) TestGetVersion() {
 }
 
 func (s APITestSuite) TestPostgresValidation_WrongPassword() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("validates the ancillary Postgres peer, only started for Postgres sources")
+	}
 	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Password = "wrong"
 	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
@@ -260,6 +263,9 @@ func (s APITestSuite) TestPostgresValidation_WrongPassword() {
 }
 
 func (s APITestSuite) TestPostgresValidation_Pass() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("validates the ancillary Postgres peer, only started for Postgres sources")
+	}
 	config := internal.GetAncillaryPostgresConfigFromEnv()
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
