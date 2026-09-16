@@ -157,6 +157,8 @@ func queryCDCPollWait(
 	if lastAttemptAt.After(lastSyncedAt) {
 		return 0
 	}
+	// success case, lastAttemptAt <= lastSyncedAt
+	// so the next poll is at lastAttemptAt + syncInterval
 	nextPollAt := lastAttemptAt.Add(syncInterval)
 	if !nextPollAt.After(now) {
 		return 0
