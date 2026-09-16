@@ -117,14 +117,16 @@ local_resource(
     'provision-mongodb',
     cmd='./local_provision_scripts/mongodb.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mongodb']
+    resource_deps=['mongodb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-clickhouse',
     cmd='./local_provision_scripts/clickhouse.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['clickhouse']
+    resource_deps=['clickhouse'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -132,55 +134,63 @@ local_resource(
     cmd='./local_provision_scripts/clickhouse-cluster.sh',
     labels=['Ancillary-DB-Provisioning'],
     resource_deps=['provision-clickhouse', 'clickhouse-02', 'clickhouse-keeper'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-cockroachdb',
     cmd='./local_provision_scripts/cockroachdb.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['cockroachdb']
+    resource_deps=['cockroachdb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mysql-gtid']
+    resource_deps=['mysql-gtid'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mysql-pos',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mysql-pos']
+    resource_deps=['mysql-pos'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mariadb',
     cmd='./local_provision_scripts/mysql.sh peerdb-mariadb',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mariadb']
+    resource_deps=['mariadb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-postgres',
     cmd='./local_provision_scripts/postgres.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['postgres']
+    resource_deps=['postgres'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-postgres2',
     cmd='./local_provision_scripts/postgres.sh peerdb-postgres2',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['postgres2']
+    resource_deps=['postgres2'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-postgres-peer',
     cmd='./local_provision_scripts/setup-postgres-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-postgres']
+    resource_deps=['flow-api', 'provision-postgres'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -188,27 +198,31 @@ local_resource(
     cmd='./local_provision_scripts/setup-postgres2-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-postgres2'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-clickhouse-peer',
     cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-clickhouse'],
+    resource_deps=['flow-api', 'provision-clickhouse', 'minio'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-clickhouse-cluster-peer',
     cmd='./local_provision_scripts/setup-clickhouse-cluster-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-clickhouse-cluster'],
+    resource_deps=['flow-api', 'provision-clickhouse-cluster', 'minio'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-cockroachdb-peer',
     cmd='./local_provision_scripts/setup-cockroachdb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-cockroachdb'],
+    resource_deps=['flow-api', 'provision-cockroachdb'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -216,6 +230,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mongodb'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -223,6 +238,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mysql-gtid'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -230,6 +246,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mysql-pos'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -237,6 +254,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mariadb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mariadb'],
+    allow_parallel=True,
 )
 
 # CI (tilt-flow.yml) exports the ancillary image pins as empty strings when
