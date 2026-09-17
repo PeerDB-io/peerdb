@@ -1,7 +1,9 @@
 name: 'Ingest test results'
 description: >-
   Normalize JUnit test results and ingest them into the CI observability store
-  for analysis. No-op when the o11y target secrets are not configured. Must run
+  for analysis. Reports required by the execution plan must exist and be valid.
+  Ingests only planned reports. No-op when they contain no test cases or secrets
+  are not configured. Must run
   from the workspace root (uses .github/scripts/test-results.sh) and requires the
   `retry` CLI on PATH.
 
@@ -11,10 +13,12 @@ inputs:
       Identifier for the combination/compatibility this run covers (stored as
       compatibility_matrix_id). e.g. "pg17-my8-mo7-ch24" or "tilt-TestApiPg".
     required: true
-  test-results-file:
-    description: Path to the JUnit XML test results file (relative to the workspace root).
-    required: false
-    default: logs/test-results.xml
+  pkg-combination-id:
+    description: Combination identifier for reports from the pkg module.
+    required: true
+  test-plan-file:
+    description: Execution plan listing expected JUnit report filenames, relative to its directory.
+    required: true
   o11y-api-key-id:
     description: API key id for the o11y ingestion endpoint. Ingestion is skipped when empty.
     required: false
@@ -41,21 +45,41 @@ runs:
         COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         SUMMARY_HEADER: "x-clickhouse-summary"
         COMBINATION_ID: ${{ inputs.combination-id }}
-        TEST_RESULTS_FILE: ${{ inputs.test-results-file }}
+        PKG_COMBINATION_ID: ${{ inputs.pkg-combination-id }}
+        TEST_PLAN_FILE: ${{ inputs.test-plan-file }}
         O11Y_API_KEY_ID: ${{ inputs.o11y-api-key-id }}
         O11Y_API_KEY_SECRET: ${{ inputs.o11y-api-key-secret }}
         O11Y_QUERY_ENDPOINT: ${{ inputs.o11y-query-endpoint }}
       run: |
+        reports=$(jq -er '
+          .reports | if type != "array" then error("Execution plan must list expected reports")
+          else join("\n") end
+        ' "$TEST_PLAN_FILE")
+        mkdir -p logs
+        > logs/normalized-test-results.ndjson
+        while IFS= read -r report; do
+            [ -n "$report" ] || continue
+            test_results_file="$(dirname "$TEST_PLAN_FILE")/$report"
+            if [ ! -f "$test_results_file" ]; then
+                echo "::error::Expected test report $test_results_file is missing."
+                exit 1
+            fi
+            combination_id="$COMBINATION_ID"
+            if [ "$report" = pkg-test-results.xml ]; then
+                combination_id="$PKG_COMBINATION_ID"
+            fi
+            COMBINATION_ID="$combination_id" .github/scripts/test-results.sh "$test_results_file" \
+              >> logs/normalized-test-results.ndjson
+        done <<< "$reports"
+        if [ ! -s logs/normalized-test-results.ndjson ]; then
+            echo "Planned test reports contain no test cases; skipping ingestion."
+            exit 0
+        fi
         if [ -z "$O11Y_API_KEY_ID" ] \
           || [ -z "$O11Y_API_KEY_SECRET" ] \
           || [ -z "$O11Y_QUERY_ENDPOINT" ]; then
             echo "Secrets not configured; Test results ingestion is disabled."
             exit 0
-        fi
-        .github/scripts/test-results.sh "$TEST_RESULTS_FILE" > logs/normalized-test-results.ndjson
-        if [ ! -s logs/normalized-test-results.ndjson ]; then
-            echo "Failed to extract test results"
-            exit 1
         fi
         # Retry upload with exponential backoff
         retry --times=5 --delay "1,2,4,8,16,32,64,128" -- \

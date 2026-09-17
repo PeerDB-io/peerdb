@@ -28,7 +28,11 @@ set -eo pipefail # For jq to propagate yq failures.
 #
 # OUTPUT: NDJSON stream through stdout.
 #
-yq -p=xml -o=json \
+# Some yq versions return null for malformed XML even in strict mode. Require
+# the JUnit root before interpreting an empty result as a report with no cases.
+yq -p=xml --xml-strict-mode -e 'has("testsuites")' "$@" > /dev/null
+
+yq -p=xml --xml-strict-mode -o=json \
   '
   ((.testsuites.testsuite | select(kind == "seq") | .[]), (.testsuites.testsuite | select(kind == "map"))) |
   ."+@timestamp" as $ts |
