@@ -589,6 +589,11 @@ message CDCFlowConfigUpdate {
   bool skip_initial_snapshot_for_table_additions = 11;
   // removes keys from the env map, applied after updated_env
   repeated string removed_env = 12;
+  // Existing mirror tables to rebuild from a fresh snapshot. Source and
+  // destination identifiers must match the current mapping; other fields are
+  // the desired table settings. Each table is written to a temporary resync
+  // table and atomically swapped into place.
+  repeated TableMapping resync_tables = 13;
 }
 
 message QRepFlowConfigUpdate {

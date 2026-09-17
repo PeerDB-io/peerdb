@@ -26,11 +26,13 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -1884,6 +1886,161 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	})
 	require.NoError(s.t, err)
 	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
+}
+
+func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("table-level ordering-key resync test uses a Postgres source")
+	}
+
+	ctx := s.t.Context()
+	resyncSource := AttachSchema(s, "table_resync_orders")
+	retainedSource := AttachSchema(s, "table_resync_customers")
+	resyncDestination := AddSuffix(s, "table_resync_orders")
+	retainedDestination := AddSuffix(s, "table_resync_customers")
+
+	for _, table := range []string{resyncSource, retainedSource} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+			"CREATE TABLE %s(id int primary key, customer_id int not null, val text)", table)))
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+			"INSERT INTO %s(id, customer_id, val) VALUES (1, 10, 'initial')", table)))
+	}
+
+	oldOrdering := []*protos.ColumnSetting{{SourceName: "id", Ordering: 1}}
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_" + s.suffix,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      resyncSource,
+				DestinationTableIdentifier: resyncDestination,
+				Columns:                    oldOrdering,
+			},
+			{
+				SourceTableIdentifier:      retainedSource,
+				DestinationTableIdentifier: retainedDestination,
+				Columns:                    oldOrdering,
+			},
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial selected table", "table_resync_orders",
+		resyncDestination, "id,customer_id,val")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial retained table", "table_resync_customers",
+		retainedDestination, "id,customer_id,val")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	tableMetadata := func(table string) (string, string) {
+		var uuid, sortingKey string
+		require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+			"SELECT toString(uuid), sorting_key FROM system.tables WHERE database=%s AND name=%s",
+			clickhouse.QuoteLiteral(s.ch.connector.Config.Database),
+			clickhouse.QuoteLiteral(table),
+		)).Scan(&uuid, &sortingKey))
+		return uuid, sortingKey
+	}
+	normalizeKey := func(key string) string {
+		return strings.NewReplacer("(", "", ")", "", "`", "", " ", "").Replace(key)
+	}
+	resyncUUIDBefore, resyncKeyBefore := tableMetadata(resyncDestination)
+	retainedUUIDBefore, retainedKeyBefore := tableMetadata(retainedDestination)
+	require.Equal(s.t, "id", normalizeKey(resyncKeyBefore))
+	require.Equal(s.t, "id", normalizeKey(retainedKeyBefore))
+
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// This row must be picked up by the fresh table snapshot even though the main
+	// CDC loop is paused.
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, customer_id, val) VALUES (2, 20, 'during-pause')", resyncSource)))
+
+	newMapping := proto.CloneOf(flowConfig.TableMappings[0])
+	newMapping.Columns = []*protos.ColumnSetting{
+		{SourceName: "customer_id", Ordering: 1},
+		{SourceName: "id", Ordering: 2},
+	}
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					ResyncTables: []*protos.TableMapping{newMapping},
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "selected table after resync", "table_resync_orders",
+		resyncDestination, "id,customer_id,val")
+
+	resyncUUIDAfter, resyncKeyAfter := tableMetadata(resyncDestination)
+	retainedUUIDAfter, retainedKeyAfter := tableMetadata(retainedDestination)
+	require.NotEqual(s.t, resyncUUIDBefore, resyncUUIDAfter, "selected table should have been replaced")
+	require.Equal(s.t, "customer_id,id", normalizeKey(resyncKeyAfter))
+	require.Equal(s.t, retainedUUIDBefore, retainedUUIDAfter, "unselected table must not be replaced")
+	require.Equal(s.t, "id", normalizeKey(retainedKeyAfter))
+
+	var oldResyncTableCount uint64
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+		"SELECT count() FROM system.tables WHERE database=%s AND name=%s",
+		clickhouse.QuoteLiteral(s.ch.connector.Config.Database),
+		clickhouse.QuoteLiteral(resyncDestination+shared.CDCResyncTableSuffix),
+	)).Scan(&oldResyncTableCount))
+	require.Zero(s.t, oldResyncTableCount, "the exchanged old table should be dropped")
+
+	catalogConfig, err := s.loadConfigFromCatalog(ctx, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	var persistedMapping *protos.TableMapping
+	for _, mapping := range catalogConfig.TableMappings {
+		if mapping.SourceTableIdentifier == resyncSource {
+			persistedMapping = mapping
+			break
+		}
+	}
+	require.NotNil(s.t, persistedMapping)
+	require.True(s.t, proto.Equal(newMapping, persistedMapping),
+		"updated table mapping should be persisted in the catalog")
+
+	// Both the rebuilt and untouched tables must continue receiving CDC.
+	for _, table := range []string{resyncSource, retainedSource} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+			"INSERT INTO %s(id, customer_id, val) VALUES (3, 30, 'after-resync')", table)))
+	}
+	EnvWaitForEqualTablesWithNames(env, s.ch, "selected table CDC after resync", "table_resync_orders",
+		resyncDestination, "id,customer_id,val")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "retained table CDC after resync", "table_resync_customers",
+		retainedDestination, "id,customer_id,val")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestResyncSourceTableMissing() {
