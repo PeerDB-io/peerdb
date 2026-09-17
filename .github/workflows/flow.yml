@@ -153,3 +153,26 @@ jobs:
         CI_MARIADB_VERSION=${{ matrix.mariadb }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
+
+  # Single summary status once every parallel job above has finished. It fails
+  # if any of them did not succeed, so branch protection can require this one
+  # check instead of every matrix cell. `always()` makes it run after failures
+  # too; the gate check keeps it from failing runs where nothing was meant to
+  # run (e.g. fork PRs on the plain pull_request event).
+  flow_tests_passed:
+    name: All tests flows succeeded
+    needs: [gate, unit_tests, flow_test]
+    if: always() && needs.gate.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null; then
+            echo "All tests flows succeeded."
+          else
+            echo "::error::At least one flow test job did not succeed."
+            exit 1
+          fi
