@@ -33,16 +33,30 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		defer storageReadClient.Close()
 	}
 
+	var storageReadClient *storageapi.BigQueryReadClient
+	if !snapshotOnly {
+		var err error
+		storageReadClient, err = storageapi.NewBigQueryReadClient(
+			ctx,
+			option.WithAuthCredentials(c.credentials),
+			option.WithGRPCConnectionPool(1),
+			option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create BigQuery Storage Read client: %w", err)
+		}
+		defer storageReadClient.Close()
+	}
+
 	sourceConfig := bqvalidate.SourceConfig{
-		Client:                c.client,
-		StorageClient:         c.storageClient,
-		StorageReadClient:     storageReadClient,
-		ProjectID:             c.projectID,
-		DefaultDataset:        c.datasetID,
-		HasSnapshot:           cfg.DoInitialSnapshot,
-		SnapshotOnly:          snapshotOnly,
-		SnapshotStagingPath:   cfg.SnapshotStagingPath,
-		DisableStorageReadApi: disableStorageReadAPI,
+		Client:              c.client,
+		StorageClient:       c.storageClient,
+		StorageReadClient:   storageReadClient,
+		ProjectID:           c.projectID,
+		DefaultDataset:      c.datasetID,
+		HasSnapshot:         cfg.DoInitialSnapshot,
+		SnapshotOnly:        snapshotOnly,
+		SnapshotStagingPath: cfg.SnapshotStagingPath,
 	}
 	if !snapshotOnly {
 		switch cfg.GetBigqueryCdcConfig().GetReplicationMethod() {

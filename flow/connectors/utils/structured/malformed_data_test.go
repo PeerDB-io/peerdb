@@ -27,11 +27,6 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 			expected: `{"a":{"unexpected_field":true}}`,
 		},
 		{
-			desc:     "not a number is a reason without value",
-			setup:    func(m *MalformedData) { m.AddField("a", ReasonNaN, nil) },
-			expected: `{"a":{"not_a_number":true}}`,
-		},
-		{
 			desc:     "string value",
 			setup:    func(m *MalformedData) { m.AddField("a", ReasonTypeMismatch, types.QValueString{Val: "x"}) },
 			expected: `{"a":{"type_mismatch":true,"value":"x"}}`,
@@ -71,20 +66,22 @@ func TestMalformedDataMarshalJSON(t *testing.T) {
 			expected: `{"a":{"type_mismatch":true,"value":"y"}}`,
 		},
 		{
-			desc: "non-finite float values are dropped and the reason replaced by not_a_number",
+			desc: "non-finite float values keep their reason and are recorded as strings",
 			setup: func(m *MalformedData) {
 				m.AddField("nan", ReasonTypeMismatch, types.QValueFloat64{Val: math.NaN()})
 				m.AddField("inf", ReasonUnexpected, types.QValueFloat64{Val: math.Inf(1)})
 				m.AddField("neginf", ReasonTypeMismatch, types.QValueFloat64{Val: math.Inf(-1)})
-				m.AddField("nan32", ReasonTypeMismatch, types.QValueFloat32{Val: float32(math.NaN())})
+				m.AddField("nan32", ReasonDuplicatedFields, types.QValueFloat32{Val: float32(math.NaN())})
+				m.AddField("inf32", ReasonTypeMismatch, types.QValueFloat32{Val: float32(math.Inf(-1))})
 				m.AddField("finite", ReasonTypeMismatch, types.QValueFloat64{Val: 1.5})
 			},
 			expected: `{` +
 				`"finite":{"type_mismatch":true,"value":1.5},` +
-				`"inf":{"not_a_number":true},` +
-				`"nan":{"not_a_number":true},` +
-				`"nan32":{"not_a_number":true},` +
-				`"neginf":{"not_a_number":true}}`,
+				`"inf":{"unexpected_field":true,"value":"+Inf"},` +
+				`"inf32":{"type_mismatch":true,"value":"-Inf"},` +
+				`"nan":{"type_mismatch":true,"value":"NaN"},` +
+				`"nan32":{"duplicated_fields":true,"value":"NaN"},` +
+				`"neginf":{"type_mismatch":true,"value":"-Inf"}}`,
 		},
 		{
 			desc: "compound values holding non-finite floats fall back to their string representation",

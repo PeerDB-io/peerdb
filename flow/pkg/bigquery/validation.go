@@ -457,10 +457,8 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		}
 	}
 
-	if !cfg.DisableStorageReadApi {
-		if err := validateStorageReadAPI(ctx, cfg); err != nil {
-			return err
-		}
+	if err := validateStorageReadAPI(ctx, cfg); err != nil {
+		return err
 	}
 
 	for i, t := range cfg.Tables {
