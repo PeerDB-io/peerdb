@@ -318,6 +318,57 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 	RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Query_Missing_Watermark_Column exercises the
+// MISSING_WATERMARK_COLUMN classification through the full Query CDC pull and
+// user-facing flow-error path.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Missing_Watermark_Column() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_q_drop_wm")
+	dstTable := srcTable + "_dst"
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
+		watermarkColumn:   "updated_at",
+	})
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	// Ensure at least one Query CDC poll has succeeded, so the connector has
+	// initialized its per-table source-column cache before the watermark disappears.
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "before-watermark-drop"}})
+	EnvWaitForCount(env, s, "query CDC initialized", dstTable, "id,val", 2)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN updated_at",
+		quoteBigQueryTableFQN(tableFQN))), "should drop the Query CDC watermark column")
+
+	EnvWaitFor(t, env, 4*time.Minute, "missing watermark column reported to user", func() bool {
+		count, err := GetLogCount(ctx, catalogPool, flowConnConfig.FlowJobName, "error",
+			`watermark column "updated_at" no longer exists on source table`)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t),
+		"a failed table poll should remain in the per-table retry loop")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
 // Test_BigQuery_CDC_Source_Column_Dropped_Mid_CDC covers a table mapping whose
 // cached schema still has a column the customer later drops from the source
 // table.

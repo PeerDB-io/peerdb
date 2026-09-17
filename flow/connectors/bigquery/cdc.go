@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -232,7 +233,7 @@ func (c *BigQueryConnector) pullTableAppends(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns,
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
 			selectCols := append(slices.Clone(cols), bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn)
 			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
@@ -343,9 +344,10 @@ type pullQueryBuilder func(columns []string) string
 // shrunk column list if BigQuery rejects a column that no longer exists on the source
 // table (BigQuery reports one such column per error, so this may loop more than once).
 // Columns found missing are remembered per sourceTableIdentifier so later polls don't
-// have to rediscover them during this connector's lifetime.
+// have to rediscover them during this connector's lifetime. If a required column
+// is missing, the query fails instead of removing it from the SELECT list.
 func (c *BigQueryConnector) runPullQuery(
-	ctx context.Context, sourceTableIdentifier string, columns []string,
+	ctx context.Context, sourceTableIdentifier string, columns []string, requiredColumns []string,
 	start, end time.Time,
 	buildQuery pullQueryBuilder,
 ) (*bigquery.RowIterator, error) {
@@ -364,8 +366,8 @@ func (c *BigQueryConnector) runPullQuery(
 			return it, nil
 		}
 
-		missingCol, ok := missingSourceColumn(err, effective)
-		if !ok {
+		missingCol, err := droppableMissingSourceColumn(err, effective, sourceTableIdentifier, requiredColumns)
+		if err != nil {
 			return nil, err
 		}
 		c.logger.Warn("[bigquery] column no longer exists on source table, dropping from SELECT list",
@@ -492,6 +494,19 @@ func missingSourceColumn(err error, candidates []string) (string, bool) {
 	return col, true
 }
 
+func droppableMissingSourceColumn(
+	err error, candidates []string, sourceTableIdentifier string, requiredColumns []string,
+) (string, error) {
+	column, ok := missingSourceColumn(err, candidates)
+	if !ok {
+		return "", err
+	}
+	if slices.Contains(requiredColumns, column) {
+		return "", exceptions.NewBigQueryWatermarkColumnMissingError(err, sourceTableIdentifier, column)
+	}
+	return column, nil
+}
+
 func bigQueryRowToRecordItems(
 	schema bigquery.Schema, qfields []types.QField, row []bigquery.Value,
 ) (model.RecordItems, error) {
@@ -558,7 +573,7 @@ func (c *BigQueryConnector) pullTableChanges(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns,
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
 			selectCols := append(slices.Clone(cols),
 				bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn, bigQueryChangeIsForUpdateColumn)
@@ -667,7 +682,7 @@ func (c *BigQueryConnector) pullTableQuery(
 	}
 
 	var bytesTransferred atomic.Int64
-	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns,
+	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, []string{watermarkColumn},
 		start, end, func(cols []string) string {
 			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, cols)
 		})

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/api/googleapi"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -113,6 +114,22 @@ func TestMissingSourceColumn(t *testing.T) {
 	// entirely) must not be reported as newly missing.
 	_, ok = missingSourceColumn(&googleapi.Error{Code: 400, Message: "Unrecognized name: other_col at [1:8]"}, candidates)
 	assert.False(t, ok)
+}
+
+func TestDroppableMissingSourceColumn(t *testing.T) {
+	err := &googleapi.Error{Code: 400, Message: "Unrecognized name: updated_at at [1:8]"}
+
+	column, gotErr := droppableMissingSourceColumn(err, []string{"id", "updated_at"}, "ds.tbl", nil)
+	require.NoError(t, gotErr)
+	assert.Equal(t, "updated_at", column)
+
+	column, gotErr = droppableMissingSourceColumn(err, []string{"id", "updated_at"}, "ds.tbl", []string{"id", "updated_at"})
+	assert.Empty(t, column)
+	watermarkErr, ok := errors.AsType[*exceptions.BigQueryWatermarkColumnMissingError](gotErr)
+	require.True(t, ok)
+	assert.Equal(t, "ds.tbl", watermarkErr.TableName)
+	assert.Equal(t, "updated_at", watermarkErr.ColumnName)
+	assert.ErrorIs(t, gotErr, err)
 }
 
 // The message shapes below were all captured from a live BigQuery table, driven through
