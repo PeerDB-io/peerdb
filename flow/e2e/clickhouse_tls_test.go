@@ -1,3 +1,5 @@
+//go:build clickhouse
+
 package e2e
 
 import (

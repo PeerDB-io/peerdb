@@ -331,35 +331,41 @@ cmd_button(
 
 # Tests launchers
 
-def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
+# `tags` is the space-separated list of Go build tags to enable. The e2e test
+# files are gated by the source they exercise (postgres, mysql, mongodb,
+# cockroachdb, bigquery; clickhouse for destination-only tests), so without the
+# matching tag `go test` finds no tests to run.
+def e2e_test(name, tags, test_run, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && %s go test -count=1 -v -run %s ./e2e/' % (overrides_str, test_run),
+        cmd='cd flow && %s go test -count=1 -v -tags %s -run %s ./e2e/' % (overrides_str, tags.replace(' ', ','), test_run),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
         allow_parallel=True,
     )
 
-def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_run=''):
+# Connector and pkg module tests run the package's unit tests plus the
+# integration tests gated behind `tags` (same tag vocabulary as e2e_test).
+def connector_test(connector, tags, extra_deps=[], vars_overrides={}, name='', test_run=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'connector_' + (name or connector),
-        cmd='cd flow && %s go test -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
+        cmd='cd flow && %s go test -count=1 -v -tags %s%s ./connectors/%s/...' % (overrides_str, tags.replace(' ', ','), test_run_arg, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
         allow_parallel=True,
     )
 
-def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
+def pkg_test(pkg, tags, extra_deps=[], vars_overrides={}, test_run=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'pkg_' + pkg,
-        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        cmd='cd flow/pkg && %s go test -count=1 -v -tags %s%s ./%s/...' % (overrides_str, tags.replace(' ', ','), test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
         resource_deps=extra_deps,
@@ -388,67 +394,67 @@ mariadb_vars = {
 # Generic e2e tests
 
 # Postgres to ClickHouse generic tests
-e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
-e2e_test('postgres-tls', 'TestGenericCH_PG', ['provision-postgres'], vars_overrides={'PG_REQUIRE_TLS': 'true', 'PG_ROOT_CA_PATH': '$(pwd)/../volumes/pg-tls/server.crt'})
+e2e_test('postgres', 'postgres', 'TestGenericCH_PG', ['provision-postgres'])
+e2e_test('postgres-tls', 'postgres', 'TestGenericCH_PG', ['provision-postgres'], vars_overrides={'PG_REQUIRE_TLS': 'true', 'PG_ROOT_CA_PATH': '$(pwd)/../volumes/pg-tls/server.crt'})
 
 # MySQL GTID to ClickHouse generic tests
-e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('mysql-gtid', 'mysql', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
 
 # MySQL Pos to ClickHouse generic tests
-e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('mysql-pos', 'mysql', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
 
 # MariaDB to ClickHouse generic tests
-e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('mariadb', 'mysql', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # MongoDB to ClickHouse test suite
-e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+e2e_test('mongodb', 'mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
 # CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
-e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
-connector_test('cockroachdb', ['provision-cockroachdb'])
+e2e_test('cockroachdb', 'cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
+connector_test('cockroachdb', 'cockroachdb', ['provision-cockroachdb'])
 
 # Switchboard tests
 
-e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
+e2e_test('switchboard-postgres', 'postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
 
-e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
-e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('switchboard-mariadb', 'TestSwitchboardMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('switchboard-mysql-gtid', 'mysql', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('switchboard-mysql-pos', 'mysql', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('switchboard-mariadb', 'mysql', 'TestSwitchboardMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
-e2e_test('switchboard-mongodb', 'TestSwitchboardMongo', ['provision-mongodb'])
+e2e_test('switchboard-mongodb', 'mongodb', 'TestSwitchboardMongo', ['provision-mongodb'])
 
 # Peer flow E2E
 
-e2e_test('peer-flow-postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
+e2e_test('peer-flow-postgres', 'postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
 
-e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
-e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMariaDB_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('peer-flow-mysql-gtid', 'mysql', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('peer-flow-mysql-pos', 'mysql', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('peer-flow-mariadb', 'mysql', '^TestPeerFlowE2ETestSuiteMariaDB_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # API e2e tests
 
-e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
+e2e_test('api-postgres', 'postgres', 'TestApiPg', ['provision-postgres'])
 
-e2e_test('api-mysql-gtid', 'TestApiMy', ['provision-mysql-gtid', 'provision-postgres'], vars_overrides=mysql_gtid_vars)
-e2e_test('api-mysql-pos', 'TestApiMy', ['provision-mysql-pos', 'provision-postgres'], vars_overrides=mysql_pos_vars)
-e2e_test('api-mariadb', 'TestApiMariaDB', ['provision-mariadb', 'provision-postgres'], vars_overrides=mariadb_vars)
+e2e_test('api-mysql-gtid', 'mysql', 'TestApiMy', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('api-mysql-pos', 'mysql', 'TestApiMy', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('api-mariadb', 'mysql', 'TestApiMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
-e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
+e2e_test('api-mongodb', 'mongodb', 'TestApiMongo', ['provision-mongodb'])
 
 # Connectors tests
 
-connector_test('postgres', ['provision-postgres'])
+connector_test('postgres', 'postgres', ['provision-postgres'])
 
-connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
+connector_test('mysql', 'mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', 'mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
+connector_test('mysql', 'mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
 
-connector_test('mongo', ['provision-mongodb'])
+connector_test('mongo', 'mongodb', ['provision-mongodb'])
 
-connector_test('clickhouse', ['provision-clickhouse'])
+connector_test('clickhouse', 'clickhouse', ['provision-clickhouse'])
 
 # flow/pkg module tests
 
-pkg_test('mongo', ['provision-mongodb'])
+pkg_test('mongo', 'mongodb', ['provision-mongodb'])
 
-pkg_test('clickhouse', ['provision-clickhouse'])
+pkg_test('clickhouse', 'clickhouse', ['provision-clickhouse'])

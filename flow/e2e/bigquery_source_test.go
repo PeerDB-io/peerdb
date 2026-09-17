@@ -1,3 +1,5 @@
+//go:build bigquery
+
 package e2e
 
 import (

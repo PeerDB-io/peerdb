@@ -1,3 +1,7 @@
+// Destination-only Snowflake suite: it has no source, so it rides along with
+// the Postgres-source jobs, which is where the other Snowflake suites run.
+//go:build postgres
+
 package e2e
 
 import (

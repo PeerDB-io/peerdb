@@ -1,5 +1,5 @@
 name: tilt-flow
-run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
+run-name: 'tilt-flow: ${{ inputs.build_tags }} ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
 
 # Tilt orchestrated e2e tests flow.
 #
@@ -9,18 +9,31 @@ run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary
 on:
   workflow_dispatch:
     inputs: &tilt_flow_inputs
+      build_tags:
+        description: >-
+          Space-separated Go build tags passed to `go test -tags`. Test files that
+          need a resource are gated behind its tag (postgres, mysql, mongodb,
+          cockroachdb, bigquery, clickhouse; see CONTRIBUTING.md), so this picks
+          which e2e/integration tests get compiled. Untagged unit tests always
+          run. Must match the ancillary services started below.
+        type: string
+        required: false
+        default: postgres
       test_matcher:
         description: >-
-          Go test matcher passed to `go test -run` (a regex). The tests run on the
-          host against the Tilt-provided stack, over ./... so the matcher alone
-          selects what runs. Examples: "TestGenericCH_PG", "TestMongoClickhouseSuite",
-          "^TestPeerFlowE2ETestSuitePG_CH$", "TestApiPg". Leave empty to run everything.
+          Go test matcher passed to `go test -run` (a regex), applied on top of
+          build_tags. The tests run on the host against the Tilt-provided stack,
+          over ./... . Examples: "TestGenericCH_PG", "TestMongoClickhouseSuite",
+          "^TestPeerFlowE2ETestSuitePG_CH$", "TestApiPg". Leave empty to run
+          everything the tags compile.
         type: string
         required: false
         default: TestGenericCH_PG
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
+          Leave empty to start none: the core PeerDB stack (catalog included)
+          still comes up, which is all the untagged unit tests need.
         type: string
         required: false
         default: postgres clickhouse
@@ -157,7 +170,7 @@ concurrency:
   # - Consecutive commits in a PR branch cancel their builds.
   # - Consecutive commits in main do not cancel each other's runs.
   #
-  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ inputs.cockroachdb_image }}-${{ github.event_name == 'push' && github.sha || '' }}
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.build_tags }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ inputs.cockroachdb_image }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
@@ -204,7 +217,7 @@ env:
 
 jobs:
   tilt_flow_test:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-latest-64-core
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
@@ -224,7 +237,7 @@ jobs:
         id: run-identity
         env:
           RUN_LABEL: ${{ inputs.run_label }}
-          RAW_IDENTITY: "${{ inputs.test_matcher }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }} ${{ inputs.cockroachdb_image }}"
+          RAW_IDENTITY: "${{ inputs.build_tags }} ${{ inputs.test_matcher }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }} ${{ inputs.cockroachdb_image }}"
         run: |
           label="${RUN_LABEL:-$RAW_IDENTITY}"
           suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
@@ -324,8 +337,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ANCILLARY_SERVICES// /}" ]; then
-            echo "::error::No ancillary services specified."
-            exit 1
+            echo "No ancillary services requested; running against the core stack only."
+            exit 0
           fi
 
           echo "Enabling ancillary services: $ANCILLARY_SERVICES"
@@ -505,10 +518,11 @@ jobs:
           sudo update-ca-certificates
 
       # Run the tests on the host against the Tilt-provided stack, selected by
-      # the Go test matcher.
+      # the build tags (which test files compile) and the Go test matcher.
       - name: Run tests
         working-directory: ./flow
         env:
+          BUILD_TAGS: ${{ inputs.build_tags }}
           TEST_MATCHER: ${{ inputs.test_matcher }}
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
@@ -567,14 +581,22 @@ jobs:
           coverdir="$RUNNER_TEMP/gocoverdir"
           mkdir -p "$coverdir" ../logs
 
-          # Only scope by -run when a matcher was provided (empty => run everything).
+          # Build tags decide which gated test files compile. Untagged (unit)
+          # test files always compile too, so they run again here on top of
+          # flow.yml's unit_tests job; Go has no way to select only tagged files.
+          tag_args=()
+          if [ -n "${BUILD_TAGS// /}" ]; then
+            tag_args=(-tags "${BUILD_TAGS// /,}")
+          fi
+          # Only scope by -run when a matcher was provided (empty => run everything
+          # the tags compile).
           run_args=()
           if [ -n "${TEST_MATCHER// /}" ]; then
             run_args=(-run "$TEST_MATCHER")
           fi
 
           gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
-            -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
+            -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 "${tag_args[@]}" ./... "${run_args[@]}" -timeout 1200s \
             -args -test.gocoverdir="$coverdir"
           flow_rc=$?
 
@@ -583,7 +605,7 @@ jobs:
           (
             cd pkg || exit 1
             gotestsum --format standard-quiet --no-color --junitfile ../../logs/pkg-test-results.xml -- \
-              -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 ./... "${run_args[@]}" -timeout 300s \
+              -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 "${tag_args[@]}" ./... "${run_args[@]}" -timeout 300s \
               -args -test.gocoverdir="$coverdir"
           )
           pkg_rc=$?
