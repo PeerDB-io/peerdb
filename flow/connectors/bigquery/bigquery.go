@@ -56,11 +56,11 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 //nolint:govet // logically grouped, fieldalignment confuses things
 type BigQueryConnector struct {
 	// missingSourceColumns remembers, per source table, columns that BigQuery has
-	// reported as no longer existing, along with when, so later polls stop selecting
-	// them until missingSourceColumnRetryAfter elapses. Guarded by
+	// reported as no longer existing. Each table's entry is initialized from its
+	// metadata on first pull, then retained for the connector's lifetime. Guarded by
 	// missingSourceColumnsMu since concurrent per-table pull loops share this connector.
 	missingSourceColumnsMu sync.Mutex
-	missingSourceColumns   map[string]map[string]time.Time
+	missingSourceColumns   map[string]map[string]struct{}
 	logger                 log.Logger
 	*metadataStore.PostgresMetadata
 	bqConfig      *protos.BigqueryConfig
@@ -154,7 +154,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		storageClient:        storageClient,
 		catalogPool:          catalogPool,
 		logger:               logger,
-		missingSourceColumns: make(map[string]map[string]time.Time),
+		missingSourceColumns: make(map[string]map[string]struct{}),
 	}, nil
 }
 

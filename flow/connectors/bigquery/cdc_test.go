@@ -153,21 +153,21 @@ func TestMissingSourceColumnMessageShapes(t *testing.T) {
 	}
 }
 
-func TestEffectiveColumns(t *testing.T) {
-	const retryAfter = time.Hour
-	c := &BigQueryConnector{missingSourceColumns: map[string]map[string]time.Time{
-		"ds.tbl": {"secret_column": time.Now()},
-	}}
+func TestFilterMissingColumns(t *testing.T) {
 	columns := []string{"id", "secret_column", "large_payload"}
+	assert.Equal(t, []string{"id", "large_payload"}, filterMissingColumns(columns,
+		map[string]struct{}{"secret_column": {}}))
+	assert.Equal(t, columns, filterMissingColumns(columns, nil))
+}
 
-	// Still within the retry window: stays excluded.
-	assert.Equal(t, []string{"id", "large_payload"}, c.effectiveColumns("ds.tbl", columns, retryAfter))
-	// A different table was never affected.
-	assert.Equal(t, columns, c.effectiveColumns("ds.other", columns, retryAfter))
-
-	// Retry window elapsed: the customer may have re-added the column, so retry it.
-	c.missingSourceColumns["ds.tbl"]["secret_column"] = time.Now().Add(-retryAfter - time.Minute)
-	assert.Equal(t, columns, c.effectiveColumns("ds.tbl", columns, retryAfter))
+func TestMissingColumnsFromSchema(t *testing.T) {
+	columns := []string{"id", "secret_column", "large_payload"}
+	schema := bigquery.Schema{
+		{Name: "id"},
+		{Name: "large_payload"},
+		{Name: "new_source_column"},
+	}
+	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingColumnsFromSchema(columns, schema))
 }
 
 func TestBuildPullQuery(t *testing.T) {
@@ -181,21 +181,7 @@ func TestBuildPullQuery(t *testing.T) {
 	)
 	assert.Equal(t,
 		"SELECT `id`, `name` FROM `ds`.`tbl` "+
-			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end ORDER BY `updated_at`",
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
 		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
 	)
-}
-
-func TestBuildWatermarkPullQuery(t *testing.T) {
-	query := buildWatermarkPullQuery(
-		"`project`.`dataset`.`table`",
-		"updated_at",
-		map[string]struct{}{"secret": {}},
-	)
-	assert.Equal(t,
-		"SELECT * EXCEPT (`secret`) FROM `project`.`dataset`.`table` "+
-			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
-		query,
-	)
-	assert.NotContains(t, query, "ORDER BY")
 }
