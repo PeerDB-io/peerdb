@@ -7,12 +7,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestExecutePlanContinuesAfterFailure(t *testing.T) {
+func TestExecutePlanRunsConcurrentlyAndWaitsAfterFailure(t *testing.T) {
 	groups, packages, tests := fixtures()
 	selection, err := selectTests(groups, packages, tests, "mysql")
 	require.NoError(t, err)
@@ -21,53 +23,85 @@ func TestExecutePlanContinuesAfterFailure(t *testing.T) {
 		coverageDir: filepath.Join(t.TempDir(), "coverage with spaces"),
 	}
 	failed := errors.New("test failed")
-	var calls []*exec.Cmd
-	err = executePlan(selection, settings, func(cmd *exec.Cmd) error {
-		calls = append(calls, cmd)
-		if len(calls) == 1 {
-			data, err := os.ReadFile(filepath.Join(settings.logDir, "test-selection.json"))
-			require.NoError(t, err)
-			var recorded executionPlan
-			require.NoError(t, json.Unmarshal(data, &recorded))
-			require.Equal(t, selection, recorded.Selection)
-			require.Equal(t, []string{"test-results.xml", "pkg-test-results.xml", "e2e-test-results.xml"}, recorded.Reports)
-			return failed
-		}
-		return nil
-	})
-	require.ErrorIs(t, err, failed)
-	require.ErrorContains(t, err, "test-results.xml")
-	require.Len(t, calls, 3, "expected both modules and E2E to run despite failure")
-	for i, cmd := range calls {
-		if i < 2 {
-			require.NotContains(t, cmd.Args, "-run", "unexpected test filter in call %d", i)
-		}
-		for _, arg := range []string{"-cover", "-test.gocoverdir=" + settings.coverageDir} {
-			require.Contains(t, cmd.Args, arg, "call %d", i)
+	started := make(chan *exec.Cmd, 3)
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	done := make(chan error, 1)
+	go func() {
+		done <- executePlan(selection, settings, func(cmd *exec.Cmd) error {
+			started <- cmd
+			if cmd.Dir == "." && !slices.Contains(cmd.Args, "-run") {
+				return failed
+			}
+			<-release
+			return nil
+		})
+	}()
+	calls := make(map[string]*exec.Cmd)
+	for range 3 {
+		select {
+		case cmd := <-started:
+			reportIndex := slices.Index(cmd.Args, "--junitfile")
+			require.GreaterOrEqual(t, reportIndex, 0)
+			require.Less(t, reportIndex+1, len(cmd.Args))
+			calls[filepath.Base(cmd.Args[reportIndex+1])] = cmd
+		case <-time.After(10 * time.Second):
+			t.Fatal("all invocations must start before the blocked ones finish")
 		}
 	}
-	require.Equal(t, "pkg", calls[1].Dir)
-	require.Contains(t, calls[1].Args, "github.com/PeerDB-io/peerdb/flow/pkg/...")
-	runIndex := slices.Index(calls[2].Args, "-run")
+	select {
+	case err := <-done:
+		t.Fatalf("runner returned before all invocations finished: %v", err)
+	default:
+	}
+	data, err := os.ReadFile(filepath.Join(settings.logDir, "test-selection.json"))
+	require.NoError(t, err)
+	var recorded executionPlan
+	require.NoError(t, json.Unmarshal(data, &recorded))
+	require.Equal(t, selection, recorded.Selection)
+	require.Equal(t, []string{"test-results.xml", "pkg-test-results.xml", "e2e-test-results.xml"}, recorded.Reports)
+	unblock()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, failed)
+		require.ErrorContains(t, err, "test-results.xml")
+	case <-time.After(10 * time.Second):
+		t.Fatal("runner did not finish after all invocations were released")
+	}
+	require.Len(t, calls, 3)
+	for report, cmd := range calls {
+		if report != "e2e-test-results.xml" {
+			require.NotContains(t, cmd.Args, "-run", "unexpected test filter in %s", report)
+		}
+		for _, arg := range []string{"-cover", "-test.gocoverdir=" + settings.coverageDir} {
+			require.Contains(t, cmd.Args, arg, "report %s", report)
+		}
+	}
+	pkg := calls["pkg-test-results.xml"]
+	require.Equal(t, "pkg", pkg.Dir)
+	require.Contains(t, pkg.Args, "github.com/PeerDB-io/peerdb/flow/pkg/...")
+	e2e := calls["e2e-test-results.xml"]
+	runIndex := slices.Index(e2e.Args, "-run")
 	require.GreaterOrEqual(t, runIndex, 0, "E2E ownership filter missing")
-	require.Less(t, runIndex+1, len(calls[2].Args))
-	require.Equal(t, selection.E2ERunPattern, calls[2].Args[runIndex+1])
-	require.Contains(t, calls[2].Args, "./e2e")
-	require.FileExists(t, filepath.Join(settings.logDir, "test-selection.json"))
+	require.Less(t, runIndex+1, len(e2e.Args))
+	require.Equal(t, selection.E2ERunPattern, e2e.Args[runIndex+1])
+	require.Contains(t, e2e.Args, "./e2e")
 }
 
 func TestExecuteUnitWithoutCoverageOrE2E(t *testing.T) {
 	groups, packages, tests := fixtures()
 	selection, err := selectTests(groups, packages, tests, "unit")
 	require.NoError(t, err)
-	var calls []*exec.Cmd
+	calls := make(chan *exec.Cmd, 3)
 	err = executePlan(selection, runSettings{logDir: t.TempDir()}, func(cmd *exec.Cmd) error {
-		calls = append(calls, cmd)
+		calls <- cmd
 		return nil
 	})
 	require.NoError(t, err)
+	close(calls)
 	require.Len(t, calls, 2, "expected both modules and no E2E")
-	for _, cmd := range calls {
+	for cmd := range calls {
 		for _, arg := range []string{"-cover", "-args", "-run", "./e2e"} {
 			require.NotContains(t, cmd.Args, arg, "unexpected argument in unit invocation")
 		}
@@ -77,14 +111,14 @@ func TestExecuteUnitWithoutCoverageOrE2E(t *testing.T) {
 func TestExecuteSkipsEmptyModules(t *testing.T) {
 	selection := plan{E2ERunPattern: "^TestPG$"}
 	settings := runSettings{logDir: t.TempDir()}
-	calls := 0
+	calls := make(chan *exec.Cmd, 3)
 	err := executePlan(selection, settings, func(cmd *exec.Cmd) error {
-		calls++
-		require.Contains(t, cmd.Args, selection.E2ERunPattern, "expected owned E2E suites")
+		calls <- cmd
 		return nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, calls, "empty package lists must not invoke go test in the current directory")
+	require.Len(t, calls, 1, "empty package lists must not invoke go test in the current directory")
+	require.Contains(t, (<-calls).Args, selection.E2ERunPattern, "expected owned E2E suites")
 	data, err := os.ReadFile(filepath.Join(settings.logDir, "test-selection.json"))
 	require.NoError(t, err)
 	var recorded executionPlan

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 )
 
 type runSettings struct {
@@ -77,13 +78,17 @@ func executePlan(selection plan, settings runSettings, execute func(*exec.Cmd) e
 	if err := os.WriteFile(filepath.Join(logDir, "test-selection.json"), append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	// Continue after failures so both modules and E2E produce their reports.
-	var failures []error
+	// Run modules and E2E concurrently, waiting for every report even after failures.
+	failures := make([]error, len(commands))
+	var running sync.WaitGroup
 	for i, cmd := range commands {
-		if err := execute(cmd); err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", expected.Reports[i], err))
-		}
+		running.Go(func() {
+			if err := execute(cmd); err != nil {
+				failures[i] = fmt.Errorf("%s: %w", expected.Reports[i], err)
+			}
+		})
 	}
+	running.Wait()
 	return errors.Join(failures...)
 }
 
