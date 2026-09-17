@@ -290,6 +290,11 @@ var (
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
+	// Mongo specific: an initial-load document has a top-level field with no configured column mapping;
+	// the user must add the corresponding column on the destination
+	ErrorNotifyMongoUnmappedField = ErrorClass{
+		Class: "NOTIFY_MONGODB_UNMAPPED_FIELD", action: NotifyUser,
+	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
 	}
@@ -1457,6 +1462,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "INVALID_SORT_KEY",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
+			},
+		}
+	}
+
+	if mongoUnmappedFieldError, ok := errors.AsType[*exceptions.MongoUnmappedFieldError](err); ok {
+		return ErrorNotifyMongoUnmappedField, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "MONGODB_UNMAPPED_FIELD",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  mongoUnmappedFieldError.Table,
+				ErrorAttributeKeyColumn: mongoUnmappedFieldError.Field,
 			},
 		}
 	}

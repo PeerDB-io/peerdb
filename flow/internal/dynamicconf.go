@@ -585,6 +585,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_ERROR_ON_UNMAPPED_FIELD",
+		Description: "During a MongoDB initial load, fail the mirror when a source document contains a top-level " +
+			"field that has no configured column mapping, prompting the user to add the matching Postgres column",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_STRING_SAMPLE_MAX_SIZE",
 		Description: "Maximum number of _id values sampled to compute quantile partition boundaries for " +
 			"string _id collections. Higher values improve partition balance on very large collections at " +
@@ -1030,6 +1039,10 @@ func PeerDBPGAutomatedSchemaDump(ctx context.Context, env map[string]string) (bo
 
 func PeerDBMongoDBOmitFullDocumentColumn(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_OMIT_FULL_DOCUMENT_COLUMN")
+}
+
+func PeerDBMongoDBErrorOnUnmappedField(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_ERROR_ON_UNMAPPED_FIELD")
 }
 
 func PeerDBMongoDBStringSampleMaxSize(ctx context.Context, env map[string]string) (int64, error) {

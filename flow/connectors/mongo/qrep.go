@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -109,6 +110,18 @@ func (c *MongoConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to resolve full-document column setting: %w", err)
 	}
 
+	errorOnUnmappedField, err := internal.PeerDBMongoDBErrorOnUnmappedField(ctx, config.Env)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to resolve unmapped-field setting: %w", err)
+	}
+	// knownFields is built once and reused across every document in the partition;
+	// reportedUnmappedFields memoizes fields already surfaced so each is logged once.
+	var knownFields, reportedUnmappedFields map[string]struct{}
+	if errorOnUnmappedField {
+		knownFields = buildKnownFieldSet(config.Columns)
+		reportedUnmappedFields = make(map[string]struct{})
+	}
+
 	projections := buildProjections(config.Columns)
 	stream.SetSchema(GetDefaultSchema(config.Version, omitFullDocument, projections))
 
@@ -163,6 +176,12 @@ func (c *MongoConnector) PullQRepRecords(
 
 	converter := NewDirectBsonConverter()
 	for cursor.Next(readCtx) {
+		if errorOnUnmappedField {
+			if err := c.checkForUnmappedFields(cursor.Current, knownFields, reportedUnmappedFields, config.WatermarkTable); err != nil {
+				return 0, 0, err
+			}
+		}
+
 		record, err := QValuesFromBsonRaw(cursor.Current, config.Version, omitFullDocument, converter, config.WatermarkTable, projections)
 		if err != nil {
 			c.logger.Error("failed to convert record",
@@ -225,6 +244,54 @@ func GetDefaultSchema(internalVersion uint32, omitFullDocument bool, projections
 	}
 	schema = append(schema, projectedQFields(projections)...)
 	return types.QRecordSchema{Fields: schema}
+}
+
+// buildKnownFieldSet returns the set of top-level source field names that have a
+// configured column mapping, plus the reserved _id key. Nested paths (e.g.
+// "meta.addedSource.source") contribute their top-level segment ("meta").
+func buildKnownFieldSet(columns []*protos.ColumnSetting) map[string]struct{} {
+	known := make(map[string]struct{}, len(columns)+1)
+	known[DefaultDocumentKeyColumnName] = struct{}{}
+	for _, col := range columns {
+		if col.SourceName == "" {
+			continue
+		}
+		top := col.SourceName
+		if idx := strings.IndexByte(top, '.'); idx >= 0 {
+			top = top[:idx]
+		}
+		known[top] = struct{}{}
+	}
+	return known
+}
+
+// checkForUnmappedFields fails the initial load when a document carries a top-level
+// field without a configured column mapping. reported memoizes fields already logged
+// so each unmapped field surfaces once in the logs across the partition scan.
+func (c *MongoConnector) checkForUnmappedFields(
+	raw bson.Raw,
+	known map[string]struct{},
+	reported map[string]struct{},
+	tableName string,
+) error {
+	elements, err := raw.Elements()
+	if err != nil {
+		return fmt.Errorf("failed to read document elements: %w", err)
+	}
+	for _, element := range elements {
+		key := element.Key()
+		if _, ok := known[key]; ok {
+			continue
+		}
+		if _, seen := reported[key]; !seen {
+			reported[key] = struct{}{}
+			c.logger.Error("[mongo] field not among Postgres columns; add the column on Postgres with the appropriate data type",
+				slog.String("field", key),
+				slog.String("table", tableName))
+		}
+		return exceptions.NewMongoUnmappedFieldError(tableName, key)
+	}
+	return nil
 }
 
 func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange) (bson.D, error) {
