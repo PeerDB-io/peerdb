@@ -16,22 +16,6 @@ import (
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	snapshotOnly := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
-	disableStorageReadAPI := cfg.GetBigqueryCdcConfig().GetDisableStorageReadApi()
-
-	var storageReadClient *storageapi.BigQueryReadClient
-	if !snapshotOnly && !disableStorageReadAPI {
-		var err error
-		storageReadClient, err = storageapi.NewBigQueryReadClient(
-			ctx,
-			option.WithAuthCredentials(c.credentials),
-			option.WithGRPCConnectionPool(1),
-			option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create BigQuery Storage Read client: %w", err)
-		}
-		defer storageReadClient.Close()
-	}
 
 	var storageReadClient *storageapi.BigQueryReadClient
 	if !snapshotOnly {

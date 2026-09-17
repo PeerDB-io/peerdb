@@ -212,8 +212,7 @@ type SourceConfig struct {
 	SnapshotStagingPath string
 	// SnapshotOnly skips CDC-specific validation after the source tables have
 	// been validated.
-	SnapshotOnly          bool
-	DisableStorageReadApi bool
+	SnapshotOnly bool
 }
 
 // ExternalError marks a failure as coming from a BigQuery API call rather
