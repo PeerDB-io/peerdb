@@ -371,8 +371,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Source_Column_Dropped_Mid_CDC
 				"should insert the initial row")
 
 			flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
-				eventsFunction:  protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
-				replicationMode: protos.BigQueryReplicationMode_BIGQUERY_REPLICATION_MODE_EVENTS,
+				eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+				replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
 			})
 			if scenario.nullableEnabled {
 				flowConnConfig.Env["PEERDB_NULLABLE"] = "true"
