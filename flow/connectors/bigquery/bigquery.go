@@ -18,6 +18,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -106,7 +107,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create credentials: %v", err)
 	}
 
-	meteredHTTPClient, err := newMeteredClient(ctx, creds)
+	meteredClient, err := newMeteredClient(ctx, creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metered BigQuery HTTP client: %v", err)
 	}
@@ -114,10 +115,18 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		ctx,
 		credentialConfig.clientProjectID,
 		option.WithAuthCredentials(creds),
-		option.WithHTTPClient(meteredHTTPClient),
+		option.WithHTTPClient(meteredClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
+	}
+	if err := client.EnableStorageReadClient(
+		ctx,
+		option.WithAuthCredentials(creds),
+		option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
+	); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("failed to enable BigQuery Storage Read API: %v", err)
 	}
 
 	if err := validateBigQueryConnection(ctx, client, projectID, datasetID); err != nil {

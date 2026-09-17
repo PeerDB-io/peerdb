@@ -448,6 +448,17 @@ func TestValidateClickHouseHost(t *testing.T) {
 			wantErr:        "invalid ClickHouse host domain",
 		},
 		{
+			name:           "empty domain entry does not allow unrelated host",
+			host:           "myservice.evil.com",
+			allowedDomains: "clickhouse.cloud,",
+			wantErr:        "invalid ClickHouse host domain",
+		},
+		{
+			name:           "whitespace and empty domain entries are ignored",
+			host:           "myservice.example.com",
+			allowedDomains: " clickhouse.cloud, example.com, ",
+		},
+		{
 			name:           "empty allowed domains permits any host",
 			host:           "anything.example.com",
 			allowedDomains: "",

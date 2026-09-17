@@ -25,6 +25,8 @@ import (
 )
 
 const (
+	pullTableProgressLogInterval = 10_000
+
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
 	// the record.
@@ -98,11 +100,21 @@ func (c *BigQueryConnector) PullTableRecords(
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullTableRecordsRequest,
 ) (model.PullTableRecordsResult, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	pullStartedAt := time.Now()
+	var pulledRecords int64
+	var bytesProcessed int64
 	signaledNotEmpty := false
 	defer func() {
 		if !signaledNotEmpty {
 			req.Stream.SignalAsEmpty()
 		}
+		logger.Info("[bigquery] PullTableRecords finished",
+			slog.String("table", req.SourceTableIdentifier),
+			slog.Int64("records", pulledRecords),
+			slog.Int64("bytes", bytesProcessed),
+			slog.Int("channelLen", req.Stream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStartedAt).Minutes()))
 	}()
 
 	now, err := c.currentBigQueryTimestamp(ctx)
@@ -162,6 +174,16 @@ func (c *BigQueryConnector) PullTableRecords(
 			signaledNotEmpty = true
 			req.Stream.SignalAsNotEmpty()
 		}
+		pulledRecords++
+		if pulledRecords%pullTableProgressLogInterval == 0 {
+			elapsed := time.Since(pullStartedAt)
+			logger.Info("[bigquery] pulled records",
+				slog.String("table", req.SourceTableIdentifier),
+				slog.Int64("records", pulledRecords),
+				slog.Duration("elapsed", elapsed),
+				slog.Float64("recordsPerSecond", float64(pulledRecords)/elapsed.Seconds()),
+				slog.Int("channelLen", req.Stream.ChannelLen()))
+		}
 		return nil
 	}
 
@@ -170,7 +192,6 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
 
-	var bytesProcessed int64
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
 			req.SourceTableIdentifier, req.NameAndExclude.Name, columns, missingColumnRetryAfter, start, upper, addRecord)
@@ -287,11 +308,13 @@ func buildEventsPullQuery(fn string, dsTable string, columns []string, orderBy s
 }
 
 // buildWatermarkPullQuery renders "SELECT col1, col2, ... FROM dsTable WHERE
-// watermarkColumn > @start AND watermarkColumn <= @end ORDER BY watermarkColumn"
+// watermarkColumn > @start AND watermarkColumn <= @end". Results are
+// intentionally unordered so Storage Read API can consume multiple streams in
+// parallel.
 func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []string) string {
 	col := quotedIdentifier(watermarkColumn)
-	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end ORDER BY %s",
-		quotedColumnList(columns), dsTable, col, col, col)
+	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end",
+		quotedColumnList(columns), dsTable, col, col)
 }
 
 // quotedColumnList renders columns as a comma-separated list of quoted identifiers.
@@ -336,6 +359,8 @@ func (c *BigQueryConnector) runPullQuery(
 			{Name: "end", Value: end},
 		}
 
+		// When client has Storage Read enabled, Query.Read decides whether to
+		// consume cached REST rows or use Storage Read for the query result.
 		it, err := q.Read(ctx)
 		if err == nil {
 			return it, nil
@@ -568,7 +593,8 @@ func (c *BigQueryConnector) pullTableChanges(
 }
 
 // pullTableQuery runs SELECT <columns> FROM <table> WHERE watermarkColumn > @start AND
-// watermarkColumn <= @end ORDER BY watermarkColumn for one source table
+// watermarkColumn <= @end for one source table. Results are intentionally
+// unordered so Storage Read API can consume multiple streams in parallel.
 // Returns the HTTP response body bytes consumed by BigQuery for this table's
 // query
 func (c *BigQueryConnector) pullTableQuery(
