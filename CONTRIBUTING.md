@@ -11,7 +11,7 @@ If you depend on one of these connectors, see the [deprecated connectors migrati
 ## Test selection with build tags
 
 Go test files under `flow/` that need external infrastructure carry a
-`//go:build` constraint naming the resource they exercise. The tags are:
+`//go:build` constraint naming the source resource they exercise. The tags are:
 
 | Tag           | Meaning                                                   |
 |---------------|-----------------------------------------------------------|

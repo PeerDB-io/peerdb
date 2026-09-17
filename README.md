@@ -124,7 +124,7 @@ For example:
 ```bash
 cd flow
 go clean -cache
-go test -v -run TestGenericCH_MySQL ./e2e/
+go test -v -tags mysql -run TestGenericCH_MySQL ./e2e/
 ```
 
 Or local debugging sessions.
@@ -156,7 +156,15 @@ And follow the status of the services and access logs through the Tilt UI at htt
 Since `.env` is the environment configuration source of truth, tests automatically pick it up from the project root. For example:
 
 ```bash
-go clean -cache; go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+go clean -cache; go test -v -tags mysql -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+```
+
+:memo: End to End tests are classified by source resource using build tags. These need to be passed in order for them to build and run correctly. Check [Test selection with build tags](CONTRIBUTING.md#test-selection-with-build-tags) in CONTRIBUTING.md for the tag list and editor set-up.
+
+:memo: To select every end to end test at once, pass all the source tags:
+
+```bash
+go test -v -tags postgres,mysql,mongodb,cockroachdb,bigquery,clickhouse ./e2e/
 ```
 
 ### Running tests from Tilt
