@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"slices"
 	"strings"
@@ -510,9 +511,10 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 	return nil
 }
 
-// validateStorageReadAPI creates a read session for the first source table to
-// verify that the BigQuery Storage Read API is enabled and accessible. Creating
-// the session does not read any table data.
+// validateStorageReadAPI creates a read session for the first source table and
+// reads its first response. CreateReadSession checks readsessions.create and
+// tables.getData, while ReadRows checks the separate readsessions.getData
+// permission that CDC needs when consuming query results.
 func validateStorageReadAPI(ctx context.Context, cfg SourceConfig) error {
 	if len(cfg.Tables) == 0 {
 		return nil
@@ -525,7 +527,7 @@ func validateStorageReadAPI(ctx context.Context, cfg SourceConfig) error {
 	if err != nil {
 		return err
 	}
-	_, err = cfg.StorageReadClient.CreateReadSession(ctx, &storagepb.CreateReadSessionRequest{
+	session, err := cfg.StorageReadClient.CreateReadSession(ctx, &storagepb.CreateReadSessionRequest{
 		Parent: "projects/" + cfg.ProjectID,
 		ReadSession: &storagepb.ReadSession{
 			Table:      fmt.Sprintf("projects/%s/datasets/%s/tables/%s", cfg.ProjectID, key.Dataset, key.Table),
@@ -534,9 +536,51 @@ func validateStorageReadAPI(ctx context.Context, cfg SourceConfig) error {
 		MaxStreamCount: 1,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to validate BigQuery Storage Read API: %w; enable the API by following %s",
-			&ExternalError{err},
-			"https://docs.cloud.google.com/bigquery/docs/reference/storage#enabling_the_api")
+		return storageReadValidationError(err)
+	}
+
+	if err := validateStorageReadSession(ctx, session, func(
+		ctx context.Context, req *storagepb.ReadRowsRequest,
+	) (storageReadRows, error) {
+		return cfg.StorageReadClient.ReadRows(ctx, req)
+	}); err != nil {
+		return storageReadValidationError(err)
 	}
 	return nil
+}
+
+type storageReadRows interface {
+	Recv() (*storagepb.ReadRowsResponse, error)
+}
+
+type storageReadRowsFunc func(context.Context, *storagepb.ReadRowsRequest) (storageReadRows, error)
+
+func validateStorageReadSession(
+	ctx context.Context, session *storagepb.ReadSession, readRows storageReadRowsFunc,
+) error {
+	// An empty table can legitimately produce no streams. In that case there is
+	// no data stream on which to exercise ReadRows, and session creation is the
+	// strongest available validation.
+	if len(session.GetStreams()) == 0 {
+		return nil
+	}
+
+	readCtx, cancelRead := context.WithCancel(ctx)
+	defer cancelRead()
+	rows, err := readRows(readCtx, &storagepb.ReadRowsRequest{
+		ReadStream: session.GetStreams()[0].GetName(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to open read stream: %w", err)
+	}
+	if _, err := rows.Recv(); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("failed to read from stream: %w", err)
+	}
+	return nil
+}
+
+func storageReadValidationError(err error) error {
+	return fmt.Errorf("failed to validate BigQuery Storage Read API: %w; verify Storage Read API permissions at %s",
+		&ExternalError{err},
+		"https://docs.cloud.google.com/bigquery/docs/reference/storage#permissions")
 }
