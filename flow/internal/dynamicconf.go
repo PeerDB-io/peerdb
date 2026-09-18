@@ -495,6 +495,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_UI_STRUCTURED_INGESTION_ENABLED",
+		Description: "Enable/disable configuring structured ingestion from PeerDB UI, which projects documents from schemaless " +
+			"sources onto typed columns instead of landing them whole in a single JSON column.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS",
 		Description:      "Create slots with failover enabled when possible",
 		DefaultValue:     "false",
@@ -845,6 +854,12 @@ func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) 
 
 func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
+}
+
+// PeerDBUIStructuredIngestionEnabled reports whether the UI offers configuring structured ingestion
+// on new mirrors. It only gates the setting being shown, not mirrors already using it or the API.
+func PeerDBUIStructuredIngestionEnabled(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_UI_STRUCTURED_INGESTION_ENABLED")
 }
 
 func PeerDBCDCStoreEnabled(ctx context.Context, env map[string]string) (bool, error) {
