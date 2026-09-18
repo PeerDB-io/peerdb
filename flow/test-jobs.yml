@@ -1,0 +1,73 @@
+# Package prefixes include descendants; unassigned packages run in unit.
+# Every top-level E2E test must be registered under exactly one source.
+
+# Postgres-to-ClickHouse suites and shared/source package tests.
+pgch:
+  packages:
+    - connectors/postgres
+    - connectors/utils
+    - connectors/clickhouse
+    - pkg/postgres
+    - pkg/clickhouse
+  e2e:
+    - TestApiPg
+    - TestClickHouseTLSDirectory
+    - TestGenericCH_PG
+    - TestGenericChCluster_PG
+    - TestPeerFlowE2ETestSuitePG_CH
+    - TestPeerFlowE2ETestSuitePG_CH_Cluster
+    - TestSwitchboardPostgres
+
+pgother:
+  packages:
+    - connectors/snowflake
+  e2e:
+    - TestGenericBQ
+    - TestGenericPG
+    - TestGenericSF
+    - TestPeerFlowE2ETestSuiteBQ
+    - TestPeerFlowE2ETestSuiteGCS
+    - TestPeerFlowE2ETestSuiteMinIO
+    - TestPeerFlowE2ETestSuitePG
+    - TestPeerFlowE2ETestSuiteS3
+    - TestPeerFlowE2ETestSuiteSF
+    - TestSnowflakeSchemaDeltaTestSuite
+    - Test_Eventhubs
+    - Test_PubSub
+
+mysql:
+  packages:
+    - connectors/mysql
+    - pkg/mysql
+  e2e:
+    - TestApiMy
+    - TestGenericCH_MySQL
+    - TestGenericChCluster_MySQL
+    - TestMySQLRDSBinlog
+    - TestPeerFlowE2ETestSuiteMySQL_CH
+    - TestPeerFlowE2ETestSuiteMySQL_CH_Cluster
+    - TestSwitchboardMySQL
+
+mongodb:
+  packages:
+    - connectors/mongo
+    - pkg/mongo
+  e2e:
+    - TestApiMongo
+    - TestMongoClickhouseSuite
+    - TestSwitchboardMongo
+
+cockroachdb:
+  packages:
+    - connectors/cockroachdb
+  e2e:
+    - TestCockroachDBClickHouseSuite
+    - TestCockroachDBSuite
+
+# Postgres-to-BigQuery E2E suites belong to Postgres; these exercise the source.
+bigquery:
+  packages:
+    - connectors/bigquery
+    - pkg/bigquery
+  e2e:
+    - TestBigQueryClickhouseSuite

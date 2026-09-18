@@ -1,5 +1,5 @@
 #!/bin/sh
-set -Eeu
+set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
@@ -13,12 +13,14 @@ CONTAINER="${1:-peerdb-postgres}"
 case "$CONTAINER" in
   peerdb-postgres2)
     PG_INSTANCE_USER="$PG2_USER"
+    PG_INSTANCE_PASSWORD="$PG2_PASSWORD"
     PG_INSTANCE_DATABASE="$PG2_DATABASE"
     PG_INSTANCE_HOST="$PG2_HOST"
     PG_INSTANCE_PORT="$PG2_PORT"
     ;;
   *)
     PG_INSTANCE_USER="$PG_USER"
+    PG_INSTANCE_PASSWORD="$PG_PASSWORD"
     PG_INSTANCE_DATABASE="$PG_DATABASE"
     PG_INSTANCE_HOST="$PG_HOST"
     PG_INSTANCE_PORT="$PG_PORT"
@@ -62,5 +64,19 @@ CURRENT_WAL=$($DOCKER exec "$CONTAINER" psql -U "$PG_INSTANCE_USER" -d "$PG_INST
 if [ "$CURRENT_WAL" != "logical" ]; then
   $DOCKER restart "$CONTAINER"
 fi
+
+echo "Waiting for PostgreSQL in $CONTAINER to accept queries..."
+attempt=0
+until $DOCKER exec -e PGPASSWORD="$PG_INSTANCE_PASSWORD" \
+  -e PGCONNECT_TIMEOUT=2 -e 'PGOPTIONS=-c statement_timeout=2000' \
+  "$CONTAINER" psql -h 127.0.0.1 -U "$PG_INSTANCE_USER" -d "$PG_INSTANCE_DATABASE" \
+  -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 60 ]; then
+    echo "Timed out waiting for PostgreSQL in $CONTAINER to accept queries." >&2
+    exit 1
+  fi
+  sleep 1
+done
 
 echo "PostgreSQL is ready at ${PG_INSTANCE_HOST}:${PG_INSTANCE_PORT}"

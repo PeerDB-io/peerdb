@@ -5,32 +5,49 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# Expose catalog operations with the server feature, or just migrations otherwise.
+[lib]
+path = "src/entrypoint.rs"
+
 [features]
-default = ["aws", "gcp"]
-aws = ["dep:aws-config", "dep:aws-sdk-kms"]
-gcp = ["dep:reqwest"]
+default = ["server", "aws", "gcp"]
+server = [
+  "dep:async-trait",
+  "dep:base64",
+  "dep:chacha20poly1305",
+  "dep:chrono",
+  "dep:peer-cursor",
+  "dep:peer-postgres",
+  "dep:pgwire",
+  "dep:pt",
+  "dep:serde_json",
+  "dep:sqlparser",
+  "dep:tokio",
+  "dep:postgres-connection",
+  "tokio-postgres/with-chrono-0_4",
+  "tokio-postgres/with-serde_json-1",
+  "tokio-postgres/with-uuid-1",
+]
+aws = ["server", "dep:aws-config", "dep:aws-sdk-kms"]
+gcp = ["server", "dep:reqwest"]
 
 [dependencies]
 anyhow = "1"
 aws-config = { version = "1", optional = true }
 aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
-async-trait = "0.1"
-base64 = "0.22"
-chacha20poly1305 = { version = "0.11.0-rc.1", default-features = false, features = ["alloc"] }
-chrono.workspace = true
-peer-cursor = { path = "../peer-cursor" }
-peer-postgres = { path = "../peer-postgres" }
-pgwire.workspace = true
-pt = { path = "../pt" }
+async-trait = { version = "0.1", optional = true }
+base64 = { version = "0.22", optional = true }
+chacha20poly1305 = { version = "0.11.0-rc.1", default-features = false, features = ["alloc"], optional = true }
+chrono = { workspace = true, optional = true }
+peer-cursor = { path = "../peer-cursor", optional = true }
+peer-postgres = { path = "../peer-postgres", optional = true }
+pgwire = { workspace = true, optional = true }
+pt = { path = "../pt", optional = true }
 refinery = { version = "0.9", default-features = false, features = ["tokio-postgres"] }
-serde_json = "1.0"
-sqlparser.workspace = true
-tokio.workspace = true
-tokio-postgres = { version = "0.7.6", features = [
-  "with-chrono-0_4",
-  "with-serde_json-1",
-  "with-uuid-1",
-] }
+serde_json = { version = "1.0", optional = true }
+sqlparser = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-postgres = "0.7.6"
 tracing.workspace = true
-postgres-connection = { path = "../postgres-connection" }
+postgres-connection = { path = "../postgres-connection", optional = true }

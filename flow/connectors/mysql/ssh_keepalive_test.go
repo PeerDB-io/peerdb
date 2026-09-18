@@ -124,22 +124,34 @@ func setupMySQLSSHKeepaliveHarness(ctx context.Context, t *testing.T, proxyName 
 	}
 }
 
-func TestMySQLOnlyIntegrationSSHKeepaliveTunnelDown(t *testing.T) {
+func TestSSHKeepaliveTunnelDown(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveDownTest(t, cfg)
 }
 
-func TestMySQLOnlyIntegrationSSHKeepaliveLatency(t *testing.T) {
+func TestSSHKeepaliveLatency(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	utils.RunSSHKeepaliveLatencyTest(t, cfg)
 }
 
-func TestMySQLOnlyIntegrationSSHResetPeer(t *testing.T) {
+func TestSSHResetPeer(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	connector, cfg := setupMySQLSSHKeepaliveHarness(t.Context(), t, "my-ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	utils.RunSSHResetPeerTest(t, cfg)
@@ -181,8 +193,12 @@ func setupCDCPullRecords(
 	return req, otelManager
 }
 
-func TestMySQLOnlyIntegrationSSHKeepaliveCDCHang(t *testing.T) {
+func TestSSHKeepaliveCDCHang(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	ctx := t.Context()
 
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-down-test", toxiproxyCDCHangProxyPort)
@@ -231,8 +247,12 @@ func TestMySQLOnlyIntegrationSSHKeepaliveCDCHang(t *testing.T) {
 	}
 }
 
-func TestMySQLOnlyIntegrationSSHKeepaliveCDCCloseHang(t *testing.T) {
+func TestSSHKeepaliveCDCCloseHang(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	ctx := t.Context()
 
 	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
@@ -287,8 +307,12 @@ func TestMySQLOnlyIntegrationSSHKeepaliveCDCCloseHang(t *testing.T) {
 	}
 }
 
-func TestMySQLOnlyIntegrationCloseSyncerWithTimeout(t *testing.T) {
+func TestCloseSyncerWithTimeout(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	ctx := t.Context()
 	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(
 		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
@@ -326,10 +350,14 @@ func TestMySQLOnlyIntegrationCloseSyncerWithTimeout(t *testing.T) {
 	}
 }
 
-// TestMySQLOnlyIntegrationBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL,
+// TestBinlogStalenessThreshold verifies that when bytes stop flowing from MySQL,
 // PullRecords returns MySQLStaleConnectionError once time.Since(lastEventAt) exceeds the staleness threshold.
-func TestMySQLOnlyIntegrationBinlogStalenessThreshold(t *testing.T) {
+func TestBinlogStalenessThreshold(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 	ctx := t.Context()
 	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(ctx, t, "my-binlog-staleness-test", toxiproxyBinlogStalenessPort)
 	defer connector.Close()
