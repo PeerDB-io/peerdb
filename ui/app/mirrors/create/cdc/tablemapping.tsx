@@ -36,6 +36,9 @@ export default function TablePicker({
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: ColumnsItem[] }[]
   >([]);
+  // Whether the source peer supports structured ingestion, as reported with its tables
+  const [structuredIngestionSupported, setStructuredIngestionSupported] =
+    useState(false);
   const searchedSchemas = useMemo(
     () =>
       allSchemas?.filter((schema) =>
@@ -98,6 +101,8 @@ export default function TablePicker({
               setRows={setRows}
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
+              structuredIngestionSupported={structuredIngestionSupported}
+              setStructuredIngestionSupported={setStructuredIngestionSupported}
               peerType={peerType}
               alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
