@@ -21,21 +21,23 @@ func TestPollWindow(t *testing.T) {
 
 	t.Run("caps at maxQueryWindow past checkpoint when now is far ahead", func(t *testing.T) {
 		now := checkpoint.Add(maxQueryWindow * 10)
-		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		upper, ok, hasMore := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		require.True(t, ok)
+		assert.True(t, hasMore)
 		assert.True(t, upper.Equal(checkpoint.Add(maxQueryWindow)))
 	})
 
 	t.Run("caps at safetyLag behind now when now is close", func(t *testing.T) {
 		now := checkpoint.Add(time.Hour)
-		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		upper, ok, hasMore := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		require.True(t, ok)
+		assert.False(t, hasMore)
 		assert.True(t, upper.Equal(now.Add(-safetyLag)))
 	})
 
 	t.Run("nothing new to scan when safety lag hasn't cleared", func(t *testing.T) {
 		now := checkpoint.Add(safetyLag / 2)
-		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		upper, ok, _ := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		assert.False(t, ok)
 		// upper is still reported (as now-safetyLag), just not usable, since it
 		// doesn't move past checkpoint.
@@ -45,10 +47,28 @@ func TestPollWindow(t *testing.T) {
 
 	t.Run("exactly at the boundary is not ok (upper must strictly move past checkpoint)", func(t *testing.T) {
 		now := checkpoint.Add(safetyLag)
-		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		upper, ok, _ := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		assert.False(t, ok)
 		assert.True(t, upper.Equal(checkpoint))
 	})
+}
+
+func TestQueryCDCSliceLimitReached(t *testing.T) {
+	assert.False(t, queryCDCSliceLimitReached(99, 999, 9*time.Second, 100, 1000, 10*time.Second))
+	assert.True(t, queryCDCSliceLimitReached(100, 1, time.Second, 100, 1000, 10*time.Second))
+	assert.True(t, queryCDCSliceLimitReached(1, 1000, time.Second, 100, 1000, 10*time.Second))
+	assert.True(t, queryCDCSliceLimitReached(1, 1, 10*time.Second, 100, 1000, 10*time.Second))
+	assert.False(t, queryCDCSliceLimitReached(100, 1000, 10*time.Second, 0, 0, 0))
+}
+
+func TestParseBigQueryTableResource(t *testing.T) {
+	project, dataset, table, err := parseBigQueryTableResource("projects/p/datasets/d/tables/t")
+	require.NoError(t, err)
+	assert.Equal(t, "p", project)
+	assert.Equal(t, "d", dataset)
+	assert.Equal(t, "t", table)
+	_, _, _, err = parseBigQueryTableResource("p.d.t")
+	require.Error(t, err)
 }
 
 func TestBigQueryRowToRecordItems(t *testing.T) {

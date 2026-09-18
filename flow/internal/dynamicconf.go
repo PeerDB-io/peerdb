@@ -302,6 +302,32 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_BIGQUERY_CDC_USE_EXPLICIT_STORAGE_READ",
+		Description:      "BigQuery CDC only: use PeerDB-managed Storage Read sessions and resumable stream offsets instead of the BigQuery client RowIterator",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:         "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_ROWS",
+		Description:  "BigQuery CDC only: maximum rows read into one resumable Storage Read slice; 0 disables the limit",
+		DefaultValue: "1000000", ValueType: protos.DynconfValueType_INT,
+		ApplyMode: protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE, TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:         "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_BYTES",
+		Description:  "BigQuery CDC only: approximate maximum serialized Arrow bytes in one resumable slice; 0 disables the limit",
+		DefaultValue: "1073741824", ValueType: protos.DynconfValueType_INT,
+		ApplyMode: protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE, TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:         "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_SECONDS",
+		Description:  "BigQuery CDC only: maximum time spent reading one resumable slice; 0 disables the limit",
+		DefaultValue: "300", ValueType: protos.DynconfValueType_INT,
+		ApplyMode: protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE, TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
 		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
 			"used when a mirror does not set query_cdc_pull_sync_parallelism; 0 or less removes the limit",
@@ -797,6 +823,23 @@ func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string)
 		return 0, err
 	}
 	return time.Duration(x) * time.Second, nil
+}
+
+func PeerDBBigQueryCDCUseExplicitStorageRead(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_CDC_USE_EXPLICIT_STORAGE_READ")
+}
+
+func PeerDBBigQueryCDCPullSliceMaxRows(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_ROWS")
+}
+
+func PeerDBBigQueryCDCPullSliceMaxBytes(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_BYTES")
+}
+
+func PeerDBBigQueryCDCPullSliceMaxDuration(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_PULL_SLICE_MAX_SECONDS")
+	return time.Duration(x) * time.Second, err
 }
 
 func PeerDBQueryCDCPullSyncParallelism(ctx context.Context, env map[string]string) (int, error) {

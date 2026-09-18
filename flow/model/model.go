@@ -108,7 +108,8 @@ type PullTableRecordsRequest struct {
 	NameAndExclude NameAndExclude
 	// Cursor is the opaque value previously returned for this table by
 	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
-	Cursor string
+	Cursor        string
+	InflightState *QueryCDCInflightState
 	// Stream is where pulled records are pushed.
 	Stream *CDCStream[RecordItems]
 }
@@ -118,8 +119,35 @@ type PullTableRecordsResult struct {
 	// NextCursor is persisted and passed back as PullTableRecordsRequest.Cursor
 	// on this table's next poll.
 	NextCursor string
+	// InflightState contains candidate offsets. The activity persists it only
+	// after the records returned in this pull have been staged successfully.
+	InflightState *QueryCDCInflightState
+	// WindowComplete means every stream for the fixed query window reached EOF.
+	WindowComplete bool
+	// HasMore means another slice/window should be pulled without the idle wait.
+	HasMore bool
 	// BytesProcessed is the number of bytes fetched from the source for this poll.
 	BytesProcessed int64
+}
+
+// QueryCDCInflightState resumes a fixed BigQuery query result through the
+// Storage Read API. Offsets are response-boundary row offsets.
+type QueryCDCInflightState struct {
+	Version          uint32                `json:"version"`
+	WindowStart      time.Time             `json:"window_start"`
+	WindowEnd        time.Time             `json:"window_end"`
+	ResultTable      string                `json:"result_table"`
+	SessionName      string                `json:"session_name"`
+	SessionExpiresAt time.Time             `json:"session_expires_at"`
+	ArrowSchema      []byte                `json:"arrow_schema"`
+	SourceHasMore    bool                  `json:"source_has_more"`
+	Streams          []QueryCDCStreamState `json:"streams"`
+}
+
+type QueryCDCStreamState struct {
+	Name            string `json:"name"`
+	CommittedOffset int64  `json:"committed_offset"`
+	Complete        bool   `json:"complete"`
 }
 
 // SyncQueryCDCRequest carries one table's CDC records to

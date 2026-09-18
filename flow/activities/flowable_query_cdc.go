@@ -261,11 +261,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			}
 			defer release()
 
-			attemptedAt := time.Now()
 			logger.Info("[cdc] starting poll")
-			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
-				return nil, err
-			}
 
 			pollGroup, pollCtx := errgroup.WithContext(ctx)
 			pollGroup.Go(func() error {
@@ -276,6 +272,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					SourceTableIdentifier: sourceTable,
 					NameAndExclude:        nameAndExclude,
 					Cursor:                state.CursorText,
+					InflightState:         state.InflightState,
 					Stream:                stream,
 				})
 				stream.Close()
@@ -327,6 +324,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
+				return a.Alerter.LogFlowError(ctx, flowName, err)
+			}
 			logger.Error("[cdc] table poll failed; will retry", slog.Any("error", pollErr))
 			if !wasLagging {
 				_ = a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf(
@@ -354,6 +354,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}
 		if err := pgMetadata.RecordQueryCDCSync(
 			ctx, flowName, sourceTable, pullResult.NextCursor, time.Now(), newBatchID,
+			pullResult.InflightState, pullResult.HasMore,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}

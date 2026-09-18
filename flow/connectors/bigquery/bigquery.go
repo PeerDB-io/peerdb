@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
+	storageapi "cloud.google.com/go/bigquery/storage/apiv1"
 	"cloud.google.com/go/storage"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
@@ -63,13 +64,14 @@ type BigQueryConnector struct {
 	droppedExcludeColumns   map[string]map[string]struct{}
 	logger                  log.Logger
 	*metadataStore.PostgresMetadata
-	bqConfig      *protos.BigqueryConfig
-	credentials   *auth.Credentials
-	client        *bigquery.Client
-	storageClient *storage.Client
-	catalogPool   shared.CatalogPool
-	datasetID     string
-	projectID     string
+	bqConfig          *protos.BigqueryConfig
+	credentials       *auth.Credentials
+	client            *bigquery.Client
+	storageClient     *storage.Client
+	storageReadClient *storageapi.BigQueryReadClient
+	catalogPool       shared.CatalogPool
+	datasetID         string
+	projectID         string
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
@@ -128,19 +130,36 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		_ = client.Close()
 		return nil, fmt.Errorf("failed to enable BigQuery Storage Read API: %v", err)
 	}
+	storageReadClient, err := storageapi.NewBigQueryReadClient(
+		ctx,
+		option.WithAuthCredentials(creds),
+		option.WithGRPCConnectionPool(1),
+		option.WithGRPCDialOption(grpc.WithStatsHandler(&meteredGRPCStatsHandler{})),
+	)
+	if err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("failed to create BigQuery Storage Read client: %v", err)
+	}
 
 	if err := validateBigQueryConnection(ctx, client, projectID, datasetID); err != nil {
 		logger.Error("failed to validate BigQuery connection", slog.Any("error", err))
+		_ = storageReadClient.Close()
+		_ = client.Close()
 		return nil, err
 	}
 
 	storageClient, err := storage.NewClient(ctx, option.WithAuthCredentials(creds))
 	if err != nil {
+		_ = storageReadClient.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
+		_ = storageClient.Close()
+		_ = storageReadClient.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
 	}
 
@@ -152,6 +171,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		projectID:             projectID,
 		PostgresMetadata:      metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
 		storageClient:         storageClient,
+		storageReadClient:     storageReadClient,
 		catalogPool:           catalogPool,
 		logger:                logger,
 		droppedExcludeColumns: make(map[string]map[string]struct{}),
@@ -210,7 +230,7 @@ func (c *BigQueryConnector) ValidateMirrorDestination(
 // Close closes the BigQuery driver.
 func (c *BigQueryConnector) Close() error {
 	if c != nil {
-		return c.client.Close()
+		return errors.Join(c.storageReadClient.Close(), c.client.Close())
 	}
 	return nil
 }

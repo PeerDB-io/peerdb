@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 func TestInitializeQueryCDCReplicationState(t *testing.T) {
@@ -32,11 +33,37 @@ func TestInitializeQueryCDCReplicationState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "snapshot-checkpoint", state.CursorText)
 
+	windowStart := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	inflight := &model.QueryCDCInflightState{
+		Version: 1, WindowStart: windowStart, WindowEnd: windowStart.Add(time.Hour),
+		ResultTable: "projects/p/datasets/d/tables/t", SessionName: "sessions/s",
+		SessionExpiresAt: windowStart.Add(6 * time.Hour), ArrowSchema: []byte{1, 2, 3},
+		Streams: []model.QueryCDCStreamState{{Name: "streams/1", CommittedOffset: 42}},
+	}
+	require.NoError(t, metadata.RecordQueryCDCSync(
+		ctx, flowName, firstTable, "snapshot-checkpoint", time.Now(), 1, inflight, true,
+	))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, inflight, state.InflightState)
+	require.Equal(t, int64(1), state.SyncedBatchID)
+	require.True(t, state.LastAttemptAt.IsZero())
+
+	syncedAt := time.Now().Truncate(time.Microsecond)
+	require.NoError(t, metadata.RecordQueryCDCSync(
+		ctx, flowName, firstTable, "next-checkpoint", syncedAt, 0, nil, false,
+	))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Nil(t, state.InflightState)
+	require.Equal(t, "next-checkpoint", state.CursorText)
+	require.Equal(t, syncedAt, state.LastAttemptAt)
+
 	// Existing progress must not be replaced if the activity is restarted.
 	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, firstTable, "newer-checkpoint"))
 	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
 	require.NoError(t, err)
-	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+	require.Equal(t, "next-checkpoint", state.CursorText)
 
 	// A state row created by an attempt before initialization is still eligible
 	// for seeding because it has not synced or normalized anything.
