@@ -11,13 +11,13 @@ on:
     inputs: &tilt_flow_inputs
       test_group:
         description: >-
-          Source group from flow/test-jobs.yml (postgres, mysql, mongodb,
+          Source group from flow/test-jobs.yml (pgch, pgother, mysql, mongodb,
           cockroachdb, bigquery), or unit for unassigned packages. The source
           selects whole packages and registered E2E suites. Must match the
           ancillary services started below.
         type: string
         required: false
-        default: postgres
+        default: pgch
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.

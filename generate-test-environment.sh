@@ -7,15 +7,15 @@ if [ -f "$ENVIRONMENT_FILE" ]; then
     exit 0;
 fi
 
-# Defaults come from the flow.yml matrix: the include row of a source for the
-# newest ClickHouse release (the `latest` cell) is that source's default version.
-DEFAULT_CH=$(cat "$FLOW_WORKFLOW" | yq -r '.jobs.flow_test.strategy.matrix.ch[-1]')
+# Default to the latest ClickHouse image. Source versions come from
+# their matrix job with ch: latest (pgch supplies the Postgres default).
+DEFAULT_CH=latest
 
 # Version key of <source> on the default ClickHouse row.
 # Usage: source_version <source> [field]   (field defaults to "version")
 source_version() {
     field="${2:-version}"
-    cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.include[] | select(.source == \"$1\" and .ch == \"$DEFAULT_CH\") | .$field"
+    cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.job[] | select(.source == \"$1\" and .ch == \"$DEFAULT_CH\") | .$field"
 }
 
 # Resolve a version key to its docker image using the images mapping in the
@@ -47,7 +47,7 @@ fi;
 
 if [ -z "$POSTGRES_IMAGE" ]; then
     if [ -z "$POSTGRES_VERSION" ]; then
-        POSTGRES_VERSION=$(source_version postgres)
+        POSTGRES_VERSION=$(source_version pgch)
     fi
     POSTGRES_IMAGE="imresamu/postgis:${POSTGRES_VERSION}-3.5-alpine"
 fi;
