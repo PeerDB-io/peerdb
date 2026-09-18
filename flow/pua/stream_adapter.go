@@ -56,23 +56,16 @@ func AttachToCdcStream(
 	}
 
 	go func() {
-		if stream.WaitAndCheckEmpty() {
-			outstream.SignalAsEmpty()
-			<-stream.GetRecords() // needed because empty signal comes before Close
-		} else {
-			outstream.SignalAsNotEmpty()
-			for record := range stream.GetRecords() {
-				ls.Push(lfn)
-				ls.Push(LuaRecord.New(ls, record))
-				if err := ls.PCall(1, 0, nil); err != nil {
-					handleErr(err)
-					break
-				}
-				err := outstream.AddRecord(ctx, record)
-				if err != nil {
-					handleErr(err)
-					break
-				}
+		for record := range stream.GetRecords() {
+			ls.Push(lfn)
+			ls.Push(LuaRecord.New(ls, record))
+			if err := ls.PCall(1, 0, nil); err != nil {
+				handleErr(err)
+				break
+			}
+			if err := outstream.AddRecord(ctx, record); err != nil {
+				handleErr(err)
+				break
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas
