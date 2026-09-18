@@ -38,7 +38,10 @@ import (
 
 type APITestSuite struct {
 	protos.FlowServiceClient
-	t       *testing.T
+	t *testing.T
+	// pg is the ancillary Postgres, set only when the source under test is
+	// itself Postgres: the tests that use it as a destination or inspect
+	// publications all skip for other sources.
 	pg      *PostgresSource
 	catalog shared.CatalogPool
 	source  SuiteSource
@@ -47,7 +50,9 @@ type APITestSuite struct {
 }
 
 func (s APITestSuite) Teardown(ctx context.Context) {
-	s.pg.Teardown(s.t, ctx, s.suffix)
+	if s.pg != nil {
+		s.pg.Teardown(s.t, ctx, s.suffix)
+	}
 }
 
 func (s APITestSuite) T() *testing.T {
@@ -63,6 +68,9 @@ func (s APITestSuite) Source() SuiteSource {
 }
 
 func (s APITestSuite) Connector() *connpostgres.PostgresConnector {
+	if s.pg == nil {
+		return nil
+	}
 	return s.pg.PostgresConnector
 }
 
@@ -201,8 +209,14 @@ func testApi[TSource SuiteSource](
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(common.RandomString(8))
-		pg, err := SetupPostgres(t, suffix)
-		require.NoError(t, err)
+		// Only Postgres-source runs need the ancillary Postgres (see APITestSuite.pg).
+		var pg *PostgresSource
+		var zero TSource
+		if _, isPg := any(zero).(*PostgresSource); isPg {
+			var err error
+			pg, err = SetupPostgres(t, suffix)
+			require.NoError(t, err)
+		}
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
 		client, err := NewApiClient()
@@ -246,6 +260,9 @@ func (s APITestSuite) TestGetVersion() {
 }
 
 func (s APITestSuite) TestPostgresValidation_WrongPassword() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("validates the ancillary Postgres peer, only started for Postgres sources")
+	}
 	config := internal.GetAncillaryPostgresConfigFromEnv()
 	config.Password = "wrong"
 	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
@@ -262,6 +279,9 @@ func (s APITestSuite) TestPostgresValidation_WrongPassword() {
 }
 
 func (s APITestSuite) TestPostgresValidation_Pass() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("validates the ancillary Postgres peer, only started for Postgres sources")
+	}
 	config := internal.GetAncillaryPostgresConfigFromEnv()
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
