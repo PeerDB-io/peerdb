@@ -69,8 +69,7 @@ func executePlan(selection plan, settings runSettings, execute func(*exec.Cmd) e
 		addPackages(".", "e2e-test-results.xml", "1200s", []string{"./e2e"},
 			[]string{"-run", selection.E2ERunPattern})
 	}
-	// Persist every expected report before starting any command, so ingestion
-	// can distinguish unplanned reports from missing results after a failure.
+	// Record the selection and expected reports for the job artifacts.
 	data, err := json.MarshalIndent(expected, "", "  ")
 	if err != nil {
 		return err
@@ -78,8 +77,14 @@ func executePlan(selection plan, settings runSettings, execute func(*exec.Cmd) e
 	if err := os.WriteFile(filepath.Join(logDir, "test-selection.json"), append(data, '\n'), 0o600); err != nil {
 		return err
 	}
+	// Remove previous results so failed commands cannot leave stale reports to ingest.
+	for _, report := range append([]string{"normalized-test-results.ndjson"}, expected.Reports...) {
+		if err := os.Remove(filepath.Join(logDir, report)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	// Run modules and E2E concurrently, waiting for every report even after failures.
-	failures := make([]error, len(commands))
+	failures := make([]error, len(commands)+1)
 	var running sync.WaitGroup
 	for i, cmd := range commands {
 		running.Go(func() {
@@ -89,6 +94,7 @@ func executePlan(selection plan, settings runSettings, execute func(*exec.Cmd) e
 		})
 	}
 	running.Wait()
+	failures[len(commands)] = normalizeReports(logDir, expected.Reports)
 	return errors.Join(failures...)
 }
 

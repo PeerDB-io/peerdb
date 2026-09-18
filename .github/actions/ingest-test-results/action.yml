@@ -1,23 +1,12 @@
 name: 'Ingest test results'
 description: >-
-  Normalize JUnit test results and ingest them into the CI observability store
-  for analysis. Reports required by the execution plan must exist and be valid.
-  Ingests only planned reports. No-op when they contain no test cases or secrets
-  are not configured. Must run
-  from the workspace root (uses .github/scripts/test-results.sh) and requires the
-  `retry` CLI on PATH.
+  Upload normalized NDJSON test results to the CI observability store.
+  Skips ingestion when the file is empty or target secrets are not configured.
+  Requires the `retry` CLI on PATH.
 
 inputs:
-  combination-id:
-    description: >-
-      Identifier for the combination/compatibility this run covers (stored as
-      compatibility_matrix_id). e.g. "pg17-my8-mo7-ch24" or "tilt-TestApiPg".
-    required: true
-  pkg-combination-id:
-    description: Combination identifier for reports from the pkg module.
-    required: true
-  test-plan-file:
-    description: Execution plan listing expected JUnit report filenames, relative to its directory.
+  normalized-results-file:
+    description: Path to the normalized NDJSON test results file.
     required: true
   o11y-api-key-id:
     description: API key id for the o11y ingestion endpoint. Ingestion is skipped when empty.
@@ -38,41 +27,18 @@ runs:
     - name: Ingest tests results for analysis
       shell: bash
       env:
-        WORKFLOW_RUN_ID: ${{ github.run_id }}
-        WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
-        WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
-        COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         SUMMARY_HEADER: "x-clickhouse-summary"
-        COMBINATION_ID: ${{ inputs.combination-id }}
-        PKG_COMBINATION_ID: ${{ inputs.pkg-combination-id }}
-        TEST_PLAN_FILE: ${{ inputs.test-plan-file }}
+        NORMALIZED_RESULTS_FILE: ${{ inputs.normalized-results-file }}
         O11Y_API_KEY_ID: ${{ inputs.o11y-api-key-id }}
         O11Y_API_KEY_SECRET: ${{ inputs.o11y-api-key-secret }}
         O11Y_QUERY_ENDPOINT: ${{ inputs.o11y-query-endpoint }}
       run: |
-        reports=$(jq -er '
-          .reports | if type != "array" then error("Execution plan must list expected reports")
-          else join("\n") end
-        ' "$TEST_PLAN_FILE")
-        mkdir -p logs
-        > logs/normalized-test-results.ndjson
-        while IFS= read -r report; do
-            [ -n "$report" ] || continue
-            test_results_file="$(dirname "$TEST_PLAN_FILE")/$report"
-            if [ ! -f "$test_results_file" ]; then
-                echo "::error::Expected test report $test_results_file is missing."
-                exit 1
-            fi
-            combination_id="$COMBINATION_ID"
-            if [ "$report" = pkg-test-results.xml ]; then
-                combination_id="$PKG_COMBINATION_ID"
-            fi
-            COMBINATION_ID="$combination_id" .github/scripts/test-results.sh "$test_results_file" \
-              >> logs/normalized-test-results.ndjson
-        done <<< "$reports"
-        if [ ! -s logs/normalized-test-results.ndjson ]; then
-            echo "Planned test reports contain no test cases; skipping ingestion."
+        if [ ! -f "$NORMALIZED_RESULTS_FILE" ]; then
+            echo "::error::Normalized test results file $NORMALIZED_RESULTS_FILE is missing."
+            exit 1
+        fi
+        if [ ! -s "$NORMALIZED_RESULTS_FILE" ]; then
+            echo "No test results to ingest; skipping."
             exit 0
         fi
         if [ -z "$O11Y_API_KEY_ID" ] \
@@ -86,7 +52,7 @@ runs:
         curl --fail-with-body -i -H "Content-Type: application/octet-stream" \
           --user "$O11Y_API_KEY_ID:$O11Y_API_KEY_SECRET" \
           "$O11Y_QUERY_ENDPOINT" \
-          --data-binary @logs/normalized-test-results.ndjson \
+          --data-binary "@$NORMALIZED_RESULTS_FILE" \
           | tee upload.log
         WRITTEN_ROWS=$(cat upload.log | grep $SUMMARY_HEADER | sed "s/$SUMMARY_HEADER: //" | jq '.written_rows' -r || true)
         if [ -z "$WRITTEN_ROWS" ] || [ "$WRITTEN_ROWS" -eq 0 ]; then

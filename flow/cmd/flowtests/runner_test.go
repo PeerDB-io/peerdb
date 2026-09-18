@@ -31,6 +31,9 @@ func TestExecutePlanRunsConcurrentlyAndWaitsAfterFailure(t *testing.T) {
 	go func() {
 		done <- executePlan(selection, settings, func(cmd *exec.Cmd) error {
 			started <- cmd
+			if err := writeTestReport(cmd); err != nil {
+				return err
+			}
 			if cmd.Dir == "." && !slices.Contains(cmd.Args, "-run") {
 				return failed
 			}
@@ -69,6 +72,9 @@ func TestExecutePlanRunsConcurrentlyAndWaitsAfterFailure(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("runner did not finish after all invocations were released")
 	}
+	normalized, err := os.ReadFile(filepath.Join(settings.logDir, "normalized-test-results.ndjson"))
+	require.NoError(t, err, "reports must be normalized even when tests fail")
+	require.Empty(t, normalized, "empty reports produce empty NDJSON")
 	require.Len(t, calls, 3)
 	for report, cmd := range calls {
 		if report != "e2e-test-results.xml" {
@@ -96,7 +102,7 @@ func TestExecuteUnitWithoutCoverageOrE2E(t *testing.T) {
 	calls := make(chan *exec.Cmd, 3)
 	err = executePlan(selection, runSettings{logDir: t.TempDir()}, func(cmd *exec.Cmd) error {
 		calls <- cmd
-		return nil
+		return writeTestReport(cmd)
 	})
 	require.NoError(t, err)
 	close(calls)
@@ -114,7 +120,7 @@ func TestExecuteSkipsEmptyModules(t *testing.T) {
 	calls := make(chan *exec.Cmd, 3)
 	err := executePlan(selection, settings, func(cmd *exec.Cmd) error {
 		calls <- cmd
-		return nil
+		return writeTestReport(cmd)
 	})
 	require.NoError(t, err)
 	require.Len(t, calls, 1, "empty package lists must not invoke go test in the current directory")
@@ -144,4 +150,9 @@ postgres:
 		_, err := decodeGroups([]byte(input))
 		require.Error(t, err, "invalid configuration accepted: %s", input)
 	}
+}
+
+func writeTestReport(cmd *exec.Cmd) error {
+	report := cmd.Args[slices.Index(cmd.Args, "--junitfile")+1]
+	return os.WriteFile(report, []byte("<testsuites/>"), 0o600)
 }

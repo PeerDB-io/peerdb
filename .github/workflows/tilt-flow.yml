@@ -512,6 +512,12 @@ jobs:
       - name: Run tests
         working-directory: ./flow
         env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+          WORKFLOW_RUN_NUMBER: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          COMBINATION_ID: "tilt-${{ steps.run-identity.outputs.suffix }}"
           TEST_GROUP: ${{ inputs.test_group }}
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
@@ -630,9 +636,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/ingest-test-results
         with:
-          test-plan-file: logs/test-selection.json
-          combination-id: "tilt-${{ steps.run-identity.outputs.suffix }}"
-          pkg-combination-id: "tilt-pkg-${{ steps.run-identity.outputs.suffix }}"
+          normalized-results-file: logs/normalized-test-results.ndjson
           o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
           o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
