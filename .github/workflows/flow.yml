@@ -38,21 +38,53 @@ jobs:
       - name: Approve run
         run: echo "Run approved for ${{ github.event_name }}."
 
+  # Packages not owned by a source run once, against the core stack/catalog.
+  # E2E entry points must have an owner in flow/test-jobs.yml.
+  unit_tests:
+    needs: [gate]
+    uses: ./.github/workflows/tilt-flow.yml
+    with:
+      test_group: unit
+      ancillary_services: ''
+      checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+      run_label: unit
+    secrets: inherit
+
+  # One job per (source, ClickHouse version). test-jobs.yml selects packages
+  # and E2E suites; ancillary_services selects the infrastructure they need.
   flow_test:
-    name: flow_test (pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, ch-${{ matrix.db-version.ch }}, crdb-${{ matrix.db-version.crdb }})
+    # e.g. "(mysql: mysql-gtid, ch: lts)", "(bigquery, ch: latest)"
+    name: "(${{ matrix.job.source }}${{ matrix.job.version && format(': {0}', matrix.job.version) || '' }}${{ matrix.job.ch && format(', ch: {0}', matrix.job.ch) || '' }})"
     needs: [gate]
     strategy:
       fail-fast: false
       matrix:
-        db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts', crdb: 'v24'},
-          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable', crdb: 'v25'},
-          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest', crdb: 'v26'},
-        ]
-        # Per-version container settings.
-        # Wrapped in a single-item list because matrix values must be arrays; it stays
-        # a single shared value (no extra jobs).
-        version-configs:
+        job:
+          - {source: pgch, version: '16', ch: lts}
+          - {source: pgch, version: '17', ch: stable}
+          - {source: pgch, version: '18', ch: latest}
+          - {source: pgother, version: '16'}
+          - {source: pgother, version: '17'}
+          - {source: pgother, version: '18'}
+          - {source: mysql, version: mysql-gtid, ch: lts}
+          - {source: mysql, version: mysql-pos, ch: stable}
+          - {source: mysql, version: mysql-gtid, ch: latest}
+          - {source: mysql, version: maria-11, ch: lts}
+          - {source: mysql, version: maria-12, ch: stable}
+          - {source: mysql, version: maria-13, ch: latest}
+          - {source: mongodb, version: '6.0', ch: lts}
+          - {source: mongodb, version: '7.0', ch: stable}
+          - {source: mongodb, version: '8.0', ch: latest}
+          - {source: cockroachdb, version: v24, ch: lts}
+          - {source: cockroachdb, version: v25, ch: stable}
+          - {source: cockroachdb, version: v26, ch: latest}
+          - {source: bigquery, ch: lts}
+          - {source: bigquery, ch: stable}
+          - {source: bigquery, ch: latest}
+        # Container images per version key. Wrapped in a single-item list
+        # because matrix values must be arrays; it stays a single shared value
+        # (no extra jobs).
+        images:
           - mysql:
               mysql-gtid: mysql:9.5
               mysql-pos: mysql:5.7
@@ -72,28 +104,61 @@ jobs:
               v26: cockroachdb/cockroach:v26.2.5
     uses: ./.github/workflows/tilt-flow.yml
     with:
-      # Empty matcher to run the whole test suite until test selection is routed through flow cases.
-      test_matcher: ''
-      # This is the list of services Tilt will enable for this run.
-      # otel-collector goes first: listing it turns on the flow services' OTel
-      # export (ENABLE_OTEL_METRICS in tilt-flow.yml), and they panic on export
-      # failure, so it must be up before they start.
-      ancillary_services: otel-collector postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb cockroachdb ${{ matrix.db-version.mysql }} mariadb toxiproxy openssh
+      test_group: ${{ matrix.job.source }}
+      # Services Tilt enables for this run: the shared set on the first line,
+      # then the source's own. otel-collector goes first: listing it turns on
+      # the flow services' OTel export (ENABLE_OTEL_METRICS in tilt-flow.yml),
+      # and they panic on export failure, so it must be up before they start.
+      # postgres2 backs the pg_dump schema tests.
+      ancillary_services: >-
+        otel-collector toxiproxy openssh
+        ${{ matrix.job.ch && 'clickhouse clickhouse-keeper clickhouse-02' || '' }}
+        ${{ startsWith(matrix.job.source, 'pg') && 'postgres postgres2' || '' }}
+        ${{ matrix.job.source == 'mysql' && (startsWith(matrix.job.version, 'maria-') && 'mariadb' || matrix.job.version) || '' }}
+        ${{ matrix.job.source == 'mongodb' && 'mongodb' || '' }}
+        ${{ matrix.job.source == 'cockroachdb' && 'cockroachdb' || '' }}
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      run_label: pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}-crdb${{ matrix.db-version.crdb }}
-      postgres_image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
-      mysql_gtid_image: ${{ matrix.version-configs.mysql['mysql-gtid'] }}
-      mysql_pos_image: ${{ matrix.version-configs.mysql['mysql-pos'] }}
-      mariadb_image: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb] }}
-      mongodb_image: mongo:${{ matrix.db-version.mongo }}
-      clickhouse_image: ${{ matrix.version-configs.clickhouse[matrix.db-version.ch] }}
-      cockroachdb_image: ${{ matrix.version-configs.cockroachdb[matrix.db-version.crdb] }}
-      # Point the tests at this combination's flavors; overrides what they load
-      # from .env. The ports must match CI_MYSQL_GTID_PORT/CI_MYSQL_POS_PORT in
-      # .env.example (the CI .env is seeded from it).
+      # e.g. "pgch-16-ch-lts", "mysql-mysql-gtid-ch-lts", "bigquery-ch-lts";
+      # becomes the compatibility_matrix_id of the ingested test results.
+      run_label: ${{ matrix.job.source }}${{ matrix.job.version && format('-{0}', matrix.job.version) || '' }}${{ matrix.job.ch && format('-ch-{0}', matrix.job.ch) || '' }}
+      # Images only for the services this job starts; the rest stay empty and
+      # fall back to generate-test-environment.sh's defaults (unused anyway).
+      postgres_image: ${{ startsWith(matrix.job.source, 'pg') && format('imresamu/postgis:{0}-3.5-alpine', matrix.job.version) || '' }}
+      mysql_gtid_image: ${{ matrix.job.source == 'mysql' && matrix.job.version == 'mysql-gtid' && matrix.images.mysql['mysql-gtid'] || '' }}
+      mysql_pos_image: ${{ matrix.job.source == 'mysql' && matrix.job.version == 'mysql-pos' && matrix.images.mysql['mysql-pos'] || '' }}
+      mariadb_image: ${{ startsWith(matrix.job.version, 'maria-') && matrix.images.mariadb[matrix.job.version] || '' }}
+      mongodb_image: ${{ matrix.job.source == 'mongodb' && format('mongo:{0}', matrix.job.version) || '' }}
+      clickhouse_image: ${{ matrix.job.ch && matrix.images.clickhouse[matrix.job.ch] || '' }}
+      cockroachdb_image: ${{ matrix.job.source == 'cockroachdb' && matrix.images.cockroachdb[matrix.job.version] || '' }}
+      # Point the tests at this job's MySQL or MariaDB server; overrides .env.
+      # Ports must match CI_MYSQL_GTID_PORT/CI_MYSQL_POS_PORT/CI_MARIADB_PORT in
+      # .env.example (the CI .env is seeded from it). Empty on other sources,
+      # whose jobs run no MySQL tests.
       test_env: |
-        CI_MYSQL_VERSION=${{ matrix.db-version.mysql }}
-        CI_MYSQL_PORT=${{ matrix.db-version.mysql == 'mysql-pos' && '3307' || '3306' }}
-        CI_MARIADB_VERSION=${{ matrix.db-version.mariadb }}
+        CI_MYSQL_VERSION=${{ matrix.job.source == 'mysql' && matrix.job.version || '' }}
+        CI_MYSQL_PORT=${{ startsWith(matrix.job.version, 'maria-') && '3308' || matrix.job.version == 'mysql-pos' && '3307' || '3306' }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
+
+  # Single summary status once every parallel job above has finished. It fails
+  # if any of them did not succeed, so branch protection can require this one
+  # check instead of every matrix cell. `always()` makes it run after failures
+  # too; the gate check keeps it from failing runs where nothing was meant to
+  # run (e.g. fork PRs on the plain pull_request event).
+  flow_tests_passed:
+    name: All tests flows succeeded
+    needs: [gate, unit_tests, flow_test]
+    if: always() && needs.gate.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null; then
+            echo "All tests flows succeeded."
+          else
+            echo "::error::At least one flow test job did not succeed."
+            exit 1
+          fi

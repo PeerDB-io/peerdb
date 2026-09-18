@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func setupMySQLConnectorWithDirectSSH(ctx context.Context, t *testing.T) *MySqlConnector {
@@ -40,8 +41,12 @@ func setupMySQLConnectorWithDirectSSH(ctx context.Context, t *testing.T) *MySqlC
 	return connector
 }
 
-func TestMySQLOnlyIntegrationSyncerClose(t *testing.T) {
+func TestSyncerClose(t *testing.T) {
 	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
 
 	ctx := t.Context()
 	connector := setupMySQLConnectorWithDirectSSH(ctx, t)

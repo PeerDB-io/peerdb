@@ -215,7 +215,7 @@ This button removes all named volumes defined in `ancillary-docker-compose.yml` 
 
 ### Environment services versions
 
-Data stores versions are extracted from `.github/workflows/flow.yml`, select the last row of the test matrix except for MySQL version which defaults to `9.5`.
+Data store defaults are extracted from `.github/workflows/flow.yml`, using each source's `latest` ClickHouse matrix entry. MySQL GTID uses the matrix's `mysql-gtid` image.
 This automatic extraction relies on the `yq` CLI; install the Go-based [`mikefarah/yq`](https://github.com/mikefarah/yq) version 4 or later so that local environment generation works correctly.
 You can specify different versions in the local `.env` file to override them as follows:
 

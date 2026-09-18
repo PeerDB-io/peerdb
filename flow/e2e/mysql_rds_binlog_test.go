@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -21,14 +20,13 @@ import (
 type MySQLRDSBinlogAPITestSuite struct {
 	protos.FlowServiceClient
 	t      *testing.T
-	pg     *PostgresSource
 	source *MySqlSource
 	suffix string
 	ch     ClickHouseSuite
 }
 
 func (s MySQLRDSBinlogAPITestSuite) Teardown(ctx context.Context) {
-	s.pg.Teardown(s.t, ctx, s.suffix)
+	s.source.Teardown(s.t, ctx, s.suffix)
 }
 
 func (s MySQLRDSBinlogAPITestSuite) T() *testing.T {
@@ -43,17 +41,11 @@ func (s MySQLRDSBinlogAPITestSuite) Source() SuiteSource {
 	return s.source
 }
 
-func (s MySQLRDSBinlogAPITestSuite) Connector() *connpostgres.PostgresConnector {
-	return s.pg.PostgresConnector
-}
-
 func TestMySQLRDSBinlog(t *testing.T) {
 	e2eshared.RunSuiteNoParallel(t, func(t *testing.T) MySQLRDSBinlogAPITestSuite {
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(common.RandomString(8))
-		pg, err := SetupPostgres(t, suffix)
-		require.NoError(t, err)
 		source, err := SetupMySQL(t, suffix)
 		require.NoError(t, err)
 		client, err := NewApiClient()
@@ -61,7 +53,6 @@ func TestMySQLRDSBinlog(t *testing.T) {
 		return MySQLRDSBinlogAPITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
-			pg:                pg,
 			source:            source,
 			ch: SetupClickHouseSuite(t, false, func(*testing.T) (*MySqlSource, string, error) {
 				return source, suffix, nil

@@ -34,21 +34,9 @@ func (s SwitchboardMySQLSuite) Teardown(ctx context.Context) {
 
 func SetupSwitchboardMySQLSuite(t *testing.T) SwitchboardMySQLSuite {
 	t.Helper()
-	return setupSwitchboardMySQLFamilySuite(t, "mysql", SetupMySQL)
-}
-
-func SetupSwitchboardMariaDBSuite(t *testing.T) SwitchboardMySQLSuite {
-	t.Helper()
-	return setupSwitchboardMySQLFamilySuite(t, "mariadb", SetupMariaDB)
-}
-
-func setupSwitchboardMySQLFamilySuite(
-	t *testing.T, namePrefix string, setup func(t *testing.T, suffix string) (*MySqlSource, error),
-) SwitchboardMySQLSuite {
-	t.Helper()
 
 	suffix := "pgwmy_" + strings.ToLower(common.RandomString(8))
-	source, err := setup(t, suffix)
+	source, err := SetupMySQL(t, suffix)
 	if err != nil {
 		t.Skipf("MySQL setup failed: %v", err)
 	}
@@ -58,7 +46,7 @@ func setupSwitchboardMySQLFamilySuite(
 
 	// Create peer with unique name to avoid caching issues
 	peer := &protos.Peer{
-		Name: namePrefix + "_" + suffix,
+		Name: "mysql_" + suffix,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: source.Config,
@@ -139,10 +127,6 @@ func (s SwitchboardMySQLSuite) testTable() string {
 
 func TestSwitchboardMySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSwitchboardMySQLSuite)
-}
-
-func TestSwitchboardMariaDB(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSwitchboardMariaDBSuite)
 }
 
 // ========================================
