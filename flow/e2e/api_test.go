@@ -245,10 +245,6 @@ func TestApiMy(t *testing.T) {
 	testApi(t, SetupMySQL)
 }
 
-func TestApiMariaDB(t *testing.T) {
-	testApi(t, SetupMariaDB)
-}
-
 func TestApiMongo(t *testing.T) {
 	testApi(t, SetupMongo)
 }

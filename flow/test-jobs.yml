@@ -40,18 +40,12 @@ mysql:
     - connectors/mysql
     - pkg/mysql
   e2e:
-    - TestApiMariaDB
     - TestApiMy
-    - TestGenericCH_MariaDB
     - TestGenericCH_MySQL
-    - TestGenericChCluster_MariaDB
     - TestGenericChCluster_MySQL
     - TestMySQLRDSBinlog
-    - TestPeerFlowE2ETestSuiteMariaDB_CH
-    - TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster
     - TestPeerFlowE2ETestSuiteMySQL_CH
     - TestPeerFlowE2ETestSuiteMySQL_CH_Cluster
-    - TestSwitchboardMariaDB
     - TestSwitchboardMySQL
 
 mongodb:

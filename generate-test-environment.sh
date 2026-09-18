@@ -11,11 +11,13 @@ fi
 # their matrix job with ch: latest (pgch supplies the Postgres default).
 DEFAULT_CH=latest
 
-# Version key of <source> on the default ClickHouse row.
-# Usage: source_version <source> [field]   (field defaults to "version")
+# Version keys for <source> on the default ClickHouse release.
 source_version() {
-    field="${2:-version}"
-    cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.job[] | select(.source == \"$1\" and .ch == \"$DEFAULT_CH\") | .$field"
+    yq -r "
+        .jobs.flow_test.strategy.matrix.job[]
+        | select(.source == \"$1\" and .ch == \"$DEFAULT_CH\")
+        | .version
+    " "$FLOW_WORKFLOW"
 }
 
 # Resolve a version key to its docker image using the images mapping in the
@@ -40,7 +42,7 @@ fi;
 
 if [ -z "$MARIADB_IMAGE" ]; then
     if [ -z "$MARIADB_VERSION" ]; then
-        MARIADB_VERSION=$(source_version mysql mariadb)
+        MARIADB_VERSION=$(source_version mysql | grep '^maria-')
     fi
     MARIADB_IMAGE=$(flavor_image mariadb "$MARIADB_VERSION")
 fi;
