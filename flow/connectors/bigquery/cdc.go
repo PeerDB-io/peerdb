@@ -31,9 +31,17 @@ const (
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
 	// the record.
-	bigQueryChangeTypeColumn        = "_CHANGE_TYPE"
-	bigQueryChangeTimestampColumn   = "_CHANGE_TIMESTAMP"
-	bigQueryChangeIsForUpdateColumn = "_CHANGE_IS_FOR_UPDATE"
+	changeTypeColumn        = "_CHANGE_TYPE"
+	changeTimestampColumn   = "_CHANGE_TIMESTAMP"
+	changeIsForUpdateColumn = "_CHANGE_IS_FOR_UPDATE"
+
+	// The Storage Read API rejects query result tables containing BigQuery's
+	// reserved change-stream columns. Project their values under ordinary names
+	// so large APPENDS()/CHANGES() results can use Storage Read instead of the
+	// paginated jobs.getQueryResults REST path.
+	changeTypeColumnProjection        = "_PEERDB_CHANGE_TYPE"
+	changeTimestampColumnProjection   = "_PEERDB_CHANGE_TIMESTAMP"
+	changeIsForUpdateColumnProjection = "_PEERDB_CHANGE_IS_FOR_UPDATE"
 
 	// _CHANGE_TYPE values.
 	bigQueryChangeTypeInsert = "INSERT"
@@ -235,8 +243,7 @@ func (c *BigQueryConnector) pullTableAppends(
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
-			selectCols := append(slices.Clone(cols), bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn)
-			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
+			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), cols, "")
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
@@ -291,15 +298,32 @@ func (c *BigQueryConnector) pullTableAppends(
 // bigQueryChangePseudoColumns are the metadata columns APPENDS()/CHANGES() add on top
 // of the base table's real columns -- never copied into the record.
 var bigQueryChangePseudoColumns = map[string]struct{}{
-	bigQueryChangeTypeColumn:        {},
-	bigQueryChangeTimestampColumn:   {},
-	bigQueryChangeIsForUpdateColumn: {},
+	changeTypeColumnProjection:        {},
+	changeTimestampColumnProjection:   {},
+	changeIsForUpdateColumnProjection: {},
 }
 
-// buildEventsPullQuery renders "SELECT col1, col2, ... FROM fn(TABLE dsTable, @start, @end)
-// [ORDER BY orderBy]" for the APPENDS()/CHANGES() table-valued functions.
+// buildEventsPullQuery selects the mirrored source columns and projects BigQuery's
+// reserved change-stream columns under PeerDB-specific names. Storage Read rejects
+// result tables that retain the reserved names, even when their values are wrapped
+// in ordinary expressions. The aliases remain metadata and are not emitted as data.
 func buildEventsPullQuery(fn string, dsTable string, columns []string, orderBy string) string {
-	q := fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", quotedColumnList(columns), fn, dsTable)
+	projection := quotedColumnList(columns)
+	if projection != "" {
+		projection += ", "
+	}
+	projection += fmt.Sprintf(
+		"CONCAT(%s, '') AS %s, TIMESTAMP_MICROS(UNIX_MICROS(%s)) AS %s",
+		quotedIdentifier(changeTypeColumn), quotedIdentifier(changeTypeColumnProjection),
+		quotedIdentifier(changeTimestampColumn), quotedIdentifier(changeTimestampColumnProjection),
+	)
+	if fn == "CHANGES" {
+		projection += fmt.Sprintf(", IF(%s, TRUE, FALSE) AS %s",
+			quotedIdentifier(changeIsForUpdateColumn),
+			quotedIdentifier(changeIsForUpdateColumnProjection))
+	}
+
+	q := fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", projection, fn, dsTable)
 	if orderBy != "" {
 		q += " ORDER BY " + orderBy
 	}
@@ -535,11 +559,11 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 	cols := bigQueryChangeColumns{changeType: -1, changeTimestamp: -1, isForUpdate: -1}
 	for i, field := range schema {
 		switch field.Name {
-		case bigQueryChangeTypeColumn:
+		case changeTypeColumnProjection:
 			cols.changeType = i
-		case bigQueryChangeTimestampColumn:
+		case changeTimestampColumnProjection:
 			cols.changeTimestamp = i
-		case bigQueryChangeIsForUpdateColumn:
+		case changeIsForUpdateColumnProjection:
 			cols.isForUpdate = i
 		}
 	}
@@ -575,10 +599,8 @@ func (c *BigQueryConnector) pullTableChanges(
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
-			selectCols := append(slices.Clone(cols),
-				bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn, bigQueryChangeIsForUpdateColumn)
-			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), selectCols,
-				quotedIdentifier(bigQueryChangeTimestampColumn))
+			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), cols,
+				quotedIdentifier(changeTimestampColumnProjection))
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
