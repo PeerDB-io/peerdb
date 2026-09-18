@@ -57,9 +57,9 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 	schema := bigquery.Schema{
 		{Name: "id", Type: bigquery.IntegerFieldType},
 		{Name: "name", Type: bigquery.StringFieldType},
-		{Name: bigQueryChangeTypeColumn, Type: bigquery.StringFieldType},
-		{Name: bigQueryChangeTimestampColumn, Type: bigquery.TimestampFieldType},
-		{Name: bigQueryChangeIsForUpdateColumn, Type: bigquery.BooleanFieldType},
+		{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+		{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+		{Name: changeIsForUpdateColumnProjection, Type: bigquery.BooleanFieldType},
 	}
 	qfields := make([]types.QField, len(schema))
 	for i, f := range schema {
@@ -73,10 +73,30 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.QValueInt64{Val: 1}, items.GetColumnValue("id"))
 	assert.Equal(t, types.QValueString{Val: "alice"}, items.GetColumnValue("name"))
-	assert.Nil(t, items.GetColumnValue(bigQueryChangeTypeColumn))
-	assert.Nil(t, items.GetColumnValue(bigQueryChangeTimestampColumn))
-	assert.Nil(t, items.GetColumnValue(bigQueryChangeIsForUpdateColumn))
+	assert.Nil(t, items.GetColumnValue(changeTypeColumnProjection))
+	assert.Nil(t, items.GetColumnValue(changeTimestampColumnProjection))
+	assert.Nil(t, items.GetColumnValue(changeIsForUpdateColumnProjection))
 	assert.Len(t, items.ColToVal, 2)
+}
+
+func TestLocateBigQueryChangeColumns(t *testing.T) {
+	t.Run("PeerDB aliases", func(t *testing.T) {
+		cols := locateBigQueryChangeColumns(bigquery.Schema{
+			{Name: "id", Type: bigquery.IntegerFieldType},
+			{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+			{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+			{Name: changeIsForUpdateColumnProjection, Type: bigquery.BooleanFieldType},
+		})
+		assert.Equal(t, bigQueryChangeColumns{changeType: 1, changeTimestamp: 2, isForUpdate: 3}, cols)
+	})
+
+	t.Run("original columns remain supported", func(t *testing.T) {
+		cols := locateBigQueryChangeColumns(bigquery.Schema{
+			{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+			{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+		})
+		assert.Equal(t, bigQueryChangeColumns{changeType: 1, changeTimestamp: 0, isForUpdate: -1}, cols)
+	})
 }
 
 func TestPullColumnNames(t *testing.T) {
@@ -189,12 +209,17 @@ func TestMissingColumnsFromSchema(t *testing.T) {
 
 func TestBuildPullQuery(t *testing.T) {
 	assert.Equal(t,
-		"SELECT `id`, `name` FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
-		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}, ""),
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP` "+
+			"FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
+		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}),
 	)
 	assert.Equal(t,
-		"SELECT `id`, `name` FROM CHANGES(TABLE `ds`.`tbl`, @start, @end) ORDER BY `_CHANGE_TIMESTAMP`",
-		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}, "`_CHANGE_TIMESTAMP`"),
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP`, "+
+			"IF(`_CHANGE_IS_FOR_UPDATE`, TRUE, FALSE) AS `_PEERDB_CHANGE_IS_FOR_UPDATE` "+
+			"FROM CHANGES(TABLE `ds`.`tbl`, @start, @end)",
+		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}),
 	)
 	assert.Equal(t,
 		"SELECT `id`, `name` FROM `ds`.`tbl` "+
