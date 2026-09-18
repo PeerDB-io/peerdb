@@ -79,3 +79,32 @@ func TestBuildInsertFromTableFunctionQueryArrayTime(t *testing.T) {
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
 }
+
+// TestBuildInsertFromTableFunctionQueryJSON checks the native JSON casts: CAST(NULL, 'JSON') fails, so a
+// nullable JSON field has to be cast to Nullable(JSON) while a non-nullable one is cast to JSON.
+func TestBuildInsertFromTableFunctionQueryJSON(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema: types.QRecordSchema{Fields: []types.QField{
+			{Name: "js", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "jsb", Type: types.QValueKindJSONB, Nullable: true},
+			{Name: "js_required", Type: types.QValueKindJSON, Nullable: false},
+		}},
+		config: &protos.QRepConfig{Env: map[string]string{
+			"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+			"PEERDB_CLICKHOUSE_ENABLE_JSON":              "true",
+		}},
+		// ClickHouse 25.8 supports the native JSON type
+		connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`js`,`jsb`,`js_required`) SELECT "+
+			"CAST(`js`, 'Nullable(JSON)'),CAST(`jsb`, 'Nullable(JSON)'),CAST(`js_required`, 'JSON') "+
+			"FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}
