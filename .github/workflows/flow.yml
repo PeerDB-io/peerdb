@@ -61,8 +61,6 @@ jobs:
       matrix:
         # Postgres also owns destination packages, including ClickHouse.
         source: [postgres, mysql, mongodb, cockroachdb, bigquery]
-        # ClickHouse destination release every source is checked against.
-        ch: [lts, stable, latest]
         # The source's own version for each (source, ch) cell. Each row only
         # adds keys to the cell it matches, so a source with fewer or more
         # versions than ClickHouse releases just lists what it has; cells
@@ -70,18 +68,18 @@ jobs:
         # the MySQL flavor as version and a MariaDB release alongside, since
         # both share the mysql job.
         include:
-          - {source: postgres, ch: lts,    version: '16'}
-          - {source: postgres, ch: stable, version: '17'}
-          - {source: postgres, ch: latest, version: '18'}
-          - {source: mysql, ch: lts,    version: mysql-gtid, mariadb: maria-11}
-          - {source: mysql, ch: stable, version: mysql-pos,  mariadb: maria-12}
-          - {source: mysql, ch: latest, version: mysql-gtid, mariadb: maria-13}
-          - {source: mongodb, ch: lts,    version: '6.0'}
-          - {source: mongodb, ch: stable, version: '7.0'}
-          - {source: mongodb, ch: latest, version: '8.0'}
-          - {source: cockroachdb, ch: lts,    version: v24}
-          - {source: cockroachdb, ch: stable, version: v25}
-          - {source: cockroachdb, ch: latest, version: v26}
+          - {source: postgres, version: '16', ch: lts}
+          - {source: postgres, version: '17', ch: stable}
+          - {source: postgres, version: '18', ch: latest}
+          - {source: mysql, version: mysql-gtid, mariadb: maria-11, ch: lts}
+          - {source: mysql, version: mysql-pos,  mariadb: maria-12, ch: stable}
+          - {source: mysql, version: mysql-gtid, mariadb: maria-13, ch: latest}
+          - {source: mongodb, version: '6.0', ch: lts}
+          - {source: mongodb, version: '7.0', ch: stable}
+          - {source: mongodb, version: '8.0', ch: latest}
+          - {source: cockroachdb, version: v24, ch: lts}
+          - {source: cockroachdb, version: v25, ch: stable}
+          - {source: cockroachdb, version: v26, ch: latest}
         # Container images per version key. Wrapped in a single-item list
         # because matrix values must be arrays; it stays a single shared value
         # (no extra jobs).
@@ -103,6 +101,8 @@ jobs:
               v24: cockroachdb/cockroach:v24.1.30
               v25: cockroachdb/cockroach:v25.4.14
               v26: cockroachdb/cockroach:v26.2.5
+        # ClickHouse destination release every source is checked against.
+        ch: [lts, stable, latest]
     uses: ./.github/workflows/tilt-flow.yml
     with:
       test_group: ${{ matrix.source }}
