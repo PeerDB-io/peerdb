@@ -1797,6 +1797,27 @@ func TestBigQueryAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
 	}
 }
 
+func TestBigQueryMissingWatermarkColumnShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewBigQueryWatermarkColumnMissingError(
+		&googleapi.Error{Code: 400, Message: "Unrecognized name: updated_at at [1:8]"},
+		"dataset.events",
+		"updated_at",
+	)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to pull table records: %w", err))
+	assert.Equal(t, ErrorUnsupportedSchemaChange, errorClass)
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "MISSING_WATERMARK_COLUMN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable:  "dataset.events",
+			ErrorAttributeKeyColumn: "updated_at",
+		},
+	}, errInfo)
+}
+
 // Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
 //
 //	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
