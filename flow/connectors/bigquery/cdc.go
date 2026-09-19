@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -429,11 +430,12 @@ func (c *BigQueryConnector) refreshSourceTableColumns(
 	c.missingSourceColumnsMu.Lock()
 	c.missingSourceColumns[sourceTableIdentifier] = missing
 	c.missingSourceColumnsMu.Unlock()
-	for column := range missing {
-		c.logger.Warn("[bigquery] mirrored column no longer exists on source table, dropping from SELECT list",
-			slog.String("table", sourceTableIdentifier), slog.String("column", column))
-	}
-	return filterMissingColumns(columns, missing), nil
+	effective := filterMissingColumns(columns, missing)
+	c.logger.Warn("[bigquery] source table schema changed, selecting only columns that still exist on source",
+		slog.String("table", sourceTableIdentifier),
+		slog.Any("missingColumns", slices.Sorted(maps.Keys(missing))),
+		slog.Int("selectedColumns", len(effective)))
+	return effective, nil
 }
 
 // knownSourceTableColumns returns columns minus those already known to be missing on the source table.
