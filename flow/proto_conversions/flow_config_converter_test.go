@@ -51,18 +51,20 @@ func TestFlowConnectionConfigsEquivalence(t *testing.T) {
 func TestFlowConnectionConfigsRoundTrip(t *testing.T) {
 	skipValidation := true
 	api := &protos.FlowConnectionConfigs{
-		FlowJobName:        "round_trip_test",
-		TableMappings:      []*protos.TableMapping{{SourceTableIdentifier: "src", DestinationTableIdentifier: "dst"}},
-		MaxBatchSize:       100,
-		IdleTimeoutSeconds: 30,
-		DoInitialSnapshot:  true,
-		System:             protos.TypeSystem_PG,
-		SourceName:         "source_peer",
-		DestinationName:    "destination_peer",
-		Env:                map[string]string{"key": "value"},
-		Version:            7,
-		Flags:              []string{"flag_a", "flag_b"},
-		SkipValidation:     &skipValidation,
+		FlowJobName:                   "round_trip_test",
+		TableMappings:                 []*protos.TableMapping{{SourceTableIdentifier: "src", DestinationTableIdentifier: "dst"}},
+		MaxBatchSize:                  100,
+		IdleTimeoutSeconds:            30,
+		DoInitialSnapshot:             true,
+		System:                        protos.TypeSystem_PG,
+		SourceName:                    "source_peer",
+		DestinationName:               "destination_peer",
+		Env:                           map[string]string{"key": "value"},
+		Version:                       7,
+		Flags:                         []string{"flag_a", "flag_b"},
+		SkipValidation:                &skipValidation,
+		QueryCdcSafetyLagSeconds:      45,
+		QueryCdcMaxQueryWindowSeconds: 3600,
 	}
 
 	core := FlowConnectionConfigsToCore(api)

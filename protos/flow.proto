@@ -132,6 +132,12 @@ message FlowConnectionConfigs {
 
   // query-based CDC: how many source tables are queried and staged concurrently
   int32 query_cdc_pull_sync_parallelism = 30;
+
+  // query-based CDC: delay the upper bound of each query window behind source's clock
+  int32 query_cdc_safety_lag_seconds = 31;
+
+  // query-based CDC: maximum duration covered by a single pull query
+  int32 query_cdc_max_query_window_seconds = 32;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -191,6 +197,12 @@ message FlowConnectionConfigsCore {
 
   // query-based CDC: how many source tables are queried and staged concurrently
   int32 query_cdc_pull_sync_parallelism = 30;
+
+  // query-based CDC: delay the upper bound of each query window behind source's clock
+  int32 query_cdc_safety_lag_seconds = 31;
+
+  // query-based CDC: maximum duration covered by a single pull query
+  int32 query_cdc_max_query_window_seconds = 32;
 }
 
 message RenameTableOption {
