@@ -25,8 +25,9 @@ type QueryCDCReplicationState struct {
 	// CursorText is the opaque cursor last returned by PullTableRecords for
 	// this table, empty if this table has never been synced.
 	CursorText string
-	// LastAttemptAt is when the last poll attempt for this table started,
-	// zero if never attempted.
+	// LastAttemptAt is when the latest poll attempt for this table started,
+	// whether or not it completed successfully. It is informational and does
+	// not control poll scheduling.
 	LastAttemptAt time.Time
 	// LastSyncedAt is when this table last completed a poll successfully,
 	// zero if never synced.
