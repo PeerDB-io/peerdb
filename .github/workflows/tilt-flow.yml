@@ -374,9 +374,10 @@ jobs:
           set -uo pipefail
 
           # Main PeerDB services that must be healthy before tests run. proto-gen
-          # feeds the image builds; catalog/flow-api/flow-worker/flow-snapshot-worker
-          # back the suites; peerdb and minio support peer setup and S3 staging.
-          MAIN_SERVICES="proto-gen catalog flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # feeds the image builds; flow-migrate applies the catalog schema;
+          # catalog/flow-api/flow-worker/flow-snapshot-worker back the
+          # suites; peerdb and minio support peer setup and S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb minio"
           # Per-attempt wait budget (generous, since flow images are built here).
           PER_ATTEMPT_TIMEOUT=600
 
