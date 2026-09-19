@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -313,6 +314,96 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 		return len(rows.Records) == 3
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Query_Mode_Multi_File_Batch verifies that one logical CDC
+// poll can be staged as multiple Avro files and normalized one file at a time.
+// The rows are inserted in one BigQuery statement, matching daily ingestion
+// jobs where many rows share the same watermark timestamp.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_query_multi_file")
+	dstTable := srcTable + "_dst"
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
+		watermarkColumn:   "updated_at",
+	})
+	// The first CDC row is much larger than this limit, while the two small rows
+	// fit together in the next file. This guarantees multiple non-empty chunks
+	// without ending exactly on a chunk boundary.
+	flowConnConfig.Env["PEERDB_S3_BYTES_PER_AVRO_FILE"] = "4096"
+	flowConnConfig.Env["PEERDB_S3_UUID_PREFIX"] = "false"
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id,val")
+
+	// Use one explicit watermark for every row to emulate a daily ingestion job
+	// that makes a large batch visible at a single watermark timestamp.
+	watermark := time.Now().UTC().Format("2006-01-02 15:04:05.999999")
+	largeValue := strings.Repeat("a", 16*1024)
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s (id, val, updated_at) VALUES
+			(2, '%s', TIMESTAMP '%s'),
+			(3, 'b', TIMESTAMP '%s'),
+			(4, 'c', TIMESTAMP '%s')`,
+		quoteBigQueryTableFQN(tableFQN), largeValue, watermark, watermark, watermark)))
+
+	EnvWaitFor(t, env, 4*time.Minute, "multi-file CDC batch normalized", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 4
+	})
+	destinationRows, err := s.GetRows(dstTable, "id,val")
+	require.NoError(t, err)
+	valByID := make(map[int64]string, len(destinationRows.Records))
+	for _, row := range destinationRows.Records {
+		valByID[row[0].Value().(int64)] = row[1].Value().(string)
+	}
+	require.Equal(t, map[int64]string{
+		1: "pre-snapshot",
+		2: largeValue,
+		3: "b",
+		4: "c",
+	}, valByID)
+
+	// Staged S3 objects are retained after normalization. The oversized first
+	// record and the two smaller records in batch 1 must produce two data chunks.
+	s3Helper := s.GenericSuite.(ClickHouseSuite).s3Helper
+	stagedObjects, err := s3Helper.ListAllFiles(ctx, flowConnConfig.FlowJobName)
+	require.NoError(t, err)
+	cdcFilePrefix := dstTable + "_1."
+	cdcFileKeys := make([]string, 0, len(stagedObjects))
+	for _, object := range stagedObjects {
+		if object.Key != nil && strings.Contains(*object.Key, cdcFilePrefix) {
+			cdcFileKeys = append(cdcFileKeys, *object.Key)
+		}
+	}
+	require.Len(t, cdcFileKeys, 2, "one logical CDC batch should be split into two staged Avro files")
+	for chunk := range 2 {
+		require.Condition(t, func() bool {
+			expectedSuffix := fmt.Sprintf("%s%06d.avro", cdcFilePrefix, chunk)
+			return slices.ContainsFunc(cdcFileKeys, func(key string) bool {
+				return strings.HasSuffix(key, expectedSuffix)
+			})
+		}, "one logical CDC batch should contain data chunk %d; staged objects: %v", chunk, cdcFileKeys)
+	}
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
