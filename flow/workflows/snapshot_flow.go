@@ -222,6 +222,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		ParentMirrorName:           flowName,
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
+		StructuredIngestion:        mapping.StructuredIngestion,
+		DropUnexpectedValues:       mapping.DropUnexpectedValues,
 		Version:                    s.config.Version,
 		Flags:                      s.config.Flags,
 	}

@@ -56,6 +56,12 @@ message TableMapping {
   // the column to use as a cursor for query-based CDC replication
   // required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
   string query_cdc_watermark_column = 11;
+  // If true, the mirror will use structured ingestion on sources without schemas
+  // using the column types given by the `columns` (`destination_type`) field in the TableMapping.
+  bool structured_ingestion = 12;
+  // If true, when structured ingestion is enabled, reports of unfitting values will not include
+  // the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 13;
 }
 
 message SetupInput {
@@ -489,6 +495,13 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+  // If true, source documents are projected onto the columns declared in `columns` using their
+  // `destination_type`, instead of landing whole in a single JSON column.
+  // Only for structured ingestion enabled sources.
+  bool structured_ingestion = 33;
+  // Mirrors TableMapping.drop_unexpected_values for the table being replicated: if true, reports of
+  // unfitting values will not include the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 34;
 }
 
 message ChildTableRange {

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -18,8 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 
 type flagConstraint struct {
 	ErrorMessage  string
@@ -99,12 +97,8 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
-	for _, tm := range connectionConfigs.TableMappings {
-		for _, col := range tm.Columns {
-			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
-			}
-		}
+	if apiErr := h.checkTableMappings(ctx, connectionConfigs); apiErr != nil {
+		return nil, apiErr
 	}
 
 	if apiErr := h.checkSourcePeerReuse(ctx, connectionConfigs); apiErr != nil {
@@ -182,6 +176,64 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
+}
+
+// checkQRepStructuredIngestion validates the structured ingestion settings of a standalone QRep mirror,
+// enforcing the rules checkTableMappings applies to a CDC mirror's table mappings: only for compatible
+// source peers, and every column has to declare a valid destination type, as the mapping carries the
+// destination schema itself.
+func (h *FlowRequestHandler) checkQRepStructuredIngestion(ctx context.Context, cfg *protos.QRepConfig) APIError {
+	if !cfg.StructuredIngestion {
+		return nil
+	}
+
+	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
+	}
+	if !structured.SupportedSourcePeer(peer) {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("structured ingestion is not supported for the selected source peer: %s", cfg.SourceName))
+	}
+
+	if err := structured.ValidateColumns(cfg.WatermarkTable, cfg.Columns); err != nil {
+		return NewInvalidArgumentApiError(err)
+	}
+
+	return nil
+}
+
+// checkTableMappings validates the per-table settings of a mirror's table mappings
+func (h *FlowRequestHandler) checkTableMappings(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) APIError {
+	// Check source peer type
+	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
+	}
+
+	structuredIngestionCompatible := structured.SupportedSourcePeer(peer)
+
+	for _, tm := range cfg.TableMappings {
+		if tm.StructuredIngestion {
+			if !structuredIngestionCompatible {
+				return NewInvalidArgumentApiError(
+					fmt.Errorf("structured ingestion is not supported for the selected source peer: %s", cfg.SourceName))
+			}
+			if err := structured.ValidateColumns(tm.SourceTableIdentifier, tm.Columns); err != nil {
+				return NewInvalidArgumentApiError(err)
+			}
+		} else {
+			for _, col := range tm.Columns {
+				if !structured.ColumnTypeRegex.MatchString(col.DestinationType) {
+					return NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // checkSourcePeerReuse rejects a CDC mirror whose MySQL source peer pins a fixed server_id while
