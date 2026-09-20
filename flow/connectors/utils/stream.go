@@ -218,7 +218,14 @@ func typedCDCRow(
 	for _, field := range businessFields {
 		val := items.GetColumnValue(sourceColumnByDest[field.Name])
 		if val == nil {
-			val = types.QValueNull(field.Type)
+			// column was dropped from the source
+			// use Null for nullable columns, and a default value for non-nullable columns
+			// otherwise the destination will reject the row
+			if field.Nullable {
+				val = types.QValueNull(field.Type)
+			} else {
+				val = field.Type.DefaultValue()
+			}
 		}
 		row = append(row, val)
 	}
