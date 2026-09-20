@@ -26,8 +26,7 @@ type QueryCDCReplicationState struct {
 	// this table, empty if this table has never been synced.
 	CursorText string
 	// LastAttemptAt is when the latest poll attempt for this table started,
-	// whether or not it completed successfully. It is informational and does
-	// not control poll scheduling.
+	// whether or not it completed successfully.
 	LastAttemptAt time.Time
 	// LastSyncedAt is when this table last completed a poll successfully,
 	// zero if never synced.
