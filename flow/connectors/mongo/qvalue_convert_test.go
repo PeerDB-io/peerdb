@@ -723,26 +723,6 @@ func TestMarshalFloatLengths(t *testing.T) {
 			})
 		}
 	}
-
-	// Test the boundary around the limit itself
-	for _, value := range []float64{
-		floatLimit, math.Nextafter(floatLimit, math.Inf(1)), math.Nextafter(floatLimit, math.Inf(-1)),
-		floatNegLimit, math.Nextafter(floatNegLimit, math.Inf(1)), math.Nextafter(floatNegLimit, math.Inf(-1)),
-	} {
-		name := fmt.Sprint(value)
-		t.Run(name, func(t *testing.T) {
-			input := bson.D{{Key: "a", Value: value}}
-			raw, err := bson.Marshal(input)
-			require.NoError(t, err)
-			result, err := converter.QValueJSONFromDocument(raw)
-			require.NoError(t, err)
-			require.Less(t, len(result.Val), 33)
-			require.True(t,
-				strings.Contains(result.Val, ".") ||
-					strings.Contains(result.Val, "e"),
-				result.Val)
-		})
-	}
 }
 
 func TestQValuesFromBsonRawInvalidIds(t *testing.T) {

@@ -1,17 +1,14 @@
 package connmongo
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
-	"math"
-	"strconv"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -52,7 +49,7 @@ func NewDirectBsonConverter() *DirectBsonConverter {
 
 func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error) {
 	c.stream.Reset(nil)
-	if err := rawDocToJSON(bsoncore.Document(raw), c.stream); err != nil {
+	if err := shared_mongo.RawDocumentToJSON(bsoncore.Document(raw), c.stream); err != nil {
 		return types.QValueJSON{}, fmt.Errorf("failed to convert document: %w", err)
 	}
 	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
@@ -60,7 +57,7 @@ func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValue
 
 func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error) {
 	c.stream.Reset(nil)
-	if err := rawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
+	if err := shared_mongo.RawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
 		return types.QValueJSON{}, fmt.Errorf("failed to convert array: %w", err)
 	}
 	return types.QValueJSON{Val: string(c.stream.Buffer()), IsArray: true}, nil
@@ -76,7 +73,7 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 		}
 	}
 	c.stream.Reset(nil)
-	if err := rawValueToJSON(bsoncore.Value{Type: bsoncore.Type(id.Type), Data: id.Value}, c.stream); err != nil {
+	if err := shared_mongo.RawValueToJSON(bsoncore.Value{Type: bsoncore.Type(id.Type), Data: id.Value}, c.stream); err != nil {
 		return types.QValueString{}, fmt.Errorf("failed to convert %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
@@ -105,7 +102,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 	case bsoncore.TypeBinary:
 		subtype, data := v.Binary()
 		c.stream.Reset(nil)
-		writeBinaryJSON(c.stream, subtype, data)
+		shared_mongo.WriteBinaryJSON(c.stream, subtype, data)
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeObjectID:
@@ -123,7 +120,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()
 		c.stream.Reset(nil)
-		writeRegexJSON(c.stream, pattern, options)
+		shared_mongo.WriteRegexJSON(c.stream, pattern, options)
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeJavaScript:
@@ -139,7 +136,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 	case bsoncore.TypeTimestamp:
 		t, i := v.Timestamp()
 		c.stream.Reset(nil)
-		writeTimestampJSON(c.stream, t, i)
+		shared_mongo.WriteTimestampJSON(c.stream, t, i)
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeInt64:
@@ -153,7 +150,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		// Undefined, MinKey, MaxKey, DBPointer and CodeWithScope are deprecated and not part of the documented
 		// mapping; they are rendered as JSON exactly as they are inside a full document.
 		c.stream.Reset(nil)
-		if err := rawValueToJSON(v, c.stream); err != nil {
+		if err := shared_mongo.RawValueToJSON(v, c.stream); err != nil {
 			return nil, fmt.Errorf("failed to convert %s value: %w", v.Type.String(), err)
 		}
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
@@ -166,212 +163,4 @@ func (c *DirectBsonConverter) QValueStringFromObjectID(oid bson.ObjectID) types.
 
 func (c *DirectBsonConverter) QValueStringFromString(s string) types.QValueString {
 	return types.QValueString{Val: s}
-}
-
-func rawDocToJSON(doc bsoncore.Document, stream *jsoniter.Stream) error {
-	length, rem, ok := bsoncore.ReadLength(doc)
-	if !ok {
-		return fmt.Errorf("failed to read document length")
-	}
-	length -= 4
-
-	stream.WriteRaw("{")
-	first := true
-	for length > 1 {
-		elem, next, ok := bsoncore.ReadElement(rem)
-		if !ok {
-			return fmt.Errorf("failed to read document element")
-		}
-		length -= int32(len(elem))
-		rem = next
-
-		if !first {
-			stream.WriteRaw(",")
-		}
-		first = false
-
-		stream.WriteStringWithHTMLEscaped(elem.Key())
-		stream.WriteRaw(":")
-		if err := rawValueToJSON(elem.Value(), stream); err != nil {
-			return err
-		}
-	}
-	stream.WriteRaw("}")
-	return nil
-}
-
-func rawArrayToJSON(arr bsoncore.Array, stream *jsoniter.Stream) error {
-	length, rem, ok := bsoncore.ReadLength(arr)
-	if !ok {
-		return fmt.Errorf("failed to read array length")
-	}
-	length -= 4
-
-	stream.WriteRaw("[")
-	first := true
-	for length > 1 {
-		elem, next, ok := bsoncore.ReadElement(rem)
-		if !ok {
-			return fmt.Errorf("failed to read array element")
-		}
-		length -= int32(len(elem))
-		rem = next
-
-		if !first {
-			stream.WriteRaw(",")
-		}
-		first = false
-
-		if err := rawValueToJSON(elem.Value(), stream); err != nil {
-			return err
-		}
-	}
-	stream.WriteRaw("]")
-	return nil
-}
-
-func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
-	switch v.Type {
-	case bsoncore.TypeDouble:
-		writeFloat64JSON(stream, v.Double())
-
-	case bsoncore.TypeString:
-		stream.WriteStringWithHTMLEscaped(v.StringValue())
-
-	case bsoncore.TypeEmbeddedDocument:
-		return rawDocToJSON(v.Document(), stream)
-
-	case bsoncore.TypeArray:
-		return rawArrayToJSON(v.Array(), stream)
-
-	case bsoncore.TypeBinary:
-		subtype, data := v.Binary()
-		writeBinaryJSON(stream, subtype, data)
-
-	case bsoncore.TypeUndefined:
-		stream.WriteEmptyObject()
-
-	case bsoncore.TypeObjectID:
-		oid := v.ObjectID()
-		stream.WriteRaw(`"`)
-		stream.SetBuffer(hex.AppendEncode(stream.Buffer(), oid[:]))
-		stream.WriteRaw(`"`)
-
-	case bsoncore.TypeBoolean:
-		stream.WriteBool(v.Boolean())
-
-	case bsoncore.TypeDateTime:
-		stream.WriteRaw(`"`)
-		stream.SetBuffer(v.Time().UTC().AppendFormat(stream.Buffer(), time.RFC3339Nano))
-		stream.WriteRaw(`"`)
-
-	case bsoncore.TypeNull:
-		stream.WriteNil()
-
-	case bsoncore.TypeRegex:
-		pattern, options := v.Regex()
-		writeRegexJSON(stream, pattern, options)
-
-	case bsoncore.TypeJavaScript:
-		stream.WriteStringWithHTMLEscaped(v.JavaScript())
-
-	case bsoncore.TypeSymbol:
-		stream.WriteStringWithHTMLEscaped(v.Symbol())
-
-	case bsoncore.TypeInt32:
-		stream.WriteInt32(v.Int32())
-
-	case bsoncore.TypeTimestamp:
-		t, i := v.Timestamp()
-		writeTimestampJSON(stream, t, i)
-
-	case bsoncore.TypeInt64:
-		stream.WriteInt64(v.Int64())
-
-	case bsoncore.TypeDecimal128:
-		h, l := v.Decimal128()
-		stream.WriteString(bson.NewDecimal128(h, l).String())
-
-	case bsoncore.TypeMinKey, bsoncore.TypeMaxKey:
-		stream.WriteEmptyObject()
-
-	case bsoncore.TypeDBPointer: // deprecated type, kept for backwards-compatibility
-		ns, oid := v.DBPointer()
-		stream.WriteRaw(`{"DB":`)
-		stream.WriteStringWithHTMLEscaped(ns)
-		stream.WriteRaw(`,"Pointer":"`)
-		stream.SetBuffer(hex.AppendEncode(stream.Buffer(), oid[:]))
-		stream.WriteRaw(`"}`)
-
-	case bsoncore.TypeCodeWithScope: // deprecated type, kept for backwards-compatibility
-		code, scope := v.CodeWithScope()
-		stream.WriteRaw(`{"Code":`)
-		stream.WriteStringWithHTMLEscaped(code)
-		stream.WriteRaw(`,"Scope":`)
-		if err := rawDocToJSON(scope, stream); err != nil {
-			return err
-		}
-		stream.WriteRaw("}")
-
-	default:
-		return fmt.Errorf("unknown type: %v", v.Type.String())
-	}
-	return nil
-}
-
-// writeBinaryJSON encodes BSON binary data as {"Subtype": <int>, "Data": "<base64>"}.
-func writeBinaryJSON(stream *jsoniter.Stream, subtype byte, data []byte) {
-	stream.WriteRaw(`{"Subtype":`)
-	stream.WriteUint8(subtype)
-	stream.WriteRaw(`,"Data":"`)
-	stream.SetBuffer(base64.StdEncoding.AppendEncode(stream.Buffer(), data))
-	stream.WriteRaw(`"}`)
-}
-
-// writeRegexJSON encodes a BSON regular expression as {"Pattern": "<pattern>", "Options": "<flags>"}.
-func writeRegexJSON(stream *jsoniter.Stream, pattern string, options string) {
-	stream.WriteRaw(`{"Pattern":`)
-	stream.WriteStringWithHTMLEscaped(pattern)
-	stream.WriteRaw(`,"Options":`)
-	stream.WriteStringWithHTMLEscaped(options)
-	stream.WriteRaw("}")
-}
-
-// writeTimestampJSON encodes a BSON (internal) timestamp as {"T": <seconds>, "I": <increment>}.
-func writeTimestampJSON(stream *jsoniter.Stream, t uint32, i uint32) {
-	stream.WriteRaw(`{"T":`)
-	stream.WriteUint32(t)
-	stream.WriteRaw(`,"I":`)
-	stream.WriteUint32(i)
-	stream.WriteRaw("}")
-}
-
-// Assume (and test) that values outside of these limits will come out in scientific notation
-// and will be parsed as floats either way
-var (
-	floatLimit    = math.Pow10(21)
-	floatNegLimit = -floatLimit
-)
-
-// writeFloat64JSON encodes NaN/Inf as quoted strings, integer-valued floats with an explicit
-// ".0" suffix (to hint ClickHouse to parse as float), and other values in standard notation.
-func writeFloat64JSON(stream *jsoniter.Stream, v float64) {
-	if math.IsNaN(v) {
-		stream.WriteRaw(`"NaN"`)
-	} else if math.IsInf(v, 1) {
-		stream.WriteRaw(`"+Inf"`)
-	} else if math.IsInf(v, -1) {
-		stream.WriteRaw(`"-Inf"`)
-	} else if v < floatLimit && v > floatNegLimit && v == math.Trunc(v) {
-		// use explicit decimal to hint ClickHouse to parse as float
-		stream.SetBuffer(strconv.AppendFloat(stream.Buffer(), v, 'f', 1, 64))
-	} else {
-		// standard notation, with implementation copied from json-iterator's WriteFloat64
-		abs := math.Abs(v)
-		format := byte('f')
-		if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
-			format = 'e'
-		}
-		stream.SetBuffer(strconv.AppendFloat(stream.Buffer(), v, format, -1, 64))
-	}
 }
