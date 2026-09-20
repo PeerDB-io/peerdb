@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/civil"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -184,8 +183,9 @@ func (c *BigQueryConnector) PullTableRecords(
 		return nil
 	}
 
+	nexCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
-		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
+		bytesProcessed, nexCursor, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn, req.SourceTableIdentifier,
 			req.NameAndExclude, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier, req.NameAndExclude, start, upper, addRecord)
@@ -200,7 +200,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	return model.PullTableRecordsResult{
-		NextCursor:     EncodeBigQueryTableCursor(upper),
+		NextCursor:     EncodeBigQueryTableCursor(nexCursor),
 		BytesProcessed: bytesProcessed,
 	}, nil
 }
@@ -557,7 +557,7 @@ func buildWatermarkPullQuery(
 // watermarkColumn <= @end for one source table. Results are intentionally
 // unordered so Storage Read API can consume multiple streams in parallel.
 // Returns the HTTP response body bytes consumed by BigQuery for this table's
-// query
+// query and max seen watermark column value
 func (c *BigQueryConnector) pullTableQuery(
 	ctx context.Context,
 	watermarkColumn string,
@@ -565,10 +565,10 @@ func (c *BigQueryConnector) pullTableQuery(
 	nameAndExclude model.NameAndExclude,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
-) (int64, error) {
+) (int64, time.Time, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+		return 0, time.Time{}, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
 	var bytesTransferred atomic.Int64
@@ -578,18 +578,19 @@ func (c *BigQueryConnector) pullTableQuery(
 			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, exclude)
 		})
 	if err != nil {
-		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
+		return 0, time.Time{}, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
 	}
 
+	maxSeenWatermarkColumnValue := start
 	var qfields []types.QField
 	watermarkColIdx := -1
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return bytesTransferred.Load(), nil
+				return bytesTransferred.Load(), maxSeenWatermarkColumnValue, nil
 			}
-			return 0, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -608,17 +609,17 @@ func (c *BigQueryConnector) pullTableQuery(
 		// column isn't present.
 		commitTimeNano := start.UnixNano()
 		if watermarkColIdx >= 0 {
-			switch v := row[watermarkColIdx].(type) {
-			case time.Time:
+			if v, ok := row[watermarkColIdx].(time.Time); ok {
 				commitTimeNano = v.UnixNano()
-			case civil.Date:
-				commitTimeNano = v.In(time.UTC).UnixNano()
+				if v.After(maxSeenWatermarkColumnValue) {
+					maxSeenWatermarkColumnValue = v
+				}
 			}
 		}
 
 		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)
 		if err != nil {
-			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
@@ -627,7 +628,7 @@ func (c *BigQueryConnector) pullTableQuery(
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: nameAndExclude.Name,
 		}); err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
 	}
 }
