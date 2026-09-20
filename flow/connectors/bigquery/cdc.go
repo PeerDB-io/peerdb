@@ -67,14 +67,43 @@ func (c *BigQueryConnector) EnsurePullability(
 	return nil, nil
 }
 
-// pollWindow computes the upper bound of the next APPENDS()/CHANGES() poll window
-// given the last-scanned checkpoint and BigQuery's current clock (now).
+// pollWindow computes the upper bound of the next bounded poll window given the
+// last-scanned checkpoint and BigQuery's current clock (now).
 func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
 	upper := checkpoint.Add(maxQueryWindow)
 	if safe := now.Add(-safetyLag); safe.Before(upper) {
 		upper = safe
 	}
 	return upper, upper.After(checkpoint)
+}
+
+func pullQueryWindows(
+	start, upper, safeUpper time.Time,
+	maxQueryWindow time.Duration,
+	pull func(time.Time, time.Time) (int64, time.Time, error),
+) (int64, time.Time, error) {
+	queryStart := start
+	queryUpper := upper
+	for {
+		bytesProcessed, nextCursor, err := pull(queryStart, queryUpper)
+		if err != nil || nextCursor.After(queryStart) {
+			return bytesProcessed, nextCursor, err
+		}
+		if !queryUpper.Before(safeUpper) {
+			// No watermark was seen anywhere in (start, safeUpper]. Keep the
+			// original max-seen cursor so a later backfill into that range can
+			// still be discovered.
+			return bytesProcessed, start, nil
+		}
+
+		// The current window was empty. Search the next non-overlapping window,
+		// keeping every individual BigQuery job bounded by maxQueryWindow.
+		queryStart = queryUpper
+		queryUpper = queryStart.Add(maxQueryWindow)
+		if safeUpper.Before(queryUpper) {
+			queryUpper = safeUpper
+		}
+	}
 }
 
 func EncodeBigQueryTableCursor(t time.Time) string {
@@ -190,8 +219,13 @@ func (c *BigQueryConnector) PullTableRecords(
 
 	nextCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
-		bytesProcessed, nextCursor, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
-			req.SourceTableIdentifier, req.NameAndExclude.Name, columns, start, upper, addRecord)
+		bytesProcessed, nextCursor, err = pullQueryWindows(
+			start, upper, now.Add(-safetyLag), maxQueryWindow,
+			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
+				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
+					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)
+			},
+		)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier,
 			req.NameAndExclude.Name, columns, start, upper, addRecord)

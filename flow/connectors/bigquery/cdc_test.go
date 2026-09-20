@@ -52,6 +52,56 @@ func TestPollWindow(t *testing.T) {
 	})
 }
 
+func TestPullQueryWindows(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const window = 24 * time.Hour
+
+	t.Run("walks bounded windows until it finds a watermark", func(t *testing.T) {
+		safeUpper := start.Add(4 * window)
+		watermark := start.Add(5 * window / 2)
+		var windows [][2]time.Time
+
+		bytesProcessed, nextCursor, err := pullQueryWindows(
+			start, start.Add(window), safeUpper, window,
+			func(lower, upper time.Time) (int64, time.Time, error) {
+				windows = append(windows, [2]time.Time{lower, upper})
+				if upper.After(watermark) {
+					return int64(len(windows) * 10), watermark, nil
+				}
+				return int64(len(windows) * 10), lower, nil
+			},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(30), bytesProcessed)
+		assert.Equal(t, watermark, nextCursor)
+		assert.Equal(t, [][2]time.Time{
+			{start, start.Add(window)},
+			{start.Add(window), start.Add(2 * window)},
+			{start.Add(2 * window), start.Add(3 * window)},
+		}, windows)
+	})
+
+	t.Run("caps the final window and keeps cursor when all are empty", func(t *testing.T) {
+		safeUpper := start.Add(5 * window / 2)
+		var windows [][2]time.Time
+
+		bytesProcessed, nextCursor, err := pullQueryWindows(
+			start, start.Add(window), safeUpper, window,
+			func(lower, upper time.Time) (int64, time.Time, error) {
+				windows = append(windows, [2]time.Time{lower, upper})
+				return int64(len(windows) * 10), lower, nil
+			},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(30), bytesProcessed)
+		assert.Equal(t, start, nextCursor)
+		assert.Equal(t, safeUpper, windows[len(windows)-1][1])
+		for _, scanned := range windows {
+			assert.LessOrEqual(t, scanned[1].Sub(scanned[0]), window)
+		}
+	})
+}
+
 func TestBigQueryRowToRecordItems(t *testing.T) {
 	schema := bigquery.Schema{
 		{Name: "id", Type: bigquery.IntegerFieldType},
