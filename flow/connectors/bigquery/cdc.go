@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -195,10 +196,6 @@ func (c *BigQueryConnector) PullTableRecords(
 		return model.PullTableRecordsResult{}, fmt.Errorf("no table schema mapping found for destination table %s", req.NameAndExclude.Name)
 	}
 	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
-	columns, err = c.initializeSourceTableColumns(ctx, req.SourceTableIdentifier, columns)
-	if err != nil {
-		return model.PullTableRecordsResult{}, err
-	}
 
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
@@ -360,19 +357,18 @@ func pullColumnNames(tableSchema *protos.TableSchema, exclude map[string]struct{
 
 type pullQueryBuilder func(columns []string) string
 
-// runPullQuery runs buildQuery(columns) for the [start, end) window, retrying with a
-// shrunk column list if BigQuery rejects a column that no longer exists on the source
-// table (BigQuery reports one such column per error, so this may loop more than once).
-// Columns found missing are remembered per sourceTableIdentifier so later polls don't
-// have to rediscover them during this connector's lifetime. If a required column
+// runPullQuery runs buildQuery over columns minus those known to be missing on the
+// source table for the [start, end) window. The catalog column list is trusted until
+// BigQuery rejects a selected column as unrecognized; then the missing set is
+// (re)computed from table metadata and the query retried once. If a required column
 // is missing, the query fails instead of removing it from the SELECT list.
 func (c *BigQueryConnector) runPullQuery(
 	ctx context.Context, sourceTableIdentifier string, columns []string, requiredColumns []string,
 	start, end time.Time,
 	buildQuery pullQueryBuilder,
 ) (*bigquery.RowIterator, error) {
-	effective := columns
-	for {
+	effective := c.knownSourceTableColumns(sourceTableIdentifier, columns)
+	for attempt := 0; ; attempt++ {
 		q := c.client.Query(buildQuery(effective))
 		q.Parameters = []bigquery.QueryParameter{
 			{Name: "start", Value: start},
@@ -386,14 +382,16 @@ func (c *BigQueryConnector) runPullQuery(
 			return it, nil
 		}
 
-		missingCol, err := droppableMissingSourceColumn(err, effective, sourceTableIdentifier, requiredColumns)
+		missingCol, ok := missingSourceColumn(err, effective)
+		if !ok || attempt > 0 {
+			return nil, err
+		}
+		c.logger.Warn("[bigquery] column no longer exists on source table, refreshing column list from table metadata",
+			slog.String("table", sourceTableIdentifier), slog.String("column", missingCol))
+		effective, err = c.refreshSourceTableColumns(ctx, sourceTableIdentifier, columns, requiredColumns)
 		if err != nil {
 			return nil, err
 		}
-		c.logger.Warn("[bigquery] column no longer exists on source table, dropping from SELECT list",
-			slog.String("table", sourceTableIdentifier), slog.String("column", missingCol))
-		c.recordMissingSourceColumn(sourceTableIdentifier, missingCol)
-		effective = slices.DeleteFunc(slices.Clone(effective), func(col string) bool { return col == missingCol })
 	}
 }
 
@@ -421,25 +419,18 @@ func missingColumnsFromSchema(columns []string, schema bigquery.Schema) map[stri
 	return missing
 }
 
-// initializeSourceTableColumns fetches table metadata on the first pull and returns
-// the configured mirror columns that still exist on the source. The result is kept
-// for the connector's lifetime.
-func (c *BigQueryConnector) initializeSourceTableColumns(
-	ctx context.Context, sourceTableIdentifier string, columns []string,
+// refreshSourceTableColumns recomputes which of columns are missing on the source
+// table from its live metadata, remembers the result for the connector's lifetime,
+// and returns columns minus that set. A required column missing on the source is an
+// error rather than a column to drop, and is not cached, so the next poll checks the
+// source again. Each source table has a single pull loop, so the mutex only guards
+// the shared map, not the entry.
+func (c *BigQueryConnector) refreshSourceTableColumns(
+	ctx context.Context, sourceTableIdentifier string, columns []string, requiredColumns []string,
 ) ([]string, error) {
-	effective, initialized := func() ([]string, bool) {
-		c.missingSourceColumnsMu.Lock()
-		defer c.missingSourceColumnsMu.Unlock()
-		missing, ok := c.missingSourceColumns[sourceTableIdentifier]
-		return filterMissingColumns(columns, missing), ok
-	}()
-	if initialized {
-		return effective, nil
-	}
-
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize source columns for table %s: %w", sourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w", sourceTableIdentifier, err)
 	}
 	projectID := dsTable.project
 	if projectID == "" {
@@ -447,45 +438,32 @@ func (c *BigQueryConnector) initializeSourceTableColumns(
 	}
 	metadata, err := c.client.DatasetInProject(projectID, dsTable.dataset).Table(dsTable.table).Metadata(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize source columns for table %s: %w", sourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w", sourceTableIdentifier, err)
 	}
-	detectedMissing := missingColumnsFromSchema(columns, metadata.Schema)
 
-	effective, newlyMissing := func() ([]string, []string) {
-		c.missingSourceColumnsMu.Lock()
-		defer c.missingSourceColumnsMu.Unlock()
-
-		missing, ok := c.missingSourceColumns[sourceTableIdentifier]
-		var newlyMissing []string
-		if !ok {
-			c.missingSourceColumns[sourceTableIdentifier] = detectedMissing
-			missing = detectedMissing
-			newlyMissing = make([]string, 0, len(detectedMissing))
-			for column := range detectedMissing {
-				newlyMissing = append(newlyMissing, column)
-			}
-		}
-		return filterMissingColumns(columns, missing), newlyMissing
-	}()
-
-	for _, column := range newlyMissing {
-		c.logger.Warn("[bigquery] mirrored column no longer exists on source table, dropping from SELECT list",
-			slog.String("table", sourceTableIdentifier), slog.String("column", column))
+	for column := range missingColumnsFromSchema(requiredColumns, metadata.Schema) {
+		return nil, exceptions.NewBigQueryWatermarkColumnMissingError(
+			fmt.Errorf("watermark column %q not found in source table schema", column), sourceTableIdentifier, column)
 	}
+
+	missing := missingColumnsFromSchema(columns, metadata.Schema)
+	c.missingSourceColumnsMu.Lock()
+	c.missingSourceColumns[sourceTableIdentifier] = missing
+	c.missingSourceColumnsMu.Unlock()
+	effective := filterMissingColumns(columns, missing)
+	c.logger.Warn("[bigquery] source table schema changed, selecting only columns that still exist on source",
+		slog.String("table", sourceTableIdentifier),
+		slog.Any("missingColumns", slices.Sorted(maps.Keys(missing))),
+		slog.Int("selectedColumns", len(effective)))
 	return effective, nil
 }
 
-// recordMissingSourceColumn remembers that column no longer exists on the source
-// table, so later polls omit it for the rest of this connector's lifetime.
-func (c *BigQueryConnector) recordMissingSourceColumn(sourceTableIdentifier, column string) {
+// knownSourceTableColumns returns columns minus those already known to be missing on the source table.
+func (c *BigQueryConnector) knownSourceTableColumns(sourceTableIdentifier string, columns []string) []string {
 	c.missingSourceColumnsMu.Lock()
-	defer c.missingSourceColumnsMu.Unlock()
 	missing := c.missingSourceColumns[sourceTableIdentifier]
-	if missing == nil {
-		missing = make(map[string]struct{}, 1)
-		c.missingSourceColumns[sourceTableIdentifier] = missing
-	}
-	missing[column] = struct{}{}
+	c.missingSourceColumnsMu.Unlock()
+	return filterMissingColumns(columns, missing)
 }
 
 // Matches BigQuery's error for a SELECT list column that doesn't exist on the source.
@@ -512,19 +490,6 @@ func missingSourceColumn(err error, candidates []string) (string, bool) {
 		return "", false
 	}
 	return col, true
-}
-
-func droppableMissingSourceColumn(
-	err error, candidates []string, sourceTableIdentifier string, requiredColumns []string,
-) (string, error) {
-	column, ok := missingSourceColumn(err, candidates)
-	if !ok {
-		return "", err
-	}
-	if slices.Contains(requiredColumns, column) {
-		return "", exceptions.NewBigQueryWatermarkColumnMissingError(err, sourceTableIdentifier, column)
-	}
-	return column, nil
 }
 
 func bigQueryRowToRecordItems(

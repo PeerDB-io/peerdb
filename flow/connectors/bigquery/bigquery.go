@@ -55,10 +55,9 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 
 //nolint:govet // logically grouped, fieldalignment confuses things
 type BigQueryConnector struct {
-	// missingSourceColumns remembers, per source table, columns that BigQuery has
-	// reported as no longer existing. Each table's entry is initialized from its
-	// metadata on first pull, then retained for the connector's lifetime. Guarded by
-	// missingSourceColumnsMu since concurrent per-table pull loops share this connector.
+	// missingSourceColumns remembers, per source table, mirrored columns that no
+	// longer exist on the source. Populated when pull query fails with column missing.
+	// Guarded by missingSourceColumnsMu since concurrent per-table pull loops share this connector.
 	missingSourceColumnsMu sync.Mutex
 	missingSourceColumns   map[string]map[string]struct{}
 	logger                 log.Logger
