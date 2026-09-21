@@ -1,16 +1,25 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
+	"cloud.google.com/go/bigquery/storage/managedwriter"
+	"cloud.google.com/go/bigquery/storage/managedwriter/adapt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -23,6 +32,194 @@ import (
 type bqCdcRow struct {
 	Val string
 	ID  int64
+}
+
+type bqCdcIngestionRow struct {
+	ID        int64
+	Val       string
+	UpdatedAt time.Time
+}
+
+type bqCdcStorageWriter struct {
+	client      *managedwriter.Client
+	messageDesc protoreflect.MessageDescriptor
+	tableParent string
+}
+
+func newBqCdcStorageWriter(
+	ctx context.Context,
+	source *bigQuerySource,
+	table *bigquery.Table,
+) (*bqCdcStorageWriter, error) {
+	serviceAccountJSON, err := json.Marshal(source.helper.serviceAccount) //nolint:gosec // test credential used in memory
+	if err != nil {
+		return nil, fmt.Errorf("marshal BigQuery test service account: %w", err)
+	}
+	client, err := managedwriter.NewClient(ctx, source.config.ProjectId,
+		option.WithAuthCredentialsJSON(option.ServiceAccount, serviceAccountJSON))
+	if err != nil {
+		return nil, fmt.Errorf("create Storage Write API client: %w", err)
+	}
+
+	metadata, err := table.Metadata(ctx)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("read table metadata: %w", err)
+	}
+	storageSchema, err := adapt.BQSchemaToStorageTableSchema(metadata.Schema)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("convert table schema for Storage Write API: %w", err)
+	}
+	descriptor, err := adapt.StorageSchemaToProto2Descriptor(storageSchema, "root")
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("build Storage Write API descriptor: %w", err)
+	}
+	messageDesc, ok := descriptor.(protoreflect.MessageDescriptor)
+	if !ok {
+		client.Close()
+		return nil, fmt.Errorf("Storage Write API schema did not produce a message descriptor")
+	}
+
+	return &bqCdcStorageWriter{
+		client:      client,
+		messageDesc: messageDesc,
+		tableParent: managedwriter.TableParentFromParts(table.ProjectID, table.DatasetID, table.TableID),
+	}, nil
+}
+
+func (w *bqCdcStorageWriter) Close() error {
+	return w.client.Close()
+}
+
+func (w *bqCdcStorageWriter) Append(
+	ctx context.Context,
+	row bqCdcIngestionRow,
+	streamType managedwriter.StreamType,
+) error {
+	descriptorProto, err := adapt.NormalizeDescriptor(w.messageDesc)
+	if err != nil {
+		return fmt.Errorf("normalize Storage Write API descriptor: %w", err)
+	}
+	stream, err := w.client.NewManagedStream(ctx,
+		managedwriter.WithDestinationTable(w.tableParent),
+		managedwriter.WithType(streamType),
+		managedwriter.WithSchemaDescriptor(descriptorProto),
+	)
+	if err != nil {
+		return fmt.Errorf("create %s stream: %w", streamType, err)
+	}
+	defer stream.Close()
+
+	message := dynamicpb.NewMessage(w.messageDesc)
+	fields := w.messageDesc.Fields()
+	message.Set(fields.ByName("id"), protoreflect.ValueOfInt64(row.ID))
+	message.Set(fields.ByName("val"), protoreflect.ValueOfString(row.Val))
+	message.Set(fields.ByName("updated_at"), protoreflect.ValueOfInt64(row.UpdatedAt.UnixMicro()))
+	wireRow, err := proto.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("marshal Storage Write API row: %w", err)
+	}
+
+	var appendOptions []managedwriter.AppendOption
+	if streamType != managedwriter.DefaultStream {
+		appendOptions = append(appendOptions, managedwriter.WithOffset(0))
+	}
+	result, err := stream.AppendRows(ctx, [][]byte{wireRow}, appendOptions...)
+	if err != nil {
+		return fmt.Errorf("append Storage Write API row: %w", err)
+	}
+	if _, err := result.GetResult(ctx); err != nil {
+		return fmt.Errorf("wait for Storage Write API append: %w", err)
+	}
+
+	switch streamType {
+	case managedwriter.DefaultStream:
+		return nil
+	case managedwriter.BufferedStream:
+		// FlushRows takes the inclusive, zero-based offset of the last row to
+		// expose. This append contains one row at offset 0.
+		if _, err := stream.FlushRows(ctx, 0); err != nil {
+			return fmt.Errorf("flush buffered stream: %w", err)
+		}
+		if _, err := stream.Finalize(ctx); err != nil {
+			return fmt.Errorf("finalize buffered stream: %w", err)
+		}
+		return nil
+	case managedwriter.PendingStream:
+		if _, err := stream.Finalize(ctx); err != nil {
+			return fmt.Errorf("finalize pending stream: %w", err)
+		}
+		response, err := w.client.BatchCommitWriteStreams(ctx, &storagepb.BatchCommitWriteStreamsRequest{
+			Parent:       managedwriter.TableParentFromStreamName(stream.StreamName()),
+			WriteStreams: []string{stream.StreamName()},
+		})
+		if err != nil {
+			return fmt.Errorf("commit pending stream: %w", err)
+		}
+		if len(response.StreamErrors) != 0 {
+			return fmt.Errorf("commit pending stream returned errors: %v", response.StreamErrors)
+		}
+		return nil
+	default:
+		if _, err := stream.Finalize(ctx); err != nil {
+			return fmt.Errorf("finalize %s stream: %w", streamType, err)
+		}
+		return nil
+	}
+}
+
+func bqInsertAllRow(
+	ctx context.Context,
+	table *bigquery.Table,
+	row bqCdcIngestionRow,
+) error {
+	return table.Inserter().Put(ctx, &bigquery.ValuesSaver{
+		Schema: bigquery.Schema{
+			{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+			{Name: "val", Type: bigquery.StringFieldType},
+			{Name: "updated_at", Type: bigquery.TimestampFieldType, Required: true},
+		},
+		InsertID: fmt.Sprintf("bq-cdc-ingestion-%d", row.ID),
+		Row:      []bigquery.Value{row.ID, row.Val, row.UpdatedAt},
+	})
+}
+
+func bqLoadRow(
+	ctx context.Context,
+	table *bigquery.Table,
+	row bqCdcIngestionRow,
+) error {
+	var contents bytes.Buffer
+	if err := json.NewEncoder(&contents).Encode(struct {
+		ID        int64  `json:"id"`
+		Val       string `json:"val"`
+		UpdatedAt string `json:"updated_at"`
+	}{
+		ID:        row.ID,
+		Val:       row.Val,
+		UpdatedAt: row.UpdatedAt.Format(time.RFC3339Nano),
+	}); err != nil {
+		return fmt.Errorf("encode load row: %w", err)
+	}
+
+	source := bigquery.NewReaderSource(&contents)
+	source.SourceFormat = bigquery.JSON
+	loader := table.LoaderFrom(source)
+	loader.WriteDisposition = bigquery.WriteAppend
+	job, err := loader.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("start load job: %w", err)
+	}
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("wait for load job: %w", err)
+	}
+	if err := status.Err(); err != nil {
+		return fmt.Errorf("load job failed: %w", err)
+	}
+	return nil
 }
 
 func createBigQueryCdcSourceTable(
@@ -268,6 +465,38 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
+	// This MERGE updates id=1, deletes id=3, and inserts id=5. APPENDS should
+	// replicate only id=5, leaving its previously captured versions of ids 1
+	// and 3 unchanged.
+	mergeSQL := fmt.Sprintf(`MERGE INTO %s AS target
+		USING (
+			SELECT 1 AS id, 'merge-updated' AS val, 'update' AS action
+			UNION ALL SELECT 3, 'unused', 'delete'
+			UNION ALL SELECT 5, 'merge-inserted', 'insert'
+		) AS incoming
+		ON target.id = incoming.id
+		WHEN MATCHED AND incoming.action = 'delete' THEN DELETE
+		WHEN MATCHED THEN UPDATE SET val = incoming.val, updated_at = CURRENT_TIMESTAMP()
+		WHEN NOT MATCHED THEN INSERT (id, val, updated_at) VALUES (incoming.id, incoming.val, CURRENT_TIMESTAMP())`,
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, mergeSQL), "should execute MERGE against APPENDS source")
+
+	var valByID map[int64]string
+	EnvWaitFor(t, env, 4*time.Minute, "MERGE insert branch picked up by APPENDS CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		valByID = make(map[int64]string, len(rows.Records))
+		for _, rec := range rows.Records {
+			valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
+		}
+		return len(valByID) == 5 && valByID[5] == "merge-inserted"
+	})
+	require.Equal(t, "initial-1", valByID[1], "APPENDS must ignore MERGE's matched UPDATE branch")
+	require.Equal(t, "wave-1-b", valByID[3], "APPENDS must ignore MERGE's matched DELETE branch")
+
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
 }
@@ -314,8 +543,187 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
+	// Query mode can replicate updates only when the update also advances the
+	// configured watermark. The destination upserts the newer version by PK.
+	updateSQL := fmt.Sprintf("UPDATE %s SET val = 'query-updated', updated_at = CURRENT_TIMESTAMP() WHERE id = 2",
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, updateSQL), "should update query-mode row and advance its watermark")
+	EnvWaitFor(t, env, 4*time.Minute, "watermark-advancing update picked up by query CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, rec := range rows.Records {
+			if rec[0].Value().(int64) == 2 {
+				return rec[1].Value().(string) == "query-updated"
+			}
+		}
+		return false
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Ingestion_Methods runs three mirrors over the same source
+// table and verifies that each supported BigQuery append path is visible to
+// QUERY, APPENDS, and CHANGES replication.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Ingestion_Methods() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := AddSuffix(s, "cdc_ingest")
+	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, true)
+	table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+
+	// Query-mode setup takes MAX(updated_at) as its initial cursor. Seed the
+	// table so all three mirrors have the same non-empty snapshot boundary.
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "snapshot-seed"}})
+
+	type runningPipe struct {
+		name     string
+		dstTable string
+		env      WorkflowRun
+	}
+	pipeSpecs := []struct {
+		name   string
+		params bqCdcFlowParams
+	}{
+		{
+			name: "query",
+			params: bqCdcFlowParams{
+				eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+				replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
+				watermarkColumn:   "updated_at",
+			},
+		},
+		{
+			name: "appends",
+			params: bqCdcFlowParams{
+				eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+				replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+			},
+		},
+		{
+			name: "changes",
+			params: bqCdcFlowParams{
+				eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES,
+				replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+			},
+		},
+	}
+
+	temporalClient := NewTemporalClient(t)
+	var pipes []runningPipe
+	t.Cleanup(func() {
+		for _, pipe := range pipes {
+			if !pipe.env.Finished(context.Background()) {
+				pipe.env.Cancel(context.Background())
+			}
+		}
+	})
+	for _, spec := range pipeSpecs {
+		dstTable := srcTable + "_" + spec.name + "_dst"
+		flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, spec.params)
+		flowConnConfig.FlowJobName = AddSuffix(s, "cdc_ingest_"+spec.name)
+		flowConnConfig.SnapshotStagingPath = bigQueryTestStagingPath(s, srcTable+"_"+spec.name)
+
+		env := ExecutePeerflow(t, temporalClient, flowConnConfig)
+		SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+		pipes = append(pipes, runningPipe{name: spec.name, dstTable: dstTable, env: env})
+	}
+
+	for _, pipe := range pipes {
+		EnvWaitForEqualTablesWithNames(pipe.env, s,
+			pipe.name+" initial snapshot landed", srcTable, pipe.dstTable, "id,val")
+	}
+
+	storageWriter, err := newBqCdcStorageWriter(ctx, source, table)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, storageWriter.Close())
+	})
+
+	ingestionMethods := []struct {
+		name  string
+		write func(context.Context, bqCdcIngestionRow) error
+	}{
+		{
+			name: "dml-insert",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return source.Exec(ctx, fmt.Sprintf(
+					"INSERT INTO `%s` (id, val, updated_at) VALUES (%d, %s, TIMESTAMP(%s))",
+					tableFQN, row.ID, bqQuoteStringLiteral(row.Val),
+					bqQuoteStringLiteral(row.UpdatedAt.Format(time.RFC3339Nano))))
+			},
+		},
+		{
+			name: "insertall",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return bqInsertAllRow(ctx, table, row)
+			},
+		},
+		{
+			name: "load-job",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return bqLoadRow(ctx, table, row)
+			},
+		},
+		{
+			name: "storage-default",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return storageWriter.Append(ctx, row, managedwriter.DefaultStream)
+			},
+		},
+		{
+			name: "storage-committed",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return storageWriter.Append(ctx, row, managedwriter.CommittedStream)
+			},
+		},
+		{
+			name: "storage-buffered",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return storageWriter.Append(ctx, row, managedwriter.BufferedStream)
+			},
+		},
+		{
+			name: "storage-pending",
+			write: func(ctx context.Context, row bqCdcIngestionRow) error {
+				return storageWriter.Append(ctx, row, managedwriter.PendingStream)
+			},
+		},
+	}
+
+	for i, ingestion := range ingestionMethods {
+		passed := t.Run(ingestion.name, func(t *testing.T) {
+			row := bqCdcIngestionRow{
+				ID:        int64(i + 2),
+				Val:       ingestion.name,
+				UpdatedAt: time.Now().UTC().Truncate(time.Microsecond),
+			}
+			require.NoError(t, ingestion.write(ctx, row))
+
+			expectedRows := i + 2 // snapshot seed plus every completed ingestion case.
+			for _, pipe := range pipes {
+				EnvWaitForCount(pipe.env, s,
+					fmt.Sprintf("%s row reached %s mirror", ingestion.name, pipe.name),
+					pipe.dstTable, "id,val", expectedRows)
+				RequireEqualTablesWithNames(s, srcTable, pipe.dstTable, "id,val")
+			}
+		})
+		if !passed {
+			break
+		}
+	}
+
+	for _, pipe := range pipes {
+		pipe.env.Cancel(ctx)
+		RequireEnvCanceled(t, pipe.env)
+	}
 }
 
 // Test_BigQuery_CDC_Query_Missing_Watermark_Column exercises the
@@ -579,7 +987,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode
+// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode across
+// individual DML, every MERGE branch, and whole-table replacement/removal.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete() {
 	t := s.T()
 	ctx := t.Context()
@@ -633,6 +1042,65 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	require.Equal(t, "updated", valByID[1], "update should have replaced the row's val, not appeared alongside the old value")
 	require.NotContains(t, valByID, int64(2), "deleted row should not be present in the destination")
 	require.Equal(t, "inserted", valByID[4])
+
+	// Exercise all three MERGE outcomes in one transaction: update the matched
+	// id=1 row, delete the matched id=3 row, and insert the unmatched id=5 row.
+	mergeSQL := fmt.Sprintf(`MERGE INTO %s AS target
+		USING (
+			SELECT 1 AS id, 'merge-updated' AS val, 'update' AS action
+			UNION ALL SELECT 3, 'unused', 'delete'
+			UNION ALL SELECT 5, 'merge-inserted', 'insert'
+		) AS incoming
+		ON target.id = incoming.id
+		WHEN MATCHED AND incoming.action = 'delete' THEN DELETE
+		WHEN MATCHED THEN UPDATE SET val = incoming.val, updated_at = CURRENT_TIMESTAMP()
+		WHEN NOT MATCHED THEN INSERT (id, val, updated_at) VALUES (incoming.id, incoming.val, CURRENT_TIMESTAMP())`,
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, mergeSQL), "should execute MERGE against CHANGES source")
+	EnvWaitFor(t, env, 4*time.Minute, "all MERGE branches picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		valByID = make(map[int64]string, len(rows.Records))
+		for _, rec := range rows.Records {
+			valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
+		}
+		return len(valByID) == 3 && valByID[1] == "merge-updated" && valByID[4] == "inserted" &&
+			valByID[5] == "merge-inserted"
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	query := source.client.Query("SELECT 10 AS id, 'write-truncate' AS val, CURRENT_TIMESTAMP() AS updated_at")
+	query.Dst = source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+	query.WriteDisposition = bigquery.WriteTruncate
+	job, err := query.Run(ctx)
+	require.NoError(t, err, "should start WRITE_TRUNCATE query job")
+	status, err := job.Wait(ctx)
+	require.NoError(t, err, "should wait for WRITE_TRUNCATE query job")
+	require.NoError(t, status.Err(), "WRITE_TRUNCATE query job should succeed")
+	EnvWaitFor(t, env, 4*time.Minute, "WRITE_TRUNCATE picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 1 && rows.Records[0][0].Value().(int64) == 10 &&
+			rows.Records[0][1].Value().(string) == "write-truncate"
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	require.NoError(t, source.Exec(ctx, "TRUNCATE TABLE "+quoteBigQueryTableFQN(tableFQN)),
+		"should truncate CHANGES source table")
+	EnvWaitFor(t, env, 4*time.Minute, "TRUNCATE TABLE picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 0
+	})
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
