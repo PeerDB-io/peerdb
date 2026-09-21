@@ -289,7 +289,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 			"source clock",
 		DefaultValue:     "60",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
@@ -298,7 +298,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 			"bounding one query's row-scan cost even if a mirror falls far behind",
 		DefaultValue:     "86400",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
