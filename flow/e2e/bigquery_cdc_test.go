@@ -465,6 +465,38 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
+	// This MERGE updates id=1, deletes id=3, and inserts id=5. APPENDS should
+	// replicate only id=5, leaving its previously captured versions of ids 1
+	// and 3 unchanged.
+	mergeSQL := fmt.Sprintf(`MERGE INTO %s AS target
+		USING (
+			SELECT 1 AS id, 'merge-updated' AS val, 'update' AS action
+			UNION ALL SELECT 3, 'unused', 'delete'
+			UNION ALL SELECT 5, 'merge-inserted', 'insert'
+		) AS incoming
+		ON target.id = incoming.id
+		WHEN MATCHED AND incoming.action = 'delete' THEN DELETE
+		WHEN MATCHED THEN UPDATE SET val = incoming.val, updated_at = CURRENT_TIMESTAMP()
+		WHEN NOT MATCHED THEN INSERT (id, val, updated_at) VALUES (incoming.id, incoming.val, CURRENT_TIMESTAMP())`,
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, mergeSQL), "should execute MERGE against APPENDS source")
+
+	var valByID map[int64]string
+	EnvWaitFor(t, env, 4*time.Minute, "MERGE insert branch picked up by APPENDS CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		valByID = make(map[int64]string, len(rows.Records))
+		for _, rec := range rows.Records {
+			valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
+		}
+		return len(valByID) == 5 && valByID[5] == "merge-inserted"
+	})
+	require.Equal(t, "initial-1", valByID[1], "APPENDS must ignore MERGE's matched UPDATE branch")
+	require.Equal(t, "wave-1-b", valByID[3], "APPENDS must ignore MERGE's matched DELETE branch")
+
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
 }
@@ -508,6 +540,26 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 			return false
 		}
 		return len(rows.Records) == 3
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	// Query mode can replicate updates only when the update also advances the
+	// configured watermark. The destination upserts the newer version by PK.
+	updateSQL := fmt.Sprintf("UPDATE %s SET val = 'query-updated', updated_at = CURRENT_TIMESTAMP() WHERE id = 2",
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, updateSQL), "should update query-mode row and advance its watermark")
+	EnvWaitFor(t, env, 4*time.Minute, "watermark-advancing update picked up by query CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		for _, rec := range rows.Records {
+			if rec[0].Value().(int64) == 2 {
+				return rec[1].Value().(string) == "query-updated"
+			}
+		}
+		return false
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 
@@ -932,7 +984,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	RequireEnvCanceled(t, env)
 }
 
-// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode
+// Test_BigQuery_CDC_Changes_Insert_Update_Delete covers CHANGES mode across
+// individual DML, every MERGE branch, and whole-table replacement/removal.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete() {
 	t := s.T()
 	ctx := t.Context()
@@ -986,6 +1039,65 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	require.Equal(t, "updated", valByID[1], "update should have replaced the row's val, not appeared alongside the old value")
 	require.NotContains(t, valByID, int64(2), "deleted row should not be present in the destination")
 	require.Equal(t, "inserted", valByID[4])
+
+	// Exercise all three MERGE outcomes in one transaction: update the matched
+	// id=1 row, delete the matched id=3 row, and insert the unmatched id=5 row.
+	mergeSQL := fmt.Sprintf(`MERGE INTO %s AS target
+		USING (
+			SELECT 1 AS id, 'merge-updated' AS val, 'update' AS action
+			UNION ALL SELECT 3, 'unused', 'delete'
+			UNION ALL SELECT 5, 'merge-inserted', 'insert'
+		) AS incoming
+		ON target.id = incoming.id
+		WHEN MATCHED AND incoming.action = 'delete' THEN DELETE
+		WHEN MATCHED THEN UPDATE SET val = incoming.val, updated_at = CURRENT_TIMESTAMP()
+		WHEN NOT MATCHED THEN INSERT (id, val, updated_at) VALUES (incoming.id, incoming.val, CURRENT_TIMESTAMP())`,
+		quoteBigQueryTableFQN(tableFQN))
+	require.NoError(t, source.Exec(ctx, mergeSQL), "should execute MERGE against CHANGES source")
+	EnvWaitFor(t, env, 4*time.Minute, "all MERGE branches picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		valByID = make(map[int64]string, len(rows.Records))
+		for _, rec := range rows.Records {
+			valByID[rec[0].Value().(int64)] = rec[1].Value().(string)
+		}
+		return len(valByID) == 3 && valByID[1] == "merge-updated" && valByID[4] == "inserted" &&
+			valByID[5] == "merge-inserted"
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	query := source.client.Query("SELECT 10 AS id, 'write-truncate' AS val, CURRENT_TIMESTAMP() AS updated_at")
+	query.Dst = source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+	query.WriteDisposition = bigquery.WriteTruncate
+	job, err := query.Run(ctx)
+	require.NoError(t, err, "should start WRITE_TRUNCATE query job")
+	status, err := job.Wait(ctx)
+	require.NoError(t, err, "should wait for WRITE_TRUNCATE query job")
+	require.NoError(t, status.Err(), "WRITE_TRUNCATE query job should succeed")
+	EnvWaitFor(t, env, 4*time.Minute, "WRITE_TRUNCATE picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id,val")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 1 && rows.Records[0][0].Value().(int64) == 10 &&
+			rows.Records[0][1].Value().(string) == "write-truncate"
+	})
+	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
+
+	require.NoError(t, source.Exec(ctx, "TRUNCATE TABLE "+quoteBigQueryTableFQN(tableFQN)),
+		"should truncate CHANGES source table")
+	EnvWaitFor(t, env, 4*time.Minute, "TRUNCATE TABLE picked up by CHANGES CDC poll", func() bool {
+		rows, err := s.GetRows(dstTable, "id")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == 0
+	})
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(t, env)
