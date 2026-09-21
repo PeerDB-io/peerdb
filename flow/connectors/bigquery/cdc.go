@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/civil"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -68,14 +67,43 @@ func (c *BigQueryConnector) EnsurePullability(
 	return nil, nil
 }
 
-// pollWindow computes the upper bound of the next APPENDS()/CHANGES() poll window
-// given the last-scanned checkpoint and BigQuery's current clock (now).
+// pollWindow computes the upper bound of the next bounded poll window given the
+// last-scanned checkpoint and BigQuery's current clock (now).
 func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
 	upper := checkpoint.Add(maxQueryWindow)
 	if safe := now.Add(-safetyLag); safe.Before(upper) {
 		upper = safe
 	}
 	return upper, upper.After(checkpoint)
+}
+
+func pullQueryWindows(
+	start, upper, safeUpper time.Time,
+	maxQueryWindow time.Duration,
+	pull func(time.Time, time.Time) (int64, time.Time, error),
+) (int64, time.Time, error) {
+	queryStart := start
+	queryUpper := upper
+	for {
+		bytesProcessed, nextCursor, err := pull(queryStart, queryUpper)
+		if err != nil || nextCursor.After(queryStart) {
+			return bytesProcessed, nextCursor, err
+		}
+		if !queryUpper.Before(safeUpper) {
+			// No watermark was seen anywhere in (start, safeUpper]. Keep the
+			// original max-seen cursor so a later backfill into that range can
+			// still be discovered.
+			return bytesProcessed, start, nil
+		}
+
+		// The current window was empty. Search the next non-overlapping window,
+		// keeping every individual BigQuery job bounded by maxQueryWindow.
+		queryStart = queryUpper
+		queryUpper = queryStart.Add(maxQueryWindow)
+		if safeUpper.Before(queryUpper) {
+			queryUpper = safeUpper
+		}
+	}
 }
 
 func EncodeBigQueryTableCursor(t time.Time) string {
@@ -189,9 +217,15 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
 
+	nextCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
-		bytesProcessed, err = c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
-			req.SourceTableIdentifier, req.NameAndExclude.Name, columns, start, upper, addRecord)
+		bytesProcessed, nextCursor, err = pullQueryWindows(
+			start, upper, now.Add(-safetyLag), maxQueryWindow,
+			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
+				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
+					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)
+			},
+		)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier,
 			req.NameAndExclude.Name, columns, start, upper, addRecord)
@@ -207,7 +241,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	return model.PullTableRecordsResult{
-		NextCursor:     EncodeBigQueryTableCursor(upper),
+		NextCursor:     EncodeBigQueryTableCursor(nextCursor),
 		BytesProcessed: bytesProcessed,
 	}, nil
 }
@@ -631,7 +665,7 @@ func (c *BigQueryConnector) pullTableChanges(
 // watermarkColumn <= @end for one source table. Results are intentionally
 // unordered so Storage Read API can consume multiple streams in parallel.
 // Returns the HTTP response body bytes consumed by BigQuery for this table's
-// query
+// query and max seen watermark column value
 func (c *BigQueryConnector) pullTableQuery(
 	ctx context.Context,
 	watermarkColumn string,
@@ -640,10 +674,10 @@ func (c *BigQueryConnector) pullTableQuery(
 	columns []string,
 	start, end time.Time,
 	addRecord func(context.Context, model.Record[model.RecordItems]) error,
-) (int64, error) {
+) (int64, time.Time, error) {
 	dsTable, err := c.convertToDatasetTable(sourceTableIdentifier)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
+		return 0, time.Time{}, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
 	var bytesTransferred atomic.Int64
@@ -652,18 +686,19 @@ func (c *BigQueryConnector) pullTableQuery(
 			return buildWatermarkPullQuery(dsTable.stringQuoted(), watermarkColumn, cols)
 		})
 	if err != nil {
-		return 0, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
+		return 0, time.Time{}, fmt.Errorf("failed to run watermark query for table %s: %w", sourceTableIdentifier, err)
 	}
 
+	maxSeenWatermarkColumnValue := start
 	var qfields []types.QField
 	watermarkColIdx := -1
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
 			if errors.Is(err, iterator.Done) {
-				return bytesTransferred.Load(), nil
+				return bytesTransferred.Load(), maxSeenWatermarkColumnValue, nil
 			}
-			return 0, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -682,17 +717,17 @@ func (c *BigQueryConnector) pullTableQuery(
 		// column isn't present.
 		commitTimeNano := start.UnixNano()
 		if watermarkColIdx >= 0 {
-			switch v := row[watermarkColIdx].(type) {
-			case time.Time:
+			if v, ok := row[watermarkColIdx].(time.Time); ok {
 				commitTimeNano = v.UnixNano()
-			case civil.Date:
-				commitTimeNano = v.In(time.UTC).UnixNano()
+				if v.After(maxSeenWatermarkColumnValue) {
+					maxSeenWatermarkColumnValue = v
+				}
 			}
 		}
 
 		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)
 		if err != nil {
-			return 0, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to convert row for table %s: %w", sourceTableIdentifier, err)
 		}
 
 		if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
@@ -701,7 +736,7 @@ func (c *BigQueryConnector) pullTableQuery(
 			SourceTableName:      sourceTableIdentifier,
 			DestinationTableName: destinationTableName,
 		}); err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
 	}
 }
