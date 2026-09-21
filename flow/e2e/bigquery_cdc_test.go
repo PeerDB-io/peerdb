@@ -699,11 +699,11 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Ingestion_Methods() {
 	}
 
 	for i, ingestion := range ingestionMethods {
-		t.Run(ingestion.name, func(t *testing.T) {
+		passed := t.Run(ingestion.name, func(t *testing.T) {
 			row := bqCdcIngestionRow{
 				ID:        int64(i + 2),
 				Val:       ingestion.name,
-				UpdatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC().Truncate(time.Microsecond),
 			}
 			require.NoError(t, ingestion.write(ctx, row))
 
@@ -715,6 +715,9 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Ingestion_Methods() {
 				RequireEqualTablesWithNames(s, srcTable, pipe.dstTable, "id,val")
 			}
 		})
+		if !passed {
+			break
+		}
 	}
 
 	for _, pipe := range pipes {
