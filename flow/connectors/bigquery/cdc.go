@@ -67,16 +67,6 @@ func (c *BigQueryConnector) EnsurePullability(
 	return nil, nil
 }
 
-// pollWindow computes the upper bound of the next bounded poll window given the
-// last-scanned checkpoint and BigQuery's current clock (now).
-func pollWindow(checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration) (time.Time, bool) {
-	upper := checkpoint.Add(maxQueryWindow)
-	if safe := now.Add(-safetyLag); safe.Before(upper) {
-		upper = safe
-	}
-	return upper, upper.After(checkpoint)
-}
-
 func pullQueryWindows(
 	start, upper, safeUpper time.Time,
 	maxQueryWindow time.Duration,
@@ -106,19 +96,8 @@ func pullQueryWindows(
 	}
 }
 
-func EncodeBigQueryTableCursor(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
-}
-
-func DecodeBigQueryTableCursor(cursor string) (time.Time, error) {
-	if cursor == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse(time.RFC3339Nano, cursor)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse BigQuery CDC table cursor %q: %w", cursor, err)
-	}
-	return t, nil
+func (c *BigQueryConnector) QueryCDCCurrentTime(ctx context.Context) (time.Time, error) {
+	return c.currentBigQueryTimestamp(ctx)
 }
 
 // PullTableRecords implements connectors.QueryCDCPullConnector. It pulls a
@@ -146,26 +125,6 @@ func (c *BigQueryConnector) PullTableRecords(
 			slog.Int("channelLen", req.Stream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStartedAt).Minutes()))
 	}()
-
-	now, err := c.currentBigQueryTimestamp(ctx)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
-	}
-
-	start, err := DecodeBigQueryTableCursor(req.Cursor)
-	if err != nil {
-		return model.PullTableRecordsResult{}, err
-	}
-	if start.IsZero() {
-		// seed from now if cursor is empty (first poll for this table).
-		start = now
-	}
-
-	upper, ok := pollWindow(start, now, req.QueryCDCSafetyLag, req.QueryCDCMaxQueryWindow)
-	if !ok {
-		// No safe window to scan yet; cursor is unchanged.
-		return model.PullTableRecordsResult{NextCursor: req.Cursor}, nil
-	}
 
 	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, req.FlowJobName)
 	if err != nil {
@@ -209,10 +168,10 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
 
-	nextCursor := upper
+	nextCursor := req.EndTime
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, nextCursor, err = pullQueryWindows(
-			start, upper, now.Add(-req.QueryCDCSafetyLag), req.QueryCDCMaxQueryWindow,
+			req.StartTime, req.EndTime, req.SafeEndTime, req.QueryCDCMaxQueryWindow,
 			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
 				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
 					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)
@@ -220,10 +179,10 @@ func (c *BigQueryConnector) PullTableRecords(
 		)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier,
-			req.NameAndExclude.Name, columns, start, upper, addRecord)
+			req.NameAndExclude.Name, columns, req.StartTime, req.EndTime, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
 		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier,
-			req.NameAndExclude.Name, columns, start, upper, addRecord)
+			req.NameAndExclude.Name, columns, req.StartTime, req.EndTime, addRecord)
 	} else {
 		// unreachable, but just in case throw an error instead of silently returning an empty result
 		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)
@@ -233,7 +192,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	return model.PullTableRecordsResult{
-		NextCursor:     EncodeBigQueryTableCursor(nextCursor),
+		NextCursor:     model.EncodeQueryCDCCursor(nextCursor),
 		BytesProcessed: bytesProcessed,
 	}, nil
 }

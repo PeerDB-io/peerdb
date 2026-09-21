@@ -38,6 +38,37 @@ func TestQueryCDCPollWait(t *testing.T) {
 	})
 }
 
+func TestQueryCDCPollWindow(t *testing.T) {
+	checkpoint := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const safetyLag = time.Minute
+	const maxQueryWindow = 24 * time.Hour
+
+	t.Run("caps at max query window", func(t *testing.T) {
+		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(maxQueryWindow*10), safetyLag, maxQueryWindow)
+		require.True(t, ok)
+		require.Equal(t, checkpoint.Add(maxQueryWindow), upper)
+	})
+
+	t.Run("caps at safety lag", func(t *testing.T) {
+		now := checkpoint.Add(time.Hour)
+		upper, ok := queryCDCPollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		require.True(t, ok)
+		require.Equal(t, now.Add(-safetyLag), upper)
+	})
+
+	t.Run("skips while safety lag has not cleared", func(t *testing.T) {
+		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag/2), safetyLag, maxQueryWindow)
+		require.False(t, ok)
+		require.False(t, upper.After(checkpoint))
+	})
+
+	t.Run("skips exactly at safety lag boundary", func(t *testing.T) {
+		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag), safetyLag, maxQueryWindow)
+		require.False(t, ok)
+		require.Equal(t, checkpoint, upper)
+	})
+}
+
 func TestQueryCDCRetryWait(t *testing.T) {
 	t.Run("exponential backoff capped at one minute", func(t *testing.T) {
 		wait := time.Duration(0)
