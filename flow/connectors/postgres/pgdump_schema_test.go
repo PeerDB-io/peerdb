@@ -245,8 +245,7 @@ func TestRunPipeline_ContextCancel(t *testing.T) {
 }
 
 // TestRunPipeline_FilterStripsLines verifies the filter goroutine drops
-// matching lines and forwards the rest. Covers SET transaction_timeout (PG17+)
-// and \restrict / \unrestrict psql meta-commands (pg_dump 17.6+).
+// SET transaction_timeout (PG17+) and forwards the rest unchanged.
 func TestRunPipeline_FilterStripsLines(t *testing.T) {
 	requireUnix(t)
 	ctx := t.Context()
@@ -267,7 +266,11 @@ func TestRunPipeline_FilterStripsLines(t *testing.T) {
 	}
 
 	got := out.String()
-	want := "SELECT 1;\nCREATE TABLE t(id int);\nSELECT 2;\n"
+	want := "SELECT 1;\n" +
+		"\\restrict abc123\n" +
+		"CREATE TABLE t(id int);\n" +
+		"\\unrestrict abc123\n" +
+		"SELECT 2;\n"
 	if got != want {
 		t.Fatalf("filtered output = %q, want %q", got, want)
 	}
@@ -616,9 +619,9 @@ func TestIncompatibleLineRegex(t *testing.T) {
 		{"SET transaction_timeout = 0;\n", true},
 		{"SET  transaction_timeout=0;\n", true},
 		{"SET statement_timeout = 0;\n", false},
-		{"\\restrict abc123\n", true},
-		{"\\unrestrict abc123\n", true},
-		{"\\restrict\n", true},
+		{"\\restrict abc123\n", false},
+		{"\\unrestrict abc123\n", false},
+		{"\\restrict\n", false},
 		{"CREATE TABLE t(id int);\n", false},
 		{"SELECT 1;\n", false},
 	}
