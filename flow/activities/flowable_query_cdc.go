@@ -196,11 +196,11 @@ func queryCDCPollDurations(
 func queryCDCPollWindow(
 	checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration,
 ) (time.Time, bool) {
-	upper := checkpoint.Add(maxQueryWindow)
-	if safe := now.Add(-safetyLag); safe.Before(upper) {
-		upper = safe
+	end := checkpoint.Add(maxQueryWindow)
+	if safeEnd := now.Add(-safetyLag); safeEnd.Before(end) {
+		end = safeEnd
 	}
-	return upper, upper.After(checkpoint)
+	return end, end.After(checkpoint)
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
@@ -370,11 +370,11 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			if start.IsZero() {
 				start = now
 			}
-			safeUpper := now.Add(-queryCDCSafetyLag)
-			upper, ok := queryCDCPollWindow(start, now, queryCDCSafetyLag, queryCDCMaxQueryWindow)
+			safeEnd := now.Add(-queryCDCSafetyLag)
+			end, ok := queryCDCPollWindow(start, now, queryCDCSafetyLag, queryCDCMaxQueryWindow)
 			if !ok {
 				pollSkipped = true
-				safetyLagWait = start.Sub(safeUpper)
+				safetyLagWait = start.Sub(safeEnd)
 				return nil, nil
 			}
 
@@ -393,8 +393,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					NameAndExclude:         nameAndExclude,
 					TableSchema:            tableNameSchemaMapping[destTable],
 					StartTime:              start,
-					EndTime:                upper,
-					SafeEndTime:            safeUpper,
+					EndTime:                end,
+					SafeEndTime:            safeEnd,
 					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
 					Stream:                 stream,
 				})

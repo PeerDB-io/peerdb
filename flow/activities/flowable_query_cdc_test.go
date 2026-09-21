@@ -44,28 +44,28 @@ func TestQueryCDCPollWindow(t *testing.T) {
 	const maxQueryWindow = 24 * time.Hour
 
 	t.Run("caps at max query window", func(t *testing.T) {
-		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(maxQueryWindow*10), safetyLag, maxQueryWindow)
+		end, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(maxQueryWindow*10), safetyLag, maxQueryWindow)
 		require.True(t, ok)
-		require.Equal(t, checkpoint.Add(maxQueryWindow), upper)
+		require.Equal(t, checkpoint.Add(maxQueryWindow), end)
 	})
 
 	t.Run("caps at safety lag", func(t *testing.T) {
 		now := checkpoint.Add(time.Hour)
-		upper, ok := queryCDCPollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		end, ok := queryCDCPollWindow(checkpoint, now, safetyLag, maxQueryWindow)
 		require.True(t, ok)
-		require.Equal(t, now.Add(-safetyLag), upper)
+		require.Equal(t, now.Add(-safetyLag), end)
 	})
 
 	t.Run("skips while safety lag has not cleared", func(t *testing.T) {
-		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag/2), safetyLag, maxQueryWindow)
+		end, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag/2), safetyLag, maxQueryWindow)
 		require.False(t, ok)
-		require.False(t, upper.After(checkpoint))
+		require.False(t, end.After(checkpoint))
 	})
 
 	t.Run("skips exactly at safety lag boundary", func(t *testing.T) {
-		upper, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag), safetyLag, maxQueryWindow)
+		end, ok := queryCDCPollWindow(checkpoint, checkpoint.Add(safetyLag), safetyLag, maxQueryWindow)
 		require.False(t, ok)
-		require.Equal(t, checkpoint, upper)
+		require.Equal(t, checkpoint, end)
 	})
 }
 
