@@ -163,7 +163,7 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 
 	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
 		tableMappings := TableMappings(s, srcTable, dstTable)
-		tableMappings[0].StructuredIngestion = true
+		tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionConfig{StructuredIngestion: true}
 		tableMappings[0].Columns = columns
 		return tableMappings
 	}

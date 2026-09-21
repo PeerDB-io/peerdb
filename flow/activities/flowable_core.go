@@ -145,8 +145,10 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
+		structuredCfg := v.GetStructuredIngestionConfig()
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExcludeWithStructuredIngestion(
-			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestion, v.DropUnexpectedValues,
+			v.DestinationTableIdentifier, v.Exclude,
+			structuredCfg.GetStructuredIngestion(), structuredCfg.GetDropUnexpectedValues(),
 		)
 	}
 

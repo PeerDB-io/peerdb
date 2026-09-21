@@ -216,7 +216,7 @@ func (h *FlowRequestHandler) checkTableMappings(
 	structuredIngestionCompatible := structured.SupportedSourcePeer(peer)
 
 	for _, tm := range cfg.TableMappings {
-		if tm.StructuredIngestion {
+		if tm.GetStructuredIngestionConfig().GetStructuredIngestion() {
 			if !structuredIngestionCompatible {
 				return NewInvalidArgumentApiError(
 					fmt.Errorf("structured ingestion is not supported for the selected source peer: %s", cfg.SourceName))
