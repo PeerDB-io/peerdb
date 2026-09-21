@@ -1004,6 +1004,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 211: // KeyNotFound
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 136, // CappedPositionLost
 			286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
@@ -1093,6 +1095,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 		return ErrorRetryRecoverable, mongoErrorInfo
+	}
+
+	if watermarkErr, ok := errors.AsType[*exceptions.BigQueryWatermarkColumnMissingError](err); ok {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   "MISSING_WATERMARK_COLUMN",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  watermarkErr.TableName,
+				ErrorAttributeKeyColumn: watermarkErr.ColumnName,
+			},
+		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {

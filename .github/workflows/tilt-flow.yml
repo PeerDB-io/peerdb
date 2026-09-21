@@ -232,7 +232,7 @@ jobs:
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.1'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -485,7 +485,7 @@ jobs:
       # role tests, assumed via OIDC. The tests read them as
       # FLOW_TESTS_RDS_IAM_AUTH_AWS_* / FLOW_TESTS_AWS_*
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com

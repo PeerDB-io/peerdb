@@ -19,6 +19,7 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 		snapshotStagingPath   string
 		sourceTableIdentifier string
 		snapshotTime          time.Time
+		watermarkColumn       string
 		expected              string
 	}{
 		{
@@ -74,11 +75,27 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 				"SELECT `plain`, TO_JSON_STRING(`payload`) AS `payload`, ST_AsText(`geo`) AS `geo`, " +
 				"CAST(`ts` AS TIMESTAMP) AS `ts` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:00:00 UTC')",
 		},
+		{
+			name:    "watermark column filters instead of FOR SYSTEM_TIME AS OF",
+			dsTable: datasetTable{dataset: "ds", table: "tbl"},
+			schema: bigquery.Schema{
+				{Name: "id", Type: bigquery.IntegerFieldType},
+				{Name: "updated_at", Type: bigquery.TimestampFieldType},
+			},
+			snapshotStagingPath:   "gs://bucket",
+			sourceTableIdentifier: "tbl",
+			snapshotTime:          time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
+			watermarkColumn:       "updated_at",
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/tbl/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS " +
+				"SELECT `id`, `updated_at` FROM `ds`.`tbl` WHERE TIMESTAMP(`updated_at`) <= TIMESTAMP('2026-08-14 12:00:00 UTC')",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql := buildBigQueryExportSQL(tt.dsTable, tt.schema, tt.snapshotStagingPath, tt.sourceTableIdentifier, tt.snapshotTime)
+			sql := buildBigQueryExportSQL(
+				tt.dsTable, tt.schema, tt.snapshotStagingPath, tt.sourceTableIdentifier, tt.snapshotTime, tt.watermarkColumn)
 			require.Equal(t, tt.expected, sql)
 		})
 	}

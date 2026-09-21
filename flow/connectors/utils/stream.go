@@ -218,11 +218,21 @@ func typedCDCRow(
 	for _, field := range businessFields {
 		val := items.GetColumnValue(sourceColumnByDest[field.Name])
 		if val == nil {
-			val = types.QValueNull(field.Type)
+			// column was dropped from the source
+			// use Null for nullable columns, and a default value for non-nullable columns
+			// otherwise the destination will reject the row
+			if field.Nullable {
+				val = types.QValueNull(field.Type)
+			} else {
+				val = field.Type.DefaultValue()
+			}
 		}
 		row = append(row, val)
 	}
-	row = append(row, types.QValueInt64{Val: isDeleted}, types.QValueInt64{Val: time.Now().UnixNano()})
+	row = append(row,
+		types.QValueInt64{Val: isDeleted},
+		types.QValueInt64{Val: record.GetCommitTime().UnixNano()},
+	)
 	if len(row) != len(schema.Fields) {
 		return nil, fmt.Errorf("typed CDC row has %d values for a %d-field schema", len(row), len(schema.Fields))
 	}

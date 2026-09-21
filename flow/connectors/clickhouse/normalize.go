@@ -216,7 +216,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				if err != nil {
 					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 				}
-			} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+			} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
+				!strings.HasPrefix(clickHouseType, "Nullable(") {
 				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 			}
 

@@ -71,6 +71,7 @@ type MongoConnector struct {
 	totalBytesRead       atomic.Int64
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
+	numDecodeWorkers     int
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {

@@ -52,17 +52,13 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.4",
     "copy-webpack-plugin": "^14.0.0",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.0.0",
     "eslint-config-prettier": "^10.1.2",
     "less": "^4.3.0",
-    "postcss": "^8.5.3",
     "prettier": "^3.5.3",
     "prettier-plugin-organize-imports": "^4.1.0",
-    "tailwindcss": "^4.0.17",
-    "tailwindcss-animate": "^1.0.7",
     "typescript": "^6.0.0",
     "webpack": "^5.99.7"
   }

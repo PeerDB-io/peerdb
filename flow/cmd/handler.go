@@ -162,6 +162,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if cfg == nil {
 		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs cannot be nil"))
 	}
+	if err := internal.ValidateEnv(cfg.Env); err != nil {
+		return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+	}
 	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, cfg.Env); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
@@ -446,6 +449,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if err != nil {
 		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
 		return nil, NewInternalApiError(err)
+	}
+
+	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
+		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+		}
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&

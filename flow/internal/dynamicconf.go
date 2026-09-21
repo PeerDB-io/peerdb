@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -584,6 +586,25 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_POSTGRES,
 	},
+	{
+		Name:             "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS",
+		Description:      "Number of parallel threads to use when decoding full BSON documents in MongoDB change events.",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS",
+		Description: "Process JSON/JSONB columns by iterating on JSON tokens instead of a full " +
+			"unmarshal/marshal roundtrip. Faster as it avoids wasted CPU cycles on a full JSON " +
+			"marshal/unmarshal, and it still converts out-of-float64-range numbers to strings like the " +
+			"classic path.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -593,6 +614,35 @@ var DynamicIndex = func() map[string]int {
 	}
 	return defaults
 }()
+
+func ValidateEnv(env map[string]string) error {
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		idx, ok := DynamicIndex[key]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s is not a known setting", key))
+			continue
+		}
+		value := env[key]
+		var err error
+		switch DynamicSettings[idx].ValueType {
+		case protos.DynconfValueType_INT:
+			_, err = strconv.ParseInt(value, 10, 64)
+		case protos.DynconfValueType_UINT:
+			_, err = strconv.ParseUint(value, 10, 64)
+		case protos.DynconfValueType_BOOL:
+			_, err = strconv.ParseBool(value)
+		case protos.DynconfValueType_STRING:
+		default:
+			err = fmt.Errorf("unsupported value type %s", DynamicSettings[idx].ValueType)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: invalid value %q for %s setting: %w",
+				key, value, strings.ToLower(DynamicSettings[idx].ValueType.String()), err))
+		}
+	}
+	return errors.Join(errs...)
+}
 
 type BinaryFormat int
 
@@ -922,12 +972,18 @@ func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error
 	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
 }
 
+var peerDBS3PartSizeCache CachedDynconfSetting[int64]
+
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
+	peerDBS3PartSizeCache.InitOnce("PEERDB_S3_PART_SIZE", 30*time.Second, dynamicConfSigned[int64])
+	return peerDBS3PartSizeCache.Get(ctx, env)
 }
 
+var peerDBS3BytesPerAvroFileCache CachedDynconfSetting[int64]
+
 func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
+	peerDBS3BytesPerAvroFileCache.InitOnce("PEERDB_S3_BYTES_PER_AVRO_FILE", 30*time.Second, dynamicConfSigned[int64])
+	return peerDBS3BytesPerAvroFileCache.Get(ctx, env)
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
@@ -1025,4 +1081,12 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
+}
+
+func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
+}
+
+func PeerDBPostgresFastProcessJsonColumns(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS")
 }

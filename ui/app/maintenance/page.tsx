@@ -19,6 +19,21 @@ import { Label } from '@/lib/Label';
 import { Layout, LayoutMain } from '@/lib/Layout';
 import { useState } from 'react';
 import useSWR from 'swr';
+import {
+  ActivitiesTable,
+  EmptyActivitiesIcon,
+  FlowNameInput,
+  HeartbeatPayload,
+  PhaseCard,
+  PhaseList,
+  SignalResult,
+  SkipWaitPanel,
+  SpinningIcon,
+  StatusBanner,
+  StatusError,
+  StatusIcon,
+  StatusRow,
+} from './styles';
 
 const phaseDisplayNames: Record<MaintenancePhase, string> = {
   [MaintenancePhase.MAINTENANCE_PHASE_START_MAINTENANCE]: 'Start Maintenance',
@@ -84,32 +99,25 @@ function PhaseIndicator({ currentPhase }: { currentPhase: any }) {
   const normalizedCurrentPhase = maintenancePhaseFromJSON(currentPhase);
 
   return (
-    <div className='mb-6'>
-      <Label variant='headline' className='mb-4 block'>
-        Maintenance Phases
-      </Label>
-      <div className='flex flex-col space-y-3'>
+    <div style={{ marginBottom: '1.5rem' }}>
+      <Label variant='headline'>Maintenance Phases</Label>
+      <PhaseList>
         {phases.map((phase) => {
           const isActive = normalizedCurrentPhase === phase;
           return (
-            <div
-              key={phase}
-              className={`p-3 rounded-lg border transition-colors ${
-                isActive
-                  ? 'bg-green-100 border-green-300 text-green-800'
-                  : 'bg-gray-50 border-gray-200 text-gray-600'
-              }`}
-            >
-              <div className='flex items-center justify-between'>
-                <span className='font-medium'>{phaseDisplayNames[phase]}</span>
+            <PhaseCard key={phase} $active={isActive}>
+              <StatusRow style={{ justifyContent: 'space-between', gap: 0 }}>
+                <span style={{ fontWeight: 500 }}>
+                  {phaseDisplayNames[phase]}
+                </span>
                 {isActive && (
-                  <Icon name='check_circle' className='text-green-600' />
+                  <StatusIcon name='check_circle' $status='success' />
                 )}
-              </div>
-            </div>
+              </StatusRow>
+            </PhaseCard>
           );
         })}
-      </div>
+      </PhaseList>
     </div>
   );
 }
@@ -121,8 +129,10 @@ function PendingActivitiesTable({
 }) {
   if (!activities || activities.length === 0) {
     return (
-      <div className='text-center py-8 text-gray-500'>
-        <Icon name='check_circle' className='text-4xl mb-2' />
+      <div
+        style={{ textAlign: 'center', paddingBlock: '2rem', color: '#e2e2e2' }}
+      >
+        <EmptyActivitiesIcon name='check_circle' />
         <p>No pending activities</p>
       </div>
     );
@@ -134,28 +144,13 @@ function PendingActivitiesTable({
   );
 
   return (
-    <div className='overflow-x-auto'>
-      <table className='w-full border-collapse border border-gray-300'>
-        <thead className='bg-gray-50'>
+    <div style={{ overflowX: 'auto' }}>
+      <ActivitiesTable>
+        <thead>
           <tr>
-            <th
-              className='border border-gray-300 px-4 py-2 text-left'
-              style={{ width: '30%' }}
-            >
-              Activity Name
-            </th>
-            <th
-              className='border border-gray-300 px-4 py-2 text-left'
-              style={{ width: '10%' }}
-            >
-              Duration
-            </th>
-            <th
-              className='border border-gray-300 px-4 py-2 text-left'
-              style={{ width: '60%' }}
-            >
-              Last Heartbeat Payload
-            </th>
+            <th style={{ width: '30%' }}>Activity Name</th>
+            <th style={{ width: '10%' }}>Duration</th>
+            <th style={{ width: '60%' }}>Last Heartbeat Payload</th>
           </tr>
         </thead>
         <tbody>
@@ -169,41 +164,29 @@ function PendingActivitiesTable({
                 : null;
 
             return (
-              <tr key={index} className='hover:bg-gray-50'>
-                <td
-                  className='border border-gray-300 px-4 py-2 font-mono text-sm'
-                  style={{ width: '30%' }}
-                >
-                  {activity.activityName}
-                </td>
-                <td
-                  className='border border-gray-300 px-4 py-2'
-                  style={{ width: '10%' }}
-                >
+              <tr key={index}>
+                <td style={{ width: '30%' }}>{activity.activityName}</td>
+                <td style={{ width: '10%' }}>
                   {formatDuration(activity.activityDuration)}
                 </td>
-                <td
-                  className='border border-gray-300 px-4 py-2'
-                  style={{ width: '60%' }}
-                >
+                <td style={{ width: '60%' }}>
                   {lastPayload ? (
-                    <div
-                      className='text-sm font-mono bg-gray-100 p-2 rounded truncate'
-                      title={lastPayload}
-                    >
+                    <HeartbeatPayload title={lastPayload}>
                       {lastPayload.length > 100
                         ? `${lastPayload.substring(0, 100)}...`
                         : lastPayload}
-                    </div>
+                    </HeartbeatPayload>
                   ) : (
-                    <span className='text-gray-500 italic'>No payload</span>
+                    <span style={{ color: '#e2e2e2', fontStyle: 'italic' }}>
+                      No payload
+                    </span>
                   )}
                 </td>
               </tr>
             );
           })}
         </tbody>
-      </table>
+      </ActivitiesTable>
     </div>
   );
 }
@@ -271,27 +254,26 @@ function SkipSnapshotWaitSection() {
   };
 
   return (
-    <div className='mt-6'>
-      <Label variant='headline' className='mb-4 block'>
-        Skip Snapshot Wait for Flow
-      </Label>
-      <div className='bg-yellow-50 border border-yellow-200 rounded-lg p-4'>
-        <div className='flex items-center gap-2 mb-3'>
-          <Icon name='warning' className='text-yellow-600' />
-          <Label className='text-yellow-800 font-medium'>
+    <div style={{ marginTop: '1.5rem' }}>
+      <Label variant='headline'>Skip Snapshot Wait for Flow</Label>
+      <SkipWaitPanel>
+        <StatusRow style={{ marginBottom: '0.75rem' }}>
+          <StatusIcon name='warning' $status='warning' />
+          <Label>
             Send signal to skip snapshot wait for a specific flow during
             maintenance startup
           </Label>
-        </div>
+        </StatusRow>
 
-        <div className='flex gap-3 items-start'>
-          <div className='flex-1'>
-            <input
+        <div
+          style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}
+        >
+          <div style={{ flex: 1 }}>
+            <FlowNameInput
               type='text'
               value={flowName}
               onChange={(e) => setFlowName(e.target.value)}
               placeholder='Enter mirror name (e.g., mirror_name)'
-              className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
               disabled={isSkipping}
             />
           </div>
@@ -302,7 +284,7 @@ function SkipSnapshotWaitSection() {
           >
             {isSkipping ? (
               <>
-                <Icon name='sync' className='animate-spin' />
+                <SpinningIcon name='sync' />
                 Sending...
               </>
             ) : (
@@ -315,20 +297,22 @@ function SkipSnapshotWaitSection() {
         </div>
 
         {skipResult && (
-          <div
-            className={`mt-3 p-3 rounded-md ${
-              skipResult.success
-                ? 'bg-green-100 border border-green-200 text-green-800'
-                : 'bg-red-100 border border-red-200 text-red-800'
-            }`}
-          >
-            <div className='flex items-center gap-2'>
+          <SignalResult $success={skipResult.success}>
+            <StatusRow>
               <Icon name={skipResult.success ? 'check_circle' : 'error'} />
-              <span className='text-sm font-medium'>{skipResult.message}</span>
-            </div>
-          </div>
+              <span
+                style={{
+                  fontSize: '0.875rem',
+                  lineHeight: '1.25rem',
+                  fontWeight: 500,
+                }}
+              >
+                {skipResult.message}
+              </span>
+            </StatusRow>
+          </SignalResult>
         )}
-      </div>
+      </SkipWaitPanel>
     </div>
   );
 }
@@ -355,55 +339,47 @@ export default function MaintenancePage() {
       }
     >
       <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-        <div className='p-6'>
+        <div style={{ padding: '1.5rem' }}>
           <Header variant='largeTitle'>Maintenance</Header>
 
           {isLoading && (
-            <div className='flex items-center gap-2 mt-4'>
-              <Icon name='sync' className='animate-spin' />
+            <StatusRow style={{ marginTop: '1rem' }}>
+              <SpinningIcon name='sync' />
               <Label>Loading maintenance status...</Label>
-            </div>
+            </StatusRow>
           )}
 
           {error && (
-            <div className='flex items-center gap-2 mt-4 p-4 bg-red-100 border border-red-300 rounded-lg'>
-              <Icon name='error' className='text-red-600' />
-              <Label className='text-red-700'>
-                Failed to load maintenance status
-              </Label>
-            </div>
+            <StatusError>
+              <StatusIcon name='error' $status='error' />
+              <Label>Failed to load maintenance status</Label>
+            </StatusError>
           )}
 
           {maintenanceStatus && (
-            <div className='mt-6'>
+            <div style={{ marginTop: '1.5rem' }}>
               {/* Maintenance Status */}
-              <div className='mb-6'>
-                <div
-                  className={`flex items-center gap-2 p-4 rounded-lg border ${
-                    maintenanceStatus.maintenanceRunning
-                      ? 'bg-orange-100 border-orange-500'
-                      : 'bg-green-100 border-green-500'
-                  }`}
-                >
-                  <Icon
+              <div style={{ marginBottom: '1.5rem' }}>
+                <StatusBanner $running={maintenanceStatus.maintenanceRunning}>
+                  <StatusIcon
                     name={
                       maintenanceStatus.maintenanceRunning
                         ? 'build'
                         : 'check_circle'
                     }
-                    className={
+                    $status={
                       maintenanceStatus.maintenanceRunning
-                        ? 'text-orange-600'
-                        : 'text-green-600'
+                        ? 'running'
+                        : 'success'
                     }
                   />
-                  <Label className='text-lg font-semibold'>
+                  <Label>
                     Maintenance Status:{' '}
                     {maintenanceStatus.maintenanceRunning
                       ? 'RUNNING'
                       : 'NOT RUNNING'}
                   </Label>
-                </div>
+                </StatusBanner>
               </div>
 
               {/* Phase Indicator */}
@@ -411,7 +387,7 @@ export default function MaintenancePage() {
 
               {/* Pending Activities */}
               <div>
-                <Label variant='headline' className='mb-4 block'>
+                <Label variant='headline'>
                   Pending Activities (
                   {maintenanceStatus.pendingActivities?.length || 0})
                 </Label>

@@ -168,6 +168,11 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
+		} else if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
+			!strings.HasPrefix(clickHouseType, "Nullable(") {
+			// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be
+			// extracted as Nullable(...), or JSON nulls turn into the type's default value
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		switch clickHouseType {
@@ -267,7 +272,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					)
 				}
 			}
-		case "JSON", "Nullable(JSON)":
+		case "JSON":
 			fmt.Fprintf(&projection,
 				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
@@ -276,6 +281,21 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+		case "Nullable(JSON)":
+			// JSONExtractString yields '' both for a JSON null and for a missing field, and casting
+			// '' (or NULL) with ::JSON raises; route those to NULL instead.
+			fmt.Fprintf(&projection,
+				"CAST(nullIf(JSONExtractString(_peerdb_data, %s), ''), 'Nullable(JSON)') AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"CAST(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), 'Nullable(JSON)') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)

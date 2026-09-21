@@ -559,12 +559,9 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
-			return err
-		}
 	}
 
-	return monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
+	return monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
@@ -631,7 +628,11 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 				},
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepRun(
+			ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName); err != nil {
+			return err
+		}
+		if err := monitoring.RecordQRepPartitions(
 			ctx, logger, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName,
 		); err != nil {
 			return err
@@ -675,15 +676,10 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	}
 
 	if rowsSynced > 0 {
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
-			return 0, err
-		}
-
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
-	if err := monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition); err != nil {
+	if err := monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 		return 0, err
 	}
 
@@ -800,7 +796,6 @@ func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
-	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
@@ -823,9 +818,6 @@ func (a *FlowableActivity) normalizeLoop(
 				return
 			}
 			select {
-			case <-syncDone:
-				logger.Info("[normalize-loop] syncDone closed")
-				return
 			case <-ctx.Done():
 				logger.Info("[normalize-loop] context closed")
 				return
@@ -843,9 +835,6 @@ func (a *FlowableActivity) normalizeLoop(
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				// update req to latest normalize request & retry
 				select {
-				case <-syncDone:
-					logger.Info("[normalize-loop] syncDone closed before retry")
-					return
 				case <-ctx.Done():
 					logger.Info("[normalize-loop] context closed before retry")
 					return
