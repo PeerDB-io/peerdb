@@ -301,7 +301,7 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 }
 
 // buildEventsPullQuery aliases BigQuery's reserved columns for Storage Read, e.g.:
-// SELECT `id`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`,
+// SELECT `id`, CONCAT(`_CHANGE_TYPE`, ”) AS `_PEERDB_CHANGE_TYPE`,
 // TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP`
 // FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)
 func buildEventsPullQuery(fn string, dsTable string, columns []string) string {
@@ -531,20 +531,16 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 	return cols
 }
 
-// pullTableChanges runs SELECT <columns> FROM CHANGES(TABLE <table>, @start, @end)
-// for one source table over [start, end), single-pass streaming like pullTableAppends,
-// and pushes the resulting Insert/Update/DeleteRecords via addRecord. Results are
-// intentionally unordered so Storage Read can consume multiple streams in parallel;
-// _CHANGE_TIMESTAMP is carried as the destination version for ordering changes.
+// pullTableChanges streams CHANGES() for one table over [start, end) and passes each
+// change to addRecord. Storage Read processes the unordered results in parallel.
+// _CHANGE_TIMESTAMP becomes the destination version used to order changes.
 //
-// CHANGES() represents an UPDATE as two rows sharing one _CHANGE_TIMESTAMP: a
-// _CHANGE_TYPE=DELETE with _CHANGE_IS_FOR_UPDATE=true carrying the old values and an
-// _CHANGE_TYPE=UPDATE with _CHANGE_IS_FOR_UPDATE=false carrying the new values. The
-// old-values half is skipped independently of row order -- OldItems isn't needed
-// downstream (see model.UpdateRecord usage), so there's nothing to pair it with; the
-// UPDATE row alone is forwarded as the UpdateRecord.
-// Returns the HTTP response bytes BigQuery transferred for this table's query,
-// including pagination fetches (see withByteCounter).
+// BigQuery emits an update as two rows with the same _CHANGE_TIMESTAMP: a DELETE
+// row with _CHANGE_IS_FOR_UPDATE=true and the old values, and an UPDATE row with
+// _CHANGE_IS_FOR_UPDATE=false and the new values. We discard the DELETE row regardless
+// of row order because model.UpdateRecord does not use OldItems.
+//
+// It returns the HTTP response bytes BigQuery transferred.
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
