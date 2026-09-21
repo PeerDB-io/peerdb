@@ -455,6 +455,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
 		}
+		if len(cdcUpdate.ResyncTables) > 0 && currState != protos.FlowStatus_STATUS_PAUSED {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("table-level resync requires the mirror to be paused"))
+		}
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&

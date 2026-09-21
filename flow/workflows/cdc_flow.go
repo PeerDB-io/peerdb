@@ -25,7 +25,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
-const additionalTablesCDCFlowPrefix = "additional-cdc-flow"
+const (
+	additionalTablesCDCFlowPrefix = "additional-cdc-flow"
+	resyncTablesCDCFlowPrefix     = "resync-tables-cdc-flow"
+)
 
 type nextRun int
 
@@ -156,8 +159,24 @@ func processCDCFlowConfigUpdate(
 
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
 	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
-	if tablesAreAdded || tablesAreRemoved {
+	tablesAreResynced := len(flowConfigUpdate.ResyncTables) > 0
+	if tablesAreAdded || tablesAreRemoved || tablesAreResynced {
 		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
+		if tablesAreResynced {
+			resyncTables, err := resolveResyncTableMappings(
+				state.SyncFlowOptions.TableMappings, flowConfigUpdate.ResyncTables)
+			if err != nil {
+				return nextRunNone, err
+			}
+			if err := validateResyncTableUpdate(resyncTables,
+				flowConfigUpdate.AdditionalTables, flowConfigUpdate.RemovedTables); err != nil {
+				return nextRunNone, err
+			}
+			// Identity is checked against workflow state above. Other fields are the
+			// desired replacement-table settings and become authoritative after the
+			// atomic swap completes.
+			flowConfigUpdate.ResyncTables = resyncTables
+		}
 
 		if tablesAreAdded {
 			next, err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
@@ -180,11 +199,102 @@ func processCDCFlowConfigUpdate(
 				return next, nil
 			}
 		}
+
+		if tablesAreResynced {
+			next, err := processTableResyncs(ctx, logger, cfg, state, mirrorNameSearch)
+			if err != nil {
+				logger.Error("failed to process table resyncs", slog.Any("error", err))
+				return nextRunNone, err
+			}
+			if next != nextRunNone {
+				return next, nil
+			}
+		}
 	}
 
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nextRunNone, nil
+}
+
+func resolveResyncTableMappings(
+	currentTableMappings []*protos.TableMapping,
+	requestedTableMappings []*protos.TableMapping,
+) ([]*protos.TableMapping, error) {
+	currentBySource := make(map[string]*protos.TableMapping, len(currentTableMappings))
+	for _, mapping := range currentTableMappings {
+		currentBySource[mapping.SourceTableIdentifier] = mapping
+	}
+
+	seen := make(map[string]struct{}, len(requestedTableMappings))
+	resolved := make([]*protos.TableMapping, 0, len(requestedTableMappings))
+	for _, requested := range requestedTableMappings {
+		if requested == nil || requested.SourceTableIdentifier == "" {
+			return nil, errors.New("resync table must have a source table identifier")
+		}
+		if _, duplicate := seen[requested.SourceTableIdentifier]; duplicate {
+			return nil, fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
+		}
+		seen[requested.SourceTableIdentifier] = struct{}{}
+
+		current, exists := currentBySource[requested.SourceTableIdentifier]
+		if !exists {
+			return nil, fmt.Errorf("table %s is not part of the mirror", requested.SourceTableIdentifier)
+		}
+		if requested.DestinationTableIdentifier != current.DestinationTableIdentifier {
+			return nil, fmt.Errorf("destination for table %s does not match the mirror configuration",
+				requested.SourceTableIdentifier)
+		}
+		resolved = append(resolved, proto.CloneOf(requested))
+	}
+	return resolved, nil
+}
+
+func validateResyncTableUpdate(
+	resyncTables []*protos.TableMapping,
+	additionalTables []*protos.TableMapping,
+	removedTables []*protos.TableMapping,
+) error {
+	resyncSources := make(map[string]struct{}, len(resyncTables))
+	for _, table := range resyncTables {
+		resyncSources[table.SourceTableIdentifier] = struct{}{}
+	}
+	for _, table := range additionalTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be added and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	for _, table := range removedTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be removed and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	return nil
+}
+
+func applyResyncedTableMappings(
+	syncFlowOptions *protos.SyncFlowOptions,
+	resyncTables []*protos.TableMapping,
+	resyncResult *CDCFlowWorkflowResult,
+) {
+	resyncedSources := make(map[string]struct{}, len(resyncTables))
+	resyncMappingsBySource := make(map[string]*protos.TableMapping, len(resyncTables))
+	for _, table := range resyncTables {
+		resyncedSources[table.SourceTableIdentifier] = struct{}{}
+		resyncMappingsBySource[table.SourceTableIdentifier] = table
+	}
+	maps.DeleteFunc(syncFlowOptions.SrcTableIdNameMapping, func(_ uint32, source string) bool {
+		_, resynced := resyncedSources[source]
+		return resynced
+	})
+	maps.Copy(syncFlowOptions.SrcTableIdNameMapping, resyncResult.SyncFlowOptions.SrcTableIdNameMapping)
+	for idx, table := range syncFlowOptions.TableMappings {
+		if replacement, ok := resyncMappingsBySource[table.SourceTableIdentifier]; ok {
+			syncFlowOptions.TableMappings[idx] = proto.CloneOf(replacement)
+		}
+	}
 }
 
 func applyEnvUpdate(env map[string]string, updatedEnv map[string]string, removedEnv []string) map[string]string {
@@ -403,6 +513,90 @@ func processTableAdditions(
 	return nextRunNone, nil
 }
 
+func processTableResyncs(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	mirrorNameSearch temporal.SearchAttributes,
+) (nextRun, error) {
+	resyncTables, err := resolveResyncTableMappings(
+		state.SyncFlowOptions.TableMappings, state.FlowConfigUpdate.ResyncTables)
+	if err != nil {
+		return nextRunNone, err
+	}
+	if len(resyncTables) == 0 {
+		return nextRunNone, nil
+	}
+
+	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
+	resyncTablesUUID := GetUUID(ctx)
+	childID := GetChildWorkflowID(resyncTablesCDCFlowPrefix, cfg.FlowJobName, resyncTablesUUID)
+	resyncCfg := proto.CloneOf(cfg)
+	resyncCfg.DoInitialSnapshot = true
+	resyncCfg.InitialSnapshotOnly = true
+	resyncCfg.TableMappings = resyncTables
+	resyncCfg.Resync = true
+	if state.SnapshotNumRowsPerPartition > 0 {
+		resyncCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+	}
+	if state.SnapshotNumPartitionsOverride > 0 {
+		resyncCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
+	}
+	if state.SnapshotMaxParallelWorkers > 0 {
+		resyncCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+	}
+	if state.SnapshotNumTablesInParallel > 0 {
+		resyncCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+	}
+
+	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        childID,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 20,
+		},
+		TypedSearchAttributes: mirrorNameSearch,
+		WaitForCancellation:   true,
+	})
+	childFuture := workflow.ExecuteChildWorkflow(childCtx, CDCFlowWorkflow, resyncCfg, nil)
+
+	selector := workflow.NewNamedSelector(ctx, "ResyncTables")
+	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
+	flowSignalStateChangeChan.AddToSelector(selector,
+		handleFlowSignalStateChange(ctx, cfg, state, logger, "ResyncTables"))
+
+	var result *CDCFlowWorkflowResult
+	var childErr error
+	selector.AddFuture(childFuture, func(f workflow.Future) {
+		childErr = f.Get(childCtx, &result)
+	})
+
+	for result == nil {
+		selector.Select(ctx)
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			if state.ActiveSignal == model.ResyncSignal {
+				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
+			}
+			return nextRunDrop, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nextRunNone, err
+		}
+		if childErr != nil {
+			return nextRunNone, fmt.Errorf("failed to execute table resync child flow: %w", childErr)
+		}
+	}
+
+	// Refresh the source table IDs discovered by SetupFlow. This matters when a
+	// source table was dropped and recreated with the same name before resync.
+	applyResyncedTableMappings(state.SyncFlowOptions, resyncTables, result)
+	logger.Info("tables resynced", slog.Int("tableCount", len(resyncTables)))
+	return nextRunNone, nil
+}
+
 func processTableRemovals(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -531,6 +725,7 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
+			slog.Any("ResyncTables", cdcConfigUpdate.ResyncTables),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Any("RemovedEnv", cdcConfigUpdate.RemovedEnv),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
