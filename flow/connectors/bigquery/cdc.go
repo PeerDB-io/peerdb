@@ -379,6 +379,9 @@ func (c *BigQueryConnector) runPullQuery(
 		// consume cached REST rows or use Storage Read for the query result.
 		it, err := q.Read(ctx)
 		if err == nil {
+			c.logger.Info("[bigquery] pull query initialized",
+				slog.String("table", sourceTableIdentifier),
+				slog.Bool("useStorageReadAPI", it.IsAccelerated()))
 			return it, nil
 		}
 
