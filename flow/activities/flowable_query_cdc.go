@@ -62,12 +62,9 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return err
 	}
 
-	pullSyncParallelism := int(config.GetQueryCdcPullSyncParallelism())
-	if pullSyncParallelism <= 0 {
-		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
-		if err != nil {
-			return fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
-		}
+	pullSyncParallelism, err := queryCDCPullSyncParallelism(ctx, config)
+	if err != nil {
+		return err
 	}
 	// Bounds concurrent pull+sync work only; normalize is bounded separately by
 	// normSem below, so a stalled destination can't be starved by pull work and
@@ -147,11 +144,30 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	return nil
 }
 
+func queryCDCPullSyncParallelism(ctx context.Context, config *protos.FlowConnectionConfigsCore) (int, error) {
+	var err error
+	pullSyncParallelism := int(config.GetBigqueryCdcConfig().GetQueryCdc().GetPullSyncParallelism())
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
+	}
+	// fallback to deprecated field
+	pullSyncParallelism = int(config.GetQueryCdcPullSyncParallelism()) //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
+	if pullSyncParallelism <= 0 {
+		// fallback to dynamic config env
+		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
+		}
+	}
+	return pullSyncParallelism, nil
+}
+
 func queryCDCPollDurations(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 ) (time.Duration, time.Duration, error) {
-	safetyLag := time.Duration(config.GetQueryCdcSafetyLagSeconds()) * time.Second
+	queryCdcConfig := config.GetBigqueryCdcConfig().GetQueryCdc()
+	safetyLag := time.Duration(queryCdcConfig.GetSafetyLagSeconds()) * time.Second
 	if safetyLag <= 0 {
 		var err error
 		safetyLag, err = internal.PeerDBQueryCDCSafetyLag(ctx, config.Env)
@@ -160,7 +176,7 @@ func queryCDCPollDurations(
 		}
 	}
 
-	maxQueryWindow := time.Duration(config.GetQueryCdcMaxQueryWindowSeconds()) * time.Second
+	maxQueryWindow := time.Duration(queryCdcConfig.GetMaxQueryWindowSeconds()) * time.Second
 	if maxQueryWindow <= 0 {
 		var err error
 		maxQueryWindow, err = internal.PeerDBQueryCDCMaxQueryWindow(ctx, config.Env)
