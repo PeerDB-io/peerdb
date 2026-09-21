@@ -1041,7 +1041,10 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
 	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-pre-snapshot"}})
 
 	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
-	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, appends)
+	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, bqCdcFlowParams{
+		eventsFunction:    appends,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
