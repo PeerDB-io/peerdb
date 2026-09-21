@@ -300,10 +300,10 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 	changeIsForUpdateColumnProjection: {},
 }
 
-// buildEventsPullQuery selects the mirrored source columns and projects BigQuery's
-// reserved change-stream columns under PeerDB-specific names. Storage Read rejects
-// result tables that retain the reserved names, even when their values are wrapped
-// in ordinary expressions. The aliases remain metadata and are not emitted as data.
+// buildEventsPullQuery aliases BigQuery's reserved columns for Storage Read, e.g.:
+// SELECT `id`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`,
+// TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP`
+// FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)
 func buildEventsPullQuery(fn string, dsTable string, columns []string) string {
 	projection := quotedColumnList(columns)
 	if projection != "" {
