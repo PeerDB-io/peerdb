@@ -212,7 +212,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	nextCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, nextCursor, err = pullQueryWindows(
-			start, upper, now.Add(-safetyLag), maxQueryWindow,
+			start, upper, now.Add(-req.QueryCDCSafetyLag), req.QueryCDCMaxQueryWindow,
 			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
 				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
 					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)
