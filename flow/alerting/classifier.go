@@ -1097,6 +1097,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorRetryRecoverable, mongoErrorInfo
 	}
 
+	if watermarkErr, ok := errors.AsType[*exceptions.BigQueryWatermarkColumnMissingError](err); ok {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   "MISSING_WATERMARK_COLUMN",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  watermarkErr.TableName,
+				ErrorAttributeKeyColumn: watermarkErr.ColumnName,
+			},
+		}
+	}
+
 	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
 		bqErrorInfo := ErrorInfo{
 			Source: ErrorSourceBigQuery,

@@ -192,17 +192,46 @@ func queryCDCPollDurations(
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
-// generalized to the activity level: a table is due once idleTimeout has
-// passed since its last poll attempt.
-func queryCDCPollWait(lastAttemptAt time.Time, now time.Time, idleTimeout time.Duration) time.Duration {
-	if lastAttemptAt.IsZero() {
+// generalized to the activity level: a table is due once syncInterval has
+// passed since its last successful poll started. LastSyncedAt distinguishes a
+// completed attempt from a newer failed or interrupted one, which is due now.
+func queryCDCPollWait(
+	lastAttemptAt time.Time, lastSyncedAt time.Time, now time.Time, syncInterval time.Duration,
+) time.Duration {
+	if lastAttemptAt.IsZero() || lastSyncedAt.IsZero() {
 		return 0
 	}
-	nextPollAt := lastAttemptAt.Add(idleTimeout)
+	// lastAttemptAt > lastSyncedAt means that the last attempt has failed
+	// so, we don't need to wait before retry
+	if lastAttemptAt.After(lastSyncedAt) {
+		return 0
+	}
+	// success case, lastAttemptAt <= lastSyncedAt
+	// so the next poll is at lastAttemptAt + syncInterval
+	nextPollAt := lastAttemptAt.Add(syncInterval)
 	if !nextPollAt.After(now) {
 		return 0
 	}
 	return nextPollAt.Sub(now)
+}
+
+const (
+	queryCDCRetryInitialWait = 5 * time.Second
+	queryCDCRetryMaxWait     = time.Minute
+)
+
+// queryCDCRetryWait returns a capped exponential backoff for consecutive poll
+// failures. Never back off longer than the normal poll cadence: short-cadence
+// mirrors should not retry more slowly on errors than they did previously.
+func queryCDCRetryWait(previousWait time.Duration, syncInterval time.Duration) time.Duration {
+	maxWait := min(queryCDCRetryMaxWait, syncInterval)
+	if maxWait <= 0 {
+		return 0
+	}
+	if previousWait <= 0 {
+		return min(queryCDCRetryInitialWait, maxWait)
+	}
+	return min(previousWait*2, maxWait)
 }
 
 func waitOrDone(ctx context.Context, wait time.Duration) error {
@@ -245,7 +274,8 @@ func acquire(ctx context.Context, sem chan struct{}, logger log.Logger, name str
 // source table's records until ctx is done. Backpressures itself, without
 // affecting any other table, once this table's own sync/normalize gap
 // reaches normBufferSize. A poll failure is alerted once per new lagging
-// episode and retried on the same idle-timeout cadence as a normal poll.
+// episode and retried with a capped exponential backoff instead of waiting
+// for the normal poll cadence again.
 func (a *FlowableActivity) queryCDCPullSyncLoop(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
@@ -254,7 +284,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	tableMapping *protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	channelBufferSize int,
-	idleTimeout time.Duration,
+	syncInterval time.Duration,
 	queryCDCSafetyLag time.Duration,
 	queryCDCMaxQueryWindow time.Duration,
 	normBufferSize int64,
@@ -270,6 +300,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 
 	wasLagging := false
+	var retryWait time.Duration
 	for ctx.Err() == nil {
 		// captured before the state read so a concurrent normalize commit can't land in the
 		// gap between reading a stale state and waiting, which would wait on a channel that
@@ -292,7 +323,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			continue
 		}
 
-		if wait := queryCDCPollWait(state.LastAttemptAt, time.Now(), idleTimeout); wait > 0 {
+		if wait := queryCDCPollWait(
+			state.LastAttemptAt, state.LastSyncedAt, time.Now(), syncInterval,
+		); wait > 0 {
 			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
@@ -312,9 +345,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			}
 			defer release()
 
-			attemptedAt := time.Now()
 			logger.Info("[cdc] starting poll")
-			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, attemptedAt); err != nil {
+			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
 				return nil, err
 			}
 
@@ -326,6 +358,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					FlowJobName:            flowName,
 					SourceTableIdentifier:  sourceTable,
 					NameAndExclude:         nameAndExclude,
+					TableSchema:            tableNameSchemaMapping[destTable],
 					Cursor:                 state.CursorText,
 					QueryCDCSafetyLag:      queryCDCSafetyLag,
 					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
@@ -387,9 +420,15 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					sourceTable, pollErr))
 				wasLagging = true
 			}
+			retryWait = queryCDCRetryWait(retryWait, syncInterval)
+			logger.Info("[cdc] waiting before retrying failed poll", slog.Duration("wait", retryWait))
+			if err := waitOrDone(ctx, retryWait); err != nil {
+				return err
+			}
 			continue
 		}
 		wasLagging = false
+		retryWait = 0
 
 		if len(stream.SchemaDeltas) > 0 {
 			if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
