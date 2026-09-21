@@ -152,13 +152,16 @@ func queryCDCPullSyncParallelism(ctx context.Context, config *protos.FlowConnect
 	}
 	// fallback to deprecated field
 	pullSyncParallelism = int(config.GetQueryCdcPullSyncParallelism()) //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
-	if pullSyncParallelism <= 0 {
-		// fallback to dynamic config env
-		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
-		}
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
 	}
+
+	// fallback to dynamic config env
+	pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
+	}
+
 	return pullSyncParallelism, nil
 }
 
