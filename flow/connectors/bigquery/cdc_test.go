@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -110,13 +109,14 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 		{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
 		{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
 		{Name: changeIsForUpdateColumnProjection, Type: bigquery.BooleanFieldType},
+		{Name: watermarkTimestampProjection, Type: bigquery.TimestampFieldType},
 	}
 	qfields := make([]types.QField, len(schema))
 	for i, f := range schema {
 		qfields[i] = BigQueryFieldToQField(f)
 	}
 	row := []bigquery.Value{
-		int64(1), "alice", bigQueryChangeTypeInsert, time.Now(), true,
+		int64(1), "alice", bigQueryChangeTypeInsert, time.Now(), true, time.Now(),
 	}
 
 	items, err := bigQueryRowToRecordItems(schema, qfields, row)
@@ -126,6 +126,7 @@ func TestBigQueryRowToRecordItems(t *testing.T) {
 	assert.Nil(t, items.GetColumnValue(changeTypeColumnProjection))
 	assert.Nil(t, items.GetColumnValue(changeTimestampColumnProjection))
 	assert.Nil(t, items.GetColumnValue(changeIsForUpdateColumnProjection))
+	assert.Nil(t, items.GetColumnValue(watermarkTimestampProjection))
 	assert.Len(t, items.ColToVal, 2)
 }
 
@@ -256,22 +257,13 @@ func TestBuildPullQuery(t *testing.T) {
 		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}),
 	)
 	assert.Equal(t,
-		"SELECT `id`, `name` FROM `ds`.`tbl` "+
+		"SELECT `id`, `name`, TIMESTAMP(`updated_at`) AS `_PEERDB_BIGQUERY_WATERMARK_TIMESTAMP` FROM `ds`.`tbl` "+
 			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
 		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
 	)
-}
-
-func TestWatermarkColumnValueAsTime(t *testing.T) {
-	ts := time.Date(2026, 3, 4, 5, 6, 7, 8, time.UTC)
-	got, ok := watermarkColumnValueAsTime(ts)
-	require.True(t, ok)
-	assert.True(t, ts.Equal(got))
-
-	got, ok = watermarkColumnValueAsTime(civil.DateTimeOf(ts))
-	require.True(t, ok)
-	assert.True(t, ts.Equal(got))
-
-	_, ok = watermarkColumnValueAsTime(int64(1))
-	assert.False(t, ok)
+	assert.Equal(t,
+		"SELECT TIMESTAMP(`updated_at`) AS `_PEERDB_BIGQUERY_WATERMARK_TIMESTAMP` FROM `ds`.`tbl` "+
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
+		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", nil),
+	)
 }

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/civil"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -43,6 +42,7 @@ const (
 	changeTypeColumnProjection        = "_PEERDB_BIGQUERY_CHANGE_TYPE"
 	changeTimestampColumnProjection   = "_PEERDB_BIGQUERY_CHANGE_TIMESTAMP"
 	changeIsForUpdateColumnProjection = "_PEERDB_BIGQUERY_CHANGE_IS_FOR_UPDATE"
+	watermarkTimestampProjection      = "_PEERDB_BIGQUERY_WATERMARK_TIMESTAMP"
 
 	// _CHANGE_TYPE values.
 	bigQueryChangeTypeInsert = "INSERT"
@@ -319,12 +319,13 @@ func (c *BigQueryConnector) pullTableAppends(
 	}
 }
 
-// bigQueryChangePseudoColumns are the metadata columns APPENDS()/CHANGES() add on top
-// of the base table's real columns -- never copied into the record.
-var bigQueryChangePseudoColumns = map[string]struct{}{
+// projectedPseudoColumns are connector-owned query result columns used for CDC
+// metadata. They are never copied into the destination record.
+var projectedPseudoColumns = map[string]struct{}{
 	changeTypeColumnProjection:        {},
 	changeTimestampColumnProjection:   {},
 	changeIsForUpdateColumnProjection: {},
+	watermarkTimestampProjection:      {},
 }
 
 // buildEventsPullQuery aliases BigQuery's reserved columns for Storage Read, e.g.:
@@ -350,25 +351,22 @@ func buildEventsPullQuery(fn string, dsTable string, columns []string) string {
 	return fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", projection, fn, dsTable)
 }
 
-// buildWatermarkPullQuery renders "SELECT col1, col2, ... FROM dsTable WHERE
-// watermarkColumn > @start AND watermarkColumn <= @end". Results are
-// intentionally unordered so Storage Read API can consume multiple streams in
-// parallel.
-func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []string) string {
-	col := quotedIdentifier(watermarkColumn)
-	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end",
-		quotedColumnList(columns), dsTable, col, col)
+func watermarkTimestampExpression(column string) string {
+	return fmt.Sprintf("TIMESTAMP(%s)", quotedIdentifier(column))
 }
 
-func watermarkColumnValueAsTime(v bigquery.Value) (time.Time, bool) {
-	switch t := v.(type) {
-	case time.Time:
-		return t, true
-	case civil.DateTime:
-		return t.In(time.UTC), true
-	default:
-		return time.Time{}, false
+// buildWatermarkPullQuery renders a bounded watermark query. It also projects
+// the normalized watermark as a TIMESTAMP so SQL filtering, cursor advancement,
+// and CommitTimeNano all use exactly the same conversion.
+func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []string) string {
+	watermark := watermarkTimestampExpression(watermarkColumn)
+	projection := quotedColumnList(columns)
+	if projection != "" {
+		projection += ", "
 	}
+	projection += fmt.Sprintf("%s AS %s", watermark, quotedIdentifier(watermarkTimestampProjection))
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s > @start AND %s <= @end",
+		projection, dsTable, watermark, watermark)
 }
 
 // quotedColumnList renders columns as a comma-separated list of quoted identifiers.
@@ -538,7 +536,7 @@ func bigQueryRowToRecordItems(
 ) (model.RecordItems, error) {
 	items := model.NewRecordItems(len(row))
 	for i, field := range schema {
-		if _, isPseudo := bigQueryChangePseudoColumns[field.Name]; isPseudo {
+		if _, isPseudo := projectedPseudoColumns[field.Name]; isPseudo {
 			continue
 		}
 
@@ -712,7 +710,7 @@ func (c *BigQueryConnector) pullTableQuery(
 
 	maxSeenWatermarkColumnValue := start
 	var qfields []types.QField
-	watermarkColIdx := -1
+	watermarkTimestampIdx := -1
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
@@ -728,22 +726,25 @@ func (c *BigQueryConnector) pullTableQuery(
 			for i, field := range it.Schema {
 				qfields[i] = BigQueryFieldToQField(field)
 			}
-			watermarkColIdx = slices.IndexFunc(it.Schema, func(field *bigquery.FieldSchema) bool {
-				return field.Name == watermarkColumn
+			watermarkTimestampIdx = slices.IndexFunc(it.Schema, func(field *bigquery.FieldSchema) bool {
+				return field.Name == watermarkTimestampProjection
 			})
+			if watermarkTimestampIdx < 0 {
+				return 0, time.Time{}, fmt.Errorf("normalized watermark projection missing for table %s", sourceTableIdentifier)
+			}
 		}
 
-		// The watermark column is this row's own commit-time signal, used as
-		// CommitTimeNano. Falls back to the poll window's start if, unexpectedly, the
-		// column isn't present.
-		commitTimeNano := start.UnixNano()
-		if watermarkColIdx >= 0 {
-			if v, ok := watermarkColumnValueAsTime(row[watermarkColIdx]); ok {
-				commitTimeNano = v.UnixNano()
-				if v.After(maxSeenWatermarkColumnValue) {
-					maxSeenWatermarkColumnValue = v
-				}
-			}
+		// The normalized watermark is this row's own commit-time signal. Because
+		// the query projects TIMESTAMP(...), any other value type indicates that
+		// filtering and cursor advancement have diverged and must fail loudly.
+		watermark, ok := row[watermarkTimestampIdx].(time.Time)
+		if !ok {
+			return 0, time.Time{}, fmt.Errorf("normalized watermark for table %s: expected time.Time, got %T",
+				sourceTableIdentifier, row[watermarkTimestampIdx])
+		}
+		commitTimeNano := watermark.UnixNano()
+		if watermark.After(maxSeenWatermarkColumnValue) {
+			maxSeenWatermarkColumnValue = watermark
 		}
 
 		items, err := bigQueryRowToRecordItems(it.Schema, qfields, row)

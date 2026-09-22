@@ -517,18 +517,26 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 // watermark column's max value at setup time instead of FOR SYSTEM_TIME AS OF.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 	s.runBigQueryCDCQueryMode(s.T(), "cdc_query_mode",
-		bigquery.TimestampFieldType, "CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP()")
+		bigquery.TimestampFieldType, "CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP()", true)
 }
 
 // Test_BigQuery_CDC_Query_Mode_DateTime_Watermark is the same QUERY CDC path
 // with a DATETIME watermark column instead of TIMESTAMP.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_DateTime_Watermark() {
 	s.runBigQueryCDCQueryMode(s.T(), "cdc_query_mode_datetime",
-		bigquery.DateTimeFieldType, "CURRENT_DATETIME", "CURRENT_DATETIME()")
+		bigquery.DateTimeFieldType, "CURRENT_DATETIME", "CURRENT_DATETIME()", true)
+}
+
+// An empty DATETIME-watermarked table seeds its cursor from BigQuery's UTC clock.
+// Verify that a later UTC civil watermark compares in the same time domain.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_DateTime_Watermark_InitiallyEmpty() {
+	s.runBigQueryCDCQueryMode(s.T(), "cdc_query_mode_datetime_empty",
+		bigquery.DateTimeFieldType, "CURRENT_DATETIME('UTC')", "CURRENT_DATETIME('UTC')", false)
 }
 
 func (s BigQueryClickhouseSuite) runBigQueryCDCQueryMode(
 	t *testing.T, tablePrefix string, watermarkType bigquery.FieldType, watermarkDefault, advanceWatermark string,
+	includePreSnapshotRow bool,
 ) {
 	t.Helper()
 	ctx := t.Context()
@@ -539,8 +547,10 @@ func (s BigQueryClickhouseSuite) runBigQueryCDCQueryMode(
 	tableFQN := createBigQueryCdcSourceTableWithWatermark(
 		ctx, t, source, srcTable, false, watermarkType, watermarkDefault)
 
-	// present before the mirror exists - must land via the initial snapshot.
-	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}})
+	if includePreSnapshotRow {
+		// Present before the mirror exists - must land via the initial snapshot.
+		bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}})
+	}
 
 	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
 		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
@@ -558,13 +568,17 @@ func (s BigQueryClickhouseSuite) runBigQueryCDCQueryMode(
 	// watermark-column CDC poll, not the snapshot.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 2, Val: "post-snapshot-1"}, {ID: 3, Val: "post-snapshot-2"}})
 
+	expectedRows := 2
+	if includePreSnapshotRow {
+		expectedRows++
+	}
 	EnvWaitFor(t, env, 4*time.Minute, "post-snapshot insert picked up via watermark-column query", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")
 		if err != nil {
 			t.Log(err)
 			return false
 		}
-		return len(rows.Records) == 3
+		return len(rows.Records) == expectedRows
 	})
 	RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 

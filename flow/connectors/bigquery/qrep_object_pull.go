@@ -405,8 +405,8 @@ func (c *BigQueryConnector) maxWatermarkValue(
 		return time.Time{}, fmt.Errorf("failed to parse table identifier %s: %w", sourceTableIdentifier, err)
 	}
 
-	it, err := c.client.Query(fmt.Sprintf("SELECT MAX(TIMESTAMP(%s)) AS wm FROM %s",
-		quotedIdentifier(watermarkColumn), dsTable.stringQuoted())).Read(ctx)
+	it, err := c.client.Query(fmt.Sprintf("SELECT MAX(%s) AS wm FROM %s",
+		watermarkTimestampExpression(watermarkColumn), dsTable.stringQuoted())).Read(ctx)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("failed to query max watermark for table %s: %w", sourceTableIdentifier, err)
 	}
@@ -499,8 +499,8 @@ func buildBigQueryExportSQL(
 
 	from := fmt.Sprintf("%s FOR SYSTEM_TIME AS OF TIMESTAMP('%s UTC')", dsTable.stringQuoted(), boundLiteral)
 	if watermarkColumn != "" {
-		from = fmt.Sprintf("%s WHERE TIMESTAMP(%s) <= TIMESTAMP('%s UTC')",
-			dsTable.stringQuoted(), quotedIdentifier(watermarkColumn), boundLiteral)
+		from = fmt.Sprintf("%s WHERE %s <= TIMESTAMP('%s UTC')",
+			dsTable.stringQuoted(), watermarkTimestampExpression(watermarkColumn), boundLiteral)
 	}
 
 	return fmt.Sprintf(

@@ -482,6 +482,10 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP or DATETIME, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
+			// DATETIME has no timezone. The connector deliberately interprets it as
+			// UTC, matching BigQuery's TIMESTAMP(datetime) default. Callers must use
+			// a monotonically increasing UTC civil value; local wall-clock values can
+			// move backward at DST boundaries and are unsafe as QUERY CDC cursors.
 		case ReplicationMethodEvents:
 			switch t.CDCEventsFunction {
 			case CDCEventsFunctionChanges:
