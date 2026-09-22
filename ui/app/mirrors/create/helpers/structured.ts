@@ -3,37 +3,32 @@ import {
   TableMapping,
 } from '@/grpc_generated/flow';
 
-// SourceConfigured is the part of a TableMapping (or QRepConfig) that carries the source specific
-// table config, where the structured ingestion settings live.
-type SourceConfigured = Pick<TableMapping, 'mongoTableConfig'>;
+// StructuredConfigured is the part of a TableMapping (or QRepConfig) that carries the structured
+// ingestion settings.
+type StructuredConfigured = Pick<TableMapping, 'structuredIngestionConfig'>;
 
-// structuredIngestionConfig reads the structured ingestion settings of a mapping from its source
-// specific table config; undefined when the mapping declares none. Structured ingestion is only
-// available on MongoDB sources, so the settings live under the Mongo table config.
+// structuredIngestionConfig reads the structured ingestion settings of a mapping; undefined when
+// the mapping declares none.
 export function structuredIngestionConfig(
-  mapping: SourceConfigured
+  mapping: StructuredConfigured
 ): StructuredIngestionTableConfig | undefined {
-  return mapping.mongoTableConfig?.structuredIngestionConfig;
+  return mapping.structuredIngestionConfig;
 }
 
 // structuredIngestionEnabled reports whether the mapping is set up for structured ingestion.
-export function structuredIngestionEnabled(mapping: SourceConfigured): boolean {
+export function structuredIngestionEnabled(
+  mapping: StructuredConfigured
+): boolean {
   return structuredIngestionConfig(mapping)?.enabled ?? false;
 }
 
 // withStructuredIngestionConfig returns a copy of the mapping carrying the given structured
-// ingestion settings under its source specific table config.
-export function withStructuredIngestionConfig<T extends SourceConfigured>(
+// ingestion settings, or none at all when config is undefined.
+export function withStructuredIngestionConfig<T extends StructuredConfigured>(
   mapping: T,
-  config: StructuredIngestionTableConfig
+  config: StructuredIngestionTableConfig | undefined
 ): T {
-  return {
-    ...mapping,
-    mongoTableConfig: {
-      ...mapping.mongoTableConfig,
-      structuredIngestionConfig: config,
-    },
-  };
+  return { ...mapping, structuredIngestionConfig: config };
 }
 
 // COLUMN_TYPE_PATTERN mirrors structured.ColumnTypeRegex on the server: the column type

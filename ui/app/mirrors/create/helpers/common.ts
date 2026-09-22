@@ -70,7 +70,7 @@ export const blankQRepSetting: QRepConfig = {
   watermarkTable: '',
   watermarkColumn: '',
   addNullPartition: false,
-  mongoTableConfig: undefined,
+  structuredIngestionConfig: undefined,
   initialCopyOnly: false,
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,

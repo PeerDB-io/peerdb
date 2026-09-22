@@ -185,7 +185,7 @@ func (h *FlowRequestHandler) checkQRepTableConfig(ctx context.Context, cfg *prot
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
 	}
-	return checkSourceTableConfig(peer, cfg.WatermarkTable, cfg.GetMongoTableConfig().GetStructuredIngestionConfig(), cfg.Columns)
+	return checkSourceTableConfig(peer, cfg.WatermarkTable, cfg.StructuredIngestionConfig, cfg.Columns)
 }
 
 // checkTableMappings validates the per-table settings of a mirror's table mappings
@@ -199,7 +199,7 @@ func (h *FlowRequestHandler) checkTableMappings(
 
 	for _, tm := range cfg.TableMappings {
 		if apiErr := checkSourceTableConfig(
-			peer, tm.SourceTableIdentifier, tm.GetMongoTableConfig().GetStructuredIngestionConfig(), tm.Columns,
+			peer, tm.SourceTableIdentifier, tm.StructuredIngestionConfig, tm.Columns,
 		); apiErr != nil {
 			return apiErr
 		}
@@ -208,10 +208,8 @@ func (h *FlowRequestHandler) checkTableMappings(
 	return nil
 }
 
-// checkSourceTableConfig validates one table's source specific config and columns against the source
-// peer. Callers pass the structured ingestion settings found in the table's source_table_config oneof,
-// nil when its variant carries none: a table declaring them needs a source peer that supports structured
-// ingestion.
+// checkSourceTableConfig validates one table's columns.
+// If maybeStructuredIngestionConfig is non-nil, column types are validated too.
 func checkSourceTableConfig(
 	peer *protos.Peer,
 	tableIdentifier string,

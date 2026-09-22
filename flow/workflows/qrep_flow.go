@@ -112,9 +112,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		SourceTableIdentifier:      tableName,
 		DestinationTableIdentifier: q.config.DestinationTableIdentifier,
 		Columns:                    q.config.Columns,
-	}
-	if err := setTableMappingSourceTableConfig(tableMapping, q.config); err != nil {
-		return err
+		StructuredIngestionConfig:  q.config.StructuredIngestionConfig,
 	}
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
 		PeerName:      q.config.SourceName,
@@ -155,9 +153,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			DestinationTableIdentifier: q.config.DestinationTableIdentifier,
 			Exclude:                    q.config.Exclude,
 			Columns:                    q.config.Columns,
-		}
-		if err := setTableMappingSourceTableConfig(tableMapping, q.config); err != nil {
-			return err
+			StructuredIngestionConfig:  q.config.StructuredIngestionConfig,
 		}
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
 			PeerName:          q.config.DestinationName,

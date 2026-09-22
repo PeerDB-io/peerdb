@@ -196,14 +196,18 @@ export default function SchemaBox({
   const updateStructuredIngestion = (source: string, enabled: boolean) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = withStructuredIngestionConfig(newRows[index], {
-      enabled,
-      // The unexpected value reports only exist under structured ingestion
-      dropUnexpectedValues: enabled
-        ? (structuredIngestionConfig(newRows[index])?.dropUnexpectedValues ??
-          false)
-        : false,
-    });
+    // A table that does not use structured ingestion carries no settings at all
+    newRows[index] = withStructuredIngestionConfig(
+      newRows[index],
+      enabled
+        ? {
+            enabled,
+            dropUnexpectedValues:
+              structuredIngestionConfig(newRows[index])?.dropUnexpectedValues ??
+              false,
+          }
+        : undefined
+    );
     setRows(newRows);
   };
 
@@ -299,7 +303,8 @@ export default function SchemaBox({
                 row.partitionByExpr = existingRow.partitionByExpr;
                 row.exclude = new Set(existingRow.exclude ?? []);
                 row.destination = existingRow.destinationTableIdentifier;
-                row.mongoTableConfig = existingRow.mongoTableConfig;
+                row.structuredIngestionConfig =
+                  existingRow.structuredIngestionConfig;
                 // For a structured mapping the columns are the destination schema, and a
                 // schemaless source reports none to rediscover, so they come from the
                 // saved mapping or not at all.

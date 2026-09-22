@@ -57,11 +57,8 @@ message TableMapping {
   // required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
   string query_cdc_watermark_column = 11;
 
-  // Source specific table configuration. QRepConfig declares the same oneof so a CDC mirror's
-  // initial load inherits its mapping's settings.
-  oneof source_table_config {
-    MongoTableConfig mongo_table_config = 12;
-  }
+  // Structured ingestion settings of the table, if structured ingestion is used.
+  StructuredIngestionTableConfig structured_ingestion_config = 12;
 }
 
 message StructuredIngestionTableConfig {
@@ -71,10 +68,6 @@ message StructuredIngestionTableConfig {
   // If true, when structured ingestion is enabled, reports of unfitting values will not include
   // the values themselves, just their field and why they did not fit.
   bool drop_unexpected_values = 2;
-}
-
-message MongoTableConfig {
-  StructuredIngestionTableConfig structured_ingestion_config = 1;
 }
 
 message SetupInput {
@@ -520,10 +513,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
-  // Source specific configuration of the table being replicated.
-  oneof source_table_config {
-    MongoTableConfig mongo_table_config = 33;
-  }
+  // Structured ingestion settings of the replicated table, unset for tables that do not use it.
+  StructuredIngestionTableConfig structured_ingestion_config = 33;
 }
 
 message ChildTableRange {
