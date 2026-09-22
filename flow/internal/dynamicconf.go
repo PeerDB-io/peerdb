@@ -856,8 +856,6 @@ func PeerDBQueueParallelism(ctx context.Context, env map[string]string) (int64, 
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_QUEUE_PARALLELISM")
 }
 
-// PeerDBUIStructuredIngestionEnabled reports whether the UI offers configuring structured ingestion
-// on new mirrors. It only gates the setting being shown, not mirrors already using it or the API.
 func PeerDBUIStructuredIngestionEnabled(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_UI_STRUCTURED_INGESTION_ENABLED")
 }
