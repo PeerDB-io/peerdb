@@ -14,10 +14,10 @@ import (
 )
 
 type SourceTableMapping struct {
-	Exclude map[string]struct{}
-	Name    string
 	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
 	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
+	Exclude                          map[string]struct{}
+	Name                             string
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
