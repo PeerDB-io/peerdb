@@ -96,7 +96,7 @@ func pullQueryWindows(
 	}
 }
 
-func (c *BigQueryConnector) QueryCDCCurrentTime(ctx context.Context) (time.Time, error) {
+func (c *BigQueryConnector) CurrentSourceTime(ctx context.Context) (time.Time, error) {
 	return c.currentBigQueryTimestamp(ctx)
 }
 

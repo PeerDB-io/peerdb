@@ -143,8 +143,8 @@ type CDCPullConnector interface {
 type QueryCDCPullConnector interface {
 	CDCPullConnectorCore
 
-	// QueryCDCCurrentTime returns the source clock used to calculate safe pull windows.
-	QueryCDCCurrentTime(ctx context.Context) (time.Time, error)
+	// CurrentSourceTime returns the source clock used to calculate safe pull windows.
+	CurrentSourceTime(ctx context.Context) (time.Time, error)
 
 	// PullTableRecords pulls whatever is newly available for one source table
 	// and streams it into req.Stream. This method should be idempotent given

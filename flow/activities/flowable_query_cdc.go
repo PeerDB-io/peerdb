@@ -359,7 +359,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			}
 			defer release()
 
-			now, err := srcConn.QueryCDCCurrentTime(ctx)
+			now, err := srcConn.CurrentSourceTime(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get query CDC source time: %w", err), nil
 			}
