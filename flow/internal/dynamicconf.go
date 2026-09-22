@@ -304,7 +304,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
 		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
-			"used when a mirror does not set BigqueryCdcConfig.query_cdc.pull_sync_parallelism; 0 or less removes the limit",
+			"used when a mirror does not set query_cdc.pull_sync_parallelism; 0 or less removes the limit",
 		DefaultValue:     "10",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,

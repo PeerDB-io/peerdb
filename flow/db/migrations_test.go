@@ -202,7 +202,9 @@ func applyRefineryMigrations(t *testing.T, ctx context.Context, container string
 	t.Helper()
 	// #nosec G702: test-controlled inputs
 	cmd := exec.CommandContext(ctx,
-		"docker", "exec", container,
+		"docker", "exec",
+		"-e", "PEERDB_MIGRATIONS_DISABLED=false",
+		container,
 		"./peerdb-server",
 		"--migrations-only",
 		"--catalog-database", database,
