@@ -360,10 +360,6 @@ func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []s
 		quotedColumnList(columns), dsTable, col, col)
 }
 
-// watermarkColumnValueAsTime converts a QUERY CDC watermark cell to time.Time.
-// TIMESTAMP columns scan as time.Time. DATETIME columns scan as civil.DateTime
-// and are treated as UTC wall-clock, matching TIMESTAMP(datetime) in the
-// watermark predicate.
 func watermarkColumnValueAsTime(v bigquery.Value) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
