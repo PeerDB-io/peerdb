@@ -304,17 +304,19 @@ func ValidateTableCapacity(
 	}
 
 	var maxTables uint64
-	err := QueryRow(ctx, logger, conn,
+	if err := QueryRow(ctx, logger, conn,
 		"SELECT toUInt64(getServerSetting('max_table_num_to_throw'))",
-	).Scan(&maxTables)
-	if err != nil {
-		if chException, ok := errors.AsType[*clickhouse.Exception](err); ok &&
-			chproto.Error(chException.Code) == chproto.ErrUnknownFunction {
+	).Scan(&maxTables); err != nil {
+		chException, isException := errors.AsType[*clickhouse.Exception](err)
+		switch {
+		case isException && chproto.Error(chException.Code) == chproto.ErrAccessDenied:
+			logger.Warn("skipping ClickHouse table capacity validation: user cannot read server settings")
+			return nil
+		case isException && chproto.Error(chException.Code) == chproto.ErrUnknownFunction:
 			// Older ClickHouse versions do not expose getServerSetting.
-			err = QueryRow(ctx, logger, conn,
+			if err := QueryRow(ctx, logger, conn,
 				"SELECT toUInt64(value) FROM system.server_settings WHERE name = 'max_table_num_to_throw'",
-			).Scan(&maxTables)
-			if err != nil {
+			).Scan(&maxTables); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					// Older ClickHouse versions do not expose this setting.
 					return nil
@@ -326,7 +328,7 @@ func ValidateTableCapacity(
 				}
 				return fmt.Errorf("failed to query max_table_num_to_throw: %w", err)
 			}
-		} else {
+		default:
 			return fmt.Errorf("failed to query max_table_num_to_throw: %w", err)
 		}
 	}
