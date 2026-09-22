@@ -188,7 +188,6 @@ func readGooseVersions(t *testing.T) []int {
 
 func applyRefineryMigrations(t *testing.T, ctx context.Context, connStr string, upToVersion refineryFixture) {
 	t.Helper()
-
 	if upToVersion == noRefineryFixture {
 		return
 	}
