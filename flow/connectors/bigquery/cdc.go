@@ -161,15 +161,7 @@ func (c *BigQueryConnector) PullTableRecords(
 		start = now
 	}
 
-	safetyLag, err := internal.PeerDBBigQueryCDCSafetyLag(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC safety lag: %w", err)
-	}
-	maxQueryWindow, err := internal.PeerDBBigQueryCDCMaxQueryWindow(ctx, req.Env)
-	if err != nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("failed to get BigQuery CDC max query window: %w", err)
-	}
-	upper, ok := pollWindow(start, now, safetyLag, maxQueryWindow)
+	upper, ok := pollWindow(start, now, req.QueryCDCSafetyLag, req.QueryCDCMaxQueryWindow)
 	if !ok {
 		// No safe window to scan yet; cursor is unchanged.
 		return model.PullTableRecordsResult{NextCursor: req.Cursor}, nil
@@ -220,7 +212,7 @@ func (c *BigQueryConnector) PullTableRecords(
 	nextCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
 		bytesProcessed, nextCursor, err = pullQueryWindows(
-			start, upper, now.Add(-safetyLag), maxQueryWindow,
+			start, upper, now.Add(-req.QueryCDCSafetyLag), req.QueryCDCMaxQueryWindow,
 			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
 				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
 					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)

@@ -111,6 +111,10 @@ type PullTableRecordsRequest struct {
 	// Cursor is the opaque value previously returned for this table by
 	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
 	Cursor string
+	// QueryCDCSafetyLag delays the upper bound of the pull window behind the source clock.
+	QueryCDCSafetyLag time.Duration
+	// QueryCDCMaxQueryWindow caps the duration covered by a single pull query.
+	QueryCDCMaxQueryWindow time.Duration
 	// Stream is where pulled records are pushed.
 	Stream *CDCStream[RecordItems]
 }

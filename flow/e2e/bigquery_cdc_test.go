@@ -374,7 +374,7 @@ func bqCdcFlowConnectionConfig(
 	}
 	flowConnConfig.IdleTimeoutSeconds = 5
 	flowConnConfig.Env = map[string]string{
-		"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5",
+		"PEERDB_QUERY_CDC_SAFETY_LAG_SECONDS": "5",
 	}
 
 	return flowConnConfig
@@ -1099,7 +1099,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES,
 		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
 	})
-	flowConnConfig.Env = map[string]string{"PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS": "5"}
+	flowConnConfig.Env = map[string]string{"PEERDB_QUERY_CDC_SAFETY_LAG_SECONDS": "5"}
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)

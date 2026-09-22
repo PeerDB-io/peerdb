@@ -284,27 +284,27 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
 	{
-		Name: "PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS",
-		Description: "BigQuery CDC only: keeps a poll window's upper bound this many seconds behind BigQuery's " +
-			"clock, since APPENDS()/CHANGES() consistency for very recent writes is undocumented",
+		Name: "PEERDB_QUERY_CDC_SAFETY_LAG_SECONDS",
+		Description: "Query-based CDC only: keeps a poll window's upper bound this many seconds behind the " +
+			"source clock",
 		DefaultValue:     "60",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS",
-		Description: "BigQuery CDC only: caps how much time a single APPENDS()/CHANGES() poll can cover, " +
-			"bounding one BigQuery job's row-scan cost even if a mirror falls far behind",
+		Name: "PEERDB_QUERY_CDC_MAX_QUERY_WINDOW_SECONDS",
+		Description: "Query-based CDC only: caps how much time a single pull query can cover, " +
+			"bounding one query's row-scan cost even if a mirror falls far behind",
 		DefaultValue:     "86400",
 		ValueType:        protos.DynconfValueType_INT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name: "PEERDB_QUERY_CDC_PULL_SYNC_PARALLELISM",
 		Description: "Query-based CDC only: default for how many source tables are queried and staged concurrently, " +
-			"used when a mirror does not set query_cdc_pull_sync_parallelism; 0 or less removes the limit",
+			"used when a mirror does not set query_cdc.pull_sync_parallelism; 0 or less removes the limit",
 		DefaultValue:     "10",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
@@ -783,16 +783,16 @@ func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string
 	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
 }
 
-func PeerDBBigQueryCDCSafetyLag(ctx context.Context, env map[string]string) (time.Duration, error) {
-	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_SAFETY_LAG_SECONDS")
+func PeerDBQueryCDCSafetyLag(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_QUERY_CDC_SAFETY_LAG_SECONDS")
 	if err != nil {
 		return 0, err
 	}
 	return time.Duration(x) * time.Second, nil
 }
 
-func PeerDBBigQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string) (time.Duration, error) {
-	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_BIGQUERY_CDC_MAX_QUERY_WINDOW_SECONDS")
+func PeerDBQueryCDCMaxQueryWindow(ctx context.Context, env map[string]string) (time.Duration, error) {
+	x, err := dynamicConfSigned[int64](ctx, env, "PEERDB_QUERY_CDC_MAX_QUERY_WINDOW_SECONDS")
 	if err != nil {
 		return 0, err
 	}
