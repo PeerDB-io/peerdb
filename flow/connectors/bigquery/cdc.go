@@ -31,9 +31,17 @@ const (
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
 	// the record.
-	bigQueryChangeTypeColumn        = "_CHANGE_TYPE"
-	bigQueryChangeTimestampColumn   = "_CHANGE_TIMESTAMP"
-	bigQueryChangeIsForUpdateColumn = "_CHANGE_IS_FOR_UPDATE"
+	changeTypeColumn        = "_CHANGE_TYPE"
+	changeTimestampColumn   = "_CHANGE_TIMESTAMP"
+	changeIsForUpdateColumn = "_CHANGE_IS_FOR_UPDATE"
+
+	// The Storage Read API rejects query result tables containing BigQuery's
+	// reserved change-stream columns. Project their values under ordinary names
+	// so large APPENDS()/CHANGES() results can use Storage Read instead of the
+	// paginated jobs.getQueryResults REST path.
+	changeTypeColumnProjection        = "_PEERDB_BIGQUERY_CHANGE_TYPE"
+	changeTimestampColumnProjection   = "_PEERDB_BIGQUERY_CHANGE_TIMESTAMP"
+	changeIsForUpdateColumnProjection = "_PEERDB_BIGQUERY_CHANGE_IS_FOR_UPDATE"
 
 	// _CHANGE_TYPE values.
 	bigQueryChangeTypeInsert = "INSERT"
@@ -258,8 +266,7 @@ func (c *BigQueryConnector) pullTableAppends(
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
-			selectCols := append(slices.Clone(cols), bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn)
-			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), selectCols, "")
+			return buildEventsPullQuery("APPENDS", dsTable.stringQuoted(), cols)
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run APPENDS query for table %s: %w", sourceTableIdentifier, err)
@@ -314,19 +321,32 @@ func (c *BigQueryConnector) pullTableAppends(
 // bigQueryChangePseudoColumns are the metadata columns APPENDS()/CHANGES() add on top
 // of the base table's real columns -- never copied into the record.
 var bigQueryChangePseudoColumns = map[string]struct{}{
-	bigQueryChangeTypeColumn:        {},
-	bigQueryChangeTimestampColumn:   {},
-	bigQueryChangeIsForUpdateColumn: {},
+	changeTypeColumnProjection:        {},
+	changeTimestampColumnProjection:   {},
+	changeIsForUpdateColumnProjection: {},
 }
 
-// buildEventsPullQuery renders "SELECT col1, col2, ... FROM fn(TABLE dsTable, @start, @end)
-// [ORDER BY orderBy]" for the APPENDS()/CHANGES() table-valued functions.
-func buildEventsPullQuery(fn string, dsTable string, columns []string, orderBy string) string {
-	q := fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", quotedColumnList(columns), fn, dsTable)
-	if orderBy != "" {
-		q += " ORDER BY " + orderBy
+// buildEventsPullQuery aliases BigQuery's reserved columns for Storage Read, e.g.:
+// SELECT `id`, CONCAT(`_CHANGE_TYPE`, ”) AS `_PEERDB_BIGQUERY_CHANGE_TYPE`,
+// TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP`
+// FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)
+func buildEventsPullQuery(fn string, dsTable string, columns []string) string {
+	projection := quotedColumnList(columns)
+	if projection != "" {
+		projection += ", "
 	}
-	return q
+	projection += fmt.Sprintf(
+		"CONCAT(%s, '') AS %s, TIMESTAMP_MICROS(UNIX_MICROS(%s)) AS %s",
+		quotedIdentifier(changeTypeColumn), quotedIdentifier(changeTypeColumnProjection),
+		quotedIdentifier(changeTimestampColumn), quotedIdentifier(changeTimestampColumnProjection),
+	)
+	if fn == "CHANGES" {
+		projection += fmt.Sprintf(", IF(%s, TRUE, FALSE) AS %s",
+			quotedIdentifier(changeIsForUpdateColumn),
+			quotedIdentifier(changeIsForUpdateColumnProjection))
+	}
+
+	return fmt.Sprintf("SELECT %s FROM %s(TABLE %s, @start, @end)", projection, fn, dsTable)
 }
 
 // buildWatermarkPullQuery renders "SELECT col1, col2, ... FROM dsTable WHERE
@@ -385,6 +405,9 @@ func (c *BigQueryConnector) runPullQuery(
 		// consume cached REST rows or use Storage Read for the query result.
 		it, err := q.Read(ctx)
 		if err == nil {
+			c.logger.Info("[bigquery] pull query initialized",
+				slog.String("table", sourceTableIdentifier),
+				slog.Bool("useStorageReadAPI", it.IsAccelerated()))
 			return it, nil
 		}
 
@@ -526,30 +549,27 @@ func locateBigQueryChangeColumns(schema bigquery.Schema) bigQueryChangeColumns {
 	cols := bigQueryChangeColumns{changeType: -1, changeTimestamp: -1, isForUpdate: -1}
 	for i, field := range schema {
 		switch field.Name {
-		case bigQueryChangeTypeColumn:
+		case changeTypeColumnProjection:
 			cols.changeType = i
-		case bigQueryChangeTimestampColumn:
+		case changeTimestampColumnProjection:
 			cols.changeTimestamp = i
-		case bigQueryChangeIsForUpdateColumn:
+		case changeIsForUpdateColumnProjection:
 			cols.isForUpdate = i
 		}
 	}
 	return cols
 }
 
-// pullTableChanges runs SELECT <columns> FROM CHANGES(TABLE <table>, @start, @end)
-// ORDER BY _CHANGE_TIMESTAMP for one source table over [start, end), single-pass streaming
-// like pullTableAppends, and pushes the resulting Insert/Update/DeleteRecords via
-// addRecord.
+// pullTableChanges streams CHANGES() for one table over [start, end) and passes each
+// change to addRecord. Storage Read processes the unordered results in parallel.
+// _CHANGE_TIMESTAMP becomes the destination version used to order changes.
 //
-// CHANGES() represents an UPDATE as two rows sharing one _CHANGE_TIMESTAMP: a
-// _CHANGE_TYPE=DELETE with _CHANGE_IS_FOR_UPDATE=true carrying the old values,
-// immediately followed by a _CHANGE_TYPE=UPDATE with _CHANGE_IS_FOR_UPDATE=false
-// carrying the new values. The old-values half is skipped -- OldItems isn't needed
-// downstream (see model.UpdateRecord usage), so there's nothing to pair it with; the
-// UPDATE row alone is forwarded as the UpdateRecord.
-// Returns the HTTP response bytes BigQuery transferred for this table's query,
-// including pagination fetches (see withByteCounter).
+// BigQuery emits an update as two rows with the same _CHANGE_TIMESTAMP: a DELETE
+// row with _CHANGE_IS_FOR_UPDATE=true and the old values, and an UPDATE row with
+// _CHANGE_IS_FOR_UPDATE=false and the new values. We discard the DELETE row regardless
+// of row order because model.UpdateRecord does not use OldItems.
+//
+// It returns the HTTP response bytes BigQuery transferred.
 func (c *BigQueryConnector) pullTableChanges(
 	ctx context.Context,
 	sourceTableIdentifier string,
@@ -566,10 +586,7 @@ func (c *BigQueryConnector) pullTableChanges(
 	var bytesTransferred atomic.Int64
 	it, err := c.runPullQuery(withByteCounter(ctx, &bytesTransferred), sourceTableIdentifier, columns, nil,
 		start, end, func(cols []string) string {
-			selectCols := append(slices.Clone(cols),
-				bigQueryChangeTypeColumn, bigQueryChangeTimestampColumn, bigQueryChangeIsForUpdateColumn)
-			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), selectCols,
-				quotedIdentifier(bigQueryChangeTimestampColumn))
+			return buildEventsPullQuery("CHANGES", dsTable.stringQuoted(), cols)
 		})
 	if err != nil {
 		return 0, fmt.Errorf("failed to run CHANGES query for table %s: %w", sourceTableIdentifier, err)
