@@ -145,10 +145,8 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	tblNameMapping := make(map[string]model.SourceTableMapping, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		structuredCfg := v.GetMongoTableConfig().GetStructuredIngestionConfig()
 		tblNameMapping[v.SourceTableIdentifier] = model.NewSourceTableMappingWithStructuredIngestion(
-			v.DestinationTableIdentifier, v.Exclude,
-			structuredCfg.GetEnabled(), structuredCfg.GetDropUnexpectedValues(),
+			v.DestinationTableIdentifier, v.Exclude, v.GetMongoTableConfig().GetStructuredIngestionConfig(),
 		)
 	}
 

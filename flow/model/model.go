@@ -14,12 +14,10 @@ import (
 )
 
 type SourceTableMapping struct {
-	Exclude             map[string]struct{}
-	Name                string
-	StructuredIngestion bool
-	// DropUnexpectedValues only applies to structured ingestion: if true, reports of unfitting
-	// values omit the values themselves, keeping just the field and why it did not fit.
-	DropUnexpectedValues bool
+	Exclude map[string]struct{}
+	Name    string
+	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
+	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
@@ -34,11 +32,10 @@ func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 }
 
 func NewSourceTableMappingWithStructuredIngestion(
-	name string, exclude []string, structuredIngestion bool, dropUnexpectedValues bool,
+	name string, exclude []string, structuredIngestionConfiguration *protos.StructuredIngestionTableConfig,
 ) SourceTableMapping {
 	mapping := NewSourceTableMapping(name, exclude)
-	mapping.StructuredIngestion = structuredIngestion
-	mapping.DropUnexpectedValues = dropUnexpectedValues
+	mapping.StructuredIngestionConfiguration = structuredIngestionConfiguration
 	return mapping
 }
 
