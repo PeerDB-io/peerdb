@@ -115,7 +115,7 @@ services:
   # applies catalog schema migrations and exits
   flow-migrate:
     container_name: flow-migrate
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.8
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.9
     entrypoint: ["/home/peerdb/peer-flow", "migrate"]
     environment:
       <<: *catalog-config
@@ -125,7 +125,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.8
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.9
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -143,7 +143,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.37.8
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.37.9
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -155,7 +155,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.37.8
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.37.9
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -170,7 +170,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.37.8
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.37.9
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -187,7 +187,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.8
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.9
     restart: unless-stopped
     ports:
       - 3000:3000
