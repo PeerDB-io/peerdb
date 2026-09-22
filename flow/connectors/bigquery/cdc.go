@@ -39,9 +39,9 @@ const (
 	// reserved change-stream columns. Project their values under ordinary names
 	// so large APPENDS()/CHANGES() results can use Storage Read instead of the
 	// paginated jobs.getQueryResults REST path.
-	changeTypeColumnProjection        = "_PEERDB_CHANGE_TYPE"
-	changeTimestampColumnProjection   = "_PEERDB_CHANGE_TIMESTAMP"
-	changeIsForUpdateColumnProjection = "_PEERDB_CHANGE_IS_FOR_UPDATE"
+	changeTypeColumnProjection        = "_PEERDB_BIGQUERY_CHANGE_TYPE"
+	changeTimestampColumnProjection   = "_PEERDB_BIGQUERY_CHANGE_TIMESTAMP"
+	changeIsForUpdateColumnProjection = "_PEERDB_BIGQUERY_CHANGE_IS_FOR_UPDATE"
 
 	// _CHANGE_TYPE values.
 	bigQueryChangeTypeInsert = "INSERT"
@@ -335,8 +335,8 @@ var bigQueryChangePseudoColumns = map[string]struct{}{
 }
 
 // buildEventsPullQuery aliases BigQuery's reserved columns for Storage Read, e.g.:
-// SELECT `id`, CONCAT(`_CHANGE_TYPE`, ”) AS `_PEERDB_CHANGE_TYPE`,
-// TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP`
+// SELECT `id`, CONCAT(`_CHANGE_TYPE`, ”) AS `_PEERDB_BIGQUERY_CHANGE_TYPE`,
+// TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP`
 // FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)
 func buildEventsPullQuery(fn string, dsTable string, columns []string) string {
 	projection := quotedColumnList(columns)

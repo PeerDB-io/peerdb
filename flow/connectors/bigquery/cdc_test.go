@@ -242,15 +242,15 @@ func TestMissingColumnsFromSchema(t *testing.T) {
 
 func TestBuildPullQuery(t *testing.T) {
 	assert.Equal(t,
-		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`, "+
-			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP` "+
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_BIGQUERY_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP` "+
 			"FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
 		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}),
 	)
 	assert.Equal(t,
-		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_CHANGE_TYPE`, "+
-			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_CHANGE_TIMESTAMP`, "+
-			"IF(`_CHANGE_IS_FOR_UPDATE`, TRUE, FALSE) AS `_PEERDB_CHANGE_IS_FOR_UPDATE` "+
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_BIGQUERY_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP`, "+
+			"IF(`_CHANGE_IS_FOR_UPDATE`, TRUE, FALSE) AS `_PEERDB_BIGQUERY_CHANGE_IS_FOR_UPDATE` "+
 			"FROM CHANGES(TABLE `ds`.`tbl`, @start, @end)",
 		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}),
 	)
