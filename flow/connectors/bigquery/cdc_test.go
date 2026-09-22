@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -259,4 +260,18 @@ func TestBuildPullQuery(t *testing.T) {
 			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
 		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
 	)
+}
+
+func TestWatermarkColumnValueAsTime(t *testing.T) {
+	ts := time.Date(2026, 3, 4, 5, 6, 7, 8, time.UTC)
+	got, ok := watermarkColumnValueAsTime(ts)
+	require.True(t, ok)
+	assert.True(t, ts.Equal(got))
+
+	got, ok = watermarkColumnValueAsTime(civil.DateTimeOf(ts))
+	require.True(t, ok)
+	assert.True(t, ts.Equal(got))
+
+	_, ok = watermarkColumnValueAsTime(int64(1))
+	assert.False(t, ok)
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
@@ -357,6 +358,21 @@ func buildWatermarkPullQuery(dsTable string, watermarkColumn string, columns []s
 	col := quotedIdentifier(watermarkColumn)
 	return fmt.Sprintf("SELECT %s FROM %s WHERE TIMESTAMP(%s) > @start AND TIMESTAMP(%s) <= @end",
 		quotedColumnList(columns), dsTable, col, col)
+}
+
+// watermarkColumnValueAsTime converts a QUERY CDC watermark cell to time.Time.
+// TIMESTAMP columns scan as time.Time. DATETIME columns scan as civil.DateTime
+// and are treated as UTC wall-clock, matching TIMESTAMP(datetime) in the
+// watermark predicate.
+func watermarkColumnValueAsTime(v bigquery.Value) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, true
+	case civil.DateTime:
+		return t.In(time.UTC), true
+	default:
+		return time.Time{}, false
+	}
 }
 
 // quotedColumnList renders columns as a comma-separated list of quoted identifiers.
@@ -726,7 +742,7 @@ func (c *BigQueryConnector) pullTableQuery(
 		// column isn't present.
 		commitTimeNano := start.UnixNano()
 		if watermarkColIdx >= 0 {
-			if v, ok := row[watermarkColIdx].(time.Time); ok {
+			if v, ok := watermarkColumnValueAsTime(row[watermarkColIdx]); ok {
 				commitTimeNano = v.UnixNano()
 				if v.After(maxSeenWatermarkColumnValue) {
 					maxSeenWatermarkColumnValue = v

@@ -266,8 +266,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			}()
 
 			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
-			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP")
-			require.Contains(t, err.Error(), "must be TIMESTAMP")
+			require.Error(t, err, "QUERY mode should reject a watermark column that isn't TIMESTAMP or DATETIME")
+			require.Contains(t, err.Error(), "must be TIMESTAMP or DATETIME")
 		})
 
 		t.Run("rejects a watermark column that is excluded from replication", func(t *testing.T) {
@@ -301,9 +301,38 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Validation() {
 			require.NoError(t, err)
 		})
 
+		datetimeTableName := AddSuffix(s, "source_validation_datetime_wm")
+		datetimeTableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, datetimeTableName)
+		err := source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (trip_id INT64, updated_at DATETIME)",
+			quoteBigQueryTableFQN(datetimeTableFQN)))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(datetimeTableName)
+			if err := table.Delete(context.Background()); err != nil {
+				t.Logf("Warning: failed to delete test table %s: %v", datetimeTableName, err)
+			}
+		})
+		datetimeSourceIdentifier := source.config.DatasetId + "." + datetimeTableName
+
+		t.Run("accepts a DATETIME watermark column", func(t *testing.T) {
+			for _, tableMapping := range flowConfig.TableMappings {
+				tableMapping.SourceTableIdentifier = datetimeSourceIdentifier
+				tableMapping.QueryCdcWatermarkColumn = "updated_at"
+			}
+			defer func() {
+				for _, tableMapping := range flowConfig.TableMappings {
+					tableMapping.SourceTableIdentifier = source.config.DatasetId + ".trips_1k"
+					tableMapping.QueryCdcWatermarkColumn = ""
+				}
+			}()
+
+			err := bqConn.ValidateMirrorSource(ctx, flowConfig)
+			require.NoError(t, err)
+		})
+
 		keylessTableName := AddSuffix(s, "source_validation_no_pkey")
 		keylessTableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, keylessTableName)
-		err := source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (trip_id INT64, pickup_datetime TIMESTAMP)",
+		err = source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (trip_id INT64, pickup_datetime TIMESTAMP)",
 			quoteBigQueryTableFQN(keylessTableFQN)))
 		require.NoError(t, err)
 		t.Cleanup(func() {

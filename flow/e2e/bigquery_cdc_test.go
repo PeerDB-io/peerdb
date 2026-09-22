@@ -227,13 +227,22 @@ func createBigQueryCdcSourceTable(
 	ctx context.Context, t *testing.T, source *bigQuerySource, tableName string, enableChangeHistory bool,
 ) string {
 	t.Helper()
+	return createBigQueryCdcSourceTableWithWatermark(
+		ctx, t, source, tableName, enableChangeHistory, bigquery.TimestampFieldType, "CURRENT_TIMESTAMP")
+}
+
+func createBigQueryCdcSourceTableWithWatermark(
+	ctx context.Context, t *testing.T, source *bigQuerySource, tableName string, enableChangeHistory bool,
+	watermarkType bigquery.FieldType, watermarkDefault string,
+) string {
+	t.Helper()
 
 	table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(tableName)
 	err := table.Create(ctx, &bigquery.TableMetadata{
 		Schema: bigquery.Schema{
 			{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
 			{Name: "val", Type: bigquery.StringFieldType, Required: false},
-			{Name: "updated_at", Type: bigquery.TimestampFieldType, Required: true, DefaultValueExpression: "CURRENT_TIMESTAMP"},
+			{Name: "updated_at", Type: watermarkType, Required: true, DefaultValueExpression: watermarkDefault},
 		},
 		TableConstraints: &bigquery.TableConstraints{
 			PrimaryKey: &bigquery.PrimaryKey{Columns: []string{"id"}},
@@ -507,13 +516,28 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Appends_Insert_Only() {
 // rather than APPENDS()/CHANGES(). The initial snapshot is bounded by the
 // watermark column's max value at setup time instead of FOR SYSTEM_TIME AS OF.
 func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
-	t := s.T()
+	s.runBigQueryCDCQueryMode(s.T(), "cdc_query_mode",
+		bigquery.TimestampFieldType, "CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP()")
+}
+
+// Test_BigQuery_CDC_Query_Mode_DateTime_Watermark is the same QUERY CDC path
+// with a DATETIME watermark column instead of TIMESTAMP.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_DateTime_Watermark() {
+	s.runBigQueryCDCQueryMode(s.T(), "cdc_query_mode_datetime",
+		bigquery.DateTimeFieldType, "CURRENT_DATETIME", "CURRENT_DATETIME()")
+}
+
+func (s BigQueryClickhouseSuite) runBigQueryCDCQueryMode(
+	t *testing.T, tablePrefix string, watermarkType bigquery.FieldType, watermarkDefault, advanceWatermark string,
+) {
+	t.Helper()
 	ctx := t.Context()
 
 	source := s.Source().(*bigQuerySource)
-	srcTable := AddSuffix(s, "cdc_query_mode")
+	srcTable := AddSuffix(s, tablePrefix)
 	dstTable := srcTable + "_dst"
-	tableFQN := createBigQueryCdcSourceTable(ctx, t, source, srcTable, false)
+	tableFQN := createBigQueryCdcSourceTableWithWatermark(
+		ctx, t, source, srcTable, false, watermarkType, watermarkDefault)
 
 	// present before the mirror exists - must land via the initial snapshot.
 	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "pre-snapshot-1"}})
@@ -546,8 +570,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode() {
 
 	// Query mode can replicate updates only when the update also advances the
 	// configured watermark. The destination upserts the newer version by PK.
-	updateSQL := fmt.Sprintf("UPDATE %s SET val = 'query-updated', updated_at = CURRENT_TIMESTAMP() WHERE id = 2",
-		quoteBigQueryTableFQN(tableFQN))
+	updateSQL := fmt.Sprintf("UPDATE %s SET val = 'query-updated', updated_at = %s WHERE id = 2",
+		quoteBigQueryTableFQN(tableFQN), advanceWatermark)
 	require.NoError(t, source.Exec(ctx, updateSQL), "should update query-mode row and advance its watermark")
 	EnvWaitFor(t, env, 4*time.Minute, "watermark-advancing update picked up by query CDC poll", func() bool {
 		rows, err := s.GetRows(dstTable, "id,val")

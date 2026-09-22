@@ -467,7 +467,7 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 		case ReplicationMethodQuery:
 			if t.WatermarkColumn == "" {
 				return fmt.Errorf("table %q has no watermark_column configured; QUERY replication mode requires "+
-					"one TIMESTAMP column per table to incrementally scan", key)
+					"one TIMESTAMP or DATETIME column per table to incrementally scan", key)
 			}
 			if slices.Contains(t.Exclude, t.WatermarkColumn) {
 				return fmt.Errorf("watermark column %q on table %q is excluded from replication; "+
@@ -478,8 +478,8 @@ func validateSourceCDC(ctx context.Context, cfg SourceConfig, tablesByKey map[Da
 			if !ok {
 				return fmt.Errorf("watermark column %q does not exist on table %q", t.WatermarkColumn, key)
 			}
-			if column.Type != bigquery.TimestampFieldType {
-				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP, got %s",
+			if column.Type != bigquery.TimestampFieldType && column.Type != bigquery.DateTimeFieldType {
+				return fmt.Errorf("watermark column %q on table %q must be TIMESTAMP or DATETIME, got %s",
 					t.WatermarkColumn, key, column.Type)
 			}
 		case ReplicationMethodEvents:
