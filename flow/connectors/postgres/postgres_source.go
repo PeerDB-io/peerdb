@@ -805,9 +805,9 @@ func (c *PostgresConnector) SetupReplication(
 		skipSnapshotExport = false
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
+	tableNameMapping := make(map[string]model.SourceTableMapping, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
-		tableNameMapping[k] = model.NameAndExclude{
+		tableNameMapping[k] = model.SourceTableMapping{
 			Name:    v,
 			Exclude: make(map[string]struct{}, 0),
 		}

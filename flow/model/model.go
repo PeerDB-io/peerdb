@@ -13,7 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type NameAndExclude struct {
+type SourceTableMapping struct {
 	Exclude             map[string]struct{}
 	Name                string
 	StructuredIngestion bool
@@ -22,7 +22,7 @@ type NameAndExclude struct {
 	DropUnexpectedValues bool
 }
 
-func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 	var exset map[string]struct{}
 	if len(exclude) != 0 {
 		exset = make(map[string]struct{}, len(exclude))
@@ -30,16 +30,16 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 			exset[col] = struct{}{}
 		}
 	}
-	return NameAndExclude{Name: name, Exclude: exset}
+	return SourceTableMapping{Name: name, Exclude: exset}
 }
 
-func NewNameAndExcludeWithStructuredIngestion(
+func NewSourceTableMappingWithStructuredIngestion(
 	name string, exclude []string, structuredIngestion bool, dropUnexpectedValues bool,
-) NameAndExclude {
-	nae := NewNameAndExclude(name, exclude)
-	nae.StructuredIngestion = structuredIngestion
-	nae.DropUnexpectedValues = dropUnexpectedValues
-	return nae
+) SourceTableMapping {
+	mapping := NewSourceTableMapping(name, exclude)
+	mapping.StructuredIngestion = structuredIngestion
+	mapping.DropUnexpectedValues = dropUnexpectedValues
+	return mapping
 }
 
 type RecordTypeCounts struct {
@@ -86,7 +86,7 @@ type PullRecordsRequest[T Items] struct {
 	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]NameAndExclude
+	TableNameMapping map[string]SourceTableMapping
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// overrides dynamic configuration
@@ -117,8 +117,8 @@ type PullTableRecordsRequest struct {
 	FlowJobName string
 	// SourceTableIdentifier is the source table this request pulls.
 	SourceTableIdentifier string
-	// NameAndExclude carries the destination table name and excluded columns.
-	NameAndExclude NameAndExclude
+	// SourceTableMapping carries the destination table name and excluded columns.
+	SourceTableMapping SourceTableMapping
 	// TableSchema is the schema of the destination table.
 	TableSchema *protos.TableSchema
 	// Cursor is the opaque value previously returned for this table by

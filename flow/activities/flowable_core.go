@@ -143,10 +143,10 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	))
 	defer batchSpan.End()
 
-	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
+	tblNameMapping := make(map[string]model.SourceTableMapping, len(options.TableMappings))
 	for _, v := range options.TableMappings {
 		structuredCfg := v.GetMongoTableConfig().GetStructuredIngestionConfig()
-		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExcludeWithStructuredIngestion(
+		tblNameMapping[v.SourceTableIdentifier] = model.NewSourceTableMappingWithStructuredIngestion(
 			v.DestinationTableIdentifier, v.Exclude,
 			structuredCfg.GetEnabled(), structuredCfg.GetDropUnexpectedValues(),
 		)

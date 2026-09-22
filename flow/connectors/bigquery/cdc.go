@@ -213,9 +213,9 @@ func (c *BigQueryConnector) PullTableRecords(
 	}
 
 	if req.TableSchema == nil {
-		return model.PullTableRecordsResult{}, fmt.Errorf("no table schema mapping found for destination table %s", req.NameAndExclude.Name)
+		return model.PullTableRecordsResult{}, fmt.Errorf("no table schema mapping found for destination table %s", req.SourceTableMapping.Name)
 	}
-	columns := pullColumnNames(req.TableSchema, req.NameAndExclude.Exclude)
+	columns := pullColumnNames(req.TableSchema, req.SourceTableMapping.Exclude)
 
 	nextCursor := upper
 	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
@@ -223,15 +223,15 @@ func (c *BigQueryConnector) PullTableRecords(
 			start, upper, now.Add(-safetyLag), maxQueryWindow,
 			func(queryStart, queryUpper time.Time) (int64, time.Time, error) {
 				return c.pullTableQuery(ctx, tm.QueryCdcWatermarkColumn,
-					req.SourceTableIdentifier, req.NameAndExclude.Name, columns, queryStart, queryUpper, addRecord)
+					req.SourceTableIdentifier, req.SourceTableMapping.Name, columns, queryStart, queryUpper, addRecord)
 			},
 		)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES {
 		bytesProcessed, err = c.pullTableChanges(ctx, req.SourceTableIdentifier,
-			req.NameAndExclude.Name, columns, start, upper, addRecord)
+			req.SourceTableMapping.Name, columns, start, upper, addRecord)
 	} else if tm.BigqueryCdcEventsFunction == protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS {
 		bytesProcessed, err = c.pullTableAppends(ctx, req.SourceTableIdentifier,
-			req.NameAndExclude.Name, columns, start, upper, addRecord)
+			req.SourceTableMapping.Name, columns, start, upper, addRecord)
 	} else {
 		// unreachable, but just in case throw an error instead of silently returning an empty result
 		return model.PullTableRecordsResult{}, fmt.Errorf("unsupported BigQuery CDC events function: %v", tm.BigqueryCdcEventsFunction)

@@ -137,7 +137,7 @@ func (r *CDCStream[T]) ChannelLen() int {
 }
 
 func (r *CDCStream[T]) AddSchemaDelta(
-	tableNameMapping map[string]NameAndExclude,
+	tableNameMapping map[string]SourceTableMapping,
 	delta *protos.TableSchemaDelta,
 ) {
 	r.SchemaDeltas = append(r.SchemaDeltas, delta)

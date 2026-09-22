@@ -63,7 +63,7 @@ func newPullHarness(t *testing.T, iterations ...iterationType) *pullHarness {
 		// Buffered past any batch these tests pull, so that a blocked AddRecord means
 		// a real deadlock rather than a slow drain goroutine.
 		RecordStream:           model.NewCDCStream[model.RecordItems](4096),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,

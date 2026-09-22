@@ -724,7 +724,7 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
-func createPipeline(tableNameMapping map[string]model.NameAndExclude, excludedOps []operationType) (mongo.Pipeline, error) {
+func createPipeline(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) (mongo.Pipeline, error) {
 	pipeline := mongo.Pipeline{}
 
 	// filter out events from tables that are not in the mapping

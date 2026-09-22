@@ -783,7 +783,7 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			om, reader := newMetricsTestOtelManager(t)
 			req := &model.PullRecordsRequest[model.RecordItems]{
-				TableNameMapping: map[string]model.NameAndExclude{"mydb.users": {Name: "users_dst"}},
+				TableNameMapping: map[string]model.SourceTableMapping{"mydb.users": {Name: "users_dst"}},
 			}
 			c.processRenameTableQuery(ctx, om, req, parseRename(tc.query), "mydb")
 
