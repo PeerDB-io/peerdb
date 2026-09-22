@@ -27,10 +27,14 @@ export const tableMappingSchema = z
           .min(1, 'destination table names, if added, must be non-empty'),
         exclude: z.array(z.string()).optional(),
         partitionKey: z.string().optional(),
-        structuredIngestionConfig: z
+        mongoTableConfig: z
           .object({
-            structuredIngestion: z.boolean().optional(),
-            dropUnexpectedValues: z.boolean().optional(),
+            structuredIngestionConfig: z
+              .object({
+                enabled: z.boolean().optional(),
+                dropUnexpectedValues: z.boolean().optional(),
+              })
+              .optional(),
           })
           .optional(),
         columns: z
@@ -45,7 +49,9 @@ export const tableMappingSchema = z
       // Mirrors the server side structured ingestion rules so that a mapping whose declared
       // schema is incomplete is reported here instead of by mirror validation.
       .superRefine((mapping, ctx) => {
-        if (!mapping.structuredIngestionConfig?.structuredIngestion) return;
+        if (!mapping.mongoTableConfig?.structuredIngestionConfig?.enabled) {
+          return;
+        }
         for (const issue of structuredColumnIssues(mapping.columns ?? [])) {
           ctx.addIssue({
             code: 'custom',

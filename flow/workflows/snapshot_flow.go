@@ -222,10 +222,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 		ParentMirrorName:           flowName,
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
-		StructuredIngestion:        mapping.GetStructuredIngestionConfig().GetStructuredIngestion(),
-		DropUnexpectedValues:       mapping.GetStructuredIngestionConfig().GetDropUnexpectedValues(),
 		Version:                    s.config.Version,
 		Flags:                      s.config.Flags,
+	}
+
+	if err := setQRepSourceTableConfig(config, mapping); err != nil {
+		return err
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)

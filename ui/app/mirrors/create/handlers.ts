@@ -196,7 +196,7 @@ function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
       bigqueryCdcEventsFunction:
         BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
       queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
-      structuredIngestionConfig: row.structuredIngestionConfig,
+      mongoTableConfig: row.mongoTableConfig,
     }));
 }
 
@@ -234,7 +234,7 @@ export function changesToTablesMapping(
           shardingKey: row.shardingKey,
           policyName: row.policyName,
           partitionByExpr: row.partitionByExpr,
-          structuredIngestionConfig: row.structuredIngestionConfig,
+          mongoTableConfig: row.mongoTableConfig,
         }) as TableMapping
     );
   return mapping;
@@ -468,7 +468,7 @@ export async function fetchTables(
         isUnlogged: tableObject.isUnlogged,
         hasPrimaryKeyOrReplicaIdentity:
           tableObject.hasPrimaryKeyOrReplicaIdentity,
-        structuredIngestionConfig: undefined,
+        mongoTableConfig: undefined,
       });
     }
   }

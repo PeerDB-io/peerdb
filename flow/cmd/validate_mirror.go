@@ -178,61 +178,64 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	return &protos.ValidateCDCMirrorResponse{}, nil
 }
 
-// checkQRepStructuredIngestion validates the structured ingestion settings of a standalone QRep mirror,
-// enforcing the rules checkTableMappings applies to a CDC mirror's table mappings: only for compatible
-// source peers, and every column has to declare a valid destination type, as the mapping carries the
-// destination schema itself.
-func (h *FlowRequestHandler) checkQRepStructuredIngestion(ctx context.Context, cfg *protos.QRepConfig) APIError {
-	if !cfg.StructuredIngestion {
-		return nil
-	}
-
+// checkQRepTableConfig validates the per-table settings of a standalone QRep mirror, which replicates a
+// single table, with the rules checkTableMappings applies to each of a CDC mirror's table mappings.
+func (h *FlowRequestHandler) checkQRepTableConfig(ctx context.Context, cfg *protos.QRepConfig) APIError {
 	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
 	}
-	if !structured.SupportedSourcePeer(peer) {
-		return NewInvalidArgumentApiError(
-			fmt.Errorf("structured ingestion is not supported for the selected source peer: %s", cfg.SourceName))
-	}
-
-	if err := structured.ValidateColumns(cfg.WatermarkTable, cfg.Columns); err != nil {
-		return NewInvalidArgumentApiError(err)
-	}
-
-	return nil
+	return checkSourceTableConfig(peer, cfg.WatermarkTable, cfg.GetMongoTableConfig().GetStructuredIngestionConfig(), cfg.Columns)
 }
 
 // checkTableMappings validates the per-table settings of a mirror's table mappings
 func (h *FlowRequestHandler) checkTableMappings(
 	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 ) APIError {
-	// Check source peer type
 	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
 	}
 
-	structuredIngestionCompatible := structured.SupportedSourcePeer(peer)
-
 	for _, tm := range cfg.TableMappings {
-		if tm.GetStructuredIngestionConfig().GetStructuredIngestion() {
-			if !structuredIngestionCompatible {
-				return NewInvalidArgumentApiError(
-					fmt.Errorf("structured ingestion is not supported for the selected source peer: %s", cfg.SourceName))
-			}
-			if err := structured.ValidateColumns(tm.SourceTableIdentifier, tm.Columns); err != nil {
-				return NewInvalidArgumentApiError(err)
-			}
-		} else {
-			for _, col := range tm.Columns {
-				if !structured.ColumnTypeRegex.MatchString(col.DestinationType) {
-					return NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
-				}
-			}
+		if apiErr := checkSourceTableConfig(
+			peer, tm.SourceTableIdentifier, tm.GetMongoTableConfig().GetStructuredIngestionConfig(), tm.Columns,
+		); apiErr != nil {
+			return apiErr
 		}
 	}
 
+	return nil
+}
+
+// checkSourceTableConfig validates one table's source specific config and columns against the source
+// peer. Callers pass the structured ingestion settings found in the table's source_table_config oneof,
+// nil when its variant carries none: a table declaring them needs a source peer that supports structured
+// ingestion.
+func checkSourceTableConfig(
+	peer *protos.Peer,
+	tableIdentifier string,
+	maybeStructuredIngestionConfig *protos.StructuredIngestionTableConfig,
+	columns []*protos.ColumnSetting,
+) APIError {
+	if maybeStructuredIngestionConfig != nil && !structured.SupportedSourcePeer(peer) {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("table %s declares structured ingestion settings but source peer %s does not support structured ingestion",
+				tableIdentifier, peer.Name))
+	}
+	structuredIngestion := maybeStructuredIngestionConfig.GetEnabled()
+
+	if structuredIngestion {
+		if err := structured.ValidateColumns(tableIdentifier, columns); err != nil {
+			return NewInvalidArgumentApiError(err)
+		}
+		return nil
+	}
+	for _, col := range columns {
+		if !structured.ColumnTypeRegex.MatchString(col.DestinationType) {
+			return NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
+		}
+	}
 	return nil
 }
 

@@ -1,3 +1,41 @@
+import {
+  StructuredIngestionTableConfig,
+  TableMapping,
+} from '@/grpc_generated/flow';
+
+// SourceConfigured is the part of a TableMapping (or QRepConfig) that carries the source specific
+// table config, where the structured ingestion settings live.
+type SourceConfigured = Pick<TableMapping, 'mongoTableConfig'>;
+
+// structuredIngestionConfig reads the structured ingestion settings of a mapping from its source
+// specific table config; undefined when the mapping declares none. Structured ingestion is only
+// available on MongoDB sources, so the settings live under the Mongo table config.
+export function structuredIngestionConfig(
+  mapping: SourceConfigured
+): StructuredIngestionTableConfig | undefined {
+  return mapping.mongoTableConfig?.structuredIngestionConfig;
+}
+
+// structuredIngestionEnabled reports whether the mapping is set up for structured ingestion.
+export function structuredIngestionEnabled(mapping: SourceConfigured): boolean {
+  return structuredIngestionConfig(mapping)?.enabled ?? false;
+}
+
+// withStructuredIngestionConfig returns a copy of the mapping carrying the given structured
+// ingestion settings under its source specific table config.
+export function withStructuredIngestionConfig<T extends SourceConfigured>(
+  mapping: T,
+  config: StructuredIngestionTableConfig
+): T {
+  return {
+    ...mapping,
+    mongoTableConfig: {
+      ...mapping.mongoTableConfig,
+      structuredIngestionConfig: config,
+    },
+  };
+}
+
 // COLUMN_TYPE_PATTERN mirrors structured.ColumnTypeRegex on the server: the column type
 // expressions accepted as a column's destination type. Kept in sync by hand.
 export const COLUMN_TYPE_PATTERN = /^$|^[a-zA-Z][a-zA-Z0-9(),]*$/;

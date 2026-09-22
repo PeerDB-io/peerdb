@@ -264,7 +264,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.Flags = flags
 	}
 
-	if apiErr := h.checkQRepStructuredIngestion(ctx, cfg); apiErr != nil {
+	if apiErr := h.checkQRepTableConfig(ctx, cfg); apiErr != nil {
 		return nil, apiErr
 	}
 

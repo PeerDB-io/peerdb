@@ -33,6 +33,11 @@ import {
   fetchTables,
   getDefaultDestinationTable,
 } from '../handlers';
+import {
+  structuredIngestionConfig,
+  structuredIngestionEnabled,
+  withStructuredIngestionConfig,
+} from '../helpers/structured';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
@@ -188,23 +193,17 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const updateStructuredIngestion = (
-    source: string,
-    structuredIngestion: boolean
-  ) => {
+  const updateStructuredIngestion = (source: string, enabled: boolean) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = {
-      ...newRows[index],
-      structuredIngestionConfig: {
-        structuredIngestion,
-        // The unexpected value reports only exist under structured ingestion
-        dropUnexpectedValues: structuredIngestion
-          ? (newRows[index].structuredIngestionConfig?.dropUnexpectedValues ??
-            false)
-          : false,
-      },
-    };
+    newRows[index] = withStructuredIngestionConfig(newRows[index], {
+      enabled,
+      // The unexpected value reports only exist under structured ingestion
+      dropUnexpectedValues: enabled
+        ? (structuredIngestionConfig(newRows[index])?.dropUnexpectedValues ??
+          false)
+        : false,
+    });
     setRows(newRows);
   };
 
@@ -214,15 +213,10 @@ export default function SchemaBox({
   ) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = {
-      ...newRows[index],
-      structuredIngestionConfig: {
-        structuredIngestion:
-          newRows[index].structuredIngestionConfig?.structuredIngestion ??
-          false,
-        dropUnexpectedValues,
-      },
-    };
+    newRows[index] = withStructuredIngestionConfig(newRows[index], {
+      enabled: structuredIngestionEnabled(newRows[index]),
+      dropUnexpectedValues,
+    });
     setRows(newRows);
   };
 
@@ -305,14 +299,11 @@ export default function SchemaBox({
                 row.partitionByExpr = existingRow.partitionByExpr;
                 row.exclude = new Set(existingRow.exclude ?? []);
                 row.destination = existingRow.destinationTableIdentifier;
-                row.structuredIngestionConfig =
-                  existingRow.structuredIngestionConfig;
+                row.mongoTableConfig = existingRow.mongoTableConfig;
                 // For a structured mapping the columns are the destination schema, and a
                 // schemaless source reports none to rediscover, so they come from the
                 // saved mapping or not at all.
-                if (
-                  existingRow.structuredIngestionConfig?.structuredIngestion
-                ) {
+                if (structuredIngestionEnabled(existingRow)) {
                   row.columns = existingRow.columns;
                 }
                 addTableColumns(row.source);
@@ -608,18 +599,14 @@ export default function SchemaBox({
                                 <Checkbox
                                   style={{ marginLeft: 0 }}
                                   disabled={row.editingDisabled}
-                                  checked={
-                                    row.structuredIngestionConfig
-                                      ?.structuredIngestion ?? false
-                                  }
+                                  checked={structuredIngestionEnabled(row)}
                                   onCheckedChange={(state: boolean) =>
                                     updateStructuredIngestion(row.source, state)
                                   }
                                 />
                               }
                             />
-                            {row.structuredIngestionConfig
-                              ?.structuredIngestion && (
+                            {structuredIngestionEnabled(row) && (
                               <RowWithCheckbox
                                 label={
                                   <Tooltip
@@ -636,7 +623,7 @@ export default function SchemaBox({
                                     style={{ marginLeft: 0 }}
                                     disabled={row.editingDisabled}
                                     checked={
-                                      row.structuredIngestionConfig
+                                      structuredIngestionConfig(row)
                                         ?.dropUnexpectedValues ?? false
                                     }
                                     onCheckedChange={(state: boolean) =>
@@ -735,7 +722,7 @@ export default function SchemaBox({
                             No columns in {row.source}
                           </Label>
                         )}
-                        {row.structuredIngestionConfig?.structuredIngestion && (
+                        {structuredIngestionEnabled(row) && (
                           <StructuredColumns
                             tableRow={row}
                             setRows={setRows}
