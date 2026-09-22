@@ -63,6 +63,16 @@ func TestFlowConnectionConfigsRoundTrip(t *testing.T) {
 		Version:            7,
 		Flags:              []string{"flag_a", "flag_b"},
 		SkipValidation:     &skipValidation,
+		SourceConnectorConfig: &protos.FlowConnectionConfigs_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+				ReplicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
+				QueryCdc: &protos.QueryCdcConfig{
+					PullSyncParallelism:   3,
+					SafetyLagSeconds:      45,
+					MaxQueryWindowSeconds: 3600,
+				},
+			},
+		},
 	}
 
 	core := FlowConnectionConfigsToCore(api)

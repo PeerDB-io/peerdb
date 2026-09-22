@@ -91,8 +91,20 @@ enum BigQueryReplicationMethod {
   BIGQUERY_REPLICATION_METHOD_QUERY = 2;
 }
 
+message QueryCdcConfig {
+  // how many source tables are queried and staged concurrently
+  int32 pull_sync_parallelism = 1;
+
+  // delay the upper bound of each query window behind source's clock
+  int32 safety_lag_seconds = 2;
+
+  // maximum duration covered by a single pull query
+  int32 max_query_window_seconds = 3;
+}
+
 message BigqueryCdcConfig {
   BigQueryReplicationMethod replication_method = 1;
+  QueryCdcConfig query_cdc = 2;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
@@ -149,8 +161,8 @@ message FlowConnectionConfigs {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
 
-  // query-based CDC: how many source tables are queried and staged concurrently
-  int32 query_cdc_pull_sync_parallelism = 30;
+  // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
+  int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -208,8 +220,8 @@ message FlowConnectionConfigsCore {
     BigqueryCdcConfig bigquery_cdc_config = 29;
   }
 
-  // query-based CDC: how many source tables are queried and staged concurrently
-  int32 query_cdc_pull_sync_parallelism = 30;
+  // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
+  int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
 }
 
 message RenameTableOption {

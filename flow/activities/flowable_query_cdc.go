@@ -57,13 +57,14 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	if err != nil {
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
+	queryCDCSafetyLag, queryCDCMaxQueryWindow, err := queryCDCPollDurations(ctx, config)
+	if err != nil {
+		return err
+	}
 
-	pullSyncParallelism := int(config.GetQueryCdcPullSyncParallelism())
-	if pullSyncParallelism <= 0 {
-		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
-		if err != nil {
-			return fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
-		}
+	pullSyncParallelism, err := queryCDCPullSyncParallelism(ctx, config)
+	if err != nil {
+		return err
 	}
 	// Bounds concurrent pull+sync work only; normalize is bounded separately by
 	// normSem below, so a stalled destination can't be starved by pull work and
@@ -119,7 +120,8 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		})
 		group.Go(func() error {
 			return a.queryCDCPullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
-				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
+				channelBufferSize, idleTimeout, queryCDCSafetyLag, queryCDCMaxQueryWindow, normBufferSize,
+				pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
 
@@ -140,6 +142,53 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return err
 	}
 	return nil
+}
+
+func queryCDCPullSyncParallelism(ctx context.Context, config *protos.FlowConnectionConfigsCore) (int, error) {
+	var err error
+	pullSyncParallelism := int(config.GetBigqueryCdcConfig().GetQueryCdc().GetPullSyncParallelism())
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
+	}
+	// fallback to deprecated field
+	pullSyncParallelism = int(config.GetQueryCdcPullSyncParallelism()) //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
+	}
+
+	// fallback to dynamic config env
+	pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
+	}
+
+	return pullSyncParallelism, nil
+}
+
+func queryCDCPollDurations(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+) (time.Duration, time.Duration, error) {
+	queryCdcConfig := config.GetBigqueryCdcConfig().GetQueryCdc()
+	safetyLag := time.Duration(queryCdcConfig.GetSafetyLagSeconds()) * time.Second
+	if safetyLag <= 0 {
+		var err error
+		safetyLag, err = internal.PeerDBQueryCDCSafetyLag(ctx, config.Env)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get query-based CDC safety lag: %w", err)
+		}
+	}
+
+	maxQueryWindow := time.Duration(queryCdcConfig.GetMaxQueryWindowSeconds()) * time.Second
+	if maxQueryWindow <= 0 {
+		var err error
+		maxQueryWindow, err = internal.PeerDBQueryCDCMaxQueryWindow(ctx, config.Env)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get query-based CDC max query window: %w", err)
+		}
+	}
+
+	return safetyLag, maxQueryWindow, nil
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
@@ -236,6 +285,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	channelBufferSize int,
 	syncInterval time.Duration,
+	queryCDCSafetyLag time.Duration,
+	queryCDCMaxQueryWindow time.Duration,
 	normBufferSize int64,
 	pullSyncSem chan struct{},
 	totalRecordsSynced *atomic.Int64,
@@ -303,13 +354,15 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			pollGroup.Go(func() error {
 				var pullErr error
 				pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-					Env:                   config.Env,
-					FlowJobName:           flowName,
-					SourceTableIdentifier: sourceTable,
-					SourceTableMapping:    sourceTableMapping,
-					TableSchema:           tableNameSchemaMapping[destTable],
-					Cursor:                state.CursorText,
-					Stream:                stream,
+					Env:                    config.Env,
+					FlowJobName:            flowName,
+					SourceTableIdentifier:  sourceTable,
+					SourceTableMapping:     sourceTableMapping,
+					TableSchema:            tableNameSchemaMapping[destTable],
+					Cursor:                 state.CursorText,
+					QueryCDCSafetyLag:      queryCDCSafetyLag,
+					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
+					Stream:                 stream,
 				})
 				stream.Close()
 				if pullErr == nil {
