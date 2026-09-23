@@ -18,11 +18,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type iterationType int
@@ -588,6 +590,55 @@ func TestCreatePipeline(t *testing.T) {
 		require.Empty(t, lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "1", "ns.coll", "$in", "0"))
 		require.Empty(t, lookupInPipeline(t, pipeline, "$match", "$or", "0", "$and", "0", "ns.db"))
 	})
+
+	// preimageTablesInPipeline returns the tables whose deletes the projection carries the pre-image for.
+	preimageTablesInPipeline := func(t *testing.T, pipeline mongo.Pipeline) []string {
+		t.Helper()
+		tablesValue := lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange", "$cond", "if", "$and", "1", "$in", "1")
+		if tablesValue.IsZero() {
+			return nil
+		}
+		values, err := tablesValue.Array().Values()
+		require.NoError(t, err)
+		tables := make([]string, 0, len(values))
+		for _, value := range values {
+			tables = append(tables, value.StringValue())
+		}
+		return tables
+	}
+	preimageTableNameMapping := map[string]model.SourceTableMapping{
+		"db.coll":  {Name: "db_coll", MongoConfiguration: &protos.MongoTableConfig{DeletePreimage: true}},
+		"db.other": {Name: "db_other", MongoConfiguration: &protos.MongoTableConfig{DeletePreimage: false}},
+		"db.plain": {Name: "db_plain"},
+		"db2.coll": {Name: "db2_coll", MongoConfiguration: &protos.MongoTableConfig{DeletePreimage: true}},
+	}
+
+	t.Run("pipeline without delete pre-images does not project the pre-image", func(t *testing.T) {
+		pipeline, err := createPipeline(tableNameMapping, nil)
+		require.NoError(t, err)
+
+		require.True(t, lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange").IsZero())
+	})
+
+	t.Run("pipeline with delete pre-images projects them for deletes of those tables only", func(t *testing.T) {
+		pipeline, err := createPipeline(preimageTableNameMapping, nil)
+		require.NoError(t, err)
+
+		requireProjectFields(t, pipeline)
+		require.Equal(t, "delete",
+			lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange", "$cond", "if", "$and", "0", "$eq", "1").StringValue())
+		require.Equal(t, []string{"db.coll", "db2.coll"}, preimageTablesInPipeline(t, pipeline))
+		require.Equal(t, "$$REMOVE",
+			lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange", "$cond", "else").StringValue())
+	})
+
+	t.Run("pipeline with excluded deletes does not project the pre-image", func(t *testing.T) {
+		pipeline, err := createPipeline(preimageTableNameMapping, []operationType{operationTypeDelete})
+		require.NoError(t, err)
+
+		require.True(t, lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange").IsZero())
+		require.Empty(t, deletePreimageTables(preimageTableNameMapping, []operationType{operationTypeDelete}))
+	})
 }
 
 func TestExcludedOperationTypes(t *testing.T) {
@@ -650,6 +701,22 @@ func TestDecodeEvent(t *testing.T) {
 		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
 	})
 
+	preimageDocument := mustMarshal(bson.D{
+		{Key: "_id", Value: id},
+		{Key: "createdAt", Value: insertWallTime},
+	})
+
+	deleteWithPreimageRaw := mustMarshal(bson.D{
+		{Key: "ns", Value: bson.D{
+			{Key: "db", Value: "db"},
+			{Key: "coll", Value: "coll"},
+		}},
+		{Key: "operationType", Value: "delete"},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
+		{Key: "fullDocumentBeforeChange", Value: preimageDocument},
+		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
+	})
+
 	deleteWithNullFullDocRaw := mustMarshal(bson.D{
 		{Key: "ns", Value: bson.D{
 			{Key: "db", Value: "db"},
@@ -707,6 +774,18 @@ func TestDecodeEvent(t *testing.T) {
 			},
 		},
 		{
+			name: "delete carries fullDocumentBeforeChange when the collection has pre-images",
+			raw:  deleteWithPreimageRaw,
+			want: ChangeEvent{
+				Ns:                       Namespace{Db: "db", Coll: "coll"},
+				OperationType:            "delete",
+				DocumentKey:              mustMarshal(bson.D{{Key: "_id", Value: id}}),
+				FullDocument:             nil,
+				FullDocumentBeforeChange: &preimageDocument,
+				ClusterTime:              toBsonTs(deleteTs),
+			},
+		},
+		{
 			name: "empty document decodes to zero value",
 			raw:  mustMarshal(bson.D{}),
 			want: ChangeEvent{},
@@ -742,4 +821,93 @@ func TestCreatePipelineProjectsWallTime(t *testing.T) {
 	projectFields, ok := projectStage[0].Value.(bson.D)
 	require.True(t, ok)
 	require.Contains(t, projectFields, bson.E{Key: "wallTime", Value: 1})
+}
+
+// Verifies a delete carries its pre-image when one is available, in the `doc` column or projected onto
+// the structured columns, falls back to the empty document when it is not, and that no other operation
+// type ever uses it.
+func TestDecodeEventDeletePreimage(t *testing.T) {
+	id := bson.NewObjectID()
+	mustMarshal := func(v any) bson.Raw {
+		t.Helper()
+		raw, err := bson.Marshal(v)
+		require.NoError(t, err)
+		return raw
+	}
+
+	preimage := mustMarshal(bson.D{
+		{Key: "_id", Value: id},
+		{Key: "name", Value: "Ada"},
+		{Key: "age", Value: int32(36)},
+	})
+	documentKey := mustMarshal(bson.D{{Key: "_id", Value: id}})
+
+	c := &MongoConnector{logger: internal.LoggerFromCtx(t.Context())}
+	req := &model.PullRecordsRequest[model.RecordItems]{InternalVersion: shared.InternalVersion_Latest}
+	projector, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
+	require.NoError(t, err)
+	structuredProjectors := map[string]*structured.SchemaProjector{"db.coll": projector}
+
+	decodeOne := func(
+		t *testing.T, event encodedMongoEvent, projectors map[string]*structured.SchemaProjector,
+	) model.Record[model.RecordItems] {
+		t.Helper()
+		records, err := c.decodeEvent([]encodedMongoEvent{event}, req, projectors)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		return records[0]
+	}
+	deleteItems := func(t *testing.T, record model.Record[model.RecordItems]) model.RecordItems {
+		t.Helper()
+		del, ok := record.(*model.DeleteRecord[model.RecordItems])
+		require.True(t, ok, "expected a delete record, got %T", record)
+		return del.Items
+	}
+	docColumn := func(t *testing.T, items model.RecordItems) string {
+		t.Helper()
+		value := items.GetColumnValue(DefaultFullDocumentColumnName)
+		require.NotNil(t, value)
+		doc, ok := value.Value().(string)
+		require.True(t, ok)
+		return doc
+	}
+	event := func(op operationType, maybeBeforeDocument *bson.Raw) encodedMongoEvent {
+		return encodedMongoEvent{
+			documentKey:          documentKey,
+			maybeBeforeDocument:  maybeBeforeDocument,
+			operationType:        op,
+			sourceTableName:      "db.coll",
+			destinationTableName: "coll",
+		}
+	}
+
+	t.Run("pre-image populates the doc column", func(t *testing.T) {
+		doc := docColumn(t, deleteItems(t, decodeOne(t, event(operationTypeDelete, &preimage), nil)))
+		require.Contains(t, doc, `"name":"Ada"`)
+		require.Contains(t, doc, `"age":36`)
+	})
+
+	t.Run("no pre-image keeps the empty document", func(t *testing.T) {
+		doc := docColumn(t, deleteItems(t, decodeOne(t, event(operationTypeDelete, nil), nil)))
+		require.JSONEq(t, "{}", doc)
+	})
+
+	t.Run("pre-image populates the structured columns", func(t *testing.T) {
+		items := deleteItems(t, decodeOne(t, event(operationTypeDelete, &preimage), structuredProjectors))
+		require.Equal(t, types.QValueString{Val: "Ada"}, items.GetColumnValue("name"))
+		require.Equal(t, types.QValueInt64{Val: 36}, items.GetColumnValue("age"))
+	})
+
+	t.Run("no pre-image leaves the structured columns null", func(t *testing.T) {
+		items := deleteItems(t, decodeOne(t, event(operationTypeDelete, nil), structuredProjectors))
+		require.Equal(t, types.QValueNull(types.QValueKindString), items.GetColumnValue("name"))
+		require.Equal(t, types.QValueNull(types.QValueKindInt64), items.GetColumnValue("age"))
+	})
+
+	t.Run("pre-image is never used for an update without fullDocument", func(t *testing.T) {
+		record := decodeOne(t, event(operationTypeUpdate, &preimage), nil)
+		update, ok := record.(*model.UpdateRecord[model.RecordItems])
+		require.True(t, ok, "expected an update record, got %T", record)
+		require.JSONEq(t, "{}", docColumn(t, update.NewItems))
+	})
 }
