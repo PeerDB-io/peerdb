@@ -146,6 +146,7 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	converter := NewDirectBsonConverter()
 
 	toRecord := func(t *testing.T, doc bson.D) []types.QValue {
+		t.Helper()
 		raw, err := bson.Marshal(doc)
 		require.NoError(t, err)
 		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
