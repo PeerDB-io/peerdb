@@ -586,63 +586,6 @@ export default function SchemaBox({
                             </div>
                           </>
                         )}
-
-                        {structuredIngestionSupported && (
-                          <div style={{ width: '100%', fontSize: 12 }}>
-                            <RowWithCheckbox
-                              label={
-                                <Tooltip
-                                  style={tooltipStyle(styledTheme)}
-                                  content='Project each document onto the columns declared below, using their destination type, instead of landing it whole in a single JSON column.'
-                                >
-                                  <Label as='label' style={{ fontSize: 13 }}>
-                                    Structured ingestion
-                                  </Label>
-                                </Tooltip>
-                              }
-                              action={
-                                <Checkbox
-                                  style={{ marginLeft: 0 }}
-                                  disabled={row.editingDisabled}
-                                  checked={structuredIngestionEnabled(row)}
-                                  onCheckedChange={(state: boolean) =>
-                                    updateStructuredIngestion(row.source, state)
-                                  }
-                                />
-                              }
-                            />
-                            {structuredIngestionEnabled(row) && (
-                              <RowWithCheckbox
-                                label={
-                                  <Tooltip
-                                    style={tooltipStyle(styledTheme)}
-                                    content='Report values that do not fit their destination type without including the values themselves, only the field and the reason.'
-                                  >
-                                    <Label as='label' style={{ fontSize: 13 }}>
-                                      Drop unexpected values from reports
-                                    </Label>
-                                  </Tooltip>
-                                }
-                                action={
-                                  <Checkbox
-                                    style={{ marginLeft: 0 }}
-                                    disabled={row.editingDisabled}
-                                    checked={
-                                      structuredIngestionConfig(row)
-                                        ?.dropUnexpectedValues ?? false
-                                    }
-                                    onCheckedChange={(state: boolean) =>
-                                      updateDropUnexpectedValues(
-                                        row.source,
-                                        state
-                                      )
-                                    }
-                                  />
-                                }
-                              />
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -705,6 +648,81 @@ export default function SchemaBox({
                                     tableRow={row}
                                     setRows={setRows}
                                   />
+                                  {structuredIngestionSupported && (
+                                    <div
+                                      style={{ width: '100%', fontSize: 12 }}
+                                    >
+                                      <RowWithCheckbox
+                                        label={
+                                          <Label
+                                            as='label'
+                                            style={{ fontSize: 13 }}
+                                          >
+                                            <Tooltip
+                                              style={tooltipStyle(styledTheme)}
+                                              content='Project each document onto the columns declared below, using their destination type, instead of landing it whole in a single JSON column.'
+                                            >
+                                              Structured ingestion
+                                            </Tooltip>
+                                          </Label>
+                                        }
+                                        action={
+                                          <Checkbox
+                                            style={{ marginLeft: 0 }}
+                                            disabled={row.editingDisabled}
+                                            checked={structuredIngestionEnabled(
+                                              row
+                                            )}
+                                            onCheckedChange={(state: boolean) =>
+                                              updateStructuredIngestion(
+                                                row.source,
+                                                state
+                                              )
+                                            }
+                                          />
+                                        }
+                                      />
+                                      {structuredIngestionEnabled(row) && (
+                                        <RowWithCheckbox
+                                          label={
+                                            <Label
+                                              as='label'
+                                              style={{ fontSize: 13 }}
+                                            >
+                                              <Tooltip
+                                                style={tooltipStyle(
+                                                  styledTheme
+                                                )}
+                                                content='Report values that do not fit their destination type without including the values themselves, only the field and the reason.'
+                                              >
+                                                Drop unexpected values from
+                                                reports
+                                              </Tooltip>
+                                            </Label>
+                                          }
+                                          action={
+                                            <Checkbox
+                                              style={{ marginLeft: 0 }}
+                                              disabled={row.editingDisabled}
+                                              checked={
+                                                structuredIngestionConfig(row)
+                                                  ?.dropUnexpectedValues ??
+                                                false
+                                              }
+                                              onCheckedChange={(
+                                                state: boolean
+                                              ) =>
+                                                updateDropUnexpectedValues(
+                                                  row.source,
+                                                  state
+                                                )
+                                              }
+                                            />
+                                          }
+                                        />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <CustomColumnType
                                   columns={columns}
