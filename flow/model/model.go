@@ -17,8 +17,10 @@ import (
 type SourceTableMapping struct {
 	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
 	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
-	Exclude                          map[string]struct{}
-	Name                             string
+	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
+	MongoConfiguration *protos.MongoTableConfig
+	Exclude            map[string]struct{}
+	Name               string
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
