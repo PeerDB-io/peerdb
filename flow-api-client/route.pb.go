@@ -2894,10 +2894,11 @@ func (x *SchemaTablesRequest) GetCdcEnabled() bool {
 }
 
 type SchemaTablesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tables        []*TableResponse       `protobuf:"bytes,1,rep,name=tables,proto3" json:"tables,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	Tables                       []*TableResponse       `protobuf:"bytes,1,rep,name=tables,proto3" json:"tables,omitempty"`
+	StructuredIngestionSupported bool                   `protobuf:"varint,2,opt,name=structured_ingestion_supported,json=structuredIngestionSupported,proto3" json:"structured_ingestion_supported,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *SchemaTablesResponse) Reset() {
@@ -2935,6 +2936,13 @@ func (x *SchemaTablesResponse) GetTables() []*TableResponse {
 		return x.Tables
 	}
 	return nil
+}
+
+func (x *SchemaTablesResponse) GetStructuredIngestionSupported() bool {
+	if x != nil {
+		return x.StructuredIngestionSupported
+	}
+	return false
 }
 
 type TableResponse struct {
@@ -6898,9 +6906,10 @@ const file_route_proto_rawDesc = "" +
 	"\vschema_name\x18\x02 \x01(\tR\n" +
 	"schemaName\x12\x1f\n" +
 	"\vcdc_enabled\x18\x03 \x01(\bR\n" +
-	"cdcEnabled\"K\n" +
+	"cdcEnabled\"\x91\x01\n" +
 	"\x14SchemaTablesResponse\x123\n" +
-	"\x06tables\x18\x01 \x03(\v2\x1b.peerdb_route.TableResponseR\x06tables\"\x93\x02\n" +
+	"\x06tables\x18\x01 \x03(\v2\x1b.peerdb_route.TableResponseR\x06tables\x12D\n" +
+	"\x1estructured_ingestion_supported\x18\x02 \x01(\bR\x1cstructuredIngestionSupported\"\x93\x02\n" +
 	"\rTableResponse\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12\x1d\n" +
