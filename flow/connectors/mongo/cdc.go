@@ -316,55 +316,59 @@ func (c *MongoConnector) decodeEvent(
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 	parseItem := func(event encodedMongoEvent) (model.Record[model.RecordItems], error) {
-		items := model.NewRecordItems(2)
+		var items model.RecordItems
 
-		if len(event.documentKey) > 0 {
-			rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
-			}
-			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert key: %w", err)
-			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
+		if len(event.documentKey) == 0 {
 			return nil, fmt.Errorf("document key is nil")
 		}
 
+		rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
+		if rv.IsZero() || rv.Type == bson.TypeNull {
+			return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
+		}
+		idQValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert key: %w", err)
+		}
+
 		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
-			// structured ingestion: the document fields are projected onto the table's schema columns.
-			// An absent `fullDocument` (same scenarios as the default mode below) projects the empty
-			// document: every schema column null, nothing malformed.
+			// Structured ingestion: the document fields are projected onto the table's schema columns.
+
+			// An absent `fullDocument` will end up storing NULL on all structured columns
 			document := emptyBsonDocument
 			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
 				document = *event.maybeFullDocument
 			}
 			fields, walkErr := DocumentQValueIterator(document, converter)
-			projected, err := projector.ApplyRecordSchema(fields)
+			items, err = projector.ApplyRecordSchema(fields)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
 			}
 			if err := walkErr(); err != nil {
 				return nil, err
 			}
-			for column, value := range projected.ColToVal {
-				items.AddColumn(column, value)
-			}
-		} else if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert document: %w", err)
-			}
-			items.AddColumn(fullDocumentColumnName, qValue)
 		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			// Default ingestion: the entire document is stored in a single column as JSON.
+			items = model.NewRecordItems(2)
+
+			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+				qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert document: %w", err)
+				}
+				items.AddColumn(fullDocumentColumnName, qValue)
+			} else {
+				// `fullDocument` field will not exist in the following scenarios:
+				// 1) operationType is 'delete'
+				// 2) document is deleted / collection is dropped in between update and lookup
+				// 3) update changes the values for at least one of the fields in that collection's
+				//    shard key (although sharding is not supported today)
+				items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			}
 		}
+
+		items.AddColumn(DefaultDocumentKeyColumnName, idQValue)
+
 		var record model.Record[model.RecordItems]
 		switch event.operationType {
 		case operationTypeInsert:
