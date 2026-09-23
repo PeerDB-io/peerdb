@@ -108,18 +108,19 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		},
 	})
 
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      tableName,
+		DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+		Columns:                    q.config.Columns,
+		StructuredIngestionConfig:  q.config.StructuredIngestionConfig,
+	}
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName: q.config.SourceName,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      tableName,
-				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
-			},
-		},
-		FlowName: q.config.FlowJobName,
-		System:   q.config.System,
-		Env:      q.config.Env,
-		Version:  q.config.Version,
+		PeerName:      q.config.SourceName,
+		TableMappings: []*protos.TableMapping{tableMapping},
+		FlowName:      q.config.FlowJobName,
+		System:        q.config.System,
+		Env:           q.config.Env,
+		Version:       q.config.Version,
 	}
 
 	return workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil)
@@ -147,16 +148,16 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 		}
 
 		// now setup the normalized tables on the destination peer
+		tableMapping := &protos.TableMapping{
+			SourceTableIdentifier:      q.config.WatermarkTable,
+			DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+			Exclude:                    q.config.Exclude,
+			Columns:                    q.config.Columns,
+			StructuredIngestionConfig:  q.config.StructuredIngestionConfig,
+		}
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerName: q.config.DestinationName,
-			TableMappings: []*protos.TableMapping{
-				{
-					SourceTableIdentifier:      q.config.WatermarkTable,
-					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
-					Exclude:                    q.config.Exclude,
-					Columns:                    q.config.Columns,
-				},
-			},
+			PeerName:          q.config.DestinationName,
+			TableMappings:     []*protos.TableMapping{tableMapping},
 			SyncedAtColName:   q.config.SyncedAtColName,
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,

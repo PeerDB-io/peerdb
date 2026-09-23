@@ -274,7 +274,7 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_idle",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
@@ -316,7 +316,7 @@ func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_recreate_failure",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
@@ -374,7 +374,7 @@ func TestChangeStreamReportsCollectionDDLToUser(t *testing.T) {
 		RecordStream: model.NewCDCStream[model.RecordItems](100),
 		// both namespaces must be mapped, otherwise the events are dropped by the
 		// destination-table guard before reaching the unsupported-operation branch
-		TableNameMapping: map[string]model.NameAndExclude{
+		TableNameMapping: map[string]model.SourceTableMapping{
 			"db.coll":  {Name: "db_coll"},
 			"db.other": {Name: "db_other"},
 		},
@@ -428,7 +428,7 @@ func TestResumeTokenHelpersRoundTrip(t *testing.T) {
 }
 
 func TestCreatePipeline(t *testing.T) {
-	tableNameMapping := map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}}
+	tableNameMapping := map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}}
 
 	// lookupInPipeline returns the first value found at the given path in any pipeline stage.
 	lookupInPipeline := func(t *testing.T, pipeline mongo.Pipeline, path ...string) bson.RawValue {

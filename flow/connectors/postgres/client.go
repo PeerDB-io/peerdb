@@ -574,7 +574,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	s SlotCheckResult,
 	slot string,
 	publication string,
-	tableNameMapping map[string]model.NameAndExclude,
+	tableNameMapping map[string]model.SourceTableMapping,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
 	env map[string]string,

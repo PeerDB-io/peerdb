@@ -143,9 +143,11 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	))
 	defer batchSpan.End()
 
-	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
+	tblNameMapping := make(map[string]model.SourceTableMapping, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
+		tblNameMapping[v.SourceTableIdentifier] = model.NewSourceTableMappingWithStructuredIngestion(
+			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestionConfig,
+		)
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {

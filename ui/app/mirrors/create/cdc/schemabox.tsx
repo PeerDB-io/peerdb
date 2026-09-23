@@ -33,10 +33,16 @@ import {
   fetchTables,
   getDefaultDestinationTable,
 } from '../handlers';
+import {
+  structuredIngestionConfig,
+  structuredIngestionEnabled,
+  withStructuredIngestionConfig,
+} from '../helpers/structured';
 import ColumnBox from './columnbox';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
 import SelectSortingKeys from './sortingkey';
+import StructuredColumns from './structuredColumns';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -67,6 +73,8 @@ interface SchemaBoxProps {
   setTableColumns: Dispatch<
     SetStateAction<{ tableName: string; columns: ColumnsItem[] }[]>
   >;
+  structuredIngestionSupported: boolean;
+  setStructuredIngestionSupported: Dispatch<SetStateAction<boolean>>;
   peerType?: DBType;
   alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
@@ -80,6 +88,8 @@ export default function SchemaBox({
   setRows,
   tableColumns,
   setTableColumns,
+  structuredIngestionSupported,
+  setStructuredIngestionSupported,
   alreadySelectedTables,
   initialLoadOnly,
 }: SchemaBoxProps) {
@@ -183,6 +193,37 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updateStructuredIngestion = (source: string, enabled: boolean) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    // A table that does not use structured ingestion carries no settings at all
+    newRows[index] = withStructuredIngestionConfig(
+      newRows[index],
+      enabled
+        ? {
+            enabled,
+            dropUnexpectedValues:
+              structuredIngestionConfig(newRows[index])?.dropUnexpectedValues ??
+              false,
+          }
+        : undefined
+    );
+    setRows(newRows);
+  };
+
+  const updateDropUnexpectedValues = (
+    source: string,
+    dropUnexpectedValues: boolean
+  ) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = withStructuredIngestionConfig(newRows[index], {
+      enabled: structuredIngestionEnabled(newRows[index]),
+      dropUnexpectedValues,
+    });
+    setRows(newRows);
+  };
+
   const addTableColumns = useCallback(
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
@@ -237,13 +278,15 @@ export default function SchemaBox({
     (schemaName: string) => {
       startTablesTransition(async () => {
         try {
-          const newRows = await fetchTables(
-            sourcePeer,
-            schemaName,
-            defaultTargetSchema,
-            peerType,
-            initialLoadOnly
-          );
+          const { tables: newRows, structuredIngestionSupported: supported } =
+            await fetchTables(
+              sourcePeer,
+              schemaName,
+              defaultTargetSchema,
+              peerType,
+              initialLoadOnly
+            );
+          setStructuredIngestionSupported(supported);
 
           if (alreadySelectedTables) {
             for (const row of newRows) {
@@ -260,6 +303,14 @@ export default function SchemaBox({
                 row.partitionByExpr = existingRow.partitionByExpr;
                 row.exclude = new Set(existingRow.exclude ?? []);
                 row.destination = existingRow.destinationTableIdentifier;
+                row.structuredIngestionConfig =
+                  existingRow.structuredIngestionConfig;
+                // For a structured mapping the columns are the destination schema, and a
+                // schemaless source reports none to rediscover, so they come from the
+                // saved mapping or not at all.
+                if (structuredIngestionEnabled(existingRow)) {
+                  row.columns = existingRow.columns;
+                }
                 addTableColumns(row.source);
               }
             }
@@ -287,6 +338,7 @@ export default function SchemaBox({
       addTableColumns,
       initialLoadOnly,
       setRows,
+      setStructuredIngestionSupported,
     ]
   );
 
@@ -596,6 +648,81 @@ export default function SchemaBox({
                                     tableRow={row}
                                     setRows={setRows}
                                   />
+                                  {structuredIngestionSupported && (
+                                    <div
+                                      style={{ width: '100%', fontSize: 12 }}
+                                    >
+                                      <RowWithCheckbox
+                                        label={
+                                          <Label
+                                            as='label'
+                                            style={{ fontSize: 13 }}
+                                          >
+                                            <Tooltip
+                                              style={tooltipStyle(styledTheme)}
+                                              content='Project each document onto the columns declared below, using their destination type, instead of landing it whole in a single JSON column.'
+                                            >
+                                              Structured ingestion
+                                            </Tooltip>
+                                          </Label>
+                                        }
+                                        action={
+                                          <Checkbox
+                                            style={{ marginLeft: 0 }}
+                                            disabled={row.editingDisabled}
+                                            checked={structuredIngestionEnabled(
+                                              row
+                                            )}
+                                            onCheckedChange={(state: boolean) =>
+                                              updateStructuredIngestion(
+                                                row.source,
+                                                state
+                                              )
+                                            }
+                                          />
+                                        }
+                                      />
+                                      {structuredIngestionEnabled(row) && (
+                                        <RowWithCheckbox
+                                          label={
+                                            <Label
+                                              as='label'
+                                              style={{ fontSize: 13 }}
+                                            >
+                                              <Tooltip
+                                                style={tooltipStyle(
+                                                  styledTheme
+                                                )}
+                                                content='Report values that do not fit their destination type without including the values themselves, only the field and the reason.'
+                                              >
+                                                Drop unexpected values from
+                                                reports
+                                              </Tooltip>
+                                            </Label>
+                                          }
+                                          action={
+                                            <Checkbox
+                                              style={{ marginLeft: 0 }}
+                                              disabled={row.editingDisabled}
+                                              checked={
+                                                structuredIngestionConfig(row)
+                                                  ?.dropUnexpectedValues ??
+                                                false
+                                              }
+                                              onCheckedChange={(
+                                                state: boolean
+                                              ) =>
+                                                updateDropUnexpectedValues(
+                                                  row.source,
+                                                  state
+                                                )
+                                              }
+                                            />
+                                          }
+                                        />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <CustomColumnType
                                   columns={columns}
@@ -617,6 +744,13 @@ export default function SchemaBox({
                           >
                             No columns in {row.source}
                           </Label>
+                        )}
+                        {structuredIngestionEnabled(row) && (
+                          <StructuredColumns
+                            tableRow={row}
+                            setRows={setRows}
+                            disabled={row.editingDisabled}
+                          />
                         )}
                       </div>
                     )}

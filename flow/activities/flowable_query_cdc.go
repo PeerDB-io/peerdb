@@ -296,7 +296,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
 	destTable := tableMapping.DestinationTableIdentifier
-	nameAndExclude := model.NewNameAndExclude(destTable, tableMapping.Exclude)
+	sourceTableMapping := model.NewSourceTableMapping(destTable, tableMapping.Exclude)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 
 	wasLagging := false
@@ -357,7 +357,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					Env:                    config.Env,
 					FlowJobName:            flowName,
 					SourceTableIdentifier:  sourceTable,
-					NameAndExclude:         nameAndExclude,
+					SourceTableMapping:     sourceTableMapping,
 					TableSchema:            tableNameSchemaMapping[destTable],
 					Cursor:                 state.CursorText,
 					QueryCDCSafetyLag:      queryCDCSafetyLag,

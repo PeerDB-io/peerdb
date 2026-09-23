@@ -667,9 +667,9 @@ func (s CockroachDBSuite) Test_CDC_Live_PullRecords() {
 	makeRequest := func(offset model.CdcCheckpoint) *model.PullRecordsRequest[model.RecordItems] {
 		return &model.PullRecordsRequest[model.RecordItems]{
 			FlowJobName: flowName,
-			TableNameMapping: map[string]model.NameAndExclude{
-				plainSrc: model.NewNameAndExclude("cdc_rows_dst", nil),
-				mixedSrc: model.NewNameAndExclude("cdc_mixed_dst", nil),
+			TableNameMapping: map[string]model.SourceTableMapping{
+				plainSrc: model.NewSourceTableMapping("cdc_rows_dst", nil),
+				mixedSrc: model.NewSourceTableMapping("cdc_mixed_dst", nil),
 			},
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				"cdc_rows_dst":  schemas[plainSrc],
@@ -819,7 +819,7 @@ func (s CockroachDBSuite) Test_CDC_Exactly_Once_Across_Batches() {
 	makeRequest := func(offset model.CdcCheckpoint) *model.PullRecordsRequest[model.RecordItems] {
 		return &model.PullRecordsRequest[model.RecordItems]{
 			FlowJobName:            flowName,
-			TableNameMapping:       map[string]model.NameAndExclude{src: model.NewNameAndExclude("cdc_exact_dst", nil)},
+			TableNameMapping:       map[string]model.SourceTableMapping{src: model.NewSourceTableMapping("cdc_exact_dst", nil)},
 			TableNameSchemaMapping: map[string]*protos.TableSchema{"cdc_exact_dst": schemas[src]},
 			LastOffset:             offset,
 			MaxBatchSize:           1000,
@@ -898,7 +898,7 @@ func (s CockroachDBSuite) Test_CDC_Schema_Delta_At_Event_Time() {
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            flowName,
-		TableNameMapping:       map[string]model.NameAndExclude{src: model.NewNameAndExclude("delta_dst", nil)},
+		TableNameMapping:       map[string]model.SourceTableMapping{src: model.NewSourceTableMapping("delta_dst", nil)},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{"delta_dst": schemas[src]},
 		LastOffset:             lastOffset,
 		MaxBatchSize:           1000,
@@ -987,7 +987,7 @@ func (s CockroachDBSuite) runPullAgainstBreakage(
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            flowName,
-		TableNameMapping:       map[string]model.NameAndExclude{src: model.NewNameAndExclude("breakage_dst", nil)},
+		TableNameMapping:       map[string]model.SourceTableMapping{src: model.NewSourceTableMapping("breakage_dst", nil)},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{"breakage_dst": schemas[src]},
 		LastOffset:             lastOffset,
 		MaxBatchSize:           1000,
@@ -1074,7 +1074,7 @@ func (s CockroachDBSuite) Test_CDC_Cursor_Past_GC_Is_Terminal() {
 		attemptCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		req := &model.PullRecordsRequest[model.RecordItems]{
 			FlowJobName:            flowName,
-			TableNameMapping:       map[string]model.NameAndExclude{src: model.NewNameAndExclude("gc_dst", nil)},
+			TableNameMapping:       map[string]model.SourceTableMapping{src: model.NewSourceTableMapping("gc_dst", nil)},
 			TableNameSchemaMapping: map[string]*protos.TableSchema{"gc_dst": schemas[src]},
 			LastOffset:             lastOffset,
 			MaxBatchSize:           1000,
