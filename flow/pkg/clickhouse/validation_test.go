@@ -173,18 +173,18 @@ func TestValidateTableCapacity(t *testing.T) {
 		))
 	})
 
-	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
-		"GRANT SELECT ON system.server_settings TO %s", QuoteIdentifier(restrictedUser),
-	)))
+	require.NoError(t, adminConn.Exec(ctx,
+		"GRANT SELECT ON system.server_settings TO "+QuoteIdentifier(restrictedUser),
+	))
 	t.Run("missing metrics privileges skips validation", func(t *testing.T) {
 		require.NoError(t, ValidateTableCapacity(
 			t.Context(), nopLogger{}, restrictedConn, tableNames[:maxTables], 1, false,
 		))
 	})
 
-	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
-		"GRANT SELECT ON system.metrics TO %s", QuoteIdentifier(restrictedUser),
-	)))
+	require.NoError(t, adminConn.Exec(ctx,
+		"GRANT SELECT ON system.metrics TO "+QuoteIdentifier(restrictedUser),
+	))
 
 	// Exercise enforcement with the same user once both required grants are present.
 	t.Run("one missing table fits", func(t *testing.T) {
