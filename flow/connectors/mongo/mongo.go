@@ -68,6 +68,7 @@ type MongoConnector struct {
 	ssh                  *utils.SSHTunnel
 	createChangeStream   createChangeStreamFunc
 	excludedOps          []operationType
+	deletePreimage       bool
 	totalBytesRead       atomic.Int64
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration

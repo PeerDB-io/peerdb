@@ -55,12 +55,13 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
-	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
-	WallTime      *time.Time     `bson:"wallTime,omitempty"`
-	Ns            Namespace      `bson:"ns"`
-	OperationType string         `bson:"operationType"`
-	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
-	ClusterTime   bson.Timestamp `bson:"clusterTime"`
+	FullDocument             *bson.Raw      `bson:"fullDocument,omitempty"`
+	FullDocumentBeforeChange *bson.Raw      `bson:"fullDocumentBeforeChange,omitempty"`
+	WallTime                 *time.Time     `bson:"wallTime,omitempty"`
+	Ns                       Namespace      `bson:"ns"`
+	OperationType            string         `bson:"operationType"`
+	DocumentKey              bson.Raw       `bson:"documentKey,omitempty"`
+	ClusterTime              bson.Timestamp `bson:"clusterTime"`
 }
 
 const mongoClockOffsetTTL = time.Hour
@@ -187,7 +188,7 @@ func (c *MongoConnector) SetupReplication(
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup)
 
-	pipeline, err := createPipeline(nil, nil)
+	pipeline, err := createPipeline(nil, nil, false)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
 	}
@@ -269,6 +270,7 @@ func (c *MongoConnector) recordSender(
 
 type encodedMongoEvent struct {
 	maybeFullDocument    *bson.Raw
+	maybeBeforeDocument  *bson.Raw
 	operationType        operationType
 	sourceTableName      string
 	destinationTableName string
@@ -310,6 +312,17 @@ func (c *MongoConnector) decodeEvent(
 			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert document: %w", err)
+			}
+			items.AddColumn(fullDocumentColumnName, qValue)
+		} else if event.maybeBeforeDocument != nil && len(*event.maybeBeforeDocument) > 0 {
+			// Deletes never carry `fullDocument`. When PEERDB_MONGODB_DELETE_PREIMAGE is enabled
+			// and the source collection has changeStreamPreAndPostImages enabled, the pipeline
+			// carries `fullDocumentBeforeChange`, the document as it stood immediately before the
+			// delete, so the destination can populate partition/sort key columns on the tombstone
+			// row instead of defaulting them.
+			qValue, err := converter.QValueJSONFromDocument(*event.maybeBeforeDocument)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert before-change document: %w", err)
 			}
 			items.AddColumn(fullDocumentColumnName, qValue)
 		} else {
@@ -384,6 +397,12 @@ func (c *MongoConnector) PullRecords(
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
 
+	if c.deletePreimage {
+		// whenAvailable, never required: collections without changeStreamPreAndPostImages omit
+		// the field rather than failing the stream.
+		changeStreamOpts.SetFullDocumentBeforeChange(options.WhenAvailable)
+	}
+
 	var resumeToken bson.Raw
 	var err error
 	mongoClockOffset, err := c.getMongoClockOffset(ctx)
@@ -401,7 +420,7 @@ func (c *MongoConnector) PullRecords(
 		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
-	pipeline, err := createPipeline(req.TableNameMapping, c.excludedOps)
+	pipeline, err := createPipeline(req.TableNameMapping, c.excludedOps, c.deletePreimage)
 	if err != nil {
 		return err
 	}
@@ -683,6 +702,7 @@ func (c *MongoConnector) PullRecords(
 		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,
+			maybeBeforeDocument:  changeEvent.FullDocumentBeforeChange,
 			operationType:        operationType(changeEvent.OperationType),
 			sourceTableName:      sourceTableName,
 			destinationTableName: destinationTableName,
@@ -737,7 +757,11 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
-func createPipeline(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) (mongo.Pipeline, error) {
+func createPipeline(
+	tableNameMapping map[string]model.SourceTableMapping,
+	excludedOps []operationType,
+	deletePreimage bool,
+) (mongo.Pipeline, error) {
 	pipeline := mongo.Pipeline{}
 
 	// filter out events from tables that are not in the mapping
@@ -780,16 +804,30 @@ func createPipeline(tableNameMapping map[string]model.SourceTableMapping, exclud
 	// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
 	// themselves have a 16MB limit, project required fields for now for code simplicity.
 	// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
-	pipeline = append(pipeline,
-		bson.D{{Key: "$project", Value: bson.D{
-			{Key: "operationType", Value: 1},
-			{Key: "clusterTime", Value: 1},
-			{Key: "wallTime", Value: 1},
-			{Key: "documentKey", Value: 1},
-			{Key: "fullDocument", Value: 1},
-			{Key: "ns", Value: 1},
-		}}},
-	)
+	projection := bson.D{
+		{Key: "operationType", Value: 1},
+		{Key: "clusterTime", Value: 1},
+		{Key: "wallTime", Value: 1},
+		{Key: "documentKey", Value: 1},
+		{Key: "fullDocument", Value: 1},
+		{Key: "ns", Value: 1},
+	}
+
+	// Carry the pre-image on deletes only. `fullDocumentBeforeChange` is populated by MongoDB for
+	// update and replace as well, and keeping it there would put both copies of the document in a
+	// single change event, halving the effective 16 MiB event budget for no benefit: those
+	// operations already carry `fullDocument`.
+	if deletePreimage {
+		projection = append(projection, bson.E{Key: "fullDocumentBeforeChange", Value: bson.D{
+			{Key: "$cond", Value: bson.D{
+				{Key: "if", Value: bson.D{{Key: "$eq", Value: bson.A{"$operationType", string(operationTypeDelete)}}}},
+				{Key: "then", Value: "$fullDocumentBeforeChange"},
+				{Key: "else", Value: "$$REMOVE"},
+			}},
+		}})
+	}
+
+	pipeline = append(pipeline, bson.D{{Key: "$project", Value: projection}})
 
 	return pipeline, nil
 }
@@ -849,6 +887,16 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 	if len(c.excludedOps) > 0 {
 		c.logger.Info("excluding operation types from replication", slog.Any("operationTypes", c.excludedOps))
 	}
+	deletePreimage, err := internal.PeerDBMongoDBDeletePreimage(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to get delete pre-image setting: %w", err)
+	}
+	// Deletes aren't being replicated at all, so a pre-image would be dead weight.
+	c.deletePreimage = deletePreimage && !slices.Contains(c.excludedOps, operationTypeDelete)
+	if c.deletePreimage {
+		c.logger.Info("retrieving pre-image for delete events")
+	}
+
 	numParallelDecodeWorkers, err := internal.PeerDBMongoDBNumParallelDecodeThreads(ctx, env)
 	if err != nil {
 		return err
