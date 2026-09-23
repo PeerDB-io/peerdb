@@ -390,7 +390,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &reportedRows))
 	require.Equal(t, uint64(20), nestedRows)
 	// TODO: Complete support for Arrays so this case is covered (and uncomment this case)
-	//require.Equal(t, uint64(20), arrayRows)
+	// require.Equal(t, uint64(20), arrayRows)
 	require.Equal(t, uint64(20), reportedRows)
 	// per leg, the nested document survives whole and the array value is reported verbatim
 	for _, prefix := range []string{"init", "cdc"} {
