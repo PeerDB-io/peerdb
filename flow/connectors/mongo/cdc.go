@@ -339,8 +339,13 @@ func (c *MongoConnector) decodeEvent(
 			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
 				document = *event.maybeFullDocument
 			}
-			fields, walkErr := DocumentQValueIterator(document, converter)
-			items, err = projector.ApplyRecordSchema(fields)
+
+			// This is where the MongoDB specific document iterator is
+			// created and passed to the generic structured ingestion logic.
+			// `DocumentQValueIterator` is the entry point for the document
+			// to QValue translation.
+			fieldsIterator, walkErr := DocumentQValueIterator(document, converter)
+			items, err = projector.ApplyRecordSchema(fieldsIterator)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
 			}
