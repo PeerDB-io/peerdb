@@ -5,12 +5,14 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import { Dispatch, SetStateAction, useCallback } from 'react';
+import { useTheme } from 'styled-components';
 import {
   COLUMN_TYPE_PATTERN,
   structuredColumnIssues,
 } from '../helpers/structured';
-import { columnBoxDividerStyle } from './styles';
+import { columnBoxDividerStyle, tooltipStyle } from './styles';
 
 interface StructuredColumnsProps {
   tableRow: TableMapRow;
@@ -27,6 +29,7 @@ export default function StructuredColumns({
   setRows,
   disabled,
 }: StructuredColumnsProps) {
+  const styledTheme = useTheme();
   const updateColumns = useCallback(
     (update: (columns: TableMapRow['columns']) => TableMapRow['columns']) => {
       setRows((prev) =>
@@ -95,16 +98,21 @@ export default function StructuredColumns({
       }}
     >
       <hr style={{ ...columnBoxDividerStyle, marginTop: '0.5rem' }} />
-      <Label as='label' style={{ fontSize: 13 }}>
-        Structured columns
-      </Label>
-      <Label as='label' colorName='lowContrast' style={{ fontSize: 12 }}>
-        Fields to project out of each document, with the destination type to
-        store them as. Each field lands in a column of the same name. Nested
-        fields are addressed with dots, and a type can be wrapped in
-        Nullable(...) to accept missing values. Fields left out are not
-        replicated.
-      </Label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        <Label as='label' style={{ fontSize: 13 }}>
+          Structured columns
+        </Label>
+        <Tooltip
+          style={{
+            ...tooltipStyle(styledTheme),
+            width: 'auto',
+            maxWidth: '24rem',
+          }}
+          content='Fields to project out of each document, with the destination type to store them as. Each field lands in a column of the same name. Nested fields are addressed with dots, and a type can be wrapped in Nullable(...) to accept missing values. Fields left out are not replicated.'
+        >
+          <Icon name='info' />
+        </Tooltip>
+      </div>
 
       {tableRow.columns.map((column, index) => {
         const invalidType =
