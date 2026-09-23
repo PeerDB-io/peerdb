@@ -141,10 +141,6 @@ func TestValidateTableCapacity(t *testing.T) {
 		tableNames[i] = fmt.Sprintf("%s_%d", tablePrefix, i)
 	}
 
-	t.Run("one missing table fits", func(t *testing.T) {
-		require.NoError(t, ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:1], 0, false))
-	})
-
 	restrictedUser := "capacity_user_" + strings.ToLower(common.RandomString(8))
 	restrictedPassword := common.RandomString(16)
 	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
@@ -177,8 +173,26 @@ func TestValidateTableCapacity(t *testing.T) {
 		))
 	})
 
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"GRANT SELECT ON system.server_settings TO %s", QuoteIdentifier(restrictedUser),
+	)))
+	t.Run("missing metrics privileges skips validation", func(t *testing.T) {
+		require.NoError(t, ValidateTableCapacity(
+			t.Context(), nopLogger{}, restrictedConn, tableNames[:maxTables], 1, false,
+		))
+	})
+
+	require.NoError(t, adminConn.Exec(ctx, fmt.Sprintf(
+		"GRANT SELECT ON system.metrics TO %s", QuoteIdentifier(restrictedUser),
+	)))
+
+	// Exercise enforcement with the same user once both required grants are present.
+	t.Run("one missing table fits", func(t *testing.T) {
+		require.NoError(t, ValidateTableCapacity(t.Context(), nopLogger{}, restrictedConn, tableNames[:1], 0, false))
+	})
+
 	t.Run("missing tables and raw table exceed limit", func(t *testing.T) {
-		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames[:maxTables], 1, false)
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, restrictedConn, tableNames[:maxTables], 1, false)
 		var capacityErr *TableCapacityExceededError
 		require.ErrorAs(t, err, &capacityErr)
 		require.Equal(t, maxTables, capacityErr.MaxTables)
@@ -191,7 +205,7 @@ func TestValidateTableCapacity(t *testing.T) {
 	)))
 
 	t.Run("existing table is skipped", func(t *testing.T) {
-		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames, 0, false)
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, restrictedConn, tableNames, 0, false)
 		var capacityErr *TableCapacityExceededError
 		require.ErrorAs(t, err, &capacityErr)
 		require.Equal(t, maxTables, capacityErr.MaxTables)
@@ -199,7 +213,7 @@ func TestValidateTableCapacity(t *testing.T) {
 	})
 
 	t.Run("existing resync table reserves transient slot", func(t *testing.T) {
-		err := ValidateTableCapacity(t.Context(), nopLogger{}, conn, tableNames, 0, true)
+		err := ValidateTableCapacity(t.Context(), nopLogger{}, restrictedConn, tableNames, 0, true)
 		var capacityErr *TableCapacityExceededError
 		require.ErrorAs(t, err, &capacityErr)
 		require.Equal(t, maxTables, capacityErr.MaxTables)
