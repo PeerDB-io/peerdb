@@ -615,6 +615,8 @@ message CDCFlowConfigUpdate {
   bool skip_initial_snapshot_for_table_additions = 11;
   // removes keys from the env map, applied after updated_env
   repeated string removed_env = 12;
+  // Replaces the BigQuery query CDC settings when present. An absent message leaves them unchanged.
+  QueryCdcConfig query_cdc = 13;
 }
 
 message QRepFlowConfigUpdate {
