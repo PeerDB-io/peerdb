@@ -1293,6 +1293,21 @@ func TestMongoKeyNotFoundShouldBeRecoverable(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoRetryChangeStreamShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    234,
+		Name:    "RetryChangeStream",
+		Message: "Optimized change-stream updateLookup was disabled; resuming on the legacy path",
+		Labels:  []string{"ResumableChangeStreamError"},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "234",
+	}, errInfo)
+}
+
 func TestMongoCursorErrors(t *testing.T) {
 	err := mongo.CommandError{
 		Code:    6,

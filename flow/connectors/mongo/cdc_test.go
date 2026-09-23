@@ -43,6 +43,9 @@ const (
 	// fatal returns false on Next() with an error that is neither a timeout nor a
 	// missing resume token, so PullRecords has to give up.
 	fatal
+	// retryChangeStream returns false on Next() with the server's RetryChangeStream (234)
+	// error, which asks the client to reopen the stream from its resume token.
+	retryChangeStream
 )
 
 type mockChangeStream struct {
@@ -122,6 +125,9 @@ func (cs *mockChangeStream) Next(ctx context.Context) bool {
 	case fatal:
 		cs.err = errFatalChangeStream
 		return false
+	case retryChangeStream:
+		cs.err = errRetryChangeStream
+		return false
 	default:
 		cs.t.Fatalf("mockChangeStream: unknown label %d", label)
 		return false
@@ -129,6 +135,14 @@ func (cs *mockChangeStream) Next(ctx context.Context) bool {
 }
 
 var errFatalChangeStream = errors.New("mock change stream failure")
+
+// errRetryChangeStream mirrors what the Go driver surfaces when a MongoDB 9.0 server retires an
+// optimized-updateLookup cursor after the feature flag was turned off at runtime.
+var errRetryChangeStream = mongo.CommandError{
+	Code:    234,
+	Name:    "RetryChangeStream",
+	Message: "Optimized change-stream updateLookup was disabled; resuming on the legacy path",
+}
 
 func mockEventID(n int) string { return fmt.Sprintf("ev-%04d", n) }
 
@@ -167,7 +181,7 @@ func (cs *mockChangeStream) replicableThrough(idx int) []string {
 			inserts++
 		case nullIdInsert:
 			ids = append(ids, "ev-undecodable")
-		case idle, unsupportedOp, fatal:
+		case idle, unsupportedOp, fatal, retryChangeStream:
 		}
 	}
 	return ids
@@ -329,6 +343,88 @@ func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
 	require.Equal(t, 2, streamCreations)
 	require.Len(t, mockStore.persisted, 1)
 	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[0])), mockStore.persisted[0].Text)
+}
+
+func TestRetryChangeStreamErrorRecovery(t *testing.T) {
+	ctx := t.Context()
+	logs := captureSlog(t)
+
+	// The server retires the cursor with RetryChangeStream; expect changestream to be recreated
+	mockCS := newMockChangeStream(t, insert, retryChangeStream, insert, idle)
+	mockStore := &mockMetadataStore{}
+	streamCreations := 0
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(t.Context()),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			streamCreations++
+			return mockCS, nil
+		},
+		metadataStore: mockStore,
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            "test_mongo_retry_change_stream",
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	require.NoError(t, connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req))
+	require.Equal(t, 2, streamCreations)
+	require.Equal(t, 2, mockCS.inserts)
+	require.Equal(t, mockCS.tokenAt(3), req.RecordStream.GetLastCheckpoint().Text)
+	require.Contains(t, logs.String(), "recreated change stream because server requested a retry")
+	require.NotContains(t, logs.String(), "change stream error")
+}
+
+func TestRetryChangeStreamRecoveriesAreBounded(t *testing.T) {
+	ctx := t.Context()
+
+	// A server that keeps retiring fresh cursors must not loop forever: surface as error after maxRetryChangeStreamReopens
+	iterations := make([]iterationType, 0, maxRetryChangeStreamReopens+1)
+	for range maxRetryChangeStreamReopens + 1 {
+		iterations = append(iterations, retryChangeStream)
+	}
+	mockCS := newMockChangeStream(t, iterations...)
+	streamCreations := 0
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(t.Context()),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			streamCreations++
+			return mockCS, nil
+		},
+		metadataStore: &mockMetadataStore{},
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            "test_mongo_retry_change_stream_bounded",
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	err = connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req)
+	require.ErrorContains(t, err, "change stream error: (RetryChangeStream) Optimized change-stream updateLookup was disabled")
+	var cmdErr mongo.CommandError
+	require.ErrorAs(t, err, &cmdErr)
+	require.Equal(t, int32(234), cmdErr.Code)
+	require.Equal(t, maxRetryChangeStreamReopens+1, streamCreations)
 }
 
 func TestChangeStreamReportsCollectionDDLToUser(t *testing.T) {
