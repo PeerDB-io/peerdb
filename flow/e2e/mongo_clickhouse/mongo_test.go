@@ -1018,6 +1018,240 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_Dele
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_CDC_Delete_Preimage replicates two collections that both have changeStreamPreAndPostImages
+// enabled, with delete pre-images enabled in the table mapping of only one of them: its deleted row
+// keeps the document's values in `doc`, while the other collection's deleted row has an empty `doc`.
+func (s MongoClickhouseSuite) Test_CDC_Delete_Preimage() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_delete_preimage"
+	dstTable := "test_delete_preimage_dst"
+	srcTableWithout := "test_delete_without_preimage"
+	dstTableWithout := "test_delete_without_preimage_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable, srcTableWithout, dstTableWithout)
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
+	for _, table := range []string{srcTable, srcTableWithout} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), table, preAndPostImages))
+	}
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// a string `_id` lands as is, so the destination row can be looked up by it
+	const documentID = "preimage-doc"
+	// the `doc` fields of the latest version of the document's row, and whether that row is a delete;
+	// ok is false when there is no row yet
+	readRow := func(table string) (map[string]any, bool, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT toString(doc), _peerdb_is_deleted FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, table, documentID))
+		if err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return nil, false, false
+		}
+		var doc string
+		var deleted uint8
+		if err := rows.Scan(&doc, &deleted); err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(doc), &fields); err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		return fields, deleted != 0, true
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	for _, table := range []string{srcTable, srcTableWithout} {
+		insertRes, err := adminClient.Database(srcDatabase).Collection(table).InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: documentID},
+			{Key: "name", Value: "Alice"},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	for _, table := range []string{dstTable, dstTableWithout} {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, "insert event into "+table, func() bool {
+			fields, deleted, ok := readRow(table)
+			return ok && !deleted && fields["name"] == "Alice"
+		})
+	}
+
+	for _, table := range []string{srcTable, srcTableWithout} {
+		deleteRes, err := adminClient.Database(srcDatabase).Collection(table).DeleteOne(t.Context(),
+			bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), deleteRes.DeletedCount)
+	}
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event carrying the pre-image", func() bool {
+		fields, deleted, ok := readRow(dstTable)
+		return ok && deleted && fields["name"] == "Alice"
+	})
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event without the pre-image", func() bool {
+		fields, deleted, ok := readRow(dstTableWithout)
+		return ok && deleted && len(fields) == 0
+	})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_CDC_Delete_Preimage is Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc's
+// delete with delete pre-images enabled: the deleted row keeps the document's values in its structured
+// columns instead of NULL.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_Delete_Preimage() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_delete_preimage"
+	dstTable := "test_structured_delete_preimage_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable,
+		options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})))
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	const documentID = "structured-preimage-doc"
+	type row struct {
+		name    *string
+		age     *int64
+		deleted bool
+	}
+	// the latest version of the document's row, deleted or not; false when there is none yet
+	readRow := func() (row, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT name, age, _peerdb_is_deleted FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, dstTable, documentID))
+		if err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return row{}, false
+		}
+		var r row
+		var deleted uint8
+		if err := rows.Scan(&r.name, &r.age, &deleted); err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		r.deleted = deleted != 0
+		return r, true
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	waitForRow := func(reason string, expected row) {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+			actual, ok := readRow()
+			return ok && reflect.DeepEqual(expected, actual)
+		})
+	}
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{
+		{Key: "_id", Value: documentID},
+		{Key: "name", Value: "Alice"},
+		{Key: "age", Value: int64(30)},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	waitForRow("insert event", row{name: new("Alice"), age: new(int64(30))})
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	// the pre-image is projected like a `fullDocument`, so the deleted row keeps its values
+	waitForRow("delete event", row{name: new("Alice"), age: new(int64(30)), deleted: true})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Delete_Preimage_Validation checks that a mirror enabling delete pre-images on a collection fails
+// validation while the collection does not have changeStreamPreAndPostImages enabled, and passes after.
+func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_delete_preimage_validation"
+	dstTable := "test_delete_preimage_validation_dst"
+
+	apiClient, err := e2e.NewApiClient()
+	require.NoError(t, err)
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(t, grpcStatus.Message(), "changeStreamPreAndPostImages")
+	require.Contains(t, grpcStatus.Message(), srcDatabase+"."+srcTable)
+
+	require.NoError(t, adminClient.Database(srcDatabase).RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: srcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: true}}},
+	}).Err())
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
