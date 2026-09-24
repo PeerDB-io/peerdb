@@ -61,7 +61,7 @@ Tilt manages Docker Compose services defined in `docker-compose-dev.yml` (core P
 | `e2e_postgres` | `TestGenericCH_PG` | postgres, clickhouse |
 | `e2e_mysql-gtid` | `TestGenericCH_MySQL` | mysql-gtid, clickhouse |
 | `e2e_mysql-pos` | `TestGenericCH_MySQL` | mysql-pos, clickhouse |
-| `e2e_mariadb` | `TestGenericCH_MySQL` | mariadb, clickhouse |
+| `e2e_mariadb` | `TestGenericCH_MariaDB` | mariadb, clickhouse |
 | `e2e_mongodb` | `TestMongoClickhouseSuite` | mongodb, clickhouse |
 | `e2e_switchboard-postgres` | `TestSwitchboardPostgres` | postgres, clickhouse |
 | `e2e_switchboard-mysql-gtid` | `TestSwitchboardMySQL` | mysql-gtid, clickhouse |
@@ -71,11 +71,11 @@ Tilt manages Docker Compose services defined in `docker-compose-dev.yml` (core P
 | `e2e_peer-flow-postgres` | `^TestPeerFlowE2ETestSuitePG_CH$` | postgres, clickhouse |
 | `e2e_peer-flow-mysql-gtid` | `^TestPeerFlowE2ETestSuiteMySQL_CH$` | mysql-gtid, clickhouse |
 | `e2e_peer-flow-mysql-pos` | `^TestPeerFlowE2ETestSuiteMySQL_CH$` | mysql-pos, clickhouse |
-| `e2e_peer-flow-mariadb` | `^TestPeerFlowE2ETestSuiteMySQL_CH$` | mariadb, clickhouse |
+| `e2e_peer-flow-mariadb` | `^TestPeerFlowE2ETestSuiteMariaDB_CH$` | mariadb, clickhouse |
 | `e2e_api-postgres` | `TestApiPg` | postgres, clickhouse |
 | `e2e_api-mysql-gtid` | `TestApiMy` | mysql-gtid, clickhouse |
 | `e2e_api-mysql-pos` | `TestApiMy` | mysql-pos, clickhouse |
-| `e2e_api-mariadb` | `TestApiMy` | mariadb, clickhouse |
+| `e2e_api-mariadb` | `TestApiMariaDB` | mariadb, clickhouse |
 | `e2e_api-mongodb` | `TestApiMongo` | mongodb, clickhouse |
 
 All e2e tests also depend on core PeerDB services: `flow-api`, `flow-worker`, `catalog`, and `provision-clickhouse`.

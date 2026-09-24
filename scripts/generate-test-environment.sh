@@ -7,14 +7,14 @@ if [ -f "$ENVIRONMENT_FILE" ]; then
     exit 0;
 fi
 
-#export POSTGRES_VERSION=18;
-#VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[] | select((.pg | tostring) == strenv(POSTGRES_VERSION))')
-VERSIONS=$(cat "$FLOW_WORKFLOW" | yq '.jobs.flow_test.strategy.matrix."db-version"[-1]') # Select last version row in the matrix.
+# Use the last version of a source in the flow.yml matrix as its local default.
+default_version() {
+    yq -r ".jobs.flow_test.strategy.matrix.target | map(select(.job == \"$1\")) | .[-1].version" "$FLOW_WORKFLOW"
+}
 
-# Resolve a flavor label to its docker image using the
-# version-configs mapping in the flow.yml matrix for the default version (last row).
+# Resolve a flavor label to its docker image using the flow.yml image mapping.
 flavor_image() {
-    cat "$FLOW_WORKFLOW" | yq -r ".jobs.flow_test.strategy.matrix.\"version-configs\"[-1].$1.\"$2\""
+    yq -r ".jobs.flow_test.strategy.matrix.images[0].$1.\"$2\"" "$FLOW_WORKFLOW"
 }
 
 # Use explicitly set <DB>_IMAGE wins if present; otherwise the image is derived from
@@ -40,14 +40,14 @@ fi;
 
 if [ -z "$POSTGRES_IMAGE" ]; then
     if [ -z "$POSTGRES_VERSION" ]; then
-        POSTGRES_VERSION=$(echo "$VERSIONS" | yq -r '.pg')
+        POSTGRES_VERSION=$(default_version postgres_clickhouse)
     fi
     POSTGRES_IMAGE="imresamu/postgis:${POSTGRES_VERSION}-3.5-alpine"
 fi;
 
 if [ -z "$MONGODB_IMAGE" ]; then
     if [ -z "$MONGODB_VERSION" ]; then
-        MONGODB_VERSION=$(echo "$VERSIONS" | yq -r '.mongo')
+        MONGODB_VERSION=$(default_version mongo_clickhouse)
     fi
     MONGODB_IMAGE="mongo:${MONGODB_VERSION}"
 fi;
@@ -61,7 +61,7 @@ fi;
 
 if [ -z "$COCKROACHDB_IMAGE" ]; then
     if [ -z "$COCKROACHDB_VERSION" ]; then
-        COCKROACHDB_VERSION=$(echo "$VERSIONS" | yq -r '.crdb')
+        COCKROACHDB_VERSION=$(default_version cockroachdb_clickhouse)
     fi
     COCKROACHDB_IMAGE=$(flavor_image cockroachdb "$COCKROACHDB_VERSION")
 fi;

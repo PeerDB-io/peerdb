@@ -42,13 +42,13 @@ If a service fails to come up after **two** re-triggers, stop retrying and inspe
 Direct `go test`:
 
 ```bash
-cd flow && go test -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/<source>_<destination>/
+cd flow && go test -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/mysql_clickhouse/
 ```
 
 or
 
 ```bash
-cd flow && go test -tags integration -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/<connector>/...
+cd flow && go test -tags integration -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/mysql/...
 ```
 
 Note: For MySQL tests, set the flavor overrides:

@@ -1,29 +1,35 @@
 name: tilt-flow
-run-name: 'tilt-flow: ${{ inputs.test_matcher }} [services: ${{ inputs.ancillary_services }}]'
+run-name: 'tilt-flow: ${{ inputs.run_label }} [services: ${{ inputs.ancillary_services }}]'
 
 # Tilt orchestrated e2e tests flow.
 #
 # This workflow can be triggered manually (workflow_dispatch) or reused by another
-# workflow (workflow_call, e.g. flow.yml): pick the Go test matcher to run and the
-# ancillary services it needs.
+# workflow (workflow_call, e.g. flow.yml): choose package lists and the
+# ancillary services they need.
 on:
   workflow_dispatch:
     inputs: &tilt_flow_inputs
-      test_matcher:
-        description: >-
-          Go test matcher passed to `go test -run` (a regex). The tests run on the
-          host against the Tilt-provided stack, over ./... so the matcher alone
-          selects what runs. Examples: "TestGenericCH_PG", "TestMongoClickhouseSuite",
-          "^TestPeerFlowE2ETestSuitePG_CH$", "TestApiPg". Leave empty to run everything.
+      e2e_packages:
+        description: Space-separated e2e package patterns relative to flow/.
         type: string
         required: false
-        default: TestGenericCH_PG
+        default: ./e2e/postgres_clickhouse/...
+      integration_packages:
+        description: Space-separated integration package patterns relative to flow/.
+        type: string
+        required: false
+        default: ''
+      pkg_integration_packages:
+        description: Space-separated integration package patterns relative to flow/pkg/.
+        type: string
+        required: false
+        default: ''
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
         type: string
         required: false
-        default: postgres clickhouse
+        default: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 postgres
       checkout_ref:
         description: >-
           Git ref or SHA to check out. Leave empty to use the triggering event's
@@ -48,7 +54,7 @@ on:
         default: ''
       # The <db>_image inputs pin the docker images of the ancillary DBs.
       # When empty, default to last combination declared at flow.yml
-      # following generate-test-environment.sh's defaults.
+      # following scripts/generate-test-environment.sh's defaults.
       postgres_image:
         description: Docker image for the postgres/postgres2 ancillary services (POSTGRES_IMAGE).
         type: string
@@ -157,7 +163,7 @@ concurrency:
   # - Consecutive commits in a PR branch cancel their builds.
   # - Consecutive commits in main do not cancel each other's runs.
   #
-  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.test_matcher }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ inputs.cockroachdb_image }}-${{ github.event_name == 'push' && github.sha || '' }}
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ inputs.cockroachdb_image }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
@@ -176,7 +182,7 @@ env:
   # health polls.
   MIN_RECOVERY_TIME: "3"
   MAX_RECOVERY_TIME: "5"
-  # Ancillary DB image pins consumed by generate-test-environment.sh, which the
+  # Ancillary DB image pins consumed by scripts/generate-test-environment.sh, which the
   # Tiltfile runs on `tilt up`. Empty values fall back to the script's
   # defaults.
   POSTGRES_IMAGE: ${{ inputs.postgres_image }}
@@ -203,8 +209,8 @@ env:
   FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
 
 jobs:
-  tilt_flow_test:
-    runs-on: ubuntu-latest-16-cores
+  tilt:
+    runs-on: ubuntu-latest-64-core
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
@@ -224,7 +230,7 @@ jobs:
         id: run-identity
         env:
           RUN_LABEL: ${{ inputs.run_label }}
-          RAW_IDENTITY: "${{ inputs.test_matcher }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }} ${{ inputs.cockroachdb_image }}"
+          RAW_IDENTITY: "${{ inputs.e2e_packages }} ${{ inputs.integration_packages }} ${{ inputs.pkg_integration_packages }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }} ${{ inputs.cockroachdb_image }}"
         run: |
           label="${RUN_LABEL:-$RAW_IDENTITY}"
           suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
@@ -505,12 +511,13 @@ jobs:
           sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- "$RUNNER_TEMP/aws-global-bundle.pem" '/-----BEGIN CERTIFICATE-----/' '{*}'
           sudo update-ca-certificates
 
-      # Run the tests on the host against the Tilt-provided stack, selected by
-      # the Go test matcher.
+      # Run selected e2e and integration tests on the host against Tilt.
       - name: Run tests
         working-directory: ./flow
         env:
-          TEST_MATCHER: ${{ inputs.test_matcher }}
+          E2E_PACKAGES: ${{ inputs.e2e_packages }}
+          INTEGRATION_PACKAGES: ${{ inputs.integration_packages }}
+          PKG_INTEGRATION_PACKAGES: ${{ inputs.pkg_integration_packages }}
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
@@ -568,26 +575,96 @@ jobs:
           coverdir="$RUNNER_TEMP/gocoverdir"
           mkdir -p "$coverdir" ../logs
 
-          # Only scope by -run when a matcher was provided (empty => run everything).
-          run_args=()
-          if [ -n "${TEST_MATCHER// /}" ]; then
-            run_args=(-run "$TEST_MATCHER")
-          fi
+          COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
+          COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
 
-          gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
-            -tags integration -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
-            -args -test.gocoverdir="$coverdir"
+          time_selection() {
+            local label="$1"
+            shift
+            local TIMEFORMAT="selection $label: %3R s"
+            time "$@"
+          }
+
+          # Print the top-level Test* names for one package. A failed list is a
+          # compile failure and must fail the job instead of dropping the package.
+          list_tests() {
+            local pkg="$1" output
+            shift
+            output=$(time_selection "go test -list $pkg $*" go test -list '.' "$@" "$pkg") || {
+              printf '%s\n' "$output" >&2
+              return 1
+            }
+            printf '%s\n' "$output" | awk '/^Test/ {print $1}' | sort -u
+          }
+
+          # Tests added by the integration build tag are the service tests.
+          integration_only() {
+            local pkg="$1" base tagged rc
+            shift
+            base=$(mktemp)
+            tagged=$(mktemp)
+            list_tests "$pkg" "$@" > "$base"
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              list_tests "$pkg" -tags integration "$@" > "$tagged"
+              rc=$?
+            fi
+            if [ "$rc" -eq 0 ]; then
+              comm -13 "$base" "$tagged"
+            fi
+            rm -f "$base" "$tagged"
+            return "$rc"
+          }
+
+          run_selected_tests() {
+            local label="$1" e2e_patterns="$2" integration_patterns="$3" junitfile="$4" timeout="$5"
+            shift 5
+            local pkg expanded p sel name regex
+            local names=() pkgs=()
+
+            for pkg in $e2e_patterns; do
+              expanded=$(time_selection "go list $pkg" go list "$pkg") || return 1
+              for p in $expanded; do
+                sel=$(list_tests "$p" -tags integration "$@") || return 1
+                if [ -n "$sel" ]; then
+                  while IFS= read -r name; do names+=("$name"); done <<< "$sel"
+                  pkgs+=("$p")
+                fi
+              done
+            done
+            for pkg in $integration_patterns; do
+              expanded=$(time_selection "go list $pkg" go list "$pkg") || return 1
+              for p in $expanded; do
+                sel=$(integration_only "$p" "$@") || return 1
+                if [ -n "$sel" ]; then
+                  while IFS= read -r name; do names+=("$name"); done <<< "$sel"
+                  pkgs+=("$p")
+                fi
+              done
+            done
+            if [ ${#pkgs[@]} -eq 0 ]; then
+              echo "$label selection: 0 packages"
+              return 0
+            fi
+            regex="^($(printf '%s\n' "${names[@]}" | sort -u | paste -sd'|' -))$"
+            echo "$label selection: ${#pkgs[@]} packages, $(printf '%s\n' "${names[@]}" | sort -u | wc -l) tests"
+            for p in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$p"; done
+            gotestsum --format standard-quiet --no-color --junitfile "$junitfile" -- \
+              -tags integration "$@" -p 32 "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
+              -args -test.gocoverdir="$coverdir"
+          }
+
+          run_selected_tests flow "$E2E_PACKAGES" "$INTEGRATION_PACKAGES" ../logs/test-results.xml 1200s "${COVERFLAGS_FLOW[@]}"
           flow_rc=$?
 
-          # flow/pkg is a nested Go module, so ./... from flow does not include
-          # its packages. Run it explicitly against the same Tilt-provided stack.
-          (
-            cd pkg || exit 1
-            gotestsum --format standard-quiet --no-color --junitfile ../../logs/pkg-test-results.xml -- \
-              -tags integration -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 ./... "${run_args[@]}" -timeout 300s \
-              -args -test.gocoverdir="$coverdir"
-          )
-          pkg_rc=$?
+          pkg_rc=0
+          if [ -n "$PKG_INTEGRATION_PACKAGES" ]; then
+            (
+              cd pkg || exit 1
+              run_selected_tests pkg '' "$PKG_INTEGRATION_PACKAGES" ../../logs/pkg-test-results.xml 300s "${COVERFLAGS_PKG[@]}"
+            )
+            pkg_rc=$?
+          fi
 
           # Emit coverage even on test failure so the uploaded artifact always has data.
           go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
@@ -652,7 +729,7 @@ jobs:
           o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
 
       - name: Ingest pkg tests results for analysis
-        if: success() || failure()
+        if: (success() || failure()) && inputs.pkg_integration_packages != ''
         uses: ./.github/actions/ingest-test-results
         with:
           combination-id: "tilt-pkg-${{ steps.run-identity.outputs.suffix }}"

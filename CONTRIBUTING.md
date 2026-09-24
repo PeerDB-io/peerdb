@@ -7,3 +7,32 @@ Thanks for your interest in contributing to PeerDB! Bug reports, feature request
 Several destination connectors (Snowflake, BigQuery, ElasticSearch, Kafka including Confluent and Redpanda, Azure Event Hubs, Google Pub/Sub, and S3) are deprecated and no longer actively maintained. They remain fully functional, and no code is currently being removed. (BigQuery is deprecated only as a destination — it remains a supported source.)
 
 If you depend on one of these connectors, see the [deprecated connectors migration guide](docs/deprecated-connectors.md) for how to pin to a release or fork the relevant connector code.
+
+## Testing
+
+Flow tests have three tiers. Run commands from `flow/` unless a command says otherwise.
+
+| Tier | What it needs | Example |
+|---|---|---|
+| Unit | No Docker or external services | `go test $(go list ./... \| grep -v '/e2e$' \| grep -v '/e2e/')` |
+| Integration | Tilt services; files have `//go:build integration` | `go test -tags integration ./connectors/mysql/...` |
+| End to end | Tilt services; one source package under `e2e/` | `go test ./e2e/mysql_clickhouse/ -run TestGenericCH_MySQL` |
+
+Run the nested `flow/pkg` module separately: `cd pkg && go test ./...` for unit tests, or add `-tags integration` when its service tests are needed. Name files containing only service tests `*_integration_test.go`. Any test that opens a connection to a service belongs in an `integration` tagged file or an e2e package. The unit CI job starts no Docker services, so an untagged service connection will fail there. Tests that start an in-process test server can remain unit tests.
+
+To get diagnostics for tagged files in gopls, add this to your editor settings:
+
+```json
+"gopls": {"buildFlags": ["-tags=integration"]}
+```
+
+CI selects e2e tests by package:
+
+| E2E package | CI job |
+|---|---|
+| `postgres_clickhouse`, `postgres_postgres`, `switchboard_postgres` | `postgres_clickhouse` |
+| `postgres_other` | `postgres_other` |
+| `mysql_clickhouse`, `switchboard_mysql` | `mysql_clickhouse` |
+| `mongo_clickhouse`, `switchboard_mongo` | `mongo_clickhouse` |
+| `cockroachdb_clickhouse` | `cockroachdb_clickhouse` |
+| `bigquery_clickhouse` | `bigquery_clickhouse` |
