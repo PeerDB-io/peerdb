@@ -55,6 +55,18 @@ func (s *CockroachDBSource) Connector() connectors.Connector {
 	return s.conn
 }
 
+func (s *CockroachDBSource) CockroachDBConnector() *conncockroachdb.CockroachDBConnector {
+	return s.conn
+}
+
+func (s *CockroachDBSource) AdminConn() *pgx.Conn {
+	return s.adminConn
+}
+
+func (s *CockroachDBSource) Config() *protos.CockroachDBConfig {
+	return s.config
+}
+
 func (s *CockroachDBSource) Exec(ctx context.Context, sql string, args ...any) error {
 	_, err := s.adminConn.Exec(ctx, sql, args...)
 	return err
@@ -98,10 +110,10 @@ func (s *CockroachDBSource) GetRows(ctx context.Context, suffix, table, cols str
 
 func SetupCockroachDB(t *testing.T, suffix string) (*CockroachDBSource, error) {
 	t.Helper()
-	return setupCockroachDBWithConfig(t, suffix, internal.GetCockroachDBConfigFromEnv())
+	return SetupCockroachDBWithConfig(t, suffix, internal.GetCockroachDBConfigFromEnv())
 }
 
-func setupCockroachDBWithConfig(
+func SetupCockroachDBWithConfig(
 	t *testing.T, suffix string, config *protos.CockroachDBConfig,
 ) (*CockroachDBSource, error) {
 	t.Helper()
