@@ -55,7 +55,13 @@ func DocumentQValueIterator(raw bson.Raw, converter BsonToQValueConverter) (iter
 func newStructuredSchemaProjector(
 	columns []*protos.ColumnSetting, recordMalformedValues bool,
 ) (*structured.SchemaProjector, error) {
-	return structured.NewSchemaProjectorFromCHtoQValue(columns, recordMalformedValues)
+	filteredColumns := make([]*protos.ColumnSetting, 0, len(columns))
+	for _, column := range columns {
+		if isProjectedColumn(column.DestinationName) {
+			filteredColumns = append(filteredColumns, column)
+		}
+	}
+	return structured.NewSchemaProjectorFromCHtoQValue(filteredColumns, recordMalformedValues)
 }
 
 // newStructuredSchemaProjectorFromTableSchema builds the projector for a structured ingestion table from
@@ -66,12 +72,15 @@ func newStructuredSchemaProjectorFromTableSchema(
 ) (*structured.SchemaProjector, error) {
 	fields := make([]types.QField, 0, len(schema.Columns))
 	for _, column := range schema.Columns {
-		if column.Name == DefaultDocumentKeyColumnName || column.Name == structured.MalformedDataColumn {
-			continue
+		if isProjectedColumn(column.Name) {
+			fields = append(fields, types.QField{Name: column.Name, Type: types.QValueKind(column.Type)})
 		}
-		fields = append(fields, types.QField{Name: column.Name, Type: types.QValueKind(column.Type)})
 	}
 	return structured.NewSchemaProjectorFromQFields(fields, recordMalformedValues)
+}
+
+func isProjectedColumn(columnName string) bool {
+	return columnName != DefaultDocumentKeyColumnName && columnName != structured.MalformedDataColumn
 }
 
 // GetStructuredSchema is the record schema of a structured ingestion table: the document key followed by
