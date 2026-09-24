@@ -572,6 +572,7 @@ jobs:
           COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
           COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
 
+          # Log durations to be able to profile this step of CI
           time_selection() {
             local label="$1"
             shift
@@ -643,6 +644,7 @@ jobs:
               -args -test.gocoverdir="$coverdir"
           }
 
+          // Implements test selection for e2e and integration packages using the patterns passed as the job input
           run_selected_tests flow "$TEST_PACKAGES" ../logs/test-results.xml 1200s "${COVERFLAGS_FLOW[@]}"
           flow_rc=$?
 

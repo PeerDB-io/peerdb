@@ -159,6 +159,8 @@ Since `.env` is the environment configuration source of truth, tests automatical
 go clean -cache; go test -tags tilt -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/ # Some MySQL generic tests
 ```
 
+:memo: For unit and Tilt-backed test commands, build tags, and editor setup, see [Testing in CONTRIBUTING.md](CONTRIBUTING.md#testing).
+
 ### Running tests from Tilt
 
 The Tilt setup includes pre-configured test launcher resources under the `e2e` label. These resources do not start automatically; instead, you can trigger them on demand from the Tilt UI at http://localhost:10352/.
