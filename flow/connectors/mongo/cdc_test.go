@@ -370,7 +370,7 @@ func TestRetryChangeStreamErrorRecovery(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_retry_change_stream",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
@@ -412,7 +412,7 @@ func TestRetryChangeStreamRecoveriesAreBounded(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_retry_change_stream_bounded",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
