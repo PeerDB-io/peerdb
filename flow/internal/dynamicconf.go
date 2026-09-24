@@ -587,6 +587,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_DELETE_PREIMAGE",
+		Description: "Carry the change stream pre-image on delete events, so the destination can populate " +
+			"non-key columns on tombstone rows (partition keys, sort keys) instead of defaulting them. " +
+			"Requires changeStreamPreAndPostImages on the source collection",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
 		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
 			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
@@ -1090,6 +1100,10 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 		}
 	}
 	return ops, nil
+}
+
+func PeerDBMongoDBDeletePreimage(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_DELETE_PREIMAGE")
 }
 
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {

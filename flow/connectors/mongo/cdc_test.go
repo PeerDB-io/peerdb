@@ -562,7 +562,7 @@ func TestCreatePipeline(t *testing.T) {
 	}
 
 	t.Run("pipeline without filters", func(t *testing.T) {
-		pipeline, err := createPipeline(nil, nil)
+		pipeline, err := createPipeline(nil, nil, false)
 		require.NoError(t, err)
 
 		requireProjectFields(t, pipeline)
@@ -570,7 +570,7 @@ func TestCreatePipeline(t *testing.T) {
 	})
 
 	t.Run("pipeline with table mapping", func(t *testing.T) {
-		pipeline, err := createPipeline(tableNameMapping, nil)
+		pipeline, err := createPipeline(tableNameMapping, nil, false)
 		require.NoError(t, err)
 
 		requireProjectFields(t, pipeline)
@@ -580,7 +580,7 @@ func TestCreatePipeline(t *testing.T) {
 	})
 
 	t.Run("pipeline with excluded operation types", func(t *testing.T) {
-		pipeline, err := createPipeline(nil, []operationType{operationTypeDelete})
+		pipeline, err := createPipeline(nil, []operationType{operationTypeDelete}, false)
 		require.NoError(t, err)
 
 		requireProjectFields(t, pipeline)
@@ -650,6 +650,22 @@ func TestDecodeEvent(t *testing.T) {
 		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
 	})
 
+	preimageDocument := bson.Raw(mustMarshal(bson.D{
+		{Key: "_id", Value: id},
+		{Key: "createdAt", Value: insertWallTime},
+	}))
+
+	deleteWithPreimageRaw := mustMarshal(bson.D{
+		{Key: "ns", Value: bson.D{
+			{Key: "db", Value: "db"},
+			{Key: "coll", Value: "coll"},
+		}},
+		{Key: "operationType", Value: "delete"},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
+		{Key: "fullDocumentBeforeChange", Value: preimageDocument},
+		{Key: "clusterTime", Value: toBsonTs(deleteTs)},
+	})
+
 	deleteWithNullFullDocRaw := mustMarshal(bson.D{
 		{Key: "ns", Value: bson.D{
 			{Key: "db", Value: "db"},
@@ -707,6 +723,18 @@ func TestDecodeEvent(t *testing.T) {
 			},
 		},
 		{
+			name: "delete carries fullDocumentBeforeChange when the collection has pre-images",
+			raw:  deleteWithPreimageRaw,
+			want: ChangeEvent{
+				Ns:                       Namespace{Db: "db", Coll: "coll"},
+				OperationType:            "delete",
+				DocumentKey:              mustMarshal(bson.D{{Key: "_id", Value: id}}),
+				FullDocument:             nil,
+				FullDocumentBeforeChange: &preimageDocument,
+				ClusterTime:              toBsonTs(deleteTs),
+			},
+		},
+		{
 			name: "empty document decodes to zero value",
 			raw:  mustMarshal(bson.D{}),
 			want: ChangeEvent{},
@@ -733,7 +761,7 @@ func TestDecodeEvent(t *testing.T) {
 }
 
 func TestCreatePipelineProjectsWallTime(t *testing.T) {
-	pipeline, err := createPipeline(nil, nil)
+	pipeline, err := createPipeline(nil, nil, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, pipeline)
 
@@ -742,4 +770,60 @@ func TestCreatePipelineProjectsWallTime(t *testing.T) {
 	projectFields, ok := projectStage[0].Value.(bson.D)
 	require.True(t, ok)
 	require.Contains(t, projectFields, bson.E{Key: "wallTime", Value: 1})
+}
+
+// Verifies the delete tombstone carries the pre-image in the `doc` column when one is
+// available, and falls back to the historical empty-document behaviour when it is not.
+func TestDecodeEventDeletePreimage(t *testing.T) {
+	id := bson.NewObjectID()
+	mustMarshal := func(v any) bson.Raw {
+		t.Helper()
+		raw, err := bson.Marshal(v)
+		require.NoError(t, err)
+		return raw
+	}
+
+	preimage := bson.Raw(mustMarshal(bson.D{
+		{Key: "_id", Value: id},
+		{Key: "createdAt", Value: time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)},
+		{Key: "enterpriseId", Value: "ent-42"},
+	}))
+	documentKey := mustMarshal(bson.D{{Key: "_id", Value: id}})
+
+	c := &MongoConnector{logger: internal.LoggerFromCtx(t.Context())}
+	req := &model.PullRecordsRequest[model.RecordItems]{InternalVersion: shared.InternalVersion_Latest}
+
+	docColumnOf := func(t *testing.T, event encodedMongoEvent) string {
+		t.Helper()
+		records, err := c.decodeEvent([]encodedMongoEvent{event}, req)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		del, ok := records[0].(*model.DeleteRecord[model.RecordItems])
+		require.True(t, ok, "expected a delete record, got %T", records[0])
+		value := del.Items.GetColumnValue(DefaultFullDocumentColumnName)
+		require.NotNil(t, value)
+		return value.Value().(string)
+	}
+
+	t.Run("pre-image populates the doc column", func(t *testing.T) {
+		doc := docColumnOf(t, encodedMongoEvent{
+			documentKey:          documentKey,
+			maybeBeforeDocument:  &preimage,
+			operationType:        operationTypeDelete,
+			sourceTableName:      "db.coll",
+			destinationTableName: "coll",
+		})
+		require.Contains(t, doc, "enterpriseId")
+		require.Contains(t, doc, "2026-06-15")
+	})
+
+	t.Run("no pre-image keeps the empty document", func(t *testing.T) {
+		doc := docColumnOf(t, encodedMongoEvent{
+			documentKey:          documentKey,
+			operationType:        operationTypeDelete,
+			sourceTableName:      "db.coll",
+			destinationTableName: "coll",
+		})
+		require.JSONEq(t, "{}", doc)
+	})
 }
