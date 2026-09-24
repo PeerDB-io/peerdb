@@ -212,13 +212,26 @@ services:
       - "9002:36987"
     environment:
       <<: *minio-config
+    command: ["/data", "--address", ":9000", "--console-enable", "--console-address", ":36987"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # creates the bucket on the rustfs server using its own S3 CLI (github.com/rustfs/cli)
+  minio-init:
+    image: rustfs/rc:latest
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *minio-config
     entrypoint: >
       /bin/sh -c "
-      minio server /data --console-address=:36987 &
-      sleep 2;
-      mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
-      wait
+      rc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      rc bucket create myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME --ignore-existing
       "
 
 volumes:
