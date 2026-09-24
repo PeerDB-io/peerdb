@@ -575,7 +575,7 @@ jobs:
           fi
 
           gotestsum --format standard-quiet --no-color --junitfile ../logs/test-results.xml -- \
-            -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
+            -tags integration -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... "${run_args[@]}" -timeout 1200s \
             -args -test.gocoverdir="$coverdir"
           flow_rc=$?
 
@@ -584,7 +584,7 @@ jobs:
           (
             cd pkg || exit 1
             gotestsum --format standard-quiet --no-color --junitfile ../../logs/pkg-test-results.xml -- \
-              -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 ./... "${run_args[@]}" -timeout 300s \
+              -tags integration -cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/... -p 32 ./... "${run_args[@]}" -timeout 300s \
               -args -test.gocoverdir="$coverdir"
           )
           pkg_rc=$?

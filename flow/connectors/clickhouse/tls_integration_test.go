@@ -1,4 +1,6 @@
-package e2e
+//go:build integration
+
+package connclickhouse
 
 import (
 	"os"
@@ -8,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -23,7 +24,6 @@ func TestClickHouseTLSDirectory(t *testing.T) {
 	if certDir == "" {
 		t.Skip("PEERDB_CLICKHOUSE_TLS_CERT_DIR not set, skipping TLS test")
 	}
-
 	config := &protos.ClickhouseConfig{
 		Host:                    "localhost",
 		Port:                    uint32(port),
@@ -33,7 +33,7 @@ func TestClickHouseTLSDirectory(t *testing.T) {
 		TlsCertificateDirectory: proto.String(certDir),
 	}
 
-	conn, err := connclickhouse.Connect(t.Context(), nil, config)
+	conn, err := Connect(t.Context(), nil, config)
 	require.NoError(t, err, "failed to connect to ClickHouse")
 	defer conn.Close()
 

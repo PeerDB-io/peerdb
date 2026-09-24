@@ -348,7 +348,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_ru
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'connector_' + (name or connector),
-        cmd='cd flow && %s go test -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
+        cmd='cd flow && %s go test -tags integration -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
@@ -360,7 +360,7 @@ def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'pkg_' + pkg,
-        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        cmd='cd flow/pkg && %s go test -tags integration -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
         resource_deps=extra_deps,
