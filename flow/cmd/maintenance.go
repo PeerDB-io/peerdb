@@ -109,8 +109,15 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			}
 			slog.InfoContext(ctx, "Checking if end maintenance workflow should be skipped", "input", input)
 			if input.Skipped {
-				slog.InfoContext(ctx, "Skipping end maintenance workflow as start maintenance was skipped", "reason", input.SkippedReason)
-				return nil
+				enabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
+				if err != nil {
+					return fmt.Errorf("unable to check maintenance mode before skipping end maintenance: %w", err)
+				}
+				if !enabled {
+					slog.InfoContext(ctx, "Skipping end maintenance workflow as start maintenance was skipped", "reason", input.SkippedReason)
+					return nil
+				}
+				slog.InfoContext(ctx, "Running end maintenance workflow despite skipped start result because maintenance mode is enabled")
 			}
 		}
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, tc, &protos.EndMaintenanceFlowInput{}, taskQueueId)
