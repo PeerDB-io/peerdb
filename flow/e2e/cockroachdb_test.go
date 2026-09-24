@@ -110,12 +110,18 @@ func setupCockroachDBTypesTable(s Suite, table string) {
 			now(), true, ARRAY['one', 'two'], 'happy')`, schema, table)))
 }
 
-func (s CockroachDBSuite) Test_Rangefeed_Validation() {
-	t := s.t
+func TestCockroachDBRangefeedValidation(t *testing.T) {
+	t.Parallel()
+	suffix := "crdb_rf_" + strings.ToLower(common.RandomString(8))
+	source, err := setupCockroachDBWithConfig(t, suffix, CockroachDBTestContainerConfig(t))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		source.Teardown(t, context.Background(), suffix)
+	})
 	ctx := t.Context()
-	schema := "e2e_test_" + s.suffix
+	schema := "e2e_test_" + suffix
 
-	require.NoError(t, s.source.Exec(ctx, fmt.Sprintf(
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf(
 		"CREATE TABLE %s.rf_check (id INT8 PRIMARY KEY, v TEXT)", schema)))
 
 	cdcConfig := &protos.FlowConnectionConfigsCore{
@@ -129,19 +135,13 @@ func (s CockroachDBSuite) Test_Rangefeed_Validation() {
 	snapshotOnly.DoInitialSnapshot = true
 	snapshotOnly.InitialSnapshotOnly = true
 
-	// the setting is cluster wide and the suite runs in parallel on a shared
-	// container: restore it even if the test dies mid-flip, so a failure here
-	// cannot disable rangefeeds for every later test and run
-	t.Cleanup(func() {
-		_ = s.source.Exec(context.Background(), "SET CLUSTER SETTING kv.rangefeed.enabled = true")
-	})
 	// CDC mirrors require kv.rangefeed.enabled on the cluster; snapshot-only
 	// mirrors never open a changefeed and pass regardless
-	require.NoError(t, s.source.Exec(ctx, "SET CLUSTER SETTING kv.rangefeed.enabled = false"))
-	require.ErrorContains(t, s.source.conn.ValidateMirrorSource(ctx, cdcConfig), "rangefeed")
-	require.NoError(t, s.source.conn.ValidateMirrorSource(ctx, snapshotOnly))
-	require.NoError(t, s.source.Exec(ctx, "SET CLUSTER SETTING kv.rangefeed.enabled = true"))
-	require.NoError(t, s.source.conn.ValidateMirrorSource(ctx, cdcConfig))
+	require.NoError(t, source.Exec(ctx, "SET CLUSTER SETTING kv.rangefeed.enabled = false"))
+	require.ErrorContains(t, source.conn.ValidateMirrorSource(ctx, cdcConfig), "rangefeed")
+	require.NoError(t, source.conn.ValidateMirrorSource(ctx, snapshotOnly))
+	require.NoError(t, source.Exec(ctx, "SET CLUSTER SETTING kv.rangefeed.enabled = true"))
+	require.NoError(t, source.conn.ValidateMirrorSource(ctx, cdcConfig))
 }
 
 func (s CockroachDBSuite) Test_GC_TTL_Validation() {
@@ -586,9 +586,7 @@ func (s CockroachDBSuite) changefeedConnector(t *testing.T) *conncockroachdb.Coc
 	return cfConn
 }
 
-// pullOneBatch runs one PullRecords call and drains its stream. The suite
-// runs in parallel with Test_Rangefeed_Validation on a shared cluster, so a
-// pull failing inside that test's brief rangefeed-disabled window is retried.
+// pullOneBatch runs one PullRecords call and drains its stream.
 func pullOneBatch(
 	t *testing.T,
 	ctx context.Context,
@@ -596,27 +594,18 @@ func pullOneBatch(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) ([]model.Record[model.RecordItems], model.CdcCheckpoint, error) {
 	t.Helper()
-	for attempt := range 5 {
-		stream := model.NewCDCStream[model.RecordItems](1024)
-		req.RecordStream = stream
-		om := newCrdbCdcOtelManager(t)
-		var records []model.Record[model.RecordItems]
-		pullErr := make(chan error, 1)
-		go func() {
-			pullErr <- conn.PullRecords(ctx, shared.CatalogPool{}, om, req)
-		}()
-		for record := range stream.GetRecords() {
-			records = append(records, record)
-		}
-		err := <-pullErr
-		if err != nil && strings.Contains(err.Error(), "kv.rangefeed.enabled") && attempt < 4 {
-			t.Logf("retrying pull, rangefeeds were disabled by a concurrent test: %v", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		return records, stream.GetLastCheckpoint(), err
+	stream := model.NewCDCStream[model.RecordItems](1024)
+	req.RecordStream = stream
+	om := newCrdbCdcOtelManager(t)
+	var records []model.Record[model.RecordItems]
+	pullErr := make(chan error, 1)
+	go func() {
+		pullErr <- conn.PullRecords(ctx, shared.CatalogPool{}, om, req)
+	}()
+	for record := range stream.GetRecords() {
+		records = append(records, record)
 	}
-	panic("unreachable")
+	return records, stream.GetLastCheckpoint(), <-pullErr
 }
 
 func (s CockroachDBSuite) Test_CDC_Live_PullRecords() {

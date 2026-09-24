@@ -405,7 +405,8 @@ e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrid
 e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
 # CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
-e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
+e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'],
+         vars_overrides={'COCKROACHDB_IMAGE': resolve_ancillary_env('COCKROACHDB_IMAGE')})
 connector_test('cockroachdb', ['provision-cockroachdb'])
 
 # Switchboard tests
