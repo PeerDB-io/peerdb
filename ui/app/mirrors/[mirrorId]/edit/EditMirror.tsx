@@ -104,6 +104,7 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.snapshotNumTablesInParallel ||
       defaultSnapshotNumTablesInParallel,
     skipInitialSnapshotForTableAdditions: false,
+    queryCdc: undefined,
   };
 }
 

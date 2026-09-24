@@ -654,6 +654,7 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	var lastEventGaugesRecordedAt time.Time
+	retryChangeStreamCount := 0
 	for recordCount < req.MaxBatchSize {
 		receiveStart := time.Now()
 		ok := changeStream.Next(timeoutCtx)
@@ -699,6 +700,18 @@ func (c *MongoConnector) PullRecords(
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
 				c.logger.Info("[mongo] recreated change stream because resume token not found", slog.Duration("elapsed", time.Since(pullStart)))
+				continue
+			}
+
+			if isRetryChangeStreamError(err) && retryChangeStreamCount < maxRetryChangeStreamReopens {
+				retryChangeStreamCount++
+				if err := recreateChangeStream(false); err != nil {
+					return fmt.Errorf("failed to recreate change stream: %w", err)
+				}
+				c.logger.Info("[mongo] recreated change stream because server requested a retry",
+					slog.String("serverMessage", err.Error()),
+					slog.Int("attempt", retryChangeStreamCount),
+					slog.Duration("elapsed", time.Since(pullStart)))
 				continue
 			}
 
@@ -860,6 +873,15 @@ func createPipeline(tableNameMapping map[string]model.SourceTableMapping, exclud
 // with `StartAtOperationTime` instead of `ResumeAfter`.
 func isResumeTokenNotFoundError(err error) bool {
 	return strings.Contains(err.Error(), "cannot resume stream; the resume token was not found.")
+}
+
+const maxRetryChangeStreamReopens = 3
+
+// isRetryChangeStreamError reports whether err is the server's RetryChangeStream (code 234) error,
+// which asks the client to reopen the change stream from its resume token.
+func isRetryChangeStreamError(err error) bool {
+	cmdErr, ok := errors.AsType[mongo.CommandError](err)
+	return ok && cmdErr.Code == 234
 }
 
 // stubs for CDCPullConnectorCore
