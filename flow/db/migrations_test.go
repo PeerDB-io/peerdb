@@ -27,76 +27,83 @@ func TestBootstrapLockIDIsPinned(t *testing.T) {
 	require.NotEqual(t, lock.DefaultLockID, bootstrapLockID)
 }
 
+// refineryFixture is a catalog version for which testdata/refinery_v<n>_pgdump.sql holds the pg_dump
+// of a catalog refinery migrated to that version
+type refineryFixture int
+
+const (
+	noRefineryFixture      refineryFixture = 0
+	halfwayRefineryFixture refineryFixture = 28
+	lastRefineryFixture    refineryFixture = 57
+)
+
 // TestGooseBootstrapFromRefinery proves the goose migration path produces the exact same
 // catalog schema as the legacy refinery path.
-//   - Reference schema: cluster with all migrations run by refinery
-//   - Comparison schemas:
-//     1. a brand-new cluster: no refinery ledger exists, goose runs everything
-//     2. a cluster on a much older version: goose runs the remaining migrations
-//     3. a cluster that's on latest version: goose is a noop
+// Scenarios:
+//  1. a brand-new cluster: no refinery ledger exists, goose runs everything
+//  2. a cluster on a much older version: goose runs the remaining migrations
+//  3. a cluster on refinery's last version: goose runs only the versions after it
 func TestGooseBootstrapFromRefinery(t *testing.T) {
 	ctx := context.Background()
 	cfg := internal.GetCatalogPostgresConfigFromEnv(ctx)
 
-	nexusContainer := os.Getenv("CI_NEXUS_CONTAINER")
-	require.NotEmpty(t, nexusContainer, "missing CI_NEXUS_CONTAINER environment variable")
 	catalogContainer := os.Getenv("CI_CATALOG_CONTAINER")
 	require.NotEmpty(t, catalogContainer, "missing CI_CATALOG_CONTAINER environment variable")
 
-	refineryVersions := readRefineryVersions(t)
-	refineryMaxVersion := refineryVersions[len(refineryVersions)-1]
 	gooseVersions := readGooseVersions(t)
 	gooseMaxVersion := gooseVersions[len(gooseVersions)-1]
-	require.Equal(t, gooseMaxVersion, refineryMaxVersion)
+	require.GreaterOrEqual(t, gooseMaxVersion, int(lastRefineryFixture))
 
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
 	admin, err := pgx.Connect(ctx, connStr(ctx, cfg.Database))
 	require.NoError(t, err, "catalog not reachable")
 	t.Cleanup(func() { admin.Close(context.Background()) })
 
-	baseDB := "test_db_migration_" + suffix
-	createTestDB(t, admin, baseDB)
-	applyRefineryMigrations(t, ctx, nexusContainer, baseDB, refineryMaxVersion)
-	baseSchema := pgSchemaDump(t, ctx, catalogContainer, baseDB)
-	require.NotEmpty(t, baseSchema)
-
 	scenarios := []struct {
 		name           string
-		refineryCutoff int
+		refineryCutoff refineryFixture
 	}{
-		{"brand_new_cluster", 0},
-		{"migrate_from_halfway", refineryMaxVersion / 2},
-		{"migrate_from_latest", refineryMaxVersion},
+		{"brand_new_cluster", noRefineryFixture},
+		{"migrate_from_halfway", halfwayRefineryFixture},
+		{"migrate_from_latest", lastRefineryFixture},
 	}
+	schemas := make(map[string]string, len(scenarios))
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			compDB := "test_db_migration_" + scenario.name + "_" + suffix
-			createTestDB(t, admin, compDB)
-			conn, err := pgx.Connect(ctx, connStr(ctx, compDB))
+			db := "test_db_migration_" + scenario.name + "_" + suffix
+			createTestDB(t, admin, db)
+			conn, err := pgx.Connect(ctx, connStr(ctx, db))
 			require.NoError(t, err)
 			defer conn.Close(ctx)
 
 			// apply refinery migration up to cutoff
-			applyRefineryMigrations(t, ctx, nexusContainer, compDB, scenario.refineryCutoff)
-			var refineryRows int
-			require.NoError(t, conn.QueryRow(ctx,
-				"SELECT count(*) FROM refinery_schema_history").Scan(&refineryRows))
-			require.Equal(t, scenario.refineryCutoff, refineryRows)
+			applyRefineryMigrations(t, ctx, connStr(ctx, db), scenario.refineryCutoff)
+			if scenario.refineryCutoff != noRefineryFixture {
+				var refineryRows int
+				require.NoError(t, conn.QueryRow(ctx,
+					"SELECT count(*) FROM refinery_schema_history").Scan(&refineryRows))
+				require.Equal(t, int(scenario.refineryCutoff), refineryRows)
+			}
 
 			// apply remaining migration with goose
-			require.NoError(t, Apply(ctx, connStr(ctx, compDB)))
+			require.NoError(t, Apply(ctx, connStr(ctx, db)))
 
 			// expect all rows to be applied
 			var ledgerRows, maxVersionId int
 			require.NoError(t, conn.QueryRow(ctx,
 				`SELECT count(*) FILTER (WHERE version_id > 0), max(version_id) FROM goose_db_version`,
 			).Scan(&ledgerRows, &maxVersionId))
-			require.Equal(t, gooseMaxVersion, ledgerRows, "unexpected ledge row count")
+			require.Equal(t, gooseMaxVersion, ledgerRows, "unexpected ledger row count")
 			require.Equal(t, gooseMaxVersion, maxVersionId, "unexpected max version")
 
-			// expect same pg schema
-			require.Equal(t, baseSchema, pgSchemaDump(t, ctx, catalogContainer, compDB))
+			schemas[scenario.name] = pgSchemaDump(t, ctx, catalogContainer, db)
 		})
+	}
+
+	reference := schemas[scenarios[0].name]
+	for _, scenario := range scenarios[1:] {
+		require.Equal(t, reference, schemas[scenario.name],
+			"%s schema differs from %s", scenario.name, scenarios[0].name)
 	}
 
 	// test goose's behavior when the database is ahead of the binary (e.g. rollback)
@@ -125,24 +132,13 @@ func TestGooseBootstrapFromRefinery(t *testing.T) {
 	})
 }
 
-// TestMigrationVersions enforces the migration numbering rules: each directory
-// must be duplicate-free and gap-free starting at version 1, and while the
-// refinery and goose directories coexist they must contain the same versions.
+// TestMigrationVersions enforces the migration numbering rules: the directory
+// must be duplicate-free and gap-free starting at version 1.
 func TestMigrationVersions(t *testing.T) {
 	gooseVersions := readGooseVersions(t)
 	for i, version := range gooseVersions {
 		require.Equal(t, i+1, version, "gap in flow/db/migrations: missing version %d", i+1)
 	}
-
-	refineryVersions := readRefineryVersions(t)
-	for i, version := range refineryVersions {
-		require.Equal(t, i+1, version,
-			"gap in nexus/catalog/migrations: missing version %d", i+1)
-	}
-
-	require.Len(t, refineryVersions, len(gooseVersions),
-		"nexus/catalog/migrations and flow/db/migrations must contain the same versions; "+
-			"while both coexist, every migration is added to both directories")
 }
 
 func createTestDB(t *testing.T, admin *pgx.Conn, name string) {
@@ -190,27 +186,19 @@ func readGooseVersions(t *testing.T) []int {
 	return readMigrationVersions(t, entries, regexp.MustCompile(`^(\d+)_.*\.sql$`), "flow/db/migrations")
 }
 
-// readRefineryVersions returns the sorted, unique versions of the refinery migration files.
-func readRefineryVersions(t *testing.T) []int {
+func applyRefineryMigrations(t *testing.T, ctx context.Context, connStr string, upToVersion refineryFixture) {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join("..", "..", "nexus", "catalog", "migrations"))
+	if upToVersion == noRefineryFixture {
+		return
+	}
+	name := "refinery_v" + strconv.Itoa(int(upToVersion)) + "_pgdump.sql"
+	dump, err := os.ReadFile(filepath.Join("testdata", name))
 	require.NoError(t, err)
-	return readMigrationVersions(t, entries, regexp.MustCompile(`^V(\d+)__(.+)\.sql$`), "nexus/catalog/migrations")
-}
-
-func applyRefineryMigrations(t *testing.T, ctx context.Context, container string, database string, upToVersion int) {
-	t.Helper()
-	// #nosec G702: test-controlled inputs
-	cmd := exec.CommandContext(ctx,
-		"docker", "exec",
-		"-e", "PEERDB_MIGRATIONS_DISABLED=false",
-		container,
-		"./peerdb-server",
-		"--migrations-only",
-		"--catalog-database", database,
-		"--migrations-target", strconv.Itoa(upToVersion))
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "running nexus migrations:\n%s", output)
+	conn, err := pgx.Connect(ctx, connStr)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	_, err = conn.Exec(ctx, string(dump))
+	require.NoError(t, err)
 }
 
 func pgSchemaDump(t *testing.T, ctx context.Context, container string, database string) string {

@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Write},
     io,
     sync::Arc,
-    time::Duration,
 };
 
 #[cfg(feature = "tls")]
@@ -984,18 +983,15 @@ struct Args {
     #[clap(long, default_value = "false", env = "PEERDB_FDW_MODE")]
     peerdb_fdw_mode: bool,
 
-    /// If set to true, nexus will exit after running migrations
-    #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_ONLY")]
-    migrations_only: bool,
-
-    /// If set to true, nexus will not run any migrations
-    #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_DISABLED")]
+    /// Deprecated and a no-op option: nexus no longer runs catalog migrations (see flow/db/README.md)
+    /// Kept while helm chart still references this arg.
+    #[clap(
+        long,
+        default_value = "false",
+        env = "PEERDB_MIGRATIONS_DISABLED",
+        hide = true
+    )]
     migrations_disabled: bool,
-
-    /// If set, migrations stop at this version instead of running to the latest.
-    /// Used by integrations tests to simulate catalogs of older PeerDB versions.
-    #[clap(long, env = "PEERDB_MIGRATIONS_TARGET")]
-    migrations_target: Option<i32>,
 
     /// KMS Key ID for decrypting the catalog password
     #[clap(long, env = "PEERDB_KMS_KEY_ID")]
@@ -1072,33 +1068,6 @@ fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     }
 }
 
-async fn run_migrations(
-    config: &CatalogConfig<'_>,
-    kms_key_id: &Option<Arc<String>>,
-    kms_provider: &str,
-    target_version: Option<i32>,
-) -> anyhow::Result<()> {
-    // retry connecting to the catalog 3 times with 30 seconds delay
-    // if it fails, return an error
-    for _ in 0..3 {
-        match Catalog::new(config.to_postgres_config(), kms_key_id, kms_provider).await {
-            Ok(mut catalog) => {
-                catalog.run_migrations(target_version).await?;
-                return Ok(());
-            }
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to connect to catalog. Retrying in 30 seconds. {:?}",
-                    err
-                );
-                tokio::time::sleep(Duration::from_secs(30)).await;
-            }
-        }
-    }
-
-    Err(anyhow::anyhow!("Failed to connect to catalog"))
-}
-
 fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
     #[cfg(feature = "tls")]
     {
@@ -1168,25 +1137,6 @@ pub async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _guard = setup_tracing(args.log_dir.as_deref());
     let catalog_config = get_catalog_config(&args).await?;
-
-    if args.migrations_disabled && args.migrations_only {
-        return Err(anyhow::anyhow!(
-            "Invalid configuration, migrations cannot be enabled and disabled at the same time"
-        ));
-    }
-
-    if !args.migrations_disabled {
-        run_migrations(
-            &catalog_config,
-            &args.kms_key_id,
-            &args.kms_provider,
-            args.migrations_target,
-        )
-        .await?;
-    }
-    if args.migrations_only {
-        return Ok(());
-    }
 
     let authenticator = (
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
