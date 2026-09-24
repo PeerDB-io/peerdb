@@ -1,3 +1,5 @@
+//go:build tilt
+
 package mongo_clickhouse
 
 import (

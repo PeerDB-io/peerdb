@@ -10,23 +10,22 @@ If you depend on one of these connectors, see the [deprecated connectors migrati
 
 ## Testing
 
-Flow tests have three tiers. Run commands from `flow/` unless a command says otherwise.
+Flow tests have two build modes. Run commands from `flow/` unless a command says otherwise.
 
 | Tier | What it needs | Example |
 |---|---|---|
-| Unit | No Docker or external services | `go test $(go list ./... \| grep -v '/e2e$' \| grep -v '/e2e/')` |
-| Integration | Tilt services; files have `//go:build integration` | `go test -tags integration ./connectors/mysql/...` |
-| End to end | Tilt services; one source package under `e2e/` | `go test ./e2e/mysql_clickhouse/ -run TestGenericCH_MySQL` |
+| Unit | No Docker or external services | `go test ./...` |
+| Tilt (E2E + integration) | Tilt services; files have `//go:build tilt` | `go test -tags tilt ./connectors/mysql/...` or `go test -tags tilt ./e2e/mysql_clickhouse/ -run TestGenericCH_MySQL` |
 
-Run the nested `flow/pkg` module separately: `cd pkg && go test ./...` for unit tests, or add `-tags integration` when its service tests are needed. Name files containing only service tests `*_integration_test.go`. Any test that opens a connection to a service belongs in an `integration` tagged file or an e2e package. The unit CI job starts no Docker services, so an untagged service connection will fail there. Tests that start an in-process test server can remain unit tests.
+Run the nested `flow/pkg` module separately: `cd pkg && go test ./...` for unit tests, or add `-tags tilt` when its service tests are needed. Name files containing only service tests `*_integration_test.go`. Any test that opens a connection to a service belongs in a `tilt` tagged file, including e2e entry points. The unit CI job starts no Docker services, so an untagged service connection will fail there. Tests that start an in-process test server can remain unit tests.
 
 To get diagnostics for tagged files in gopls, add this to your editor settings:
 
 ```json
-"gopls": {"buildFlags": ["-tags=integration"]}
+"gopls": {"buildFlags": ["-tags=tilt"]}
 ```
 
-CI selects e2e tests by package:
+CI selects Tilt-tagged tests by package. E2e packages map to source jobs as follows:
 
 | E2E package | CI job |
 |---|---|

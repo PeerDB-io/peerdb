@@ -1,3 +1,5 @@
+//go:build tilt
+
 package postgres_other
 
 import (

@@ -1,3 +1,5 @@
+//go:build tilt
+
 package switchboard_mysql
 
 import (

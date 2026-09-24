@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The unit job skips e2e packages and integration-tagged test files. Make sure
-# every package containing those tests belongs to exactly one source job in
-# flow.yml. Also make sure every matrix target has a source job entry; without
-# one, it could run no tests and still pass.
+# The unit job skips tilt-tagged test files. Make sure every package containing
+# those tests belongs to exactly one source job in flow.yml. Also make sure
+# every matrix target has a source job entry; without one, it could run no
+# tests and still pass.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -26,18 +26,14 @@ job_patterns() {
 }
 
 # Check one module against its source-job package lists. The second argument
-# selects the e2e/integration lists for flow or the pkg lists for flow/pkg.
+# selects the flow or flow/pkg package list.
 check_module() (
-  local dir=$1 pattern_columns=$2 base tagged e2e='' added must jobs_input owners='' job patterns listed missing duplicates
+  local dir=$1 pattern_columns=$2 base tagged must jobs_input owners='' job patterns listed missing duplicates
   local -a args
   cd "$repo/$dir"
   base=$(test_files)
-  tagged=$(test_files -tags integration)
-  if [[ "$dir" == flow ]]; then
-    e2e=$(printf '%s\n' "$base" | cut -f1 | grep -E '(^|/)e2e(/|$)' || true)
-  fi
-  added=$(comm -13 <(printf '%s\n' "$base") <(printf '%s\n' "$tagged") | cut -f1)
-  must=$(printf '%s\n%s\n' "$e2e" "$added" | sed '/^$/d' | sort -u)
+  tagged=$(test_files -tags tilt)
+  must=$(comm -13 <(printf '%s\n' "$base") <(printf '%s\n' "$tagged") | cut -f1 | sort -u)
 
   jobs_input=$(job_patterns "$pattern_columns")
   while read -r job patterns; do
@@ -45,7 +41,7 @@ check_module() (
       continue
     fi
     read -r -a args <<< "$patterns"
-    if ! listed=$(go list "${args[@]}"); then
+    if ! listed=$(go list -tags tilt "${args[@]}"); then
       echo "job $job: invalid $dir package pattern" >&2
       exit 1
     fi
@@ -73,5 +69,5 @@ check_module() (
   echo "$dir: all test packages are owned once"
 )
 
-check_module flow '(.value.e2e // "") + " " + (.value.integration // "")'
+check_module flow '.value.packages // ""'
 check_module flow/pkg '.value.pkg // ""'

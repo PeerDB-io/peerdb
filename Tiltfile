@@ -336,7 +336,7 @@ def e2e_test(name, package, test_run, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && %s go test -count=1 -v -run %s ./e2e/%s/' % (overrides_str, test_run, package),
+        cmd='cd flow && %s go test -tags tilt -count=1 -v -run %s ./e2e/%s/' % (overrides_str, test_run, package),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
@@ -348,7 +348,7 @@ def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_ru
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'connector_' + (name or connector),
-        cmd='cd flow && %s go test -tags integration -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
+        cmd='cd flow && %s go test -tags tilt -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
@@ -360,7 +360,7 @@ def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'pkg_' + pkg,
-        cmd='cd flow/pkg && %s go test -tags integration -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        cmd='cd flow/pkg && %s go test -tags tilt -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
         resource_deps=extra_deps,

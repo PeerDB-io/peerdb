@@ -1,3 +1,5 @@
+//go:build tilt
+
 package mysql_clickhouse
 
 import (

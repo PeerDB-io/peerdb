@@ -54,7 +54,7 @@ Tilt manages Docker Compose services defined in `docker-compose-dev.yml` (core P
 
 ### Test resources and their dependencies
 
-**E2E tests** (run `go test ./e2e/<source>_<destination>/` with a specific `-run` pattern):
+**E2E tests** (run `go test -tags tilt ./e2e/<source>_<destination>/` with a specific `-run` pattern):
 
 | Resource | Test pattern | Required ancillary DBs |
 |----------|-------------|----------------------|
@@ -80,7 +80,7 @@ Tilt manages Docker Compose services defined in `docker-compose-dev.yml` (core P
 
 All e2e tests also depend on core PeerDB services: `flow-api`, `flow-worker`, `catalog`, and `provision-clickhouse`.
 
-**Connector tests** (run `go test -tags integration ./connectors/<connector>/...`):
+**Connector tests** (run `go test -tags tilt ./connectors/<connector>/...`):
 
 | Resource | Package | Required ancillary DBs |
 |----------|---------|----------------------|

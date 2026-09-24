@@ -42,19 +42,19 @@ If a service fails to come up after **two** re-triggers, stop retrying and inspe
 Direct `go test`:
 
 ```bash
-cd flow && go test -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/mysql_clickhouse/
+cd flow && go test -tags tilt -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/mysql_clickhouse/
 ```
 
 or
 
 ```bash
-cd flow && go test -tags integration -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/mysql/...
+cd flow && go test -tags tilt -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/mysql/...
 ```
 
 Note: For MySQL tests, set the flavor overrides:
 
 ```bash
-CI_MYSQL_PORT=3306 CI_MYSQL_VERSION=mysql-gtid go test -count=1 -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/
+CI_MYSQL_PORT=3306 CI_MYSQL_VERSION=mysql-gtid go test -tags tilt -count=1 -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/
 ```
 
 ## Step 3: Diagnose the failure
@@ -93,7 +93,7 @@ Use `Grep` and `Read` to find the failing test function, understand what it does
 
 1. **Narrow the test pattern** to run only the failing subtest:
    ```bash
-   cd flow && go test -count=1 -v -run 'TestGenericCH_PG/TestSpecificSubtest' ./e2e/postgres_clickhouse/
+   cd flow && go test -tags tilt -count=1 -v -run 'TestGenericCH_PG/TestSpecificSubtest' ./e2e/postgres_clickhouse/
    ```
 
 2. **Clear test cache** if you suspect stale results:

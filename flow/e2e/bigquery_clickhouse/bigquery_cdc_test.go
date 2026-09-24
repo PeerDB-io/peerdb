@@ -1,3 +1,5 @@
+//go:build tilt
+
 package bigquery_clickhouse
 
 import (

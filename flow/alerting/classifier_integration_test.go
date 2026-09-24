@@ -1,4 +1,4 @@
-//go:build integration
+//go:build tilt
 
 package alerting
 
