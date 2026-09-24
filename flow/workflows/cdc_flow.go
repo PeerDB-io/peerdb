@@ -120,11 +120,16 @@ func processCDCFlowConfigUpdate(
 		SnapshotMaxParallelWorkers:    state.SnapshotMaxParallelWorkers,
 		SnapshotNumTablesInParallel:   state.SnapshotNumTablesInParallel,
 	}
-	if len(flowConfigUpdate.UpdatedEnv) > 0 {
-		oldValues.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
+	if len(flowConfigUpdate.UpdatedEnv) > 0 || len(flowConfigUpdate.RemovedEnv) > 0 {
+		oldValues.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv)+len(flowConfigUpdate.RemovedEnv))
 		if cfg.Env != nil {
 			for key := range flowConfigUpdate.UpdatedEnv {
 				oldValues.Env[key] = cfg.Env[key]
+			}
+			for _, key := range flowConfigUpdate.RemovedEnv {
+				if value, ok := cfg.Env[key]; ok {
+					oldValues.Env[key] = value
+				}
 			}
 		}
 	}
@@ -135,12 +140,8 @@ func processCDCFlowConfigUpdate(
 	if flowConfigUpdate.IdleTimeout > 0 {
 		state.SyncFlowOptions.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
 	}
-	if flowConfigUpdate.UpdatedEnv != nil {
-		if cfg.Env == nil {
-			cfg.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
-		}
-		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
-	}
+	cfg.Env = applyEnvUpdate(cfg.Env, flowConfigUpdate.UpdatedEnv, flowConfigUpdate.RemovedEnv)
+	applyQueryCDCConfigUpdate(cfg, flowConfigUpdate.QueryCdc)
 	if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
 		state.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
 	}
@@ -185,6 +186,26 @@ func processCDCFlowConfigUpdate(
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nextRunNone, nil
+}
+
+func applyQueryCDCConfigUpdate(cfg *protos.FlowConnectionConfigsCore, update *protos.QueryCdcConfig) {
+	if update == nil || cfg.GetBigqueryCdcConfig() == nil {
+		return
+	}
+	cfg.GetBigqueryCdcConfig().QueryCdc = proto.CloneOf(update)
+}
+
+func applyEnvUpdate(env map[string]string, updatedEnv map[string]string, removedEnv []string) map[string]string {
+	if len(updatedEnv) > 0 {
+		if env == nil {
+			env = make(map[string]string, len(updatedEnv))
+		}
+		maps.Copy(env, updatedEnv)
+	}
+	for _, key := range removedEnv {
+		delete(env, key)
+	}
+	return env
 }
 
 func processTerminate(
@@ -514,11 +535,13 @@ func addCdcPropertiesSignalListener(
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
 		logger.Info("CDC Signal received",
-			slog.Uint64("BatchSize", uint64(state.SyncFlowOptions.BatchSize)),
-			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
+			slog.Uint64("BatchSize", uint64(cdcConfigUpdate.BatchSize)),
+			slog.Uint64("IdleTimeout", cdcConfigUpdate.IdleTimeout),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
+			slog.Any("RemovedEnv", cdcConfigUpdate.RemovedEnv),
+			slog.Any("QueryCdc", cdcConfigUpdate.QueryCdc),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
 			slog.Uint64("SnapshotNumPartitionsOverride", uint64(cdcConfigUpdate.SnapshotNumPartitionsOverride)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
@@ -594,24 +617,6 @@ func fetchMetadata(
 	cfg *protos.FlowConnectionConfigsCore,
 	state *cdc_state.CDCFlowWorkflowState,
 ) (workflow.Context, error) {
-	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
-
-	// MIGRATION: Migrate Postgres table OIDs to catalog before starting/resuming the flow
-	// TODO: no longer needed, remove with versioning
-	migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    2 * time.Minute,
-	})
-	if err := workflow.ExecuteActivity(
-		migrateCtx,
-		flowable.MigratePostgresTableOIDs,
-		cfg.FlowJobName,
-		state.SyncFlowOptions.SrcTableIdNameMapping,
-		state.SyncFlowOptions.TableMappings,
-	).Get(migrateCtx, nil); err != nil {
-		return ctx, fmt.Errorf("failed to migrate Postgres table OIDs: %w", err)
-	}
-
 	for {
 		if err := ctx.Err(); err != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
@@ -659,7 +664,7 @@ func startSetupAndSnapshot(
 	if cfg.Resync {
 		for _, mapping := range state.SyncFlowOptions.TableMappings {
 			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-				mapping.DestinationTableIdentifier += "_resync"
+				mapping.DestinationTableIdentifier += shared.CDCResyncTableSuffix
 			}
 		}
 		// because we have renamed the tables.
@@ -777,7 +782,7 @@ func startSetupAndSnapshot(
 		for _, mapping := range state.SyncFlowOptions.TableMappings {
 			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
 				oldName := mapping.DestinationTableIdentifier
-				newName := strings.TrimSuffix(oldName, "_resync")
+				newName := strings.TrimSuffix(oldName, shared.CDCResyncTableSuffix)
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 					CurrentName: oldName,
 					NewName:     newName,
@@ -983,10 +988,6 @@ func CDCFlowWorkflow(
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
-		// no longer used, handler kept to avoid nondeterminism
-		return state.CurrentFlowStatus, nil
-	})
 
 	// completion from a snapshot-only mirror, we are done
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
@@ -995,30 +996,28 @@ func CDCFlowWorkflow(
 
 	var next nextRun
 	var nextErr error
-	continueAsNewCtx := ctx
 	if state.ActiveSignal == model.PauseSignal {
 		next, nextErr = handlePaused(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
 	} else {
-		enrichedCtx, err := fetchMetadata(ctx, logger, cfg, state)
-		if err != nil {
-			return state, err
+		var fetchErr error
+		if ctx, fetchErr = fetchMetadata(ctx, logger, cfg, state); fetchErr != nil {
+			return state, fetchErr
 		}
-		continueAsNewCtx = enrichedCtx
 		if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
-			next, nextErr = startSetupAndSnapshot(enrichedCtx, logger, cfg, state, flowSignalStateChangeChan)
+			next, nextErr = startSetupAndSnapshot(ctx, logger, cfg, state, flowSignalStateChangeChan)
 		} else {
-			next, nextErr = startCDC(enrichedCtx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
+			next, nextErr = startCDC(ctx, logger, cfg, state, flowSignalChan, flowSignalStateChangeChan)
 		}
 	}
 
 	switch next {
 	case nextRunCDC:
-		return state, workflow.NewContinueAsNewError(continueAsNewCtx, CDCFlowWorkflow, cfg, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	case nextRunDrop:
 		if state.DropFlowInput == nil {
 			return state, errors.New("internal: drop transition without DropFlowInput")
 		}
-		return state, workflow.NewContinueAsNewError(continueAsNewCtx, DropFlowWorkflow, state.DropFlowInput)
+		return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 	default:
 		return state, nextErr
 	}

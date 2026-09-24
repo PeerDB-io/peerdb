@@ -2,6 +2,7 @@ import { notifyErr } from '@/app/utils/notify';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
+  BigqueryCdcEventsFunction,
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
@@ -192,6 +193,10 @@ function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
       shardingKey: row.shardingKey,
       policyName: row.policyName,
       partitionByExpr: row.partitionByExpr,
+      bigqueryCdcEventsFunction:
+        BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+      queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
+      structuredIngestionConfig: row.structuredIngestionConfig,
     }));
 }
 
@@ -229,6 +234,7 @@ export function changesToTablesMapping(
           shardingKey: row.shardingKey,
           policyName: row.policyName,
           partitionByExpr: row.partitionByExpr,
+          structuredIngestionConfig: row.structuredIngestionConfig,
         }) as TableMapping
     );
   return mapping;
@@ -418,8 +424,10 @@ export async function fetchTables(
   targetSchemaName: string,
   peerType?: DBType,
   initialLoadOnly?: boolean
-) {
-  if (schemaName.length === 0) return [];
+): Promise<{ tables: TableMapRow[]; structuredIngestionSupported: boolean }> {
+  if (schemaName.length === 0) {
+    return { tables: [], structuredIngestionSupported: false };
+  }
   const tablesRes: SchemaTablesResponse = await fetch(
     `/api/v1/peers/tables?peerName=${encodeURIComponent(
       peerName
@@ -453,11 +461,21 @@ export async function fetchTables(
         shardingKey: '',
         policyName: '',
         partitionByExpr: '',
+        bigqueryCdcEventsFunction:
+          BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+        queryCdcWatermarkColumn: '',
         isReplicaIdentityFull: tableObject.isReplicaIdentityFull,
+        isUnlogged: tableObject.isUnlogged,
+        hasPrimaryKeyOrReplicaIdentity:
+          tableObject.hasPrimaryKeyOrReplicaIdentity,
+        structuredIngestionConfig: undefined,
       });
     }
   }
-  return tables;
+  return {
+    tables,
+    structuredIngestionSupported: tablesRes.structuredIngestionSupported,
+  };
 }
 
 export async function fetchColumns(

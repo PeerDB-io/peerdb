@@ -117,6 +117,9 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 			slog.ErrorContext(ctx, "Peerflow Worker failed", slog.Any("error", err))
 		},
 		MaxHeartbeatThrottleInterval: 10 * time.Second,
+		// on shutdown, give in-flight activities time to drain (SyncFlow watches the
+		// worker stop channel) instead of immediate context cancellation.
+		WorkerStopTimeout: 30 * time.Second,
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 

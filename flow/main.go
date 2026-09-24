@@ -20,6 +20,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/PeerDB-io/peerdb/flow/cmd"
+	"github.com/PeerDB-io/peerdb/flow/db"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -267,6 +268,13 @@ func main() {
 				},
 			},
 			{
+				Name:  "migrate",
+				Usage: "Run catalog schema migrations to the latest version and exit",
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					return db.Run(ctx)
+				},
+			},
+			{
 				Name: "maintenance",
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
@@ -315,6 +323,8 @@ func main() {
 
 	if err := app.Run(appCtx, os.Args); err != nil {
 		log.Printf("error running app: %+v", err)
-		panic(err)
+		appClose()
+		//nolint:gocritic
+		os.Exit(1)
 	}
 }

@@ -47,7 +47,7 @@ type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
 	schemaNameForRelID     map[uint32]string
-	tableNameMapping       map[string]model.NameAndExclude
+	tableNameMapping       map[string]model.SourceTableMapping
 	tableNameSchemaMapping map[string]*protos.TableSchema
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
@@ -67,6 +67,7 @@ type PostgresCDCSource struct {
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	jsonApi                                  jsoniter.API
 	flowJobName                              string
+	fastProcessJsonColumns                   bool
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
@@ -77,12 +78,13 @@ type PostgresCDCConfig struct {
 	CatalogPool                              shared.CatalogPool
 	OtelManager                              *otel_metrics.OtelManager
 	SrcTableIDNameMapping                    map[uint32]string
-	TableNameMapping                         map[string]model.NameAndExclude
+	TableNameMapping                         map[string]model.SourceTableMapping
 	TableNameSchemaMapping                   map[string]*protos.TableSchema
 	RelationMessageMapping                   model.RelationMessageMapping
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
+	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
@@ -180,6 +182,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
+		fastProcessJsonColumns:                   cdcConfig.FastProcessJsonColumns,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
@@ -337,7 +340,7 @@ func processTuple[Items model.Items](
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-	nameAndExclude model.NameAndExclude,
+	sourceTableMapping model.SourceTableMapping,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	schemaName string,
 	baseRecord model.BaseRecord,
@@ -361,7 +364,7 @@ func processTuple[Items model.Items](
 
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
-		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
+		if _, ok := sourceTableMapping.Exclude[rcol.Name]; ok {
 			continue
 		}
 		if tcol.DataType == 'u' {
@@ -399,13 +402,22 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, fmt.Errorf("failed to scan json: %w", err)
 		}
 		if text.Valid {
-			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
-				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
-				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
-			}
-			if parsedData == nil {
-				// avoid confusing SQL null & JSON null by using pre-marshaled value
-				parsedData = json.RawMessage("null")
+			if p.fastProcessJsonColumns {
+				convertedData, err := convertWithRelaxedNumbers(shared.UnsafeFastStringToReadOnlyBytes(text.String), len(text.String))
+				if err != nil {
+					p.logger.Error("[pg_cdc] failed to process json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to process json: %w", err)
+				}
+				parsedData = convertedData
+			} else {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+				}
+				if parsedData == nil {
+					// avoid confusing SQL null & JSON null by using pre-marshaled value
+					parsedData = json.RawMessage("null")
+				}
 			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 				parsedData, customTypeMapping, p.internalVersion)
@@ -418,18 +430,37 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, fmt.Errorf("failed to scan json array: %w", err)
 		}
 
-		arr := make([]any, len(textArr))
-		for j, text := range textArr {
-			if text.Valid {
-				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
-					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
-					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+		if p.fastProcessJsonColumns {
+			arr := make([]preMarshalledJson, len(textArr))
+			for j, text := range textArr {
+				if text.Valid {
+					convertedData, err := convertWithRelaxedNumbers(shared.UnsafeFastStringToReadOnlyBytes(text.String), len(text.String))
+					if err != nil {
+						p.logger.Error("[pg_cdc] failed to process json array element", slog.Any("error", err))
+						return nil, fmt.Errorf("failed to process json array element: %w", err)
+					}
+					arr[j] = convertedData
+				} else {
+					arr[j] = nil
 				}
-			} else {
-				arr[j] = nil
 			}
+			parsedData = arr
+		} else {
+			arr := make([]any, len(textArr))
+			for j, text := range textArr {
+				if text.Valid {
+					if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+						p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+						return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+					}
+				} else {
+					arr[j] = nil
+				}
+			}
+			parsedData = arr
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN, arr, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			parsedData, customTypeMapping, p.internalVersion)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -567,6 +598,8 @@ func PullCdcRecords[Items model.Items](
 	warnedReplIdentTables := make(map[string]struct{})
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	var receiveTime, processTime, addRecordTime atomic.Int64
+	var processStart time.Time
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
@@ -615,10 +648,16 @@ func PullCdcRecords[Items model.Items](
 	defer func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
+		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
+		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 
 		if lastXLogDataServerWALEnd.Load() > 0 {
 			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
@@ -645,9 +684,13 @@ func PullCdcRecords[Items model.Items](
 				return err
 			}
 		}
+		addStart := time.Now()
+		processTime.Add(int64(addStart.Sub(processStart)))
 		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
+		processStart = time.Now()
+		addRecordTime.Add(int64(processStart.Sub(addStart)))
 
 		totalRecords++
 
@@ -752,7 +795,7 @@ func PullCdcRecords[Items model.Items](
 					waitingForCommit = true
 				}
 			} else {
-				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
+				logger.Info("standby deadline reached, no records accumulated, continuing to wait")
 			}
 			nextRecordDeadline = time.Now().Add(req.IdleTimeout)
 		}
@@ -765,11 +808,13 @@ func PullCdcRecords[Items model.Items](
 			receiveDeadline = nextRecordDeadline
 		}
 		receiveCtx, cancel := context.WithDeadline(ctx, receiveDeadline)
+		receiveStart := time.Now()
 		rawMsg, err := func() (pgproto3.BackendMessage, error) {
 			replLock.Lock()
 			defer replLock.Unlock()
 			return conn.ReceiveMessage(receiveCtx)
 		}()
+		receiveTime.Add(int64(time.Since(receiveStart)))
 		cancel()
 
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -795,6 +840,7 @@ func PullCdcRecords[Items model.Items](
 			return fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
+		processStart = time.Now()
 		switch msg := rawMsg.(type) {
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
@@ -840,8 +886,13 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
-					fetchedBytes.Add(int64(len(msg.Data)))
-					totalFetchedBytes.Add(int64(len(msg.Data)))
+					eventSize := int64(len(msg.Data))
+					fetchedBytes.Add(eventSize)
+					totalFetchedBytes.Add(eventSize)
+					switch rec.(type) {
+					case *model.InsertRecord[Items], *model.UpdateRecord[Items], *model.DeleteRecord[Items]:
+						p.otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
+					}
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
@@ -956,13 +1007,20 @@ func PullCdcRecords[Items model.Items](
 									return err
 								}
 							}
-						} else if err := records.AddRecord(ctx, rec); err != nil {
-							return err
+						} else {
+							addStart := time.Now()
+							processTime.Add(int64(addStart.Sub(processStart)))
+							if err := records.AddRecord(ctx, rec); err != nil {
+								return err
+							}
+							processStart = time.Now()
+							addRecordTime.Add(int64(processStart.Sub(addStart)))
 						}
 					}
 				}
 			}
 		}
+		processTime.Add(int64(time.Since(processStart)))
 	}
 }
 

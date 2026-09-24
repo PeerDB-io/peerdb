@@ -116,8 +116,8 @@ const (
 	ReplicaIdentityNothing ReplicaIdentityType = 'n'
 )
 
-// getRelIDForTable returns the relation ID for a table.
-func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *common.QualifiedTable) (uint32, error) {
+// GetRelIDForTable returns the relation ID for a table.
+func (c *PostgresConnector) GetRelIDForTable(ctx context.Context, schemaTable *common.QualifiedTable) (uint32, error) {
 	var relID pgtype.Uint32
 	err := c.conn.QueryRow(ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
@@ -574,7 +574,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	s SlotCheckResult,
 	slot string,
 	publication string,
-	tableNameMapping map[string]model.NameAndExclude,
+	tableNameMapping map[string]model.SourceTableMapping,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
 	env map[string]string,

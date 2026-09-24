@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 60
     steps:
-      - uses: Kesin11/actions-timeline@7bf79990b7c09f5dfb570ac30b814ca597bd538e # v3.1.1
+      - uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
         with:
           expand-composite-actions: true
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -232,7 +232,7 @@ jobs:
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.5'
+          go-version: '1.27.1'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -374,9 +374,10 @@ jobs:
           set -uo pipefail
 
           # Main PeerDB services that must be healthy before tests run. proto-gen
-          # feeds the image builds; catalog/flow-api/flow-worker/flow-snapshot-worker
-          # back the suites; peerdb and minio support peer setup and S3 staging.
-          MAIN_SERVICES="proto-gen catalog flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # feeds the image builds; flow-migrate applies the catalog schema;
+          # catalog/flow-api/flow-worker/flow-snapshot-worker back the
+          # suites; peerdb and minio support peer setup and S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb minio"
           # Per-attempt wait budget (generous, since flow images are built here).
           PER_ATTEMPT_TIMEOUT=600
 
@@ -485,7 +486,7 @@ jobs:
       # role tests, assumed via OIDC. The tests read them as
       # FLOW_TESTS_RDS_IAM_AUTH_AWS_* / FLOW_TESTS_AWS_*
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com

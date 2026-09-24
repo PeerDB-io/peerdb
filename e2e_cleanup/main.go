@@ -188,7 +188,7 @@ func CleanupSF(ctx context.Context) {
 		Database:       config.Database,
 		Warehouse:      config.Warehouse,
 		Role:           config.Role,
-		RequestTimeout: time.Minute,
+		RequestTimeout: time.Minute, //nolint:staticcheck // deprecated upstream, no replacement
 		Params: map[string]*string{
 			"CLIENT_TELEMETRY_ENABLED": new("false"),
 		},

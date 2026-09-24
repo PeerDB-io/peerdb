@@ -1,26 +1,35 @@
 package connmongo
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
-	"math"
-	"strconv"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// BsonToQValueConverter converts BSON values into QValues following the MongoDB ClickPipes type mapping
+// (https://clickhouse.com/docs/integrations/clickpipes/mongodb/datatypes)
 type BsonToQValueConverter interface {
 	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
-	// QValueJSONFromDocument converts a raw BSON document to a QValueJSON.
+	// QValueJSONFromDocument converts a raw BSON document (Object) to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
+	// QValueJSONFromArray converts a raw BSON array to a QValueJSON.
+	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
+
+	// QValueFromBsonValue converts any BSON value to the QValue prescribed by the type mapping above,
+	// dispatching on the BSON type. BSON null (and a missing value) yields a QValueNull of nullKind,
+	// the kind of the destination column.
+	QValueFromBsonValue(v bson.RawValue, nullKind types.QValueKind) (types.QValue, error)
+
+	QValueStringFromObjectID(oid bson.ObjectID) types.QValueString
+	QValueStringFromString(s string) types.QValueString
 }
 
 // DirectBsonConverter converts BSON directly to JSON string without intermediate deserialization,
@@ -40,217 +49,118 @@ func NewDirectBsonConverter() *DirectBsonConverter {
 
 func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error) {
 	c.stream.Reset(nil)
-	if err := rawDocToJSON(bsoncore.Document(raw), c.stream); err != nil {
+	if err := shared_mongo.RawDocumentToJSON(bsoncore.Document(raw), c.stream); err != nil {
 		return types.QValueJSON{}, fmt.Errorf("failed to convert document: %w", err)
 	}
 	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
+}
+
+func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error) {
+	c.stream.Reset(nil)
+	if err := shared_mongo.RawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
+		return types.QValueJSON{}, fmt.Errorf("failed to convert array: %w", err)
+	}
+	return types.QValueJSON{Val: string(c.stream.Buffer()), IsArray: true}, nil
 }
 
 func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error) {
 	if version >= shared.InternalVersion_MongoDBIdWithoutRedundantQuotes {
 		switch id.Type {
 		case bson.TypeObjectID:
-			return types.QValueString{Val: id.ObjectID().Hex()}, nil
+			return c.QValueStringFromObjectID(id.ObjectID()), nil
 		case bson.TypeString:
-			return types.QValueString{Val: id.StringValue()}, nil
+			return c.QValueStringFromString(id.StringValue()), nil
 		}
 	}
 	c.stream.Reset(nil)
-	if err := rawValueToJSON(bsoncore.Value{Type: bsoncore.Type(id.Type), Data: id.Value}, c.stream); err != nil {
+	if err := shared_mongo.RawValueToJSON(bsoncore.Value{Type: bsoncore.Type(id.Type), Data: id.Value}, c.stream); err != nil {
 		return types.QValueString{}, fmt.Errorf("failed to convert %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
 }
 
-func rawDocToJSON(doc bsoncore.Document, stream *jsoniter.Stream) error {
-	length, rem, ok := bsoncore.ReadLength(doc)
-	if !ok {
-		return fmt.Errorf("failed to read document length")
+func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind types.QValueKind) (types.QValue, error) {
+	if rv.IsZero() {
+		return types.QValueNull(nullKind), nil
 	}
-	length -= 4
-
-	stream.WriteRaw("{")
-	first := true
-	for length > 1 {
-		elem, next, ok := bsoncore.ReadElement(rem)
-		if !ok {
-			return fmt.Errorf("failed to read document element")
-		}
-		length -= int32(len(elem))
-		rem = next
-
-		if !first {
-			stream.WriteRaw(",")
-		}
-		first = false
-
-		stream.WriteStringWithHTMLEscaped(elem.Key())
-		stream.WriteRaw(":")
-		if err := rawValueToJSON(elem.Value(), stream); err != nil {
-			return err
-		}
-	}
-	stream.WriteRaw("}")
-	return nil
-}
-
-func rawArrayToJSON(arr bsoncore.Array, stream *jsoniter.Stream) error {
-	length, rem, ok := bsoncore.ReadLength(arr)
-	if !ok {
-		return fmt.Errorf("failed to read array length")
-	}
-	length -= 4
-
-	stream.WriteRaw("[")
-	first := true
-	for length > 1 {
-		elem, next, ok := bsoncore.ReadElement(rem)
-		if !ok {
-			return fmt.Errorf("failed to read array element")
-		}
-		length -= int32(len(elem))
-		rem = next
-
-		if !first {
-			stream.WriteRaw(",")
-		}
-		first = false
-
-		if err := rawValueToJSON(elem.Value(), stream); err != nil {
-			return err
-		}
-	}
-	stream.WriteRaw("]")
-	return nil
-}
-
-func rawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
+	v := bsoncore.Value{Type: bsoncore.Type(rv.Type), Data: rv.Value}
 	switch v.Type {
 	case bsoncore.TypeDouble:
-		writeFloat64JSON(stream, v.Double())
+		return types.QValueFloat64{Val: v.Double()}, nil
 
 	case bsoncore.TypeString:
-		stream.WriteStringWithHTMLEscaped(v.StringValue())
+		return c.QValueStringFromString(v.StringValue()), nil
 
 	case bsoncore.TypeEmbeddedDocument:
-		return rawDocToJSON(v.Document(), stream)
+		// Nested documents are encoded as `QValueJSON` ...
+		return c.QValueJSONFromDocument(bson.Raw(v.Document()))
 
 	case bsoncore.TypeArray:
-		return rawArrayToJSON(v.Array(), stream)
+		// ... as well as Arrays.
+		return c.QValueJSONFromArray(bson.RawArray(v.Array()))
 
 	case bsoncore.TypeBinary:
 		subtype, data := v.Binary()
-		stream.WriteRaw(`{"Subtype":`)
-		stream.WriteUint8(subtype)
-		stream.WriteRaw(`,"Data":"`)
-		stream.SetBuffer(base64.StdEncoding.AppendEncode(stream.Buffer(), data))
-		stream.WriteRaw(`"}`)
-
-	case bsoncore.TypeUndefined:
-		stream.WriteEmptyObject()
+		c.stream.Reset(nil)
+		shared_mongo.WriteBinaryJSON(c.stream, subtype, data)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeObjectID:
-		oid := v.ObjectID()
-		stream.WriteRaw(`"`)
-		stream.SetBuffer(hex.AppendEncode(stream.Buffer(), oid[:]))
-		stream.WriteRaw(`"`)
+		return c.QValueStringFromObjectID(v.ObjectID()), nil
 
 	case bsoncore.TypeBoolean:
-		stream.WriteBool(v.Boolean())
+		return types.QValueBoolean{Val: v.Boolean()}, nil
 
 	case bsoncore.TypeDateTime:
-		stream.WriteRaw(`"`)
-		stream.SetBuffer(v.Time().UTC().AppendFormat(stream.Buffer(), time.RFC3339Nano))
-		stream.WriteRaw(`"`)
+		return types.QValueString{Val: v.Time().UTC().Format(time.RFC3339Nano)}, nil
 
 	case bsoncore.TypeNull:
-		stream.WriteNil()
+		return types.QValueNull(nullKind), nil
 
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()
-		stream.WriteRaw(`{"Pattern":`)
-		stream.WriteStringWithHTMLEscaped(pattern)
-		stream.WriteRaw(`,"Options":`)
-		stream.WriteStringWithHTMLEscaped(options)
-		stream.WriteRaw("}")
+		c.stream.Reset(nil)
+		shared_mongo.WriteRegexJSON(c.stream, pattern, options)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeJavaScript:
-		stream.WriteStringWithHTMLEscaped(v.JavaScript())
+		// Code is interpreted as a string.
+		return types.QValueString{Val: v.JavaScript()}, nil
 
-	case bsoncore.TypeSymbol:
-		stream.WriteStringWithHTMLEscaped(v.Symbol())
+	case bsoncore.TypeSymbol: // deprecated type, kept for backwards-compatibility
+		return c.QValueStringFromString(v.Symbol()), nil
 
 	case bsoncore.TypeInt32:
-		stream.WriteInt32(v.Int32())
+		return types.QValueInt64{Val: int64(v.Int32())}, nil
 
 	case bsoncore.TypeTimestamp:
 		t, i := v.Timestamp()
-		stream.WriteRaw(`{"T":`)
-		stream.WriteUint32(t)
-		stream.WriteRaw(`,"I":`)
-		stream.WriteUint32(i)
-		stream.WriteRaw("}")
+		c.stream.Reset(nil)
+		shared_mongo.WriteTimestampJSON(c.stream, t, i)
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
 	case bsoncore.TypeInt64:
-		stream.WriteInt64(v.Int64())
+		return types.QValueInt64{Val: v.Int64()}, nil
 
 	case bsoncore.TypeDecimal128:
 		h, l := v.Decimal128()
-		stream.WriteString(bson.NewDecimal128(h, l).String())
-
-	case bsoncore.TypeMinKey, bsoncore.TypeMaxKey:
-		stream.WriteEmptyObject()
-
-	case bsoncore.TypeDBPointer: // deprecated type, kept for backwards-compatibility
-		ns, oid := v.DBPointer()
-		stream.WriteRaw(`{"DB":`)
-		stream.WriteStringWithHTMLEscaped(ns)
-		stream.WriteRaw(`,"Pointer":"`)
-		stream.SetBuffer(hex.AppendEncode(stream.Buffer(), oid[:]))
-		stream.WriteRaw(`"}`)
-
-	case bsoncore.TypeCodeWithScope: // deprecated type, kept for backwards-compatibility
-		code, scope := v.CodeWithScope()
-		stream.WriteRaw(`{"Code":`)
-		stream.WriteStringWithHTMLEscaped(code)
-		stream.WriteRaw(`,"Scope":`)
-		if err := rawDocToJSON(scope, stream); err != nil {
-			return err
-		}
-		stream.WriteRaw("}")
+		return types.QValueString{Val: bson.NewDecimal128(h, l).String()}, nil
 
 	default:
-		return fmt.Errorf("unknown type: %v", v.Type.String())
+		// Undefined, MinKey, MaxKey, DBPointer and CodeWithScope are deprecated and not part of the documented
+		// mapping; they are rendered as JSON exactly as they are inside a full document.
+		c.stream.Reset(nil)
+		if err := shared_mongo.RawValueToJSON(v, c.stream); err != nil {
+			return nil, fmt.Errorf("failed to convert %s value: %w", v.Type.String(), err)
+		}
+		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 	}
-	return nil
 }
 
-// Assume (and test) that values outside of these limits will come out in scientific notation
-// and will be parsed as floats either way
-var (
-	floatLimit    = math.Pow10(21)
-	floatNegLimit = -floatLimit
-)
+func (c *DirectBsonConverter) QValueStringFromObjectID(oid bson.ObjectID) types.QValueString {
+	return types.QValueString{Val: oid.Hex()}
+}
 
-// writeFloat64JSON encodes NaN/Inf as quoted strings, integer-valued floats with an explicit
-// ".0" suffix (to hint ClickHouse to parse as float), and other values in standard notation.
-func writeFloat64JSON(stream *jsoniter.Stream, v float64) {
-	if math.IsNaN(v) {
-		stream.WriteRaw(`"NaN"`)
-	} else if math.IsInf(v, 1) {
-		stream.WriteRaw(`"+Inf"`)
-	} else if math.IsInf(v, -1) {
-		stream.WriteRaw(`"-Inf"`)
-	} else if v < floatLimit && v > floatNegLimit && v == math.Trunc(v) {
-		// use explicit decimal to hint ClickHouse to parse as float
-		stream.SetBuffer(strconv.AppendFloat(stream.Buffer(), v, 'f', 1, 64))
-	} else {
-		// standard notation, with implementation copied from json-iterator's WriteFloat64
-		abs := math.Abs(v)
-		format := byte('f')
-		if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
-			format = 'e'
-		}
-		stream.SetBuffer(strconv.AppendFloat(stream.Buffer(), v, format, -1, 64))
-	}
+func (c *DirectBsonConverter) QValueStringFromString(s string) types.QValueString {
+	return types.QValueString{Val: s}
 }

@@ -114,25 +114,19 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		return fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
-	uploader := transfermanager.New(s3svc, func(o *transfermanager.Options) {
-		// GCS's S3 interop doesn't support aws-chunked trailing CRC32 checksums
-		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
-		if partSize > 0 {
-			o.PartSizeBytes = partSize
-			// match the old feature/s3/manager cutoff: objects under one part
-			// stay a single PutObject, keeping non-multipart ETags
-			o.MultipartUploadThreshold = partSize
-			if partSize > 256*1024*1024 {
-				o.Concurrency = 1
-			}
-		}
-	})
+	uploader := transfermanager.New(s3svc, utils.S3TransferOptions(partSize))
 
 	if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   body,
 	}); err != nil {
+		// transfermanager loses the context.Canceled unwrap chain when AbortMultipartUpload also
+		// fails on the canceled upload context; rejoin the cause so classifier sees the cancellation
+		// https://github.com/aws/aws-sdk-go-v2/blob/feature/s3/transfermanager/v0.3.10/feature/s3/transfermanager/api_op_UploadObject.go#L1204
+		if ctxErr := context.Cause(ctx); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
+		}
 		s3Path := "s3://" + s.bucket + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
 		return fmt.Errorf("failed to upload file to S3: %w", err)

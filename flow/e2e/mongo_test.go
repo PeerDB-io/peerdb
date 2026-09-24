@@ -15,6 +15,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -94,6 +96,142 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Flow_With_Schema() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_schema"
+	dstTable := "test_schema_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "n", NullableEnabled: true},
+		{SourceName: "desc", NullableEnabled: true},
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 10 rows into the source table for initial load
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Test_Flow_With_Structured_Ingestion_Validations covers the structured ingestion validations.
+func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() {
+	// This test can be generalized to future connectors using structured ingestion.
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured"
+	dstTable := "test_structured_dst"
+
+	apiClient, err := NewApiClient()
+	require.NoError(t, err)
+
+	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
+		tableMappings := TableMappings(s, srcTable, dstTable)
+		tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+		tableMappings[0].Columns = columns
+		return tableMappings
+	}
+
+	for _, testCase := range []struct {
+		name          string
+		flowName      string
+		columns       []*protos.ColumnSetting
+		expectedError string
+	}{
+		{
+			name:          "no columns",
+			flowName:      "structured_no_columns",
+			expectedError: "structured ingestion is enabled but no columns are specified",
+		},
+		{
+			name:     "column without destination type",
+			flowName: "structured_untyped_column",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64"},
+				{SourceName: "desc"},
+			},
+			expectedError: "the following columns have no destination type specified",
+		},
+		{
+			name:     "invalid destination type",
+			flowName: "structured_invalid_type",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
+			},
+			expectedError: "invalid custom column type",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectionGen := FlowConnectionGenerationConfig{
+				FlowJobName:   AddSuffix(s, testCase.flowName),
+				TableMappings: structuredMappings(testCase.columns),
+				Destination:   s.Peer().Name,
+			}
+			flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+			flowConnConfig.DoInitialSnapshot = true
+
+			_, err := apiClient.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			require.Error(t, err)
+			grpcStatus, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+			require.Equal(t, codes.InvalidArgument, grpcStatus.Code())
+			require.Contains(t, grpcStatus.Message(), testCase.expectedError)
+		})
+	}
+
+	// A fully typed structured mapping passes validation. The collection has to exist, as validation
+	// also checks the source tables.
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: structuredMappings([]*protos.ColumnSetting{
+			{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
+			{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
+		}),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
 }
 
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
@@ -617,6 +755,85 @@ func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
 
 	// destination keeps all 3 rows (GetRows filters on FINAL and _peerdb_is_deleted = 0)
 	EnvWaitForCount(env, s, "insert after delete", dstTable, "_id,doc", 3)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Collection_DDL_Reported_To_User() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	dropTable := "test_ddl_dropped"
+	renameTable := "test_ddl_renamed"
+	renameTarget := "test_ddl_renamed_to"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, "test_collection_ddl"),
+		TableMappings: TableMappings(s,
+			dropTable, dropTable+"_dst",
+			renameTable, renameTable+"_dst"),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	for _, coll := range []string{dropTable, renameTable} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), coll))
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// replicate a document from each collection first, so the mirror is demonstrably
+	// streaming before any DDL is issued
+	for _, coll := range []string{dropTable, renameTable} {
+		insertRes, err := adminClient.Database(srcDatabase).Collection(coll).
+			InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", dropTable, dropTable+"_dst", "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", renameTable, renameTable+"_dst", "_id,doc")
+
+	// drop emits a change event whose ns is the dropped collection
+	require.NoError(t, adminClient.Database(srcDatabase).Collection(dropTable).Drop(t.Context()))
+
+	// rename emits a change event whose ns is the *source* collection, so it is still
+	// inside the mirror's table mapping and reaches the connector
+	require.NoError(t, adminClient.Database("admin").RunCommand(t.Context(), bson.D{
+		bson.E{Key: "renameCollection", Value: srcDatabase + "." + renameTable},
+		bson.E{Key: "to", Value: srcDatabase + "." + renameTarget},
+	}).Err())
+
+	EnvWaitFor(t, env, 3*time.Minute, "drop reported to user", func() bool {
+		count, err := GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"drop event on "+srcDatabase+"."+dropTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	EnvWaitFor(t, env, 3*time.Minute, "rename reported to user", func() bool {
+		count, err := GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"rename event on "+srcDatabase+"."+renameTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	// the DDL is reported, not applied: the destination tables are left alone
+	EnvWaitForCount(env, s, "dropped collection destination untouched", dropTable+"_dst", "_id,doc", 1)
+	EnvWaitForCount(env, s, "renamed collection destination untouched", renameTable+"_dst", "_id,doc", 1)
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
@@ -1317,6 +1534,91 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.NotContains(t, row, `"max_key"`)
 		require.NotContains(t, row, `"min_key"`)
 	}
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
+// Verifies that date/datetime string inference in JSON columns is order-independent. Previously,
+// the first value in an insert block determines the inferred type, so a post-1970 date infers Date
+// type and clamps subsequent pre-1970 dates as 1970-01-01; while a pre-1970 value arriving first
+// infers DateTime64 type. With InternalVersion_AlwaysUseDateTime64Inference, test ensures both
+// date-like and datetime-like strings will infer as DateTime64 regardless of row order.
+func (s MongoClickhouseSuite) Test_Json_Date_Field_Inference_Consistency() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable1 := "test_json_date_infer_t1"
+	dstTable1 := "test_json_date_infer_t1_dst"
+	srcTable2 := "test_json_date_infer_t2"
+	dstTable2 := "test_json_date_infer_t2_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "test_json_date_infer"),
+		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection1 := adminClient.Database(srcDatabase).Collection(srcTable1)
+	collection2 := adminClient.Database(srcDatabase).Collection(srcTable2)
+
+	post1970Date := "1981-01-01"
+	pre1970Date := "1911-01-01"
+	// DateTime64 JSON paths are scanned as time.Time by clickhouse-go and re-marshaled as RFC3339 on readback
+	expectedDocTemplate := `{"_id":%d,"date_str":"%sT00:00:00Z","datetime_str":"%sT00:00:00Z"}`
+
+	insert := func(collection *mongo.Collection, id int, date string) {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: id},
+			{Key: "date_str", Value: date},
+			{Key: "datetime_str", Value: date + " 00:00:00"},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	validate := func(dstTable string, id int, date string) {
+		rows, err := s.GetRows(dstTable, "_id,doc")
+		require.NoError(t, err)
+		for _, record := range rows.Records {
+			if record[0].Value().(string) == strconv.Itoa(id) {
+				require.Equal(t, fmt.Sprintf(expectedDocTemplate, id, date, date), record[1].Value().(string))
+				return
+			}
+		}
+		require.Failf(t, "row not found", "_id %d not found in %s", id, dstTable)
+	}
+
+	insert(collection1, 1, post1970Date)
+	insert(collection1, 2, pre1970Date)
+	insert(collection2, 1, pre1970Date)
+	insert(collection2, 2, post1970Date)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForCount(env, s, "initial load t1", dstTable1, "_id,doc", 2)
+	EnvWaitForCount(env, s, "initial load t2", dstTable2, "_id,doc", 2)
+	validate(dstTable1, 1, post1970Date)
+	validate(dstTable1, 2, pre1970Date)
+	validate(dstTable2, 1, pre1970Date)
+	validate(dstTable2, 2, post1970Date)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insert(collection1, 3, post1970Date)
+	insert(collection1, 4, pre1970Date)
+	insert(collection2, 3, pre1970Date)
+	insert(collection2, 4, post1970Date)
+
+	EnvWaitForCount(env, s, "cdc t1", dstTable1, "_id,doc", 4)
+	EnvWaitForCount(env, s, "cdc t2", dstTable2, "_id,doc", 4)
+	validate(dstTable1, 3, post1970Date)
+	validate(dstTable1, 4, pre1970Date)
+	validate(dstTable2, 3, pre1970Date)
+	validate(dstTable2, 4, post1970Date)
+
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }

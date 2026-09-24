@@ -376,6 +376,12 @@ func LuaRowNewIndex(ls *lua.LState) int {
 				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
 			}
 		}
+	case types.QValueKindArrayTime:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = types.QValueArrayTime{
+				Val: shared.LTableToSlice(ls, tbl, LVAsDuration),
+			}
+		}
 	case types.QValueKindArrayInterval:
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = types.QValueArrayInterval{

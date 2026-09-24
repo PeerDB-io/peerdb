@@ -168,6 +168,11 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 			}
+		} else if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
+			!strings.HasPrefix(clickHouseType, "Nullable(") {
+			// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be
+			// extracted as Nullable(...), or JSON nulls turn into the type's default value
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		switch clickHouseType {
@@ -232,21 +237,42 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			}
 		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
-			fmt.Fprintf(&projection,
-				`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
-				clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
-				peerdb_clickhouse.QuoteLiteral(colName),
-				peerdb_clickhouse.QuoteIdentifier(dstColName),
-			)
-			if t.enablePrimaryUpdate {
-				fmt.Fprintf(&projectionUpdate,
-					`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+			if colType == types.QValueKindArrayTime {
+				// Array-of-TIME shares ClickHouse's Array(DateTime64(6)) representation with
+				// Array-of-TIMESTAMP, so it needs the same extended-time parsing as the
+				// scalar TIME case above, not the timestamp best-effort parser.
+				time64Supported := slices.Contains(t.flags, shared.Flag_ClickHouseTime64Enabled)
+				fmt.Fprintf(&projection,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
+					extendedTimeToDateTime("x", time64Supported),
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+						extendedTimeToDateTime("x", time64Supported),
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
+			} else {
+				fmt.Fprintf(&projection,
+					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
 					clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
+						clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
 			}
-		case "JSON", "Nullable(JSON)":
+		case "JSON":
 			fmt.Fprintf(&projection,
 				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
@@ -255,6 +281,21 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+		case "Nullable(JSON)":
+			// JSONExtractString yields '' both for a JSON null and for a missing field, and casting
+			// '' (or NULL) with ::JSON raises; route those to NULL instead.
+			fmt.Fprintf(&projection,
+				"CAST(nullIf(JSONExtractString(_peerdb_data, %s), ''), 'Nullable(JSON)') AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"CAST(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), 'Nullable(JSON)') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -356,14 +397,17 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	}
 
-	chSettings := clickhouse.NewCHSettings(t.chVersion)
-	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := clickhouse.NewInsertSettings(t.chVersion, t.version)
 	if t.cluster {
 		chSettings.Add(clickhouse.SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
 		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if t.version >= shared.InternalVersion_AlwaysUseDateTime64Inference {
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDates, "0")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimes, "1")
+		chSettings.Add(clickhouse.SettingInputFormatTryInferDatetimesOnlyDatetime64, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",

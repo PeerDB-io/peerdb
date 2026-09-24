@@ -48,6 +48,40 @@ const defaultSnapshotMaxParallelWorkers =
 const defaultSnapshotNumTablesInParallel =
   blankCDCSetting.snapshotNumTablesInParallel;
 
+function envStringFromState(res: MirrorStatusResponse): string {
+  const env = res.cdcStatus?.config?.env ?? {};
+  return Object.keys(env).length > 0 ? JSON.stringify(env, null, 2) : '';
+}
+
+// Parses the settings override textarea into the updated_env map.
+// Returns an error message on invalid input.
+export function parseEnvString(
+  envString: string
+): { env: Record<string, string> } | { error: string } {
+  if (envString.trim() === '') {
+    return { env: {} };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(envString);
+  } catch (err: any) {
+    return { error: `Settings override is not valid JSON: ${err.message}` };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { error: 'Settings override must be a JSON object' };
+  }
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value !== 'string') {
+      return {
+        error: `Settings override value for "${key}" must be a string`,
+      };
+    }
+    env[key] = value;
+  }
+  return { env };
+}
+
 function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
   return {
     batchSize: res.cdcStatus?.config?.maxBatchSize || defaultBatchSize,
@@ -55,8 +89,8 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.idleTimeoutSeconds || defaultIdleTimeout,
     additionalTables: [],
     removedTables: [],
-    numberOfSyncs: 0,
     updatedEnv: {},
+    removedEnv: [],
     snapshotNumRowsPerPartition:
       res.cdcStatus?.config?.snapshotNumRowsPerPartition ||
       defaultSnapshotNumRowsPerPartition,
@@ -70,6 +104,7 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.snapshotNumTablesInParallel ||
       defaultSnapshotNumTablesInParallel,
     skipInitialSnapshotForTableAdditions: false,
+    queryCdc: undefined,
   };
 }
 
@@ -83,6 +118,9 @@ export default function EditMirror({
   const [loading, startSubmit] = useTransition();
   const [config, setConfig] = useState<CDCFlowConfigUpdate>(() =>
     configFromState(mirrorState)
+  );
+  const [envString, setEnvString] = useState<string>(() =>
+    envStringFromState(mirrorState)
   );
   const { push } = useRouter();
 
@@ -116,6 +154,15 @@ export default function EditMirror({
         return;
       }
     }
+    const envResult = parseEnvString(envString);
+    if ('error' in envResult) {
+      notifyErr(envResult.error);
+      return;
+    }
+    const currentEnv = mirrorState.cdcStatus?.config?.env ?? {};
+    const removedEnv = Object.keys(currentEnv).filter(
+      (key) => !(key in envResult.env)
+    );
     const existingTableCount =
       mirrorState.cdcStatus?.config?.tableMappings.length ?? 0;
     if (
@@ -132,7 +179,13 @@ export default function EditMirror({
         flowJobName: mirrorId,
         requestedFlowState: FlowStatus.STATUS_RUNNING,
         flowConfigUpdate: {
-          cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
+          cdcFlowConfigUpdate: {
+            ...config,
+            additionalTables,
+            removedTables,
+            updatedEnv: envResult.env,
+            removedEnv,
+          },
         },
         dropMirrorStats: false,
         skipDestinationDrop: false,
@@ -145,7 +198,8 @@ export default function EditMirror({
       if (res.ok) {
         push(`/mirrors/${mirrorId}`);
       } else {
-        notifyErr(`Something went wrong: ${res.statusText}`);
+        const body = await res.json().catch(() => null);
+        notifyErr(body?.message || `Something went wrong: ${res.statusText}`);
       }
     });
   };
@@ -262,6 +316,22 @@ export default function EditMirror({
                 Number.isNaN(config.snapshotNumTablesInParallel)
                   ? ''
                   : config.snapshotNumTablesInParallel
+              }
+            />
+          </div>
+        }
+      />
+
+      <RowWithTextField
+        key={6}
+        label={<Label>{'Settings override'} </Label>}
+        action={
+          <div style={fieldStyle}>
+            <TextField
+              variant='text-area'
+              value={envString}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setEnvString(e.target.value)
               }
             />
           </div>

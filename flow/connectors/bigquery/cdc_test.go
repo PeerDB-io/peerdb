@@ -1,0 +1,262 @@
+package connbigquery
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/bigquery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
+)
+
+func TestPollWindow(t *testing.T) {
+	checkpoint := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const safetyLag = time.Minute
+	const maxQueryWindow = 24 * time.Hour
+
+	t.Run("caps at maxQueryWindow past checkpoint when now is far ahead", func(t *testing.T) {
+		now := checkpoint.Add(maxQueryWindow * 10)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		require.True(t, ok)
+		assert.True(t, upper.Equal(checkpoint.Add(maxQueryWindow)))
+	})
+
+	t.Run("caps at safetyLag behind now when now is close", func(t *testing.T) {
+		now := checkpoint.Add(time.Hour)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		require.True(t, ok)
+		assert.True(t, upper.Equal(now.Add(-safetyLag)))
+	})
+
+	t.Run("nothing new to scan when safety lag hasn't cleared", func(t *testing.T) {
+		now := checkpoint.Add(safetyLag / 2)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		assert.False(t, ok)
+		// upper is still reported (as now-safetyLag), just not usable, since it
+		// doesn't move past checkpoint.
+		assert.True(t, upper.Equal(now.Add(-safetyLag)))
+		assert.False(t, upper.After(checkpoint))
+	})
+
+	t.Run("exactly at the boundary is not ok (upper must strictly move past checkpoint)", func(t *testing.T) {
+		now := checkpoint.Add(safetyLag)
+		upper, ok := pollWindow(checkpoint, now, safetyLag, maxQueryWindow)
+		assert.False(t, ok)
+		assert.True(t, upper.Equal(checkpoint))
+	})
+}
+
+func TestPullQueryWindows(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	const window = 24 * time.Hour
+
+	t.Run("walks bounded windows until it finds a watermark", func(t *testing.T) {
+		safeUpper := start.Add(4 * window)
+		watermark := start.Add(5 * window / 2)
+		var windows [][2]time.Time
+
+		bytesProcessed, nextCursor, err := pullQueryWindows(
+			start, start.Add(window), safeUpper, window,
+			func(lower, upper time.Time) (int64, time.Time, error) {
+				windows = append(windows, [2]time.Time{lower, upper})
+				if upper.After(watermark) {
+					return int64(len(windows) * 10), watermark, nil
+				}
+				return int64(len(windows) * 10), lower, nil
+			},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(30), bytesProcessed)
+		assert.Equal(t, watermark, nextCursor)
+		assert.Equal(t, [][2]time.Time{
+			{start, start.Add(window)},
+			{start.Add(window), start.Add(2 * window)},
+			{start.Add(2 * window), start.Add(3 * window)},
+		}, windows)
+	})
+
+	t.Run("caps the final window and keeps cursor when all are empty", func(t *testing.T) {
+		safeUpper := start.Add(5 * window / 2)
+		var windows [][2]time.Time
+
+		bytesProcessed, nextCursor, err := pullQueryWindows(
+			start, start.Add(window), safeUpper, window,
+			func(lower, upper time.Time) (int64, time.Time, error) {
+				windows = append(windows, [2]time.Time{lower, upper})
+				return int64(len(windows) * 10), lower, nil
+			},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(30), bytesProcessed)
+		assert.Equal(t, start, nextCursor)
+		assert.Equal(t, safeUpper, windows[len(windows)-1][1])
+		for _, scanned := range windows {
+			assert.LessOrEqual(t, scanned[1].Sub(scanned[0]), window)
+		}
+	})
+}
+
+func TestBigQueryRowToRecordItems(t *testing.T) {
+	schema := bigquery.Schema{
+		{Name: "id", Type: bigquery.IntegerFieldType},
+		{Name: "name", Type: bigquery.StringFieldType},
+		{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+		{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+		{Name: changeIsForUpdateColumnProjection, Type: bigquery.BooleanFieldType},
+	}
+	qfields := make([]types.QField, len(schema))
+	for i, f := range schema {
+		qfields[i] = BigQueryFieldToQField(f)
+	}
+	row := []bigquery.Value{
+		int64(1), "alice", bigQueryChangeTypeInsert, time.Now(), true,
+	}
+
+	items, err := bigQueryRowToRecordItems(schema, qfields, row)
+	require.NoError(t, err)
+	assert.Equal(t, types.QValueInt64{Val: 1}, items.GetColumnValue("id"))
+	assert.Equal(t, types.QValueString{Val: "alice"}, items.GetColumnValue("name"))
+	assert.Nil(t, items.GetColumnValue(changeTypeColumnProjection))
+	assert.Nil(t, items.GetColumnValue(changeTimestampColumnProjection))
+	assert.Nil(t, items.GetColumnValue(changeIsForUpdateColumnProjection))
+	assert.Len(t, items.ColToVal, 2)
+}
+
+func TestLocateBigQueryChangeColumns(t *testing.T) {
+	t.Run("PeerDB aliases", func(t *testing.T) {
+		cols := locateBigQueryChangeColumns(bigquery.Schema{
+			{Name: "id", Type: bigquery.IntegerFieldType},
+			{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+			{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+			{Name: changeIsForUpdateColumnProjection, Type: bigquery.BooleanFieldType},
+		})
+		assert.Equal(t, bigQueryChangeColumns{changeType: 1, changeTimestamp: 2, isForUpdate: 3}, cols)
+	})
+
+	t.Run("original columns remain supported", func(t *testing.T) {
+		cols := locateBigQueryChangeColumns(bigquery.Schema{
+			{Name: changeTimestampColumnProjection, Type: bigquery.TimestampFieldType},
+			{Name: changeTypeColumnProjection, Type: bigquery.StringFieldType},
+		})
+		assert.Equal(t, bigQueryChangeColumns{changeType: 1, changeTimestamp: 0, isForUpdate: -1}, cols)
+	})
+}
+
+func TestPullColumnNames(t *testing.T) {
+	schema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id"}, {Name: "secret"}, {Name: "name"},
+		},
+	}
+	assert.Equal(t, []string{"id", "secret", "name"}, pullColumnNames(schema, nil))
+	assert.Equal(t, []string{"id", "secret", "name"}, pullColumnNames(schema, map[string]struct{}{}))
+	assert.Equal(t, []string{"id", "name"}, pullColumnNames(schema, map[string]struct{}{"secret": {}}))
+}
+
+func TestMissingSourceColumn(t *testing.T) {
+	candidates := []string{"secret_column", "large_payload", "id"}
+
+	err := &googleapi.Error{
+		Code:    400,
+		Message: "Unrecognized name: secret_column at [1:8]",
+	}
+	col, ok := missingSourceColumn(err, candidates)
+	assert.True(t, ok)
+	assert.Equal(t, "secret_column", col)
+
+	col, ok = missingSourceColumn(fmt.Errorf("query failed: %w", err), candidates)
+	assert.True(t, ok)
+	assert.Equal(t, "secret_column", col)
+
+	_, ok = missingSourceColumn(errors.New("some unrelated failure"), candidates)
+	assert.False(t, ok)
+	_, ok = missingSourceColumn(&googleapi.Error{Code: 404, Message: "secret_column"}, candidates)
+	assert.False(t, ok)
+
+	// Column not among candidates (e.g. already dropped, or a different query
+	// entirely) must not be reported as newly missing.
+	_, ok = missingSourceColumn(&googleapi.Error{Code: 400, Message: "Unrecognized name: other_col at [1:8]"}, candidates)
+	assert.False(t, ok)
+}
+
+// The message shapes below were all captured from a live BigQuery table, driven through
+// both a plain SELECT and the CHANGES(TABLE ...) query pullTableChanges issues.
+func TestMissingSourceColumnMessageShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{{
+		name:    "bare name, no similarly-named column in scope",
+		message: "Unrecognized name: secret_column at [1:8]",
+		want:    "secret_column",
+	}, {
+		// A rename leaves a similarly-named column in scope, so BigQuery suggests it;
+		// the capture must not swallow the ";" that terminates the name.
+		name:    "bare name with Did you mean suggestion",
+		message: "Unrecognized name: secret_column; Did you mean secret_columns? at [1:8]",
+		want:    "secret_column",
+	}, {
+		// Names needing quoting are echoed back backtick-wrapped.
+		name:    "quoted name, no suggestion",
+		message: "Unrecognized name: `my secret column` at [1:8]",
+		want:    "my secret column",
+	}, {
+		name:    "quoted name with Did you mean suggestion",
+		message: "Unrecognized name: `my secret column`; Did you mean my secret columns? at [1:8]",
+		want:    "my secret column",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			col, ok := missingSourceColumn(
+				&googleapi.Error{Code: 400, Message: tc.message},
+				[]string{"id", tc.want},
+			)
+			assert.True(t, ok)
+			assert.Equal(t, tc.want, col)
+		})
+	}
+}
+
+func TestFilterMissingColumns(t *testing.T) {
+	columns := []string{"id", "secret_column", "large_payload"}
+	assert.Equal(t, []string{"id", "large_payload"}, filterMissingColumns(columns,
+		map[string]struct{}{"secret_column": {}}))
+	assert.Equal(t, columns, filterMissingColumns(columns, nil))
+}
+
+func TestMissingColumnsFromSchema(t *testing.T) {
+	columns := []string{"id", "secret_column", "large_payload"}
+	schema := bigquery.Schema{
+		{Name: "id"},
+		{Name: "large_payload"},
+		{Name: "new_source_column"},
+	}
+	assert.Equal(t, map[string]struct{}{"secret_column": {}}, missingColumnsFromSchema(columns, schema))
+}
+
+func TestBuildPullQuery(t *testing.T) {
+	assert.Equal(t,
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_BIGQUERY_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP` "+
+			"FROM APPENDS(TABLE `ds`.`tbl`, @start, @end)",
+		buildEventsPullQuery("APPENDS", "`ds`.`tbl`", []string{"id", "name"}),
+	)
+	assert.Equal(t,
+		"SELECT `id`, `name`, CONCAT(`_CHANGE_TYPE`, '') AS `_PEERDB_BIGQUERY_CHANGE_TYPE`, "+
+			"TIMESTAMP_MICROS(UNIX_MICROS(`_CHANGE_TIMESTAMP`)) AS `_PEERDB_BIGQUERY_CHANGE_TIMESTAMP`, "+
+			"IF(`_CHANGE_IS_FOR_UPDATE`, TRUE, FALSE) AS `_PEERDB_BIGQUERY_CHANGE_IS_FOR_UPDATE` "+
+			"FROM CHANGES(TABLE `ds`.`tbl`, @start, @end)",
+		buildEventsPullQuery("CHANGES", "`ds`.`tbl`", []string{"id", "name"}),
+	)
+	assert.Equal(t,
+		"SELECT `id`, `name` FROM `ds`.`tbl` "+
+			"WHERE TIMESTAMP(`updated_at`) > @start AND TIMESTAMP(`updated_at`) <= @end",
+		buildWatermarkPullQuery("`ds`.`tbl`", "updated_at", []string{"id", "name"}),
+	)
+}

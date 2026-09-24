@@ -6,9 +6,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -28,6 +32,20 @@ const (
 	idle iterationType = iota
 	// insert returns true on Next() with a generated insert event
 	insert
+	// rawEvent returns true on Next() with the next event queued in mockChangeStream.rawEvents
+	rawEvent
+	// nullIdInsert returns true on Next() with an insert event whose documentKey._id
+	// is null, which a decode worker rejects.
+	nullIdInsert
+	// unsupportedOp returns true on Next() with an event carrying an operationType
+	// PullRecords does not replicate.
+	unsupportedOp
+	// fatal returns false on Next() with an error that is neither a timeout nor a
+	// missing resume token, so PullRecords has to give up.
+	fatal
+	// retryChangeStream returns false on Next() with the server's RetryChangeStream (234)
+	// error, which asks the client to reopen the stream from its resume token.
+	retryChangeStream
 )
 
 type mockChangeStream struct {
@@ -38,6 +56,12 @@ type mockChangeStream struct {
 	idx          int
 	iterations   []iterationType
 	emittedTimes []time.Time
+	rawEvents    []bson.Raw
+	deadlines    []time.Duration
+	inserts      int
+	// beforeNext, when set, runs at the start of each Next() call with the index of the
+	// iteration about to be served, letting a test interfere mid-pull.
+	beforeNext func(idx int)
 
 	t *testing.T
 }
@@ -47,10 +71,25 @@ func newMockChangeStream(t *testing.T, iter ...iterationType) *mockChangeStream 
 	return &mockChangeStream{t: t, iterations: iter}
 }
 
-func (cs *mockChangeStream) Next(context.Context) bool {
+func (cs *mockChangeStream) Next(ctx context.Context) bool {
+	if cs.beforeNext != nil {
+		cs.beforeNext(cs.idx)
+	}
+	// A real cursor cannot serve an event once its context is gone, whatever iterations
+	// the test still had scripted.
+	if err := ctx.Err(); err != nil {
+		cs.err = err
+		return false
+	}
 	if cs.idx >= len(cs.iterations) {
 		cs.t.Fatalf("mockChangeStream: Next past end of mocked iterations (%d iterations)", len(cs.iterations))
 	}
+	var remaining time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = time.Until(deadline)
+	}
+	cs.deadlines = append(cs.deadlines, remaining)
+
 	ts := time.Now()
 	cs.emittedTimes = append(cs.emittedTimes, ts)
 	cs.resumeToken = toResumeToken(ts)
@@ -60,16 +99,92 @@ func (cs *mockChangeStream) Next(context.Context) bool {
 
 	switch label {
 	case insert:
-		cs.current = newInsertChangeEvent(bson.NewObjectID(), ts)
+		cs.current = newChangeEvent("insert", mockEventID(cs.inserts), ts)
+		cs.inserts++
+		cs.err = nil
+		return true
+	case nullIdInsert:
+		cs.current = newChangeEvent("insert", nil, ts)
+		cs.err = nil
+		return true
+	case unsupportedOp:
+		cs.current = newChangeEvent("drop", "ev-dropped", ts)
+		cs.err = nil
+		return true
+	case rawEvent:
+		if len(cs.rawEvents) == 0 {
+			cs.t.Fatal("mockChangeStream: rawEvent label with no queued events")
+		}
+		cs.current = cs.rawEvents[0]
+		cs.rawEvents = cs.rawEvents[1:]
 		cs.err = nil
 		return true
 	case idle:
 		cs.err = context.DeadlineExceeded
 		return false
+	case fatal:
+		cs.err = errFatalChangeStream
+		return false
+	case retryChangeStream:
+		cs.err = errRetryChangeStream
+		return false
 	default:
 		cs.t.Fatalf("mockChangeStream: unknown label %d", label)
 		return false
 	}
+}
+
+var errFatalChangeStream = errors.New("mock change stream failure")
+
+// errRetryChangeStream mirrors what the Go driver surfaces when a MongoDB 9.0 server retires an
+// optimized-updateLookup cursor after the feature flag was turned off at runtime.
+var errRetryChangeStream = mongo.CommandError{
+	Code:    234,
+	Name:    "RetryChangeStream",
+	Message: "Optimized change-stream updateLookup was disabled; resuming on the legacy path",
+}
+
+func mockEventID(n int) string { return fmt.Sprintf("ev-%04d", n) }
+
+// tokenAt is the checkpoint text corresponding to the resume token the mock exposed
+// during its idx'th Next() call.
+func (cs *mockChangeStream) tokenAt(idx int) string {
+	cs.t.Helper()
+	require.Less(cs.t, idx, len(cs.emittedTimes), "change stream never reached iteration %d", idx)
+	return b64(toResumeToken(cs.emittedTimes[idx]))
+}
+
+// iterationOfToken maps a checkpoint back to the change stream iteration that produced
+// it, which is what lets tests compare a committed offset against delivered records.
+func (cs *mockChangeStream) iterationOfToken(text string) int {
+	cs.t.Helper()
+	for idx := range cs.emittedTimes {
+		if b64(toResumeToken(cs.emittedTimes[idx])) == text {
+			return idx
+		}
+	}
+	cs.t.Fatalf("checkpoint %q does not match any resume token the change stream emitted", text)
+	return -1
+}
+
+// replicableThrough is the _id of every event emitted at or before iteration idx that
+// PullRecords is expected to replicate. An event that can never be decoded is included
+// under a sentinel id, so that a checkpoint advancing past it shows up as a violation
+// rather than passing silently.
+func (cs *mockChangeStream) replicableThrough(idx int) []string {
+	ids := make([]string, 0, idx+1)
+	inserts := 0
+	for _, iteration := range cs.iterations[:min(idx+1, len(cs.iterations))] {
+		switch iteration {
+		case insert:
+			ids = append(ids, mockEventID(inserts))
+			inserts++
+		case nullIdInsert:
+			ids = append(ids, "ev-undecodable")
+		case idle, unsupportedOp, fatal, retryChangeStream:
+		}
+	}
+	return ids
 }
 
 func (cs *mockChangeStream) ResumeToken() bson.Raw { return cs.resumeToken }
@@ -102,13 +217,19 @@ func drainMongoCDCRecordsAsync(t *testing.T, stream *model.CDCStream[model.Recor
 }
 
 func newInsertChangeEvent(id bson.ObjectID, ts time.Time) bson.Raw {
+	return newChangeEvent("insert", id, ts)
+}
+
+// newChangeEvent builds a change event shaped the way the connector's aggregation
+// pipeline projects it.
+func newChangeEvent(operationType string, id any, ts time.Time) bson.Raw {
 	wallTime := ts.UTC().Truncate(time.Millisecond)
 	event, _ := bson.Marshal(bson.D{
 		{Key: "ns", Value: bson.D{
 			{Key: "db", Value: "db"},
 			{Key: "coll", Value: "coll"},
 		}},
-		{Key: "operationType", Value: "insert"},
+		{Key: "operationType", Value: operationType},
 		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: id}}},
 		{Key: "fullDocument", Value: bson.D{
 			{Key: "_id", Value: id},
@@ -118,6 +239,32 @@ func newInsertChangeEvent(id bson.ObjectID, ts time.Time) bson.Raw {
 		{Key: "wallTime", Value: wallTime},
 	})
 	return event
+}
+
+func newDDLChangeEvent(op string, db string, coll string, ts time.Time) bson.Raw {
+	wallTime := ts.UTC().Truncate(time.Millisecond)
+	event, _ := bson.Marshal(bson.D{
+		{Key: "ns", Value: bson.D{
+			{Key: "db", Value: db},
+			{Key: "coll", Value: coll},
+		}},
+		{Key: "operationType", Value: op},
+		{Key: "clusterTime", Value: toBsonTs(ts)},
+		{Key: "wallTime", Value: wallTime},
+	})
+	return event
+}
+
+// captureSlog redirects the default slog logger for the duration of the test. That is
+// where the Alerter writes its user-facing log lines, and where internal.LoggerFromCtx
+// sends the connector's own logging.
+func captureSlog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var buf strings.Builder
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &buf
 }
 
 func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
@@ -141,7 +288,7 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_idle",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
@@ -183,7 +330,7 @@ func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            "test_mongo_recreate_failure",
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}},
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		MaxBatchSize:           10000,
 		IdleTimeout:            time.Minute,
@@ -196,6 +343,159 @@ func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
 	require.Equal(t, 2, streamCreations)
 	require.Len(t, mockStore.persisted, 1)
 	require.Equal(t, b64(toResumeToken(mockCS.emittedTimes[0])), mockStore.persisted[0].Text)
+}
+
+func TestRetryChangeStreamErrorRecovery(t *testing.T) {
+	ctx := t.Context()
+	logs := captureSlog(t)
+
+	// The server retires the cursor with RetryChangeStream; expect changestream to be recreated
+	mockCS := newMockChangeStream(t, insert, retryChangeStream, insert, idle)
+	mockStore := &mockMetadataStore{}
+	streamCreations := 0
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(t.Context()),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			streamCreations++
+			return mockCS, nil
+		},
+		metadataStore: mockStore,
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            "test_mongo_retry_change_stream",
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	require.NoError(t, connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req))
+	require.Equal(t, 2, streamCreations)
+	require.Equal(t, 2, mockCS.inserts)
+	require.Equal(t, mockCS.tokenAt(3), req.RecordStream.GetLastCheckpoint().Text)
+	require.Contains(t, logs.String(), "recreated change stream because server requested a retry")
+	require.NotContains(t, logs.String(), "change stream error")
+}
+
+func TestRetryChangeStreamRecoveriesAreBounded(t *testing.T) {
+	ctx := t.Context()
+
+	// A server that keeps retiring fresh cursors must not loop forever: surface as error after maxRetryChangeStreamReopens
+	iterations := make([]iterationType, 0, maxRetryChangeStreamReopens+1)
+	for range maxRetryChangeStreamReopens + 1 {
+		iterations = append(iterations, retryChangeStream)
+	}
+	mockCS := newMockChangeStream(t, iterations...)
+	streamCreations := 0
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(t.Context()),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			streamCreations++
+			return mockCS, nil
+		},
+		metadataStore: &mockMetadataStore{},
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:            "test_mongo_retry_change_stream_bounded",
+		RecordStream:           model.NewCDCStream[model.RecordItems](100),
+		TableNameMapping:       map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	err = connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, req)
+	require.ErrorContains(t, err, "change stream error: (RetryChangeStream) Optimized change-stream updateLookup was disabled")
+	var cmdErr mongo.CommandError
+	require.ErrorAs(t, err, &cmdErr)
+	require.Equal(t, int32(234), cmdErr.Code)
+	require.Equal(t, maxRetryChangeStreamReopens+1, streamCreations)
+}
+
+func TestChangeStreamReportsCollectionDDLToUser(t *testing.T) {
+	ctx := t.Context()
+
+	// installed before the connector logger is built, since LoggerFromCtx wraps
+	// whatever slog.Default() is at construction time
+	logs := captureSlog(t)
+
+	// the catalog pool is non-nil but never reachable. pgxpool connects lazily, so this
+	// is enough for PullRecords to build a real Alerter, while the insert into
+	// flow_errors fails immediately rather than blocking the test.
+	pool, err := pgxpool.New(ctx, "postgres://peerdb:peerdb@127.0.0.1:1/peerdb")
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	// drop and rename are collection DDL and must reach the user; dropIndexes is also
+	// unsupported but is not collection DDL, so it must stay internal
+	// the trailing insert matters: a batch with no records treats idle as a stream
+	// recreation rather than a return, so DDL-only input never terminates the pull
+	ts := time.Now()
+	mockCS := newMockChangeStream(t, rawEvent, rawEvent, rawEvent, insert, idle)
+	mockCS.rawEvents = []bson.Raw{
+		newDDLChangeEvent("drop", "db", "coll", ts),
+		newDDLChangeEvent("rename", "db", "other", ts),
+		newDDLChangeEvent("dropIndexes", "db", "coll", ts),
+	}
+	connector := &MongoConnector{
+		logger: internal.LoggerFromCtx(ctx),
+		createChangeStream: func(
+			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
+		) (ChangeStream, error) {
+			return mockCS, nil
+		},
+		metadataStore: &mockMetadataStore{},
+	}
+
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	require.NoError(t, err)
+
+	req := &model.PullRecordsRequest[model.RecordItems]{
+		FlowJobName:  "test_mongo_ddl",
+		RecordStream: model.NewCDCStream[model.RecordItems](100),
+		// both namespaces must be mapped, otherwise the events are dropped by the
+		// destination-table guard before reaching the unsupported-operation branch
+		TableNameMapping: map[string]model.SourceTableMapping{
+			"db.coll":  {Name: "db_coll"},
+			"db.other": {Name: "db_other"},
+		},
+		TableNameSchemaMapping: map[string]*protos.TableSchema{},
+		MaxBatchSize:           10000,
+		IdleTimeout:            time.Minute,
+	}
+	drainMongoCDCRecordsAsync(t, req.RecordStream)
+
+	require.NoError(t, connector.PullRecords(ctx, shared.CatalogPool{Pool: pool}, otelManager, req))
+
+	out := logs.String()
+
+	// the Alerter is always available in production, so the fallback must not be taken
+	require.NotContains(t, out, "Alerter not initialized")
+
+	// InsertFlowLog logs every row before writing it, so this covers both the severity
+	// that lands in flow_errors.error_type and the message the user will read
+	require.Contains(t, out, "[warn] drop event on db.coll: collection DDL is not replicated")
+	require.Contains(t, out, "[warn] rename event on db.other: collection DDL is not replicated")
+	require.Equal(t, 2, strings.Count(out, "inserting user-facing flow log"))
+
+	// dropIndexes did reach the same branch, so the absence of a third user-facing log
+	// above is the operation-type filter working, not a missing event
+	require.Contains(t, out, "unsupported operation type 'dropIndexes'")
 }
 
 func b64(raw bson.Raw) string {
@@ -224,7 +524,7 @@ func TestResumeTokenHelpersRoundTrip(t *testing.T) {
 }
 
 func TestCreatePipeline(t *testing.T) {
-	tableNameMapping := map[string]model.NameAndExclude{"db.coll": {Name: "db_coll"}}
+	tableNameMapping := map[string]model.SourceTableMapping{"db.coll": {Name: "db_coll"}}
 
 	// lookupInPipeline returns the first value found at the given path in any pipeline stage.
 	lookupInPipeline := func(t *testing.T, pipeline mongo.Pipeline, path ...string) bson.RawValue {

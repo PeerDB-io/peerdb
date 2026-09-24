@@ -206,8 +206,9 @@ func (c *CockroachDBConnector) GetColumns(
 			return nil, fmt.Errorf("failed to scan column: %w", err)
 		}
 		return &protos.ColumnsItem{
-			Name: colName,
-			Type: dataType,
+			Name:     colName,
+			Type:     dataType,
+			Nullable: isNullable == "YES",
 		}, nil
 	})
 	if err != nil {

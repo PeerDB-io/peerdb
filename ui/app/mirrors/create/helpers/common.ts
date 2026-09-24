@@ -51,6 +51,7 @@ export const blankCDCSetting: CDCConfig = {
   version: 0,
   flags: [],
   skipValidation: false,
+  queryCdcPullSyncParallelism: 0,
 };
 
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
@@ -69,6 +70,7 @@ export const blankQRepSetting: QRepConfig = {
   watermarkTable: '',
   watermarkColumn: '',
   addNullPartition: false,
+  structuredIngestionConfig: undefined,
   initialCopyOnly: false,
   maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,

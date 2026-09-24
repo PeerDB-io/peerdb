@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
@@ -409,6 +410,23 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 	}
 
 	return s3.New(options), nil
+}
+
+// S3TransferOptions returns the transfermanager options shared by all S3 uploads.
+func S3TransferOptions(partSize int64) func(*transfermanager.Options) {
+	return func(o *transfermanager.Options) {
+		// GCS's S3 interop doesn't support aws-chunked trailing CRC32 checksums
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		if partSize > 0 {
+			o.PartSizeBytes = partSize
+			// match the old feature/s3/manager cutoff: objects under one part
+			// stay a single PutObject, keeping non-multipart ETags
+			o.MultipartUploadThreshold = partSize
+			if partSize > 256*1024*1024 {
+				o.Concurrency = 1
+			}
+		}
+	}
 }
 
 // RecalculateV4Signature allow GCS over S3, removing Accept-Encoding header from sign

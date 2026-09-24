@@ -333,6 +333,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
+	fastProcessJsonColumns, err := internal.PeerDBPostgresFastProcessJsonColumns(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -344,6 +348,7 @@ func pullCore[Items model.Items](
 		FlowJobName:                              req.FlowJobName,
 		Slot:                                     slotName,
 		Publication:                              publicationName,
+		FastProcessJsonColumns:                   fastProcessJsonColumns,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
@@ -546,7 +551,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	relID, err := c.getRelIDForTable(ctx, schemaTable)
+	relID, err := c.GetRelIDForTable(ctx, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("[getTableSchema] failed to get relation id for table %s: %w", schemaTable, err)
 	}
@@ -679,7 +684,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// check if the table exists by getting the relation ID
-		relID, err := c.getRelIDForTable(ctx, schemaTable)
+		relID, err := c.GetRelIDForTable(ctx, schemaTable)
 		if err != nil {
 			return nil, err
 		}
@@ -800,9 +805,9 @@ func (c *PostgresConnector) SetupReplication(
 		skipSnapshotExport = false
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
+	tableNameMapping := make(map[string]model.SourceTableMapping, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
-		tableNameMapping[k] = model.NameAndExclude{
+		tableNameMapping[k] = model.SourceTableMapping{
 			Name:    v,
 			Exclude: make(map[string]struct{}, 0),
 		}

@@ -31,6 +31,15 @@ message ColumnSetting {
   bool nullable_enabled = 5;
 }
 
+// BigqueryCdcEventsFunction selects which BigQuery table-valued function backs
+// EVENTS-mode CDC polling (see BigQueryReplicationMethod) for one table:
+// APPENDS() (insert-only) or CHANGES() (insert/update/delete).
+enum BigqueryCdcEventsFunction {
+  BIGQUERY_CDC_EVENTS_FUNCTION_UNSPECIFIED = 0;
+  BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS = 1;
+  BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES = 2;
+}
+
 message TableMapping {
   string source_table_identifier = 1;
   string destination_table_identifier = 2;
@@ -41,12 +50,54 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  // Only meaningful when the mirror's BigqueryCdcConfig.replication_method is
+  // BIGQUERY_REPLICATION_METHOD_EVENTS.
+  BigqueryCdcEventsFunction bigquery_cdc_events_function = 10;
+  // the column to use as a cursor for query-based CDC replication
+  // required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
+  string query_cdc_watermark_column = 11;
+
+  // Structured ingestion settings of the table, if structured ingestion is used.
+  StructuredIngestionTableConfig structured_ingestion_config = 12;
+}
+
+message StructuredIngestionTableConfig {
+  // If true, the mirror will use structured ingestion for the mapped table,
+  // using the column types given by the `columns` (`destination_type`) field in the TableMapping.
+  bool enabled = 1;
+  // If true, when structured ingestion is enabled, reports of unfitting values will not include
+  // the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 2;
 }
 
 message SetupInput {
   map<string, string> env = 1;
   string flow_name = 2;
   string peer_name = 3;
+}
+
+enum BigQueryReplicationMethod {
+  BIGQUERY_REPLICATION_METHOD_UNSPECIFIED = 0;
+  // table-valued function (APPENDS()/CHANGES()) based CDC polling.
+  BIGQUERY_REPLICATION_METHOD_EVENTS = 1;
+  // query-based CDC polling. (e.g. SELECT * FROM table WHERE watermark_column > last_watermark)
+  BIGQUERY_REPLICATION_METHOD_QUERY = 2;
+}
+
+message QueryCdcConfig {
+  // how many source tables are queried and staged concurrently
+  int32 pull_sync_parallelism = 1;
+
+  // delay the upper bound of each query window behind source's clock
+  int32 safety_lag_seconds = 2;
+
+  // maximum duration covered by a single pull query
+  int32 max_query_window_seconds = 3;
+}
+
+message BigqueryCdcConfig {
+  BigQueryReplicationMethod replication_method = 1;
+  QueryCdcConfig query_cdc = 2;
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
@@ -97,6 +148,14 @@ message FlowConnectionConfigs {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  // connector-specific mirror config, mirroring Peer's per-connector config oneof
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
+
+  // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
+  int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -149,6 +208,13 @@ message FlowConnectionConfigsCore {
   repeated string flags = 27;
 
   optional bool skip_validation = 28;
+
+  oneof source_connector_config {
+    BigqueryCdcConfig bigquery_cdc_config = 29;
+  }
+
+  // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
+  int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
 }
 
 message RenameTableOption {
@@ -187,12 +253,11 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
-  reserved 5;
+  reserved 5, 7;
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
-  int32 number_of_syncs = 7;
 }
 
 message EnsurePullabilityBatchInput {
@@ -448,6 +513,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+  // Structured ingestion settings of the replicated table, unset for tables that do not use it.
+  StructuredIngestionTableConfig structured_ingestion_config = 33;
 }
 
 message ChildTableRange {
@@ -534,10 +601,10 @@ enum FlowStatus {
 }
 
 message CDCFlowConfigUpdate {
+  reserved 4;
   repeated TableMapping additional_tables = 1;
   uint32 batch_size = 2;
   uint64 idle_timeout = 3;
-  int32 number_of_syncs = 4;
   repeated TableMapping removed_tables = 5;
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;
@@ -546,6 +613,10 @@ message CDCFlowConfigUpdate {
   uint32 snapshot_max_parallel_workers = 8;
   uint32 snapshot_num_tables_in_parallel = 9;
   bool skip_initial_snapshot_for_table_additions = 11;
+  // removes keys from the env map, applied after updated_env
+  repeated string removed_env = 12;
+  // Replaces the QueryCdcConfig settings when present. An absent message leaves them unchanged.
+  QueryCdcConfig query_cdc = 13;
 }
 
 message QRepFlowConfigUpdate {

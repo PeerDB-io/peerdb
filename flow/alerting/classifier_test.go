@@ -130,6 +130,22 @@ func TestUnwrappedPgErrorShouldKeepPostgresSource(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestQRepMissingWatermarkTableShouldBeSourceTableMissing(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the QRep partition-planning chain: classifyTable finds no pg_class row for the
+	// watermark table, and the connector and activity wrappers each add context on the way out.
+	err := shared.WrapError("failed to get partitions from source",
+		fmt.Errorf("failed to get partitions: %w",
+			fmt.Errorf(`table "public"."whois_scans" not found in pg_class: %w`, shared.ErrTableDoesNotExist)))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifySourceTableMissing, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "TABLE_DOES_NOT_EXIST",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
@@ -302,6 +318,22 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresWalRaiseErrorShouldBeRecoverable(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.DataCorrupted,
+		Message:  "could not read from log segment 0000000100000EA000000039, offset 35536896: read 0 of 8192",
+		Routine:  "WALReadRaiseError",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("error starting replication at startLsn - 16084218300273: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.DataCorrupted,
+	}, errInfo)
 }
 
 func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
@@ -697,6 +729,27 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UniqueViolation,
 	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresExtensionNotAvailableOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"not available": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  extension "vector" is not available`,
+		"missing control file": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postgresql/16/extension/vector.control": No such file or directory`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresExtensionNotAvailable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "EXTENSION_NOT_AVAILABLE",
+			}, errInfo, "Unexpected error info")
+		})
+	}
 }
 
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
@@ -1150,6 +1203,20 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 				Code:   exceptions.ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot.String(),
 			},
 		},
+		exceptions.ApplicationErrorTypeIrrecoverableMissingTables: {
+			errorClass: ErrorNotifySourceTableMissing,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableMissingTables.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableExistingSlot: {
+			errorClass: ErrorNotifyConnectivity,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(),
+			},
+		},
 	} {
 		t.Run(code.String(), func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
@@ -1211,6 +1278,34 @@ func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceMongoDB,
 		Code:   "POOL_CLEARED_ERROR(11602)",
 	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoKeyNotFoundShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    211,
+		Message: "(KeyNotFound) No keys found for HMAC that is valid for time",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "211",
+	}, errInfo)
+}
+
+func TestMongoRetryChangeStreamShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    234,
+		Name:    "RetryChangeStream",
+		Message: "Optimized change-stream updateLookup was disabled; resuming on the legacy path",
+		Labels:  []string{"ResumableChangeStreamError"},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "234",
+	}, errInfo)
 }
 
 func TestMongoCursorErrors(t *testing.T) {
@@ -1333,6 +1428,51 @@ func TestMySQLServerOfflineModeShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "3032",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLProxyMaxConnectTimeoutShouldBeConnectivity(t *testing.T) {
+	// ProxySQL reports 9001 when it cannot hand out a backend connection from the hostgroup
+	// within the connect timeout. This is not a native MySQL error code.
+	mysqlErr := &mysql.MyError{
+		Code:    9001,
+		State:   "HY000",
+		Message: "Max connect timeout reached while reaching hostgroup 1 after 5000ms",
+	}
+	err := fmt.Errorf("connection to source down: %w", exceptions.NewMySQLExecuteError(mysqlErr))
+	require.Equal(t, "connection to source down: MySQL execute error: "+
+		"ERROR 9001 (HY000): Max connect timeout reached while reaching hostgroup 1 after 5000ms",
+		err.Error(), "Unexpected error message")
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "9001 must notify the user, not page telemetry")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "9001",
+	}, errInfo, "Unexpected error info")
+
+	var appErr *temporal.ApplicationError
+	assert.NotErrorAs(t, err, &appErr, "Error should not be a non-retryable application error")
+}
+
+func TestMySQLUnrelated9001ShouldFallThroughToOther(t *testing.T) {
+	// 9001 sits outside MySQL's own error-number space, so a different middle entity may reuse it
+	// for something that is not a connectivity blip. Without the connect-timeout wording those must
+	// stay unclassified instead of reaching the user as a bogus connectivity notification.
+	mysqlErr := &mysql.MyError{
+		Code:    9001,
+		State:   "HY000",
+		Message: "Unable to parse query",
+	}
+	err := fmt.Errorf("failed in pull records: %w", exceptions.NewMySQLExecuteError(mysqlErr))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyTelemetry, errorClass.ErrorAction(), "an unrelated 9001 should stay on telemetry")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "9001",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -1459,6 +1599,23 @@ func TestClickHouseTooManyPartsWithTableName(t *testing.T) {
 		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 			ErrorAttributeKeyTable: "ss_replica.posts_resync (db2b0f62-f577-4116-8b5d-e0f760a42bee)",
 		},
+	}, errInfo)
+}
+
+func TestClickHouseTooManyTablesDuringTableCreationShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	chErr := &clickhouse.Exception{
+		Code: int32(chproto.ErrTooManyTables),
+		//nolint:lll
+		Message: "Too many tables. The limit (server configuration parameter `max_table_num_to_throw`) is set to 500, the current number is 500",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewClickHouseNormalizedTableCreationError(
+		fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", chErr), "test"))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrTooManyTables)),
 	}, errInfo)
 }
 
@@ -1653,6 +1810,27 @@ func TestBigQueryAuthAndAccessErrorsShouldBeConnectivity(t *testing.T) {
 			}, errInfo)
 		})
 	}
+}
+
+func TestBigQueryMissingWatermarkColumnShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	err := exceptions.NewBigQueryWatermarkColumnMissingError(
+		&googleapi.Error{Code: 400, Message: "Unrecognized name: updated_at at [1:8]"},
+		"dataset.events",
+		"updated_at",
+	)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to pull table records: %w", err))
+	assert.Equal(t, ErrorUnsupportedSchemaChange, errorClass)
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "MISSING_WATERMARK_COLUMN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable:  "dataset.events",
+			ErrorAttributeKeyColumn: "updated_at",
+		},
+	}, errInfo)
 }
 
 // Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
@@ -1855,5 +2033,50 @@ func TestMySQLStaleConnectionErrorJoinedShouldBeNotifyConnectivity(t *testing.T)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "CONNECTION_STALE",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
+	t.Parallel()
+
+	sdkErr := errors.New(
+		"upload multipart failed, upload id: id, cause: failed to abort multipart upload " +
+			"(operation error S3: AbortMultipartUpload, context canceled), " +
+			"triggered after multipart upload failed: operation error S3: UploadPart, context canceled")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to push records: failed to upload to staging: failed to upload file to S3: %w",
+		errors.Join(sdkErr, context.Canceled)))
+	assert.Equal(t, ErrorIgnoreContextCancelled, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "CONTEXT_CANCELLED",
+	}, errInfo)
+}
+
+func TestClickHouseFatalShutdownAbortShouldBeNotifyClickHouseError(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    236,
+		Message: "The server is shutting down due to a fatal error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyClickHouseError, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "236",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseGenericAbortShouldBeInternalClickHouse(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    236,
+		Message: "Query was cancelled",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to push records: %w", err))
+	assert.Equal(t, ErrorInternalClickHouse, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "236",
 	}, errInfo, "Unexpected error info")
 }

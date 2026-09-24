@@ -97,6 +97,8 @@ func (a *CancelTableAdditionActivity) GetCompletedTablesFromQrepRuns(
 func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 	ctx context.Context,
 	flowJobName string,
+	sourcePeerName string,
+	sourcePeerType protos.DBType,
 	tableMappings []*protos.TableMapping,
 ) (map[uint32]string, error) {
 	if len(tableMappings) == 0 {
@@ -118,6 +120,14 @@ func (a *CancelTableAdditionActivity) GetTableOIDsFromCatalog(
 	tableSchemas, err := internal.LoadTableSchemasFromCatalog(ctx, a.CatalogPool, flowJobName, destinationTableNames)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load table schemas from catalog for OID fetch: %w", err)
+	}
+
+	// legacy mirrors created before OIDs were stored in the catalog have TableOid=0;
+	// backfill those from source db so table addition cancellation works for legacy flows.
+	if err := a.backfillTableOIDsFromSourceIfMissing(
+		ctx, flowJobName, sourcePeerName, sourcePeerType, tableMappings, tableSchemas,
+	); err != nil {
+		return nil, err
 	}
 
 	// Extract table OIDs from schemas, mapping OID to source table identifier
@@ -460,4 +470,70 @@ func (a *CancelTableAdditionActivity) getRunIDOfLatestRunningPeerFlow(ctx contex
 		return "", fmt.Errorf("invalid describe response for workflow %s", workflowId)
 	}
 	return describeResp.WorkflowExecutionInfo.Execution.RunId, nil
+}
+
+func (a *CancelTableAdditionActivity) backfillTableOIDsFromSourceIfMissing(
+	ctx context.Context,
+	flowJobName string,
+	sourcePeerName string,
+	sourcePeerType protos.DBType,
+	tableMappings []*protos.TableMapping,
+	tableSchemas map[string]*protos.TableSchema,
+) error {
+	if sourcePeerType != protos.DBType_POSTGRES {
+		return nil
+	}
+
+	var missing []*protos.TableMapping
+	for _, tm := range tableMappings {
+		schema, exists := tableSchemas[tm.DestinationTableIdentifier]
+		if !exists {
+			return fmt.Errorf("table schema not found in catalog for table %s in flow %s", tm.DestinationTableIdentifier, flowJobName)
+		}
+		if schema.TableOid == 0 {
+			missing = append(missing, tm)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	slog.InfoContext(ctx, "Fetch missing table OIDs in catalog from source",
+		slog.String("flowName", flowJobName),
+		slog.Int("missingOIDsCount", len(missing)))
+
+	conn, connClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, sourcePeerName)
+	if err != nil {
+		return fmt.Errorf("failed to get connector for peer %s: %w", sourcePeerName, err)
+	}
+	defer connClose(ctx)
+
+	dstTablesWithMissingOids := make([]string, 0, len(missing))
+	for _, tm := range missing {
+		schemaTable, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
+		if err != nil {
+			return fmt.Errorf("error parsing table identifier %s: %w", tm.SourceTableIdentifier, err)
+		}
+		relID, err := conn.GetRelIDForTable(ctx, schemaTable)
+		if err != nil {
+			return fmt.Errorf("failed to fetch OID for table %s from source: %w", tm.SourceTableIdentifier, err)
+		}
+		dstTablesWithMissingOids = append(dstTablesWithMissingOids, tm.DestinationTableIdentifier)
+		// update fetched OIDs in-memory
+		tableSchemas[tm.DestinationTableIdentifier].TableOid = relID
+	}
+
+	// also persist fetched OIDs to catalog
+	if err := internal.ReadModifyWriteTableSchemasToCatalog(
+		ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), flowJobName, dstTablesWithMissingOids,
+		func(stored map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
+			for tableName, schema := range stored {
+				schema.TableOid = tableSchemas[tableName].TableOid
+			}
+			return stored, nil
+		},
+	); err != nil {
+		return fmt.Errorf("failed to backfill table OIDs to catalog: %w", err)
+	}
+	return nil
 }

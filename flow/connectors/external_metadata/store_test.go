@@ -14,6 +14,43 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+func TestInitializeQueryCDCReplicationState(t *testing.T) {
+	ctx := t.Context()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	metadata := NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), pool)
+
+	flowName := "test_initialize_query_cdc_replication_state_" + uuid.NewString()
+	firstTable := "first_table"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM `+queryCDCReplicationStateTableName+` WHERE flow_name = $1`, flowName)
+	})
+
+	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, firstTable, "snapshot-checkpoint"))
+	state, err := metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+
+	// Existing progress must not be replaced if the activity is restarted.
+	require.NoError(t, metadata.InitializeQueryCDCReplicationState(ctx, flowName, firstTable, "newer-checkpoint"))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-checkpoint", state.CursorText)
+
+	// Attempts and successful syncs advance their respective timestamps.
+	attemptedAt := time.Now().UTC().Truncate(time.Microsecond)
+	syncedAt := attemptedAt.Add(time.Second)
+	require.NoError(t, metadata.RecordQueryCDCAttempt(ctx, flowName, firstTable, attemptedAt))
+	require.NoError(t, metadata.RecordQueryCDCSync(
+		ctx, flowName, firstTable, "next-checkpoint", syncedAt, 0,
+	))
+	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
+	require.NoError(t, err)
+	require.Equal(t, "next-checkpoint", state.CursorText)
+	require.WithinDuration(t, attemptedAt, state.LastAttemptAt, 0)
+	require.WithinDuration(t, syncedAt, state.LastSyncedAt, 0)
+}
+
 func TestOffloadRestoreSensitivePartitionRanges(t *testing.T) {
 	const encKeyID = "test_enc_key"
 	t.Setenv("PEERDB_CURRENT_ENC_KEY_ID", encKeyID)

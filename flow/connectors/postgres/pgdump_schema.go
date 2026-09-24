@@ -22,16 +22,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-// pg_dump from newer Postgres versions emits statements that older
-// destinations don't recognize:
-//   - SET transaction_timeout = 0;        (PG17+ session GUC)
-//   - \restrict / \unrestrict <token>     (pg_dump 17.6+ psql meta-commands
-//     that gate replay against an unrelated psql session; older psql treats
-//     them as unknown backslash commands and aborts under ON_ERROR_STOP)
-//
-// These are session/replay housekeeping and safe to drop on the wire so we
-// keep ON_ERROR_STOP=1 for genuine DDL failures while remaining cross-version.
-var incompatibleLineRE = regexp.MustCompile(`^(SET\s+transaction_timeout\s*=|\\(?:un)?restrict(\s|$))`)
+// pg_dump from newer Postgres versions emits SET transaction_timeout = 0;
+// (a PG17+ session GUC) that older destinations don't recognize. It's session
+// housekeeping and safe to drop on the wire so we keep ON_ERROR_STOP=1 for
+// genuine DDL failures while remaining cross-version.
+var incompatibleLineRE = regexp.MustCompile(`^SET\s+transaction_timeout\s*=`)
 
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.

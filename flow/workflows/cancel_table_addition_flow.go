@@ -125,7 +125,7 @@ func CancelTableAdditionFlow(ctx workflow.Context, input *protos.CancelTableAddi
 
 	var tableOIDs map[uint32]string
 	err = workflow.ExecuteActivity(getTableOIDsCtx, cancelTableAddition.GetTableOIDsFromCatalog,
-		flowJobName, finalListOfTables).Get(ctx, &tableOIDs)
+		flowJobName, flowConfig.SourceName, sourcePeerType, finalListOfTables).Get(ctx, &tableOIDs)
 	if err != nil {
 		logger.Error("Failed to get PostgreSQL table OIDs", "error", err)
 		return nil, err

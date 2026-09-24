@@ -774,6 +774,24 @@ func (v QValueArrayDate) LValue(ls *lua.LState) lua.LValue {
 	})
 }
 
+type QValueArrayTime struct {
+	Val []time.Duration
+}
+
+func (QValueArrayTime) Kind() QValueKind {
+	return QValueKindArrayTime
+}
+
+func (v QValueArrayTime) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayTime) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x time.Duration) lua.LValue {
+		return shared.LuaTime.New(ls, time.Unix(0, 0).UTC().Add(x))
+	})
+}
+
 type QValueArrayTimestamp struct {
 	Val []time.Time
 }

@@ -143,9 +143,11 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	))
 	defer batchSpan.End()
 
-	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
+	tblNameMapping := make(map[string]model.SourceTableMapping, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
+		tblNameMapping[v.SourceTableIdentifier] = model.NewSourceTableMappingWithStructuredIngestion(
+			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestionConfig,
+		)
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
@@ -559,12 +561,9 @@ func replicateQRepPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
-			return err
-		}
 	}
 
-	return monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
+	return monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 }
 
 // replicateXminPartition replicates a XminPartition from the source to the destination.
@@ -631,7 +630,11 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 				},
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepRun(
+			ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName); err != nil {
+			return err
+		}
+		if err := monitoring.RecordQRepPartitions(
 			ctx, logger, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName,
 		); err != nil {
 			return err
@@ -675,15 +678,10 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 	}
 
 	if rowsSynced > 0 {
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
-			return 0, err
-		}
-
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
 	}
 
-	if err := monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition); err != nil {
+	if err := monitoring.UpdateEndTimeAndRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 		return 0, err
 	}
 
@@ -800,7 +798,6 @@ func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
-	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
@@ -823,9 +820,6 @@ func (a *FlowableActivity) normalizeLoop(
 				return
 			}
 			select {
-			case <-syncDone:
-				logger.Info("[normalize-loop] syncDone closed")
-				return
 			case <-ctx.Done():
 				logger.Info("[normalize-loop] context closed")
 				return
@@ -841,21 +835,15 @@ func (a *FlowableActivity) normalizeLoop(
 			normalizingBatchID.Store(reqBatchID)
 			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				for {
-					// update req to latest normalize request & retry
-					select {
-					case <-syncDone:
-						logger.Info("[normalize-loop] syncDone closed before retry")
-						return
-					case <-ctx.Done():
-						logger.Info("[normalize-loop] context closed before retry")
-						return
-					default:
-						time.Sleep(retryInterval)
-						retryInterval = min(retryInterval*2, 5*time.Minute)
-						reqBatchID = normalizeRequests.Load()
-						continue retryLoop
-					}
+				// update req to latest normalize request & retry
+				select {
+				case <-ctx.Done():
+					logger.Info("[normalize-loop] context closed before retry")
+					return
+				case <-time.After(retryInterval):
+					retryInterval = min(retryInterval*2, 5*time.Minute)
+					reqBatchID = normalizeRequests.Load()
+					continue retryLoop
 				}
 			}
 			break

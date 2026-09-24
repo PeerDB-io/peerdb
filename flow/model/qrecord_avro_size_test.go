@@ -538,6 +538,18 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
+			name:       "array_time",
+			kind:       types.QValueKindArrayTime,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				return types.QValueArrayTime{
+					Val: randomArray(func() time.Duration {
+						return time.Duration(rand.Int64N(int64(24 * time.Hour)))
+					}),
+				}
+			},
+		},
+		{
 			name:       "array_interval",
 			kind:       types.QValueKindArrayInterval,
 			numRecords: 5_000,

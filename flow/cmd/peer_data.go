@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -167,12 +168,25 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, APIError) {
-	conn, connClose, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
+	peer, conn, connClose, err := connectors.LoadPeerAndGetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connClose(ctx)
-	return wrapErrorAsFailedPrecondition(conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled))
+
+	resp, apiErr := wrapErrorAsFailedPrecondition(conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled))
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	// Structured ingestion support is a property of the source peer connector.
+	if structured.SupportedSourcePeer(peer) {
+		resp.StructuredIngestionSupported, err = internal.PeerDBUIStructuredIngestionEnabled(ctx, nil)
+		if err != nil {
+			return nil, NewInternalApiError(fmt.Errorf("failed to read structured ingestion setting: %w", err))
+		}
+	}
+	return resp, nil
 }
 
 // Returns list of tables across schema in schema.table format

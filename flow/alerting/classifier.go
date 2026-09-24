@@ -82,8 +82,13 @@ var (
 	// e.g. could not open file "pg_logical/snapshots/2-8B023150.snap.8007.tmp": No such file or directory
 	PostgresCouldNotOpenSnapshotRe = regexp.MustCompile(`could not open file ".*\.snap\..*\.tmp"`)
 	PostgresNeonDonorWalLaggingRe  = regexp.MustCompile(`requested WAL up to [0-9A-F]+/[0-9A-F]+, but current donor \S+ has only up to`)
-	MySqlRdsBinlogFileNotFoundRe   = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
-	MongoPoolClearedErrorRe        = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+	// pg_dump automated schema migration failing because the destination lacks an extension the source uses,
+	// e.g. `extension "vector" is not available` or `could not open extension control file ".../vector.control"`.
+	PostgresExtensionNotAvailableRe = regexp.MustCompile(
+		`extension ".*?" is not available|could not open extension control file`,
+	)
+	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 )
 
 func (e ErrorAction) String() string {
@@ -213,6 +218,11 @@ var (
 	}
 	ErrorNotifyConstraintViolation = ErrorClass{
 		Class: "NOTIFY_CONSTRAINT_VIOLATION", action: NotifyUser,
+	}
+	// The pg_dump automated schema migration failed because the destination is missing an extension
+	// that the source schema depends on; the user must install it on the destination.
+	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
+		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
 	}
 	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
 		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
@@ -573,7 +583,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
-		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+		case exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+			return ErrorNotifySourceTableMissing, ErrorInfo{
+				Source: pgErrSource,
+				Code:   temporalErr.Type(),
+			}
+		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot:
 			return ErrorNotifyConnectivity, ErrorInfo{
 				Source: pgErrSource,
 				Code:   temporalErr.Type(),
@@ -746,6 +761,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
+		case pgerrcode.DataCorrupted:
+			// Observed transient error on Aurora during a failover (evident by a subsequent transient error on retry:
+			// "ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)" that auto-recovered)
+			if pgErr.Routine == "WALReadRaiseError" && strings.Contains(pgErr.Message, "could not read from log segment") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+			return ErrorOther, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			// the GUC names in this message are unquoted on PG16, quoted from PG17 on, and renamed to
 			// "effective_wal_level" on PG19, so only the prefix is stable across versions
@@ -890,6 +912,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1827, // ER_PASSWORD_FORMAT
 			3032: // ER_SERVER_OFFLINE_MODE
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 9001:
+			// 9001 could be a ProxySQL connection timeout, or it could be something else from another
+			// middle entity that should fall through to other.
+			if strings.Contains(myErr.Message, "connect timeout reached") {
+				return ErrorNotifyConnectivity, myErrorInfo
+			}
+			return ErrorOther, myErrorInfo
 		case 3159: // ER_SECURE_TRANSPORT_REQUIRED
 			// The source rejects the handshake because the pipe connects without TLS while the server sets
 			// require_secure_transport=ON. https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_require_secure_transport
@@ -975,6 +1004,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 211: // KeyNotFound
+			return ErrorRetryRecoverable, mongoErrorInfo
+		case 234: // RetryChangeStream
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 136, // CappedPositionLost
 			286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
@@ -1064,6 +1097,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 		return ErrorRetryRecoverable, mongoErrorInfo
+	}
+
+	if watermarkErr, ok := errors.AsType[*exceptions.BigQueryWatermarkColumnMissingError](err); ok {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   "MISSING_WATERMARK_COLUMN",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  watermarkErr.TableName,
+				ErrorAttributeKeyColumn: watermarkErr.ColumnName,
+			},
+		}
 	}
 
 	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
@@ -1157,6 +1201,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 		case chproto.ErrAborted:
+			// The destination server aborts in-flight queries while it restarts after a fatal error.
+			if strings.Contains(chException.Message, "The server is shutting down due to a fatal error") {
+				return ErrorNotifyClickHouseError, chErrorInfo
+			}
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
@@ -1250,6 +1298,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:                 chErrorInfo.Code,
 				AdditionalAttributes: additionalAttributes,
 			}
+		case chproto.ErrTooManyTables:
+			return ErrorNotifyClickHouseError, chErrorInfo
 		case chproto.ErrUnknownUser:
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}
@@ -1421,6 +1471,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable: mongoInvalidIdValueError.Table,
 			},
+		}
+	}
+
+	// pg_dump automated schema migration pipes into psql, so a missing destination extension surfaces
+	// as plain stderr text rather than a *pgconn.PgError.
+	if PostgresExtensionNotAvailableRe.MatchString(err.Error()) {
+		return ErrorNotifyPostgresExtensionNotAvailable, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "EXTENSION_NOT_AVAILABLE",
 		}
 	}
 

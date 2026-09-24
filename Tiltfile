@@ -76,6 +76,7 @@ local_resource(
 dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
 ])
+dc_resource('flow-migrate', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),

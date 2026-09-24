@@ -34,7 +34,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
@@ -108,13 +108,24 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.52.1@sha256:b839b5c798770896c78058db1647d325a19b3acef7fa1fbd9a23fabb1dd7feb2
+    image: temporalio/ui:2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
     ports:
       - 8085:8080
 
+  # applies catalog schema migrations and exits
+  flow-migrate:
+    container_name: flow-migrate
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.8
+    entrypoint: ["/home/peerdb/peer-flow", "migrate"]
+    environment:
+      <<: *catalog-config
+    depends_on:
+      catalog:
+        condition: service_healthy
+
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.0
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.37.8
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -125,51 +136,58 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.37.0
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.37.8
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.37.0
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.37.8
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.37.0
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.37.8
     restart: unless-stopped
     environment:
       <<: *catalog-config
       PEERDB_PASSWORD:
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+      PEERDB_MIGRATIONS_DISABLED: true
       RUST_LOG: info
       RUST_BACKTRACE: 1
     ports:
       - 9900:9900
     depends_on:
-      catalog:
-        condition: service_healthy
+      flow-migrate:
+        condition: service_completed_successfully
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.0
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.8
     restart: unless-stopped
     ports:
       - 3000:3000

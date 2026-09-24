@@ -9,6 +9,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
 	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -59,6 +61,36 @@ func TestContextAwareInt64SyncGaugeRecordsContextualAttributes(t *testing.T) {
 	require.Equal(t, "src", attrValue(t, inner.attrs[0], SourcePeerName))
 	require.Equal(t, protos.FlowOperation_FLOW_OPERATION_SYNC.String(),
 		attrValue(t, inner.attrs[0], FlowOperationKey))
+}
+
+func TestContextAwareInt64Histogram(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+
+	histogram, err := NewContextAwareInt64Histogram(
+		provider.Meter("test"),
+		"test_event_size",
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(100, 200, 500),
+	)
+	require.NoError(t, err)
+	histogram.Record(flowContext("test-flow"), 200)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	require.Len(t, rm.ScopeMetrics, 1)
+	require.Len(t, rm.ScopeMetrics[0].Metrics, 1)
+
+	got := rm.ScopeMetrics[0].Metrics[0]
+	require.Equal(t, "test_event_size", got.Name)
+	require.Equal(t, "By", got.Unit)
+	data, ok := got.Data.(metricdata.Histogram[int64])
+	require.True(t, ok)
+	require.Len(t, data.DataPoints, 1)
+	require.Equal(t, []float64{100, 200, 500}, data.DataPoints[0].Bounds)
+	require.Equal(t, uint64(1), data.DataPoints[0].Count)
+	require.Equal(t, "test-flow", attrValue(t, data.DataPoints[0].Attributes, FlowNameKey))
 }
 
 func TestContextAttributesCache(t *testing.T) {

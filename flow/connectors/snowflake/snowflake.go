@@ -98,7 +98,7 @@ func NewSnowflakeConnector(
 		Database:       snowflakeProtoConfig.Database,
 		Warehouse:      snowflakeProtoConfig.Warehouse,
 		Role:           snowflakeProtoConfig.Role,
-		RequestTimeout: time.Duration(snowflakeProtoConfig.QueryTimeout),
+		RequestTimeout: time.Duration(snowflakeProtoConfig.QueryTimeout), //nolint:staticcheck // deprecated upstream, no replacement
 		Params: map[string]*string{
 			"CLIENT_SESSION_KEEP_ALIVE": new("true"),
 			"CLIENT_TELEMETRY_ENABLED":  new("false"),

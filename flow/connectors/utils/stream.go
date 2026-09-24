@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -86,13 +87,14 @@ func recordToQRecordOrError(
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
+	jsonOpts := rawTableJSONOptions(targetDWH)
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
-		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		itemsJSON, err := preprocessedItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 		}
@@ -106,11 +108,11 @@ func recordToQRecordOrError(
 		preprocessedItems := truncateNumerics(
 			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
-		newItemsJSON, err := model.ItemsToJSON(preprocessedItems)
+		newItemsJSON, err := preprocessedItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 		}
-		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
+		oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 		}
@@ -121,7 +123,7 @@ func recordToQRecordOrError(
 		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	case *model.DeleteRecord[model.RecordItems]:
-		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
+		itemsJSON, err := typedRecord.Items.ToJSONWithOptions(jsonOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
@@ -144,6 +146,105 @@ func recordToQRecordOrError(
 	entries[6] = types.QValueInt64{Val: batchID}
 
 	return entries[:], nil
+}
+
+// RecordsToTypedCDCStream converts a single table's CDC record channel directly
+// into a typed QRecordStream, for destinations (currently ClickHouse) that can
+// INSERT the result straight into their final table without a JSON-blob raw
+// table in between.
+func RecordsToTypedCDCStream(
+	records <-chan model.Record[model.RecordItems],
+	destinationTableName string,
+	schema types.QRecordSchema,
+	businessFields []types.QField,
+	sourceColumnByDest map[string]string,
+	targetDWH protos.DBType,
+	unboundedNumericAsString bool,
+	numericTruncator model.StreamNumericTruncator,
+	rowCounts *model.RecordTypeCounts,
+) (*model.QRecordStream, error) {
+	countMap := map[string]*model.RecordTypeCounts{destinationTableName: rowCounts}
+
+	recordStream := model.NewQRecordStream(1024)
+	recordStream.SetSchema(schema)
+
+	go func() {
+		tableNumericTruncator := numericTruncator.Get(destinationTableName)
+		for record := range records {
+			row, err := typedCDCRow(schema, businessFields, sourceColumnByDest, record,
+				targetDWH, unboundedNumericAsString, tableNumericTruncator)
+			if err != nil {
+				recordStream.Close(err)
+				return
+			}
+			if rowCounts != nil {
+				record.PopulateCountMap(countMap)
+			}
+			if row != nil {
+				recordStream.Records <- row
+			}
+		}
+		close(recordStream.Records)
+	}()
+	return recordStream, nil
+}
+
+func typedCDCRow(
+	schema types.QRecordSchema,
+	businessFields []types.QField,
+	sourceColumnByDest map[string]string,
+	record model.Record[model.RecordItems],
+	targetDWH protos.DBType,
+	unboundedNumericAsString bool,
+	tableNumericTruncator model.CdcTableNumericTruncator,
+) ([]types.QValue, error) {
+	var items model.RecordItems
+	var isDeleted int64
+	switch typedRecord := record.(type) {
+	case *model.InsertRecord[model.RecordItems]:
+		items = typedRecord.Items
+	case *model.UpdateRecord[model.RecordItems]:
+		items = typedRecord.NewItems
+	case *model.DeleteRecord[model.RecordItems]:
+		items = typedRecord.Items
+		isDeleted = 1
+	default:
+		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
+	}
+
+	items = truncateNumerics(items, targetDWH, unboundedNumericAsString, tableNumericTruncator)
+
+	row := make([]types.QValue, 0, len(schema.Fields))
+	for _, field := range businessFields {
+		val := items.GetColumnValue(sourceColumnByDest[field.Name])
+		if val == nil {
+			// column was dropped from the source
+			// use Null for nullable columns, and a default value for non-nullable columns
+			// otherwise the destination will reject the row
+			if field.Nullable {
+				val = types.QValueNull(field.Type)
+			} else {
+				val = field.Type.DefaultValue()
+			}
+		}
+		row = append(row, val)
+	}
+	row = append(row,
+		types.QValueInt64{Val: isDeleted},
+		types.QValueInt64{Val: record.GetCommitTime().UnixNano()},
+	)
+	if len(row) != len(schema.Fields) {
+		return nil, fmt.Errorf("typed CDC row has %d values for a %d-field schema", len(row), len(schema.Fields))
+	}
+	return row, nil
+}
+
+func rawTableJSONOptions(target protos.DBType) model.ToJSONOptions {
+	opts := model.NewToJSONOptions(nil, true)
+	if target == protos.DBType_SNOWFLAKE {
+		opts.ClearValuesOverBytes = shared.SnowflakeClearValueThresholdBytes
+	}
+	return opts
 }
 
 func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.RecordTypeCounts {

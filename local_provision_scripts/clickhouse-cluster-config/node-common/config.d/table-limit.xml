@@ -1,0 +1,3 @@
+<clickhouse>
+    <max_table_num_to_throw>5000</max_table_num_to_throw>
+</clickhouse>

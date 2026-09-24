@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -175,27 +175,54 @@ func (a *FlowableActivity) EnsurePullability(
 	return output, nil
 }
 
+func isQueryCDCPath(
+	flowConfig *protos.FlowConnectionConfigsCore,
+	destinationType protos.DBType,
+) bool {
+	return flowConfig.GetBigqueryCdcConfig() != nil && destinationType == protos.DBType_CLICKHOUSE
+}
+
 // CreateRawTable creates a raw table in the destination flowable.
 func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
-	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
-	}
-	defer dstClose(ctx)
 
-	res, err := dstConn.CreateRawTable(ctx, config)
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
+	flowConfig, err := internal.FetchConfigFromDB(ctx, a.CatalogPool, config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch flow config: %w", err))
+	}
+
+	var rawTableIdentifier string
+	// The query-based CDC path writes typed Avro straight into each
+	// destination table, so there's no _peerdb_raw_* table to create.
+	if !isQueryCDCPath(flowConfig, destinationType) {
+		dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, config.PeerName)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+		}
+		defer dstClose(ctx)
+
+		res, err := dstConn.CreateRawTable(ctx, config)
+		if err != nil {
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		}
+		// CreateRawTable return (nil, nil) for no-op destinations (S3/GCS/MinIO, Postgres)
+		if res != nil {
+			rawTableIdentifier = res.TableIdentifier
+		}
+	}
+
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
 		return nil, err
 	}
 
-	return res, nil
+	return &protos.CreateRawTableOutput{TableIdentifier: rawTableIdentifier}, nil
 }
 
 // SetupTableSchema populates table_schema_mapping
@@ -328,6 +355,83 @@ func (a *FlowableActivity) SyncFlow(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
+	activityCtx := ctx
+	// Heartbeats connector setup below, which must not exceed the activity's heartbeat
+	// timeout. Each sync path replaces it with its own heartbeat once it takes over.
+	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(activityCtx, func() string { return "setup" }))
+	defer stopSetupHeartbeat()
+
+	ctx, cancelCtx := context.WithCancel(ctx)
+	defer cancelCtx()
+
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	// This is kept here and not deeper as we can have errors during SetupReplConn
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
+	logger := internal.LoggerFromCtx(ctx)
+
+	var shutDown atomic.Bool
+	if workerStopChan := activity.GetWorkerStopChannel(ctx); workerStopChan != nil {
+		go func() {
+			select {
+			case <-workerStopChan:
+				logger.Info("worker is stopping, shutting down SyncFlow")
+				shutDown.Store(true)
+				// when worker begins to shut down, worker stop channel is closed immediately,
+				// but it does not cancel the activity context until after WorkerStopTimeout.
+				// so we explicitly call cancelCtx() to gracefully terminate sync and normalize
+				cancelCtx()
+			case <-ctx.Done():
+				// exit guard to prevent goroutine leak
+			}
+		}()
+	}
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+
+	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	defer func() {
+		// The sync path has stopped its heartbeat by the time it returns. Keep the
+		// activity alive while closing the source, even after a worker shutdown has
+		// canceled the derived sync context.
+		stopSetupHeartbeat()
+		stopCloseHeartbeat := common.HeartbeatRoutine(activityCtx, func() string { return "closing source" })
+		defer stopCloseHeartbeat()
+		srcClose(ctx)
+	}()
+
+	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	stopSetupHeartbeat()
+	if isQueryCDCPath(config, destinationType) {
+		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
+	}
+
+	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
+}
+
+// syncFlowSharedStream runs the classic shared-stream CDC path: a single pull+sync
+// loop for the whole mirror feeding a single normalize loop, with all tables sharing
+// one batch counter and one backpressure window.
+func (a *FlowableActivity) syncFlowSharedStream(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+	options *protos.SyncFlowOptions,
+	srcConn connectors.CDCPullConnectorCore,
+	destinationType protos.DBType,
+	shutDown *atomic.Bool,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
 	var currentSyncFlowNum atomic.Int32
 	var totalRecordsSynced atomic.Int64
 	var normalizingBatchID atomic.Int64
@@ -351,37 +455,12 @@ func (a *FlowableActivity) SyncFlow(
 	})
 	defer shutdown()
 
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	// This is kept here and not deeper as we can have errors during SetupReplConn
-	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
-	logger := internal.LoggerFromCtx(ctx)
-
-	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
-	}
-
-	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
-		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
-	)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-	defer srcClose(ctx)
-
-	if err := srcConn.SetupReplConn(ctx, config.Env); err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	// syncDone will be closed by SyncFlow,
-	// whereas normalizeDone will be closed by normalizing goroutine
-	// Wait on normalizeDone at end to not interrupt final normalize
-	syncDone := make(chan struct{})
+	normDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
 	normResponses := concurrency.NewLastChan()
 
@@ -409,40 +488,32 @@ func (a *FlowableActivity) SyncFlow(
 	// Normalize is always 1 batch behind, allow 2 to still run in parallel with pull-sync
 	normBufferSize = max(normBufferSize, 2)
 
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
-		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
-		return nil
-	})
+	normCtx, cancelNormCtx := context.WithCancel(internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE))
+	defer cancelNormCtx()
+	go func() {
+		defer close(normDone)
+		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+	}()
 
-	for groupCtx.Err() == nil {
+	var syncErr error
+	for ctx.Err() == nil {
 		syncNum := currentSyncFlowNum.Add(1)
 		logger.Info("executing sync flow", slog.Int64("count", int64(syncNum)))
 
 		var syncResponse *model.SyncResponse
-		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
-		if syncErr != nil {
-			if groupCtx.Err() != nil {
-				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
-				break
-			}
+		if syncErr != nil && ctx.Err() == nil {
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
-			syncState.Store(new("cleanup"))
-			close(syncDone)
-			normRequests.Close()
-			normResponses.Close()
-			return errors.Join(syncErr, group.Wait())
-		} else if syncResponse != nil {
+			break
+		}
+		if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
@@ -455,18 +526,24 @@ func (a *FlowableActivity) SyncFlow(
 	}
 
 	syncState.Store(new("cleanup"))
-	close(syncDone)
+	cancelNormCtx()
 	normRequests.Close()
 	normResponses.Close()
+	<-normDone
 
-	waitErr := group.Wait()
-	if err := ctx.Err(); err != nil {
-		logger.Info("sync canceled", slog.Any("error", err))
-		return err
-	} else if waitErr != nil {
-		logger.Error("sync failed", slog.Any("error", waitErr))
-		return waitErr
+	if shutDown.Load() {
+		logger.Info("SyncFlow shutdown")
+		return nil
 	}
+	if ctx.Err() != nil {
+		logger.Info("SyncFlow canceled", slog.Any("error", ctx.Err()))
+		return ctx.Err()
+	}
+	if syncErr != nil {
+		logger.Error("SyncFlow failed", slog.Any("error", syncErr))
+		return syncErr
+	}
+	logger.Info("SyncFlow returned")
 	return nil
 }
 
@@ -552,6 +629,11 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 	return nil
 }
 
+func (a *FlowableActivity) InitializeQRepRun(ctx context.Context, config *protos.QRepConfig, runUUID string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.RecordQRepRun(ctx, a.CatalogPool, config, runUUID, config.ParentMirrorName)
+}
+
 // GetQRepPartitions returns the partitions for a given QRepConfig.
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
@@ -565,9 +647,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
-	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
-		return nil, err
-	}
 	srcConn, srcClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep pull connector: %w", err))
@@ -607,7 +686,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 				return nil, fmt.Errorf("failed to offload partition ranges: %w", err)
 			}
 		}
-		if err := monitoring.InitializeQRepRun(
+		if err := monitoring.RecordQRepPartitions(
 			ctx,
 			logger,
 			a.CatalogPool,
@@ -794,6 +873,15 @@ func initializeReplicatePartitionFunc(
 	}
 }
 
+// MarkQRepRunFailed records a qrep workflow failure against its run in peerdb_stats.qrep_runs
+// so the run is excluded from the initial load summary instead of showing as in progress forever.
+func (a *FlowableActivity) MarkQRepRunFailed(ctx context.Context, config *protos.QRepConfig,
+	runUUID string,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	return monitoring.MarkQRepRunFailed(ctx, a.CatalogPool, runUUID)
+}
+
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
@@ -847,9 +935,9 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 			logger.Warn("auth error, skipping to avoid triggering security tools", slog.String("peer", req.PeerName))
 			return nil
 		}
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
-			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
-		)
+		getConnErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err))
+		a.Alerter.LogFlowWarning(ctx, req.FlowJobName, getConnErr)
+		return getConnErr
 	}
 	defer srcClose(ctx)
 
@@ -861,7 +949,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 			pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
 			if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
 				// don't alert when PID active
-				_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+				a.Alerter.LogFlowWarning(ctx, req.FlowJobName, pullCleanupErr)
 			}
 			return pullCleanupErr
 		}
@@ -1889,6 +1977,15 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	})
 	defer shutdown()
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+
+	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
+	}
+	if isQueryCDCPath(cfg, destinationType) {
+		// No raw table in the query-based CDC path.
+		return nil
+	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 	normBatchID, err := pgMetadata.GetLastNormalizeBatchID(ctx, cfg.FlowJobName)
@@ -2113,64 +2210,6 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 		attribute.String(otel_metrics.FlowStatusKey, status.String()),
 		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 	)))
-	return nil
-}
-
-/**
- * MigratePostgresTableOIDs migrates the OIDs for source Postgres tables to the catalog's table_schema_mapping
- */
-func (a *FlowableActivity) MigratePostgresTableOIDs(
-	ctx context.Context,
-	flowName string,
-	oidToTableNameMapping map[uint32]string,
-	tableMappings []*protos.TableMapping,
-) error {
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return "migrating oids to table schema"
-	})
-	defer shutdown()
-
-	logger := internal.LoggerFromCtx(ctx)
-	migrationName := shared.POSTGRES_TABLE_OID_MIGRATION
-
-	if err := internal.RunMigrationOnce(ctx, a.CatalogPool, logger, flowName, migrationName, func(ctx context.Context) error {
-		logger.Info("starting PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		sourceToDestTableMap := make(map[string]string, len(tableMappings))
-		for _, tm := range tableMappings {
-			sourceToDestTableMap[tm.SourceTableIdentifier] = tm.DestinationTableIdentifier
-		}
-		destinationTableOidMap := make(map[string]uint32, len(oidToTableNameMapping))
-		for oid, tableName := range oidToTableNameMapping {
-			destinationTableIdentifier, ok := sourceToDestTableMap[tableName]
-			if !ok {
-				return fmt.Errorf("destination table identifier not found for source table %s", tableName)
-			}
-			destinationTableOidMap[destinationTableIdentifier] = oid
-		}
-
-		err := internal.UpdateTableOIDsInTableSchemaInCatalog(
-			ctx,
-			a.CatalogPool,
-			logger,
-			flowName,
-			destinationTableOidMap,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update table OIDs in catalog: %w", err)
-		}
-
-		logger.Info("successfully completed PostgreSQL table OIDs migration",
-			slog.String("flowName", flowName),
-			slog.Int("tableCount", len(oidToTableNameMapping)))
-
-		return nil
-	}); err != nil {
-		return a.Alerter.LogFlowError(ctx, flowName, err)
-	}
-
 	return nil
 }
 

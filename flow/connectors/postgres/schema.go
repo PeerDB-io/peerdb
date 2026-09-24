@@ -61,7 +61,8 @@ func (c *PostgresConnector) GetTablesInSchema(
 		t.relname,
 		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
 		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size,
-		(t.relreplident = 'f') AS is_replica_identity_full
+		(t.relreplident = 'f') AS is_replica_identity_full,
+		(t.relpersistence = 'u') AS is_unlogged
 	FROM pg_class t
 	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
 	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
@@ -78,20 +79,24 @@ func (c *PostgresConnector) GetTablesInSchema(
 		var hasPkeyOrReplica pgtype.Bool
 		var tableSize pgtype.Text
 		var isReplicaIdentityFull pgtype.Bool
-		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize, &isReplicaIdentityFull); err != nil {
+		var isUnlogged bool
+		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize, &isReplicaIdentityFull, &isUnlogged); err != nil {
 			return nil, err
 		}
 		var sizeOfTable string
 		if tableSize.Valid {
 			sizeOfTable = tableSize.String
 		}
-		canMirror := !cdcEnabled || (hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool)
+		hasPrimaryKeyOrReplicaIdentity := hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool
+		canMirror := !cdcEnabled || (hasPrimaryKeyOrReplicaIdentity && !isUnlogged)
 
 		return &protos.TableResponse{
-			TableName:             table.String,
-			CanMirror:             canMirror,
-			TableSize:             sizeOfTable,
-			IsReplicaIdentityFull: isReplicaIdentityFull.Bool,
+			TableName:                      table.String,
+			CanMirror:                      canMirror,
+			TableSize:                      sizeOfTable,
+			IsReplicaIdentityFull:          isReplicaIdentityFull.Bool,
+			IsUnlogged:                     isUnlogged,
+			HasPrimaryKeyOrReplicaIdentity: hasPrimaryKeyOrReplicaIdentity,
 		}, nil
 	})
 	if err != nil {
@@ -107,7 +112,8 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
     atttypid AS oid,
     format_type(atttypid, atttypmod) AS data_type,
     (pg_constraint.contype = 'p') AS is_primary_key,
-    (idx.indkey IS NOT NULL) AS is_replica_identity
+    (idx.indkey IS NOT NULL) AS is_replica_identity,
+    NOT pg_attribute.attnotnull AS nullable
 	FROM pg_attribute
 	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
 	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
@@ -133,7 +139,8 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
 		var isReplicaIdentity pgtype.Bool
-		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey, &isReplicaIdentity); err != nil {
+		var nullable pgtype.Bool
+		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey, &isReplicaIdentity, &nullable); err != nil {
 			return nil, err
 		}
 		return &protos.ColumnsItem{
@@ -142,6 +149,7 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, sche
 			IsKey:             isPkey.Bool,
 			Qkind:             string(c.postgresOIDToQValueKind(oid, c.customTypeMapping, version)),
 			IsReplicaIdentity: isReplicaIdentity.Bool,
+			Nullable:          nullable.Bool,
 		}, nil
 	})
 	if err != nil {

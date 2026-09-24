@@ -49,6 +49,16 @@ const (
 	changefeedManyTablesThreshold = 100
 )
 
+// changefeedBufferSoftLimitBytes caps how much converted-record payload may
+// wait for a resolved timestamp before the buffer is force-emitted. Sized in
+// bytes of raw changefeed message payload rather than record count because a
+// single event can be arbitrarily large. Crossing it trades the no-duplicate
+// guarantee for bounded memory: force-emitted records sit past the persisted
+// checkpoint until the next resolved timestamp covers them, exactly like every
+// record did before buffering existed. A var, not a const, so tests can lower
+// it to exercise the force-emit path.
+var changefeedBufferSoftLimitBytes = int64(128 << 20)
+
 // After reports whether ts is strictly newer than other.
 func (ts crdbHLC) After(other crdbHLC) bool {
 	return ts.WallNanos > other.WallNanos ||

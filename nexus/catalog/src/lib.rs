@@ -24,11 +24,6 @@ use serde_json::{self, Value};
 use sqlparser::ast::Statement;
 use tokio_postgres::{Client, types};
 
-mod embedded {
-    use refinery::embed_migrations;
-    embed_migrations!("migrations");
-}
-
 pub struct Catalog {
     pg: Client,
     kms_key_id: Option<Arc<String>>,
@@ -139,24 +134,6 @@ async fn gcp_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow:
     Err(anyhow::anyhow!("GCP KMS support not compiled in"))
 }
 
-async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
-    let migration_report = embedded::migrations::runner()
-        // Tolerate a schema history that is ahead of the binary to support release rollbacks.
-        // Divergent migrations with same version but different checksum will still abort.
-        .set_abort_missing(false)
-        .run_async(client)
-        .await
-        .context("Failed to run migrations")?;
-    for migration in migration_report.applied_migrations() {
-        tracing::info!(
-            "Migration Applied - Name: {}, Version: {}",
-            migration.name(),
-            migration.version()
-        );
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone)]
 pub struct CatalogConfig<'a> {
     pub host: &'a str,
@@ -205,10 +182,6 @@ impl Catalog {
             kms_key_id: kms_key_id.clone(),
             kms_provider: kms_provider.to_string(),
         })
-    }
-
-    pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
-        run_migrations(&mut self.pg).await
     }
 
     async fn env_enc_key(&self, enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
