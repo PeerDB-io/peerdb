@@ -298,6 +298,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	destTable := tableMapping.DestinationTableIdentifier
 	sourceTableMapping := model.NewSourceTableMapping(destTable, tableMapping.Exclude)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
+	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
 
 	wasLagging := false
 	var retryWait time.Duration
@@ -441,11 +443,16 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			numSynced = int64(rowCounts.InsertCount.Load() + rowCounts.UpdateCount.Load() + rowCounts.DeleteCount.Load())
 		}
 		newBatchID := int64(0)
+		var firstRowReceivedAt, firstRowCommitTime *time.Time
 		if numSynced > 0 {
 			newBatchID = nextBatchID
+			if receivedAt, commitTime, ok := stream.FirstRowTimes(); ok {
+				firstRowReceivedAt, firstRowCommitTime = &receivedAt, &commitTime
+			}
 		}
 		if err := pgMetadata.RecordQueryCDCSync(
 			ctx, flowName, sourceTable, pullResult.NextCursor, time.Now(), newBatchID,
+			firstRowReceivedAt, firstRowCommitTime,
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
@@ -453,6 +460,10 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
 			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
+			if firstRowReceivedAt != nil {
+				a.OtelManager.Metrics.QueryCDCSourceLagGauge.Record(ctx,
+					firstRowReceivedAt.Sub(*firstRowCommitTime).Milliseconds(), metricsOptions)
+			}
 			normRequests.Update(newBatchID)
 		}
 	}
@@ -551,6 +562,11 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		// bounded parallelism: only normalize into the destination for up to
 		// normParallelism tables at once.
 		startBatchID := lastNormalized + 1
+		firstRowReceivedAt, firstRowCommitTime, hasRowTimes, timesErr := pgMetadata.GetQueryCDCFirstRowTimes(
+			ctx, flowName, sourceTable, startBatchID, reqBatchID)
+		if timesErr != nil {
+			logger.Warn("failed to query table batch row times for lag metrics", slog.Any("error", timesErr))
+		}
 		normCounts, normErr, fatalErr := func() (*model.RecordTypeCounts, error, error) {
 			release, err := acquire(ctx, normSem, logger, "normalize")
 			if err != nil {
@@ -609,6 +625,11 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		}
 		normResponses.Update(reqBatchID)
 		a.OtelManager.Metrics.QueryCDCNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
+		if hasRowTimes {
+			now := time.Now().UTC()
+			a.OtelManager.Metrics.QueryCDCDestinationLagGauge.Record(ctx, now.Sub(firstRowReceivedAt).Milliseconds(), metricsOptions)
+			a.OtelManager.Metrics.QueryCDCE2ELagGauge.Record(ctx, now.Sub(firstRowCommitTime).Milliseconds(), metricsOptions)
+		}
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,

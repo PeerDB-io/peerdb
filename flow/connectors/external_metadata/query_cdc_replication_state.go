@@ -124,8 +124,21 @@ func (p *PostgresMetadata) RecordQueryCDCAttempt(
 // created it before the poll started.
 func (p *PostgresMetadata) RecordQueryCDCSync(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string, syncedAt time.Time, newBatchID int64,
+	firstRowReceivedAt, firstRowCommitTime *time.Time,
 ) error {
-	if _, err := p.pool.Exec(ctx, `
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin table replication sync for %s: %w", sourceTableIdentifier, err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+		UPDATE `+queryCDCAvroStageTableName+`
+		SET first_row_received_at = $4, first_row_commit_time = $5
+		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id = $3
+	`, jobName, sourceTableIdentifier, newBatchID, firstRowReceivedAt, firstRowCommitTime); err != nil {
+		return fmt.Errorf("failed to record table batch row times for %s: %w", sourceTableIdentifier, err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE `+queryCDCReplicationStateTableName+`
 		SET cursor_text = $3,
 			last_synced_at = $4,
@@ -136,7 +149,28 @@ func (p *PostgresMetadata) RecordQueryCDCSync(
 		p.logger.Error("failed to record table replication sync", slog.String("table", sourceTableIdentifier), slog.Any("error", err))
 		return fmt.Errorf("failed to record table replication sync for %s: %w", sourceTableIdentifier, err)
 	}
-	return nil
+	return tx.Commit(ctx)
+}
+
+// GetQueryCDCFirstRowTimes returns the oldest staged row timestamps in a
+// table's normalize range. The caller must read them before normalize deletes
+// the stage rows.
+func (p *PostgresMetadata) GetQueryCDCFirstRowTimes(
+	ctx context.Context, jobName, sourceTableIdentifier string, startBatchID, endBatchID int64,
+) (time.Time, time.Time, bool, error) {
+	var receivedAt, commitTime *time.Time
+	err := p.pool.QueryRow(ctx, `
+		SELECT MIN(first_row_received_at), MIN(first_row_commit_time)
+		FROM `+queryCDCAvroStageTableName+`
+		WHERE flow_name = $1 AND source_table_identifier = $2 AND batch_id BETWEEN $3 AND $4
+	`, jobName, sourceTableIdentifier, startBatchID, endBatchID).Scan(&receivedAt, &commitTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("failed to query table batch row times for %s: %w", sourceTableIdentifier, err)
+	}
+	if receivedAt == nil || commitTime == nil {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	return *receivedAt, *commitTime, true, nil
 }
 
 // RecordQueryCDCNormalize advances a table's normalized_batch_id

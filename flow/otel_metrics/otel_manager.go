@@ -67,6 +67,9 @@ const (
 	SourceLagGaugeName                   = "source_lag"
 	DestinationLagGaugeName              = "destination_lag"
 	E2ELagGaugeName                      = "e2e_lag"
+	QueryCDCSourceLagGaugeName           = "query_cdc_source_lag"
+	QueryCDCDestinationLagGaugeName      = "query_cdc_destination_lag"
+	QueryCDCE2ELagGaugeName              = "query_cdc_e2e_lag"
 	ServerSideCommitLagGaugeName         = "server_side_commit_lag"
 	NormalizeLagGaugeName                = "normalize_lag"
 	ErrorEmittedGaugeName                = "error_emitted"
@@ -140,6 +143,9 @@ type Metrics struct {
 	SourceLagGauge                    metric.Int64Gauge
 	DestinationLagGauge               metric.Int64Gauge
 	E2ELagGauge                       metric.Int64Gauge
+	QueryCDCSourceLagGauge            metric.Int64Gauge
+	QueryCDCDestinationLagGauge       metric.Int64Gauge
+	QueryCDCE2ELagGauge               metric.Int64Gauge
 	ServerSideCommitLagGauge          metric.Int64Gauge
 	NormalizeLagGauge                 metric.Int64Gauge
 	ErrorEmittedGauge                 metric.Int64Gauge
@@ -563,6 +569,24 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
 		metric.WithUnit("ms"),
 		metric.WithDescription("End-to-end lag in milliseconds from a source event's commit timestamp to destination write"),
+	); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCSourceLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCSourceLagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Query CDC lag from the first row's source timestamp to when PeerDB receives it"),
+	); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCDestinationLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCDestinationLagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Query CDC lag from first row receipt to destination normalize completion"),
+	); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCE2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCE2ELagGaugeName),
+		metric.WithUnit("ms"),
+		metric.WithDescription("Query CDC lag from the first row's source timestamp to destination normalize completion"),
 	); err != nil {
 		return err
 	}

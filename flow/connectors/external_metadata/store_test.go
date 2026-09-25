@@ -44,13 +44,39 @@ func TestInitializeQueryCDCReplicationState(t *testing.T) {
 	syncedAt := attemptedAt.Add(time.Second)
 	require.NoError(t, metadata.RecordQueryCDCAttempt(ctx, flowName, firstTable, attemptedAt))
 	require.NoError(t, metadata.RecordQueryCDCSync(
-		ctx, flowName, firstTable, "next-checkpoint", syncedAt, 0,
+		ctx, flowName, firstTable, "next-checkpoint", syncedAt, 0, nil, nil,
 	))
 	state, err = metadata.GetQueryCDCReplicationState(ctx, flowName, firstTable)
 	require.NoError(t, err)
 	require.Equal(t, "next-checkpoint", state.CursorText)
 	require.WithinDuration(t, attemptedAt, state.LastAttemptAt, 0)
 	require.WithinDuration(t, syncedAt, state.LastSyncedAt, 0)
+}
+
+func TestQueryCDCFirstRowTimesSurviveSync(t *testing.T) {
+	ctx := t.Context()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	metadata := NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), pool)
+	flowName := "test_query_cdc_batch_times_" + uuid.NewString()
+	table := "source_table"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM `+queryCDCAvroStageTableName+` WHERE flow_name = $1`, flowName)
+		_, _ = pool.Exec(ctx, `DELETE FROM `+queryCDCReplicationStateTableName+` WHERE flow_name = $1`, flowName)
+	})
+	require.NoError(t, metadata.RecordQueryCDCAttempt(ctx, flowName, table, time.Now()))
+	_, err = pool.Exec(ctx, `INSERT INTO `+queryCDCAvroStageTableName+`
+		(flow_name, source_table_identifier, batch_id, avro_file) VALUES ($1, $2, 1, '{}')`, flowName, table)
+	require.NoError(t, err)
+
+	commitTime := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	receivedAt := commitTime.Add(10 * time.Second)
+	require.NoError(t, metadata.RecordQueryCDCSync(ctx, flowName, table, "next", time.Now(), 1, &receivedAt, &commitTime))
+	gotReceivedAt, gotCommitTime, ok, err := metadata.GetQueryCDCFirstRowTimes(ctx, flowName, table, 1, 1)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, receivedAt, gotReceivedAt)
+	require.Equal(t, commitTime, gotCommitTime)
 }
 
 func TestOffloadRestoreSensitivePartitionRanges(t *testing.T) {
