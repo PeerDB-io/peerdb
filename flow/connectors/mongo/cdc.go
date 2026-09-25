@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -144,6 +145,7 @@ func (c *MongoConnector) GetTableSchema(
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	result := make(map[string]*protos.TableSchema, len(tableMappings))
+
 	idFieldDescription := &protos.FieldDescription{
 		Name:         DefaultDocumentKeyColumnName,
 		Type:         string(types.QValueKindString),
@@ -162,16 +164,39 @@ func (c *MongoConnector) GetTableSchema(
 	}
 
 	for _, tm := range tableMappings {
+		columns := []*protos.FieldDescription{idFieldDescription}
+		nullableEnabled := false
+
+		structuredCfg := tm.StructuredIngestionConfig
+		if structuredCfg.GetEnabled() {
+			// only the schema is derived here, so recording malformed values is inconsequential
+			projector, err := newStructuredSchemaProjector(tm.Columns, !structuredCfg.GetDropUnexpectedValues())
+			if err != nil {
+				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
+			}
+			// Every column but the document key is nullable, a document may lack any of them: the declared
+			// types are expected to be Nullable(...) already. The projector's record schema already ends
+			// with the malformed data column.
+			for _, column := range projector.QRecordSchema().Fields {
+				columns = append(columns, &protos.FieldDescription{
+					Name:         column.Name,
+					Type:         string(column.Type),
+					TypeModifier: -1,
+					Nullable:     column.Nullable,
+				})
+			}
+			nullableEnabled = true
+		} else {
+			columns = append(columns, dataFieldDescription)
+		}
+
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
 			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
-			NullableEnabled:       false,
-			Columns: []*protos.FieldDescription{
-				idFieldDescription,
-				dataFieldDescription,
-			},
+			NullableEnabled:       nullableEnabled,
+			Columns:               columns,
 		}
 	}
 
@@ -282,6 +307,7 @@ type encodedMongoEvent struct {
 func (c *MongoConnector) decodeEvent(
 	events []encodedMongoEvent,
 	req *model.PullRecordsRequest[model.RecordItems],
+	structuredProjectors map[string]*structured.SchemaProjector,
 ) ([]model.Record[model.RecordItems], error) {
 	// Utils used by this routine.
 	converter := NewDirectBsonConverter()
@@ -290,36 +316,64 @@ func (c *MongoConnector) decodeEvent(
 		fullDocumentColumnName = LegacyFullDocumentColumnName
 	}
 	parseItem := func(event encodedMongoEvent) (model.Record[model.RecordItems], error) {
-		items := model.NewRecordItems(2)
+		var items model.RecordItems
 
-		if len(event.documentKey) > 0 {
-			rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
-			if rv.IsZero() || rv.Type == bson.TypeNull {
-				return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
-			}
-			qValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert key: %w", err)
-			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
+		if len(event.documentKey) == 0 {
 			return nil, fmt.Errorf("document key is nil")
 		}
 
-		if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
-			qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert document: %w", err)
-			}
-			items.AddColumn(fullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+		rv := event.documentKey.Lookup(DefaultDocumentKeyColumnName)
+		if rv.IsZero() || rv.Type == bson.TypeNull {
+			return nil, exceptions.NewInvalidIdValueError(event.sourceTableName)
 		}
+		idQValue, err := converter.QValueStringFromId(rv, req.InternalVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert key: %w", err)
+		}
+
+		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
+			// Structured ingestion: the document fields are projected onto the table's schema columns.
+
+			// An absent `fullDocument` will end up storing NULL on all structured columns
+			document := emptyBsonDocument
+			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+				document = *event.maybeFullDocument
+			}
+
+			// This is where the MongoDB specific document iterator is
+			// created and passed to the generic structured ingestion logic.
+			// `DocumentQValueIterator` is the entry point for the document
+			// to QValue translation.
+			fieldsIterator, walkErr := DocumentQValueIterator(document, converter)
+			items, err = projector.ApplyRecordSchema(fieldsIterator)
+			if err != nil {
+				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
+			}
+			if err := walkErr(); err != nil {
+				return nil, err
+			}
+		} else {
+			// Default ingestion: the entire document is stored in a single column as JSON.
+			items = model.NewRecordItems(2)
+
+			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
+				qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert document: %w", err)
+				}
+				items.AddColumn(fullDocumentColumnName, qValue)
+			} else {
+				// `fullDocument` field will not exist in the following scenarios:
+				// 1) operationType is 'delete'
+				// 2) document is deleted / collection is dropped in between update and lookup
+				// 3) update changes the values for at least one of the fields in that collection's
+				//    shard key (although sharding is not supported today)
+				items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			}
+		}
+
+		items.AddColumn(DefaultDocumentKeyColumnName, idQValue)
+
 		var record model.Record[model.RecordItems]
 		switch event.operationType {
 		case operationTypeInsert:
@@ -463,6 +517,26 @@ func (c *MongoConnector) PullRecords(
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
+	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
+	// as projecting only reads them, while each worker owns its converter.
+	structuredProjectors := make(map[string]*structured.SchemaProjector)
+	for sourceTableName, tableMapping := range req.TableNameMapping {
+		structuredCfg := tableMapping.StructuredIngestionConfiguration
+		if !structuredCfg.GetEnabled() {
+			continue
+		}
+		schema, ok := req.TableNameSchemaMapping[tableMapping.Name]
+		if !ok {
+			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
+		}
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !structuredCfg.GetDropUnexpectedValues())
+		if err != nil {
+			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
+		}
+		structuredProjectors[sourceTableName] = projector
+	}
+
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
@@ -471,7 +545,7 @@ func (c *MongoConnector) PullRecords(
 			defer func() {
 				parallelProcessTime.Add(int64(time.Since(decodeStart)))
 			}()
-			return c.decodeEvent(events, req)
+			return c.decodeEvent(events, req, structuredProjectors)
 		},
 		Send: func(ctx context.Context, items []model.Record[model.RecordItems], resumeToken string) error {
 			recordSendStart := time.Now()
@@ -679,7 +753,6 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
 			continue
 		}
-
 		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,
