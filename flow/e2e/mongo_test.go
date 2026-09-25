@@ -152,14 +152,6 @@ func (s MongoClickhouseSuite) Test_Flow_With_Schema() {
 	RequireEnvCanceled(t, env)
 }
 
-// structuredIngestion is the structured ingestion settings of a table with the feature enabled.
-func structuredIngestion(dropUnexpectedValues bool) *protos.StructuredIngestionTableConfig {
-	return &protos.StructuredIngestionTableConfig{
-		Enabled:              true,
-		DropUnexpectedValues: dropUnexpectedValues,
-	}
-}
-
 // Test_Flow_With_Structured_Ingestion_Validations covers the structured ingestion validations.
 func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() {
 	// This test can be generalized to future connectors using structured ingestion.
@@ -173,7 +165,7 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 
 	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
 		tableMappings := TableMappings(s, srcTable, dstTable)
-		tableMappings[0].StructuredIngestionConfig = structuredIngestion(false)
+		tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 		tableMappings[0].Columns = columns
 		return tableMappings
 	}
@@ -256,7 +248,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 	dstTable := "test_structured_malformed_dst"
 
 	tableMappings := TableMappings(s, srcTable, dstTable)
-	tableMappings[0].StructuredIngestionConfig = structuredIngestion(true)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true, DropUnexpectedValues: true}
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
 		{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
@@ -333,7 +325,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	dstTable := "test_structured_nested_dst"
 
 	tableMappings := TableMappings(s, srcTable, dstTable)
-	tableMappings[0].StructuredIngestionConfig = structuredIngestion(false)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "name", DestinationType: "Nullable(String)"},
 		// embedded documents, arrays included, land whole as JSON
@@ -426,7 +418,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 			SetupWatermarkTableOnDestination: true,
 			NumRowsPerPartition:              1000,
 			WriteMode:                        &protos.QRepWriteMode{WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND},
-			StructuredIngestionConfig:        structuredIngestion(false),
+			StructuredIngestionConfig:        &protos.StructuredIngestionTableConfig{Enabled: true},
 			Columns:                          columns,
 			Env:                              map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"},
 			Version:                          shared.InternalVersion_Latest,
@@ -536,7 +528,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	dstTable := "test_structured_flow_dst"
 
 	tableMappings := TableMappings(s, srcTable, dstTable)
-	tableMappings[0].StructuredIngestionConfig = structuredIngestion(false)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 	// as an inferred schema declares them: all nullable, a document may lack any field
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "teamA", DestinationType: "Nullable(String)"},
