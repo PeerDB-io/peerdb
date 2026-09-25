@@ -246,25 +246,25 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 // themselves; Test_Structured_Ingestion_Nested_And_Arrays covers reports carrying the values.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data() {
 	t := s.T()
-	srcDatabase := GetTestDatabase(s.Suffix())
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_structured_malformed"
 	dstTable := "test_structured_malformed_dst"
 
-	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
 	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true, DropUnexpectedValues: true}
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
 		{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
 	}
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, srcTable),
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
-	adminClient := s.Source().(*MongoSource).AdminClient()
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	// every document carries the `desc` schema column plus a field the schema does not know
 	insertMixedDocuments := func(prefix string) {
@@ -279,15 +279,15 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 	}
 	insertMixedDocuments("init")
 
-	tc := NewTemporalClient(t)
-	env := ExecutePeerflow(t, tc, flowConnConfig)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
-	EnvWaitForCount(env, s, "initial load", dstTable, "_id,n", 10)
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,n", 10)
 
-	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	insertMixedDocuments("cdc")
 
-	EnvWaitForCount(env, s, "cdc", dstTable, "_id,n", 20)
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,n", 20)
 
 	peer := s.Peer()
 	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
@@ -314,7 +314,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 	}
 
 	env.Cancel(t.Context())
-	RequireEnvCanceled(t, env)
+	e2e.RequireEnvCanceled(t, env)
 }
 
 // Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
@@ -323,11 +323,11 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 // top-level array cannot land in a JSON column either: ClickHouse JSON accepts only objects at the root.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	t := s.T()
-	srcDatabase := GetTestDatabase(s.Suffix())
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_structured_nested"
 	dstTable := "test_structured_nested_dst"
 
-	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
 	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "name", DestinationType: "Nullable(String)"},
@@ -336,15 +336,15 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		// array top level field
 		{SourceName: "items", DestinationType: "Array(String)"},
 	}
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, srcTable),
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
-	adminClient := s.Source().(*MongoSource).AdminClient()
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	insertNestedDocuments := func(prefix string) {
 		for i := range 10 {
@@ -364,15 +364,15 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	}
 	insertNestedDocuments("init")
 
-	tc := NewTemporalClient(t)
-	env := ExecutePeerflow(t, tc, flowConnConfig)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
-	EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
 
-	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	insertNestedDocuments("cdc")
 
-	EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
 
 	peer := s.Peer()
 	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
@@ -397,7 +397,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	}
 
 	env.Cancel(t.Context())
-	RequireEnvCanceled(t, env)
+	e2e.RequireEnvCanceled(t, env)
 }
 
 // Test_QRep_Structured_Ingestion covers structured ingestion on standalone QRep mirrors: invalid
@@ -405,13 +405,13 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 // declared columns and projects the documents onto it.
 func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 	t := s.T()
-	srcDatabase := GetTestDatabase(s.Suffix())
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_qrep_structured"
 	dstTable := "test_qrep_structured_dst"
 
 	newQRepConfig := func(flowName, sourceName string, columns []*protos.ColumnSetting) *protos.QRepConfig {
 		return &protos.QRepConfig{
-			FlowJobName:                      AddSuffix(s, flowName),
+			FlowJobName:                      e2e.AddSuffix(s, flowName),
 			SourceName:                       sourceName,
 			DestinationName:                  s.Peer().Name,
 			WatermarkTable:                   fmt.Sprintf("%s.%s", srcDatabase, srcTable),
@@ -432,7 +432,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 		{SourceName: "pts", DestinationType: "Nullable(Int64)"},
 	}
 
-	apiClient, err := NewApiClient()
+	apiClient, err := e2e.NewApiClient()
 	require.NoError(t, err)
 	for _, testCase := range []struct {
 		name          string
@@ -472,7 +472,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 		})
 	}
 
-	adminClient := s.Source().(*MongoSource).AdminClient()
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	for i := range 5 {
 		res, err := collection.InsertOne(t.Context(), bson.D{
@@ -483,9 +483,9 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 		require.True(t, res.Acknowledged)
 	}
 
-	tc := NewTemporalClient(t)
-	env := RunQRepFlowWorkflow(t, tc, newQRepConfig(srcTable, s.Source().GeneratePeer(t).Name, typedColumns))
-	EnvWaitForFinished(t, env, 3*time.Minute)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.RunQRepFlowWorkflow(t, tc, newQRepConfig(srcTable, s.Source().GeneratePeer(t).Name, typedColumns))
+	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
 	require.NoError(t, env.Error(t.Context()))
 
 	// the destination table was created from the declared columns
@@ -526,11 +526,11 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 // both through the initial load and through CDC.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	t := s.T()
-	srcDatabase := GetTestDatabase(s.Suffix())
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_structured_flow"
 	dstTable := "test_structured_flow_dst"
 
-	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
 	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 	// as an inferred schema declares them: all nullable, a document may lack any field
 	tableMappings[0].Columns = []*protos.ColumnSetting{
@@ -540,8 +540,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 		{SourceName: "scoreB", DestinationType: "Nullable(Int64)"},
 	}
 
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, srcTable),
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
 		Destination:   s.Peer().Name,
 	}
@@ -552,7 +552,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 		teamA, teamB   string
 		scoreA, scoreB int64
 	}
-	adminClient := s.Source().(*MongoSource).AdminClient()
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	insertMatches := func(matches []match) {
 		for _, m := range matches {
@@ -593,10 +593,10 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	}
 	insertMatches(initialMatches)
 
-	tc := NewTemporalClient(t)
-	env := ExecutePeerflow(t, tc, flowConnConfig)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
-	EnvWaitForCount(env, s, "initial load", dstTable, matchColumns, len(initialMatches))
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, matchColumns, len(initialMatches))
 	requireMatches("initial load", initialMatches)
 
 	// the table was created from the mapping, with the declared types
@@ -618,14 +618,14 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	require.NoError(t, columnTypes.Err())
 	require.Equal(t, map[string]string{"teamA": "Nullable(String)", "scoreA": "Nullable(Int64)"}, actualColumnTypes)
 
-	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	cdcMatches := []match{
 		{teamA: "Brentford", teamB: "FulhamFC", scoreA: 0, scoreB: 2},
 	}
 	insertMatches(cdcMatches)
 
 	allMatches := append(slices.Clone(initialMatches), cdcMatches...)
-	EnvWaitForCount(env, s, "cdc", dstTable, matchColumns, len(allMatches))
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, matchColumns, len(allMatches))
 	requireMatches("cdc", allMatches)
 
 	// every document is well formed, so no row carries malformed data
@@ -636,7 +636,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	require.Equal(t, uint64(0), reportedRows)
 
 	env.Cancel(t.Context())
-	RequireEnvCanceled(t, env)
+	e2e.RequireEnvCanceled(t, env)
 }
 
 // Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc runs a structured ingestion mirror over:
@@ -644,26 +644,26 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 // 2. An update that deletes a document: Carries no `fullDocument`.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc() {
 	t := s.T()
-	srcDatabase := GetTestDatabase(s.Suffix())
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_structured_update_delete"
 	dstTable := "test_structured_update_delete_dst"
 
-	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
 	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
 	tableMappings[0].Columns = []*protos.ColumnSetting{
 		{SourceName: "name", DestinationType: "Nullable(String)"},
 		{SourceName: "age", DestinationType: "Nullable(Int64)"},
 	}
 
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   AddSuffix(s, srcTable),
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: tableMappings,
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 
-	adminClient := s.Source().(*MongoSource).AdminClient()
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
@@ -704,11 +704,11 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_Dele
 		return r, true
 	}
 
-	tc := NewTemporalClient(t)
-	env := ExecutePeerflow(t, tc, flowConnConfig)
-	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	waitForRow := func(reason string, expected row) {
-		EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 			actual, ok := readRow()
 			return ok && reflect.DeepEqual(expected, actual)
 		})
@@ -739,7 +739,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_Dele
 	waitForRow("delete event", row{deleted: true})
 
 	env.Cancel(t.Context())
-	RequireEnvCanceled(t, env)
+	e2e.RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
