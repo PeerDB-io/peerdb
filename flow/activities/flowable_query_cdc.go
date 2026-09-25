@@ -469,7 +469,7 @@ func (a *FlowableActivity) recordSyncMetrics(
 	// per table metrics
 	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
 	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
-	a.OtelManager.Metrics.QueryCDCFetchedBatchesHistogram.Record(ctx, bytesProcessed, metricsOptions)
+	a.OtelManager.Metrics.QueryCDCFetchedBatchesSizeHistogram.Record(ctx, bytesProcessed, metricsOptions)
 	a.OtelManager.Metrics.QueryCDCCurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
 	opAndCount := []struct {
 		op    string
