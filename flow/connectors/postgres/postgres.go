@@ -86,8 +86,17 @@ func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logge
 func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
+	return newPostgresConnectorWithCloudSQLTokenProvider(
+		ctx, env, pgConfig, destinationType, newPostgresCloudSQLTokenProvider,
+	)
+}
+
+func newPostgresConnectorWithCloudSQLTokenProvider(
+	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
+	tokenProviderFactory func(context.Context, *protos.PostgresConfig) (auth.TokenProvider, error),
+) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	cloudSQLAuth, err := newPostgresCloudSQLTokenProvider(ctx, pgConfig)
+	cloudSQLAuth, err := tokenProviderFactory(ctx, pgConfig)
 	if err != nil {
 		return nil, err
 	}
