@@ -115,6 +115,22 @@ func TestGetTableSchemaStructured(t *testing.T) {
 	require.ErrorContains(t, err, "Point")
 }
 
+// TestNewStructuredSchemaProjectorDropsReservedColumns checks the document key and malformed data
+// columns are left out of the projected columns when the mapping declares them, as the table schema
+// path does.
+func TestNewStructuredSchemaProjectorDropsReservedColumns(t *testing.T) {
+	columns := append(structuredTestColumns(),
+		&protos.ColumnSetting{SourceName: DefaultDocumentKeyColumnName, DestinationType: "String"},
+		&protos.ColumnSetting{SourceName: structured.MalformedDataColumn, DestinationType: "JSON"},
+	)
+	withReserved, err := newStructuredSchemaProjector(columns, true)
+	require.NoError(t, err)
+	withoutReserved, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	require.NoError(t, err)
+
+	require.Equal(t, withoutReserved.QRecordSchema(), withReserved.QRecordSchema())
+}
+
 func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 	for name, tc := range map[string]struct {
 		columns  []*protos.ColumnSetting
@@ -125,9 +141,6 @@ func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 		},
 		"duplicate column": {
 			[]*protos.ColumnSetting{{SourceName: "age", DestinationType: "String"}, {SourceName: "age", DestinationType: "Int64"}}, "age",
-		},
-		"malformed data column": {
-			[]*protos.ColumnSetting{{SourceName: structured.MalformedDataColumn, DestinationType: "JSON"}}, structured.MalformedDataColumn,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

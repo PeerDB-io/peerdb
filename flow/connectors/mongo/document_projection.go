@@ -57,7 +57,7 @@ func newStructuredSchemaProjector(
 ) (*structured.SchemaProjector, error) {
 	filteredColumns := make([]*protos.ColumnSetting, 0, len(columns))
 	for _, column := range columns {
-		if isProjectedColumn(column.DestinationName) {
+		if isProjectedColumn(column.SourceName) {
 			filteredColumns = append(filteredColumns, column)
 		}
 	}
