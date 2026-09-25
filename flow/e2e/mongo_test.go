@@ -636,6 +636,109 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flow() {
 	RequireEnvCanceled(t, env)
 }
 
+// Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc runs a structured ingestion mirror over:
+// 1. An update that removes a projected field: The removed field lands as NULL.
+// 2. An update that deletes a document: Carries no `fullDocument`.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_update_delete"
+	dstTable := "test_structured_update_delete_dst"
+
+	tableMappings := TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// a string `_id` lands as is, so the destination row can be looked up by it
+	const documentID = "structured-doc"
+	type row struct {
+		name      *string
+		age       *int64
+		malformed bool
+		deleted   bool
+	}
+	// the latest version of the document's row, deleted or not; false when there is none yet
+	readRow := func() (row, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT name, age, _peerdb_malformed_data IS NOT NULL, _peerdb_is_deleted
+			FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, dstTable, documentID))
+		if err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return row{}, false
+		}
+		var r row
+		var malformed, deleted uint8
+		if err := rows.Scan(&r.name, &r.age, &malformed, &deleted); err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		r.malformed, r.deleted = malformed != 0, deleted != 0
+		return r, true
+	}
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	waitForRow := func(reason string, expected row) {
+		EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+			actual, ok := readRow()
+			return ok && reflect.DeepEqual(expected, actual)
+		})
+	}
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{
+		{Key: "_id", Value: documentID},
+		{Key: "name", Value: "Alice"},
+		{Key: "age", Value: int64(30)},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	waitForRow("insert event", row{name: new("Alice"), age: new(int64(30))})
+
+	updateRes, err := collection.UpdateOne(t.Context(),
+		bson.D{{Key: "_id", Value: documentID}},
+		bson.D{{Key: "$unset", Value: bson.D{{Key: "age", Value: ""}}}},
+		options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	// the field the document no longer has is NULL, which is not malformed data
+	waitForRow("update event removing a projected field", row{name: new("Alice")})
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	// a delete has no `fullDocument` to project, so every structured column is NULL
+	waitForRow("delete event", row{deleted: true})
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	t := s.T()
 	srcDatabase := GetTestDatabase(s.Suffix())
