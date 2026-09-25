@@ -38,21 +38,159 @@ jobs:
       - name: Approve run
         run: echo "Run approved for ${{ github.event_name }}."
 
+  unit_tests:
+    name: Unit tests (no services)
+    needs: [gate]
+    runs-on: ubuntu-latest-64-core
+    timeout-minutes: 30
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          allow-unsafe-pr-checkout: true
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: |
+            flow/go.sum
+            flow/pkg/go.sum
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+        with:
+          setup_only: true
+          github_token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y libgeos-dev retry
+      - run: ./generate-protos.sh
+      - run: cp .env.example .env
+      - run: go install gotest.tools/gotestsum@latest
+      - run: mkdir -p logs
+      - name: Unit tests (flow)
+        working-directory: ./flow
+        run: |
+          gotestsum --format standard-quiet --no-color --junitfile ../logs/unit-test-results.xml -- \
+            -p 32 ./... -timeout 600s
+      - name: Unit tests (pkg)
+        working-directory: ./flow/pkg
+        run: |
+          gotestsum --format standard-quiet --no-color --junitfile ../../logs/unit-pkg-test-results.xml -- \
+            -p 32 ./... -timeout 300s
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flow-unit-test-results
+          path: logs/
+          retention-days: 30
+      - name: Ingest unit test results
+        if: (success() || failure()) && hashFiles('logs/unit-test-results.xml') != ''
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: unit
+          test-results-file: logs/unit-test-results.xml
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+      - name: Ingest pkg unit test results
+        if: (success() || failure()) && hashFiles('logs/unit-pkg-test-results.xml') != ''
+        uses: ./.github/actions/ingest-test-results
+        with:
+          combination-id: unit-pkg
+          test-results-file: logs/unit-pkg-test-results.xml
+          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
+          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
+          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
+
+  test_selection_coverage:
+    name: Test selection coverage
+    needs: [gate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          allow-unsafe-pr-checkout: true
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: |
+            flow/go.sum
+            flow/pkg/go.sum
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+        with:
+          setup_only: true
+          github_token: ${{ github.token }}
+      - run: ./generate-protos.sh
+      - run: bash .github/scripts/check-flow-test-selection.sh
+
   flow_test:
-    name: flow_test (pg${{ matrix.db-version.pg }}, ${{ matrix.db-version.mysql }}, ${{ matrix.db-version.mariadb }}, mongo${{ matrix.db-version.mongo }}, ch-${{ matrix.db-version.ch }}, crdb-${{ matrix.db-version.crdb }})
+    name: ${{ matrix.target.label }}
     needs: [gate]
     strategy:
       fail-fast: false
       matrix:
-        db-version: [
-          {pg: 16, mysql: 'mysql-gtid', mariadb: 'maria-11', mongo: '6.0', ch: 'lts', crdb: 'v24'},
-          {pg: 17, mysql: 'mysql-pos', mariadb: 'maria-12', mongo: '7.0', ch: 'stable', crdb: 'v25'},
-          {pg: 18, mysql: 'mysql-gtid', mariadb: 'maria-13', mongo: '8.0', ch: 'latest', crdb: 'v26'},
-        ]
-        # Per-version container settings.
-        # Wrapped in a single-item list because matrix values must be arrays; it stays
-        # a single shared value (no extra jobs).
-        version-configs:
+        target:
+          - {job: postgres_clickhouse,    version: '16',       ch: lts,    label: postgres-16_ch-lts}
+          - {job: postgres_clickhouse,    version: '17',       ch: stable, label: postgres-17_ch-stable}
+          - {job: postgres_clickhouse,    version: '18',       ch: latest, label: postgres-18_ch-latest}
+          - {job: postgres_other,         version: '16',       label: postgres-16_other}
+          - {job: postgres_other,         version: '17',       label: postgres-17_other}
+          - {job: postgres_other,         version: '18',       label: postgres-18_other}
+          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-11, ch: lts,    label: mysql-gtid-maria-11_ch-lts}
+          - {job: mysql_clickhouse,       version: mysql-pos,  mariadb: maria-12, ch: stable, label: mysql-pos-maria-12_ch-stable}
+          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-13, ch: latest, label: mysql-gtid-maria-13_ch-latest}
+          - {job: mongo_clickhouse,       version: '6.0',      ch: lts,    label: mongo-6.0_ch-lts}
+          - {job: mongo_clickhouse,       version: '7.0',      ch: stable, label: mongo-7.0_ch-stable}
+          - {job: mongo_clickhouse,       version: '8.0',      ch: latest, label: mongo-8.0_ch-latest}
+          - {job: cockroachdb_clickhouse, version: v24,        ch: lts,    label: cockroachdb-v24_ch-lts}
+          - {job: cockroachdb_clickhouse, version: v25,        ch: stable, label: cockroachdb-v25_ch-stable}
+          - {job: cockroachdb_clickhouse, version: v26,        ch: latest, label: cockroachdb-v26_ch-latest}
+          - {job: bigquery_clickhouse,    ch: lts,    label: bigquery_ch-lts}
+          - {job: bigquery_clickhouse,    ch: stable, label: bigquery_ch-stable}
+          - {job: bigquery_clickhouse,    ch: latest, label: bigquery_ch-latest}
+        jobs:
+          - postgres_clickhouse:
+              packages: >-
+                ./e2e/postgres_clickhouse/...
+                ./e2e/postgres_postgres/...
+                ./e2e/switchboard_postgres/...
+                ./alerting/...
+                ./connectors/postgres/...
+                ./connectors/clickhouse/...
+                ./connectors/utils/...
+                ./connectors/external_metadata/...
+                ./db/...
+              pkg: ./clickhouse/...
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 postgres postgres2
+            postgres_other:
+              packages: ./e2e/postgres_other/...
+              pkg: ''
+              services: otel-collector toxiproxy openssh postgres
+            mysql_clickhouse:
+              packages: >-
+                ./e2e/mysql_clickhouse/...
+                ./e2e/switchboard_mysql/...
+                ./connectors/mysql/...
+              pkg: ''
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mariadb
+            mongo_clickhouse:
+              packages: >-
+                ./e2e/mongo_clickhouse/...
+                ./e2e/switchboard_mongo/...
+                ./connectors/mongo/...
+              pkg: ./mongo/...
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mongodb
+            cockroachdb_clickhouse:
+              packages: ./e2e/cockroachdb_clickhouse/...
+              pkg: ''
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 cockroachdb
+            bigquery_clickhouse:
+              packages: >-
+                ./e2e/bigquery_clickhouse/...
+                ./connectors/bigquery/...
+              pkg: ''
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02
+        images:
           - mysql:
               mysql-gtid: mysql:9.5
               mysql-pos: mysql:5.7
@@ -64,36 +202,42 @@ jobs:
               lts: clickhouse/clickhouse-server:25.8.28.1
               stable: clickhouse/clickhouse-server:26.3.16.16
               latest: clickhouse/clickhouse-server:latest
-            # Pinned versions only: unlike the ClickHouse destination, source
-            # connectors are not tested against a floating latest tag.
             cockroachdb:
               v24: cockroachdb/cockroach:v24.1.30
               v25: cockroachdb/cockroach:v25.4.14
               v26: cockroachdb/cockroach:v26.2.5
     uses: ./.github/workflows/tilt-flow.yml
     with:
-      # Empty matcher to run the whole test suite until test selection is routed through flow cases.
-      test_matcher: ''
-      # This is the list of services Tilt will enable for this run.
-      # otel-collector goes first: listing it turns on the flow services' OTel
-      # export (ENABLE_OTEL_METRICS in tilt-flow.yml), and they panic on export
-      # failure, so it must be up before they start.
-      ancillary_services: otel-collector postgres postgres2 clickhouse clickhouse-keeper clickhouse-02 mongodb cockroachdb ${{ matrix.db-version.mysql }} mariadb toxiproxy openssh
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-      run_label: pg${{ matrix.db-version.pg }}-my${{ matrix.db-version.mysql }}-ma${{ matrix.db-version.mariadb }}-mo${{ matrix.db-version.mongo }}-ch${{ matrix.db-version.ch }}-crdb${{ matrix.db-version.crdb }}
-      postgres_image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
-      mysql_gtid_image: ${{ matrix.version-configs.mysql['mysql-gtid'] }}
-      mysql_pos_image: ${{ matrix.version-configs.mysql['mysql-pos'] }}
-      mariadb_image: ${{ matrix.version-configs.mariadb[matrix.db-version.mariadb] }}
-      mongodb_image: mongo:${{ matrix.db-version.mongo }}
-      clickhouse_image: ${{ matrix.version-configs.clickhouse[matrix.db-version.ch] }}
-      cockroachdb_image: ${{ matrix.version-configs.cockroachdb[matrix.db-version.crdb] }}
-      # Point the tests at this combination's flavors; overrides what they load
-      # from .env. The ports must match CI_MYSQL_GTID_PORT/CI_MYSQL_POS_PORT in
-      # .env.example (the CI .env is seeded from it).
+      run_label: ${{ matrix.target.label }}
+      test_packages: ${{ matrix.jobs[matrix.target.job].packages }}
+      pkg_test_packages: ${{ matrix.jobs[matrix.target.job].pkg }}
+      ancillary_services: >-
+        ${{ matrix.jobs[matrix.target.job].services }}
+        ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
+      postgres_image: ${{ startsWith(matrix.target.job, 'postgres_') && format('imresamu/postgis:{0}-3.5-alpine', matrix.target.version) || '' }}
+      mysql_gtid_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-gtid' && matrix.images.mysql['mysql-gtid'] || '' }}
+      mysql_pos_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-pos' && matrix.images.mysql['mysql-pos'] || '' }}
+      mariadb_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.images.mariadb[matrix.target.mariadb] || '' }}
+      mongodb_image: ${{ matrix.target.job == 'mongo_clickhouse' && format('mongo:{0}', matrix.target.version) || '' }}
+      clickhouse_image: ${{ matrix.target.ch && matrix.images.clickhouse[matrix.target.ch] || '' }}
+      cockroachdb_image: ${{ matrix.target.job == 'cockroachdb_clickhouse' && matrix.images.cockroachdb[matrix.target.version] || '' }}
       test_env: |
-        CI_MYSQL_VERSION=${{ matrix.db-version.mysql }}
-        CI_MYSQL_PORT=${{ matrix.db-version.mysql == 'mysql-pos' && '3307' || '3306' }}
-        CI_MARIADB_VERSION=${{ matrix.db-version.mariadb }}
+        CI_MYSQL_VERSION=${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
+        CI_MYSQL_PORT=${{ matrix.target.version == 'mysql-pos' && '3307' || '3306' }}
+        CI_MARIADB_VERSION=${{ matrix.target.mariadb }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
+
+  flow_tests_passed:
+    name: All flow test jobs succeeded
+    needs: [gate, unit_tests, test_selection_coverage, flow_test]
+    if: always() && needs.gate.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null \
+            || { echo "::error::At least one flow test job did not succeed."; exit 1; }

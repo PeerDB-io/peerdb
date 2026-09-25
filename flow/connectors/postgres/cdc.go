@@ -47,7 +47,7 @@ type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
 	schemaNameForRelID     map[uint32]string
-	tableNameMapping       map[string]model.NameAndExclude
+	tableNameMapping       map[string]model.SourceTableMapping
 	tableNameSchemaMapping map[string]*protos.TableSchema
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
@@ -78,7 +78,7 @@ type PostgresCDCConfig struct {
 	CatalogPool                              shared.CatalogPool
 	OtelManager                              *otel_metrics.OtelManager
 	SrcTableIDNameMapping                    map[uint32]string
-	TableNameMapping                         map[string]model.NameAndExclude
+	TableNameMapping                         map[string]model.SourceTableMapping
 	TableNameSchemaMapping                   map[string]*protos.TableSchema
 	RelationMessageMapping                   model.RelationMessageMapping
 	FlowJobName                              string
@@ -340,7 +340,7 @@ func processTuple[Items model.Items](
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-	nameAndExclude model.NameAndExclude,
+	sourceTableMapping model.SourceTableMapping,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	schemaName string,
 	baseRecord model.BaseRecord,
@@ -364,7 +364,7 @@ func processTuple[Items model.Items](
 
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
-		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
+		if _, ok := sourceTableMapping.Exclude[rcol.Name]; ok {
 			continue
 		}
 		if tcol.DataType == 'u' {

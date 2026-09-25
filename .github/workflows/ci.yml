@@ -5,7 +5,7 @@ on:
     branches: [main, release/*]
   pull_request:
     branches: [main, release/*]
-    paths: [nexus/**, protos/**, .github/workflows/ci.yml, buf.gen.yaml]
+    paths: [nexus/**, protos/**, flow/db/**, .github/workflows/ci.yml, buf.gen.yaml]
 
 jobs:
   build:
@@ -38,7 +38,7 @@ jobs:
       - name: install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential libgeos-dev
 
       - name: setup gcp service account
         id: gcp-service-account
@@ -63,6 +63,21 @@ jobs:
       - name: cargo check
         run: cargo check
         working-directory: ./nexus
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: flow/go.sum
+
+      - name: run catalog migrations
+        run: go run . migrate
+        working-directory: ./flow
+        env:
+          PEERDB_CATALOG_HOST: localhost
+          PEERDB_CATALOG_PORT: 7132
+          PEERDB_CATALOG_DATABASE: postgres
+          PEERDB_CATALOG_USER: postgres
+          PEERDB_CATALOG_PASSWORD: postgres
 
       - name: cargo test
         run: cargo test -- --test-threads=1

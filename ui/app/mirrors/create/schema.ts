@@ -1,5 +1,7 @@
 import * as z from 'zod/v4';
 
+import { structuredColumnIssues } from './helpers/structured';
+
 export const flowNameSchema = z
   .string({
     error: (issue) =>
@@ -15,16 +17,44 @@ export const flowNameSchema = z
 
 export const tableMappingSchema = z
   .array(
-    z.object({
-      sourceTableIdentifier: z
-        .string()
-        .min(1, 'source table names, if added, must be non-empty'),
-      destinationTableIdentifier: z
-        .string()
-        .min(1, 'destination table names, if added, must be non-empty'),
-      exclude: z.array(z.string()).optional(),
-      partitionKey: z.string().optional(),
-    })
+    z
+      .object({
+        sourceTableIdentifier: z
+          .string()
+          .min(1, 'source table names, if added, must be non-empty'),
+        destinationTableIdentifier: z
+          .string()
+          .min(1, 'destination table names, if added, must be non-empty'),
+        exclude: z.array(z.string()).optional(),
+        partitionKey: z.string().optional(),
+        structuredIngestionConfig: z
+          .object({
+            enabled: z.boolean().optional(),
+            dropUnexpectedValues: z.boolean().optional(),
+          })
+          .optional(),
+        columns: z
+          .array(
+            z.looseObject({
+              sourceName: z.string(),
+              destinationType: z.string(),
+            })
+          )
+          .optional(),
+      })
+      // Mirrors the server side structured ingestion rules so that a mapping whose declared
+      // schema is incomplete is reported here instead of by mirror validation.
+      .superRefine((mapping, ctx) => {
+        if (!mapping.structuredIngestionConfig?.enabled) {
+          return;
+        }
+        for (const issue of structuredColumnIssues(mapping.columns ?? [])) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `${mapping.sourceTableIdentifier}: ${issue}`,
+          });
+        }
+      })
   )
   .nonempty('At least one table mapping is required');
 

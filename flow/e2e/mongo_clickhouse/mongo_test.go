@@ -1,0 +1,1627 @@
+//go:build tilt
+
+package mongo_clickhouse
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	e2e "github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+)
+
+type MongoClickhouseSuite struct {
+	e2e.GenericSuite
+}
+
+func TestMongoClickhouseSuite(t *testing.T) {
+	e2eshared.RunSuite(t, SetupMongoClickhouseSuite)
+}
+
+func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
+	t.Helper()
+	return MongoClickhouseSuite{e2e.SetupClickHouseSuite(t, false, func(t *testing.T) (*e2e.MongoSource, string, error) {
+		t.Helper()
+		suffix := "mongoch_" + strings.ToLower(common.RandomString(8))
+		source, err := e2e.SetupMongo(t, suffix)
+		return source, suffix, err
+	})(t)}
+}
+
+func (s MongoClickhouseSuite) generateFlowConnectionConfigsDefaultEnv(
+	connectionGen e2e.FlowConnectionGenerationConfig,
+) *protos.FlowConnectionConfigs {
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	return flowConnConfig
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_simple"
+	dstTable := "test_simple_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 10 rows into the source table for initial load
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Flow_With_Schema() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_schema"
+	dstTable := "test_schema_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "n", NullableEnabled: true},
+		{SourceName: "desc", NullableEnabled: true},
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 10 rows into the source table for initial load
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Flow_With_Structured_Ingestion_Validations covers the structured ingestion validations.
+func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() {
+	// This test can be generalized to future connectors using structured ingestion.
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured"
+	dstTable := "test_structured_dst"
+
+	apiClient, err := e2e.NewApiClient()
+	require.NoError(t, err)
+
+	structuredMappings := func(columns []*protos.ColumnSetting) []*protos.TableMapping {
+		tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+		tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+		tableMappings[0].Columns = columns
+		return tableMappings
+	}
+
+	for _, testCase := range []struct {
+		name          string
+		flowName      string
+		columns       []*protos.ColumnSetting
+		expectedError string
+	}{
+		{
+			name:          "no columns",
+			flowName:      "structured_no_columns",
+			expectedError: "structured ingestion is enabled but no columns are specified",
+		},
+		{
+			name:     "column without destination type",
+			flowName: "structured_untyped_column",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64"},
+				{SourceName: "desc"},
+			},
+			expectedError: "the following columns have no destination type specified",
+		},
+		{
+			name:     "invalid destination type",
+			flowName: "structured_invalid_type",
+			columns: []*protos.ColumnSetting{
+				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
+			},
+			expectedError: "invalid custom column type",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectionGen := e2e.FlowConnectionGenerationConfig{
+				FlowJobName:   e2e.AddSuffix(s, testCase.flowName),
+				TableMappings: structuredMappings(testCase.columns),
+				Destination:   s.Peer().Name,
+			}
+			flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+			flowConnConfig.DoInitialSnapshot = true
+
+			_, err := apiClient.ValidateCDCMirror(t.Context(),
+				&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+			require.Error(t, err)
+			grpcStatus, ok := status.FromError(err)
+			require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+			require.Equal(t, codes.InvalidArgument, grpcStatus.Code())
+			require.Contains(t, grpcStatus.Message(), testCase.expectedError)
+		})
+	}
+
+	// A fully typed structured mapping passes validation. The collection has to exist, as validation
+	// also checks the source tables.
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: e2e.AddSuffix(s, srcTable),
+		TableMappings: structuredMappings([]*protos.ColumnSetting{
+			{SourceName: "n", DestinationType: "Int64", NullableEnabled: true},
+			{SourceName: "desc", DestinationType: "String", NullableEnabled: true},
+		}),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned"
+	dstTable := "test_simple_dst_partitioned"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	docs := make([]any, 1000)
+	for i := range 1000 {
+		oid := bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))
+		docs[i] = bson.D{
+			{Key: "_id", Value: oid},
+			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
+		}
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount))
+	require.Equal(t, 100, partitionCount, "expected 100 partitions for 1000 rows with 10 rows per partition")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	cdcBaseTime := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	cdcDocs := make([]any, 10)
+	for i := range 10 {
+		oid := bson.NewObjectIDFromTimestamp(cdcBaseTime.Add(time.Duration(i) * time.Second))
+		cdcDocs[i] = bson.D{
+			{Key: "_id", Value: oid},
+			{Key: fmt.Sprintf("cdc_key_%d", i), Value: fmt.Sprintf("cdc_value_%d", i)},
+		}
+	}
+	_, err = collection.InsertMany(t.Context(), cdcDocs)
+	require.NoError(t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_StringID() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned_string_id"
+	dstTable := "test_simple_dst_partitioned_string_id"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	docs := make([]any, 100)
+	for i := range 100 {
+		docs[i] = bson.D{
+			{Key: "_id", Value: fmt.Sprintf("id-%05d", i)},
+			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
+		}
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount))
+	require.Equal(t, 10, partitionCount, "expected 10 partitions for 100 rows with 10 rows per partition")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	cdcDocs := make([]any, 10)
+	for i := range 10 {
+		cdcDocs[i] = bson.D{
+			{Key: "_id", Value: fmt.Sprintf("cdc-%05d", i)},
+			{Key: fmt.Sprintf("cdc_key_%d", i), Value: fmt.Sprintf("cdc_value_%d", i)},
+		}
+	}
+	_, err = collection.InsertMany(t.Context(), cdcDocs)
+	require.NoError(t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned_numeric_id"
+	dstTable := "test_simple_dst_partitioned_numeric_id"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	docs := make([]any, 100)
+	for i := range 100 {
+		docs[i] = bson.D{
+			{Key: "_id", Value: int32(i + 1)},
+			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
+		}
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount))
+	require.Equal(t, 10, partitionCount, "expected 10 partitions for 100 rows with 10 rows per partition")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	cdcDocs := make([]any, 10)
+	for i := range 10 {
+		cdcDocs[i] = bson.D{
+			{Key: "_id", Value: int32(10000 + i)},
+			{Key: fmt.Sprintf("cdc_key_%d", i), Value: fmt.Sprintf("cdc_value_%d", i)},
+		}
+	}
+	_, err = collection.InsertMany(t.Context(), cdcDocs)
+	require.NoError(t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_NumericID_With_Fractional_Interior() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned_numeric_id_fractional"
+	dstTable := "test_simple_dst_partitioned_numeric_id_fractional"
+
+	const numRows = 100
+	const numPartitions = 10
+	const rowsPerPartition = numRows / numPartitions
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = rowsPerPartition
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	docs := make([]any, numRows)
+	for i := range numRows {
+		if i == 0 {
+			docs[i] = bson.D{
+				{Key: "_id", Value: int32(i)},
+				{Key: "key_0", Value: "val_0"},
+			}
+		} else if i == numRows-1 {
+			docs[i] = bson.D{
+				{Key: "_id", Value: int64(i)},
+				{Key: "key_99", Value: "val_99"},
+			}
+		} else {
+			id := float64(i) + 0.5
+			docs[i] = bson.D{
+				{Key: "_id", Value: id},
+				{Key: fmt.Sprintf("key_%d", i), Value: fmt.Sprintf("val_%d", i)},
+			}
+		}
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	res, err := catalogPool.Query(t.Context(),
+		`SELECT rows_in_partition FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+	require.NoError(t, err)
+	defer res.Close()
+
+	var partitionCount int32
+	var totalRows int64
+	for res.Next() {
+		var rowsInPartition int64
+		require.NoError(t, res.Scan(&rowsInPartition))
+		totalRows += rowsInPartition
+		partitionCount++
+	}
+	require.NoError(t, res.Err())
+	require.EqualValues(t, numPartitions, partitionCount)
+	require.EqualValues(t, numRows, totalRows)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Snapshot_Collection_With_Single_Document() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_single_doc_snapshot"
+	dstTable := "test_single_doc_snapshot_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	_, err := collection.InsertOne(t.Context(), bson.D{{Key: "key", Value: "value"}})
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount))
+	require.Equal(t, 1, partitionCount)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{{Key: "cdc_key", Value: "cdc_value"}})
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc after single doc snapshot", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Snapshot_Empty_Collection() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_empty_collection"
+	dstTable := "test_empty_collection_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc after empty snapshot", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Snapshot_Mixed_ObjectID_Falls_Back_To_Single_Partition() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_mixed_objectid_snapshot"
+	dstTable := "test_mixed_objectid_snapshot_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	docs := []any{
+		bson.D{{Key: "v", Value: "a"}},
+		bson.D{{Key: "_id", Value: 42}, {Key: "v", Value: "b"}}, // explicitly set _id to a non-ObjectID type
+		bson.D{{Key: "v", Value: "c"}},
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount))
+	require.Equal(t, 1, partitionCount)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_schema_change"
+	dstTable := "test_schema_change_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// adding/removing fields should work
+	docs := []bson.D{
+		{bson.E{Key: "field1", Value: 1}},
+		{bson.E{Key: "field1", Value: 2}, bson.E{Key: "field2", Value: "v1"}},
+		{bson.E{Key: "field2", Value: "v2"}},
+	}
+	for _, doc := range docs {
+		res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// inconsistent data type for a given field should work
+	docs = []bson.D{
+		{bson.E{Key: "field3", Value: 3}},
+		{bson.E{Key: "field3", Value: "3"}},
+	}
+	for _, doc := range docs {
+		res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_update_replace_delete"
+	dstTable := "test_update_replace_delete_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
+
+	updateRes, err := collection.UpdateOne(
+		t.Context(),
+		bson.D{bson.E{Key: "key", Value: 1}},
+		bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "key", Value: 2}}}},
+		options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update event", srcTable, dstTable, "_id,doc")
+
+	replaceRes, err := collection.ReplaceOne(
+		t.Context(),
+		bson.D{bson.E{Key: "key", Value: 2}},
+		bson.D{bson.E{Key: "key", Value: 3}},
+		options.Replace())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), replaceRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{bson.E{Key: "key", Value: 3}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_excluded_op_types"
+	dstTable := "test_excluded_op_types_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES"] = "delete"
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	err := adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable)
+	require.NoError(t, err)
+
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	for i := range 2 {
+		insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: i}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{bson.E{Key: "key", Value: 0}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 2}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	// destination keeps all 3 rows (GetRows filters on FINAL and _peerdb_is_deleted = 0)
+	e2e.EnvWaitForCount(env, s, "insert after delete", dstTable, "_id,doc", 3)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Collection_DDL_Reported_To_User() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	dropTable := "test_ddl_dropped"
+	renameTable := "test_ddl_renamed"
+	renameTarget := "test_ddl_renamed_to"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: e2e.AddSuffix(s, "test_collection_ddl"),
+		TableMappings: e2e.TableMappings(s,
+			dropTable, dropTable+"_dst",
+			renameTable, renameTable+"_dst"),
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	for _, coll := range []string{dropTable, renameTable} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), coll))
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// replicate a document from each collection first, so the mirror is demonstrably
+	// streaming before any DDL is issued
+	for _, coll := range []string{dropTable, renameTable} {
+		insertRes, err := adminClient.Database(srcDatabase).Collection(coll).
+			InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", dropTable, dropTable+"_dst", "_id,doc")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert before ddl", renameTable, renameTable+"_dst", "_id,doc")
+
+	// drop emits a change event whose ns is the dropped collection
+	require.NoError(t, adminClient.Database(srcDatabase).Collection(dropTable).Drop(t.Context()))
+
+	// rename emits a change event whose ns is the *source* collection, so it is still
+	// inside the mirror's table mapping and reaches the connector
+	require.NoError(t, adminClient.Database("admin").RunCommand(t.Context(), bson.D{
+		bson.E{Key: "renameCollection", Value: srcDatabase + "." + renameTable},
+		bson.E{Key: "to", Value: srcDatabase + "." + renameTarget},
+	}).Err())
+
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "drop reported to user", func() bool {
+		count, err := e2e.GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"drop event on "+srcDatabase+"."+dropTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "rename reported to user", func() bool {
+		count, err := e2e.GetLogCount(t.Context(), catalogPool, flowConnConfig.FlowJobName, "warn",
+			"rename event on "+srcDatabase+"."+renameTable)
+		if err != nil {
+			t.Log("Error querying flow_errors:", err)
+			return false
+		}
+		return count > 0
+	})
+
+	// the DDL is reported, not applied: the destination tables are left alone
+	e2e.EnvWaitForCount(env, s, "dropped collection destination untouched", dropTable+"_dst", "_id,doc", 1)
+	e2e.EnvWaitForCount(env, s, "renamed collection destination untouched", renameTable+"_dst", "_id,doc", 1)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
+	t := s.T()
+
+	envWaitForDocument := func(env e2e.WorkflowRun, dstTable string, expectedCount int, expectedDoc map[string]any, reason string) {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+			clickhouseRows, err := s.GetRows(dstTable, "doc")
+			if err != nil {
+				t.Log(err)
+				return false
+			}
+			if len(clickhouseRows.Records) < expectedCount {
+				t.Logf("record count mismatch: expected %d, got %d", expectedCount, len(clickhouseRows.Records))
+				return false
+			}
+			for i := range clickhouseRows.Records {
+				clickhouseDocJsonStr := clickhouseRows.Records[i][0].Value().(string)
+				var clickhouseDoc map[string]any
+				if err := json.Unmarshal([]byte(clickhouseDocJsonStr), &clickhouseDoc); err != nil {
+					t.Logf("failed to unmarshal clickhouse doc: %v", err)
+					return false
+				}
+				// remove _id to keep comparison logic simple
+				delete(clickhouseDoc, "_id")
+				if !reflect.DeepEqual(clickhouseDoc, expectedDoc) {
+					t.Logf("record %d doc mismatch: expected %v, got %v", i, expectedDoc, clickhouseDoc)
+					return false
+				}
+			}
+			return true
+		})
+	}
+
+	doc := bson.D{
+		bson.E{Key: "a", Value: bson.D{bson.E{Key: "b.c", Value: 1}}},
+		bson.E{Key: "a.b", Value: bson.D{bson.E{Key: "c", Value: 1}}},
+	}
+
+	// Test current version should escape dots
+	expectedDocWithEscapedDots := map[string]any{
+		"a": map[string]any{
+			"b%2Ec": float64(1),
+		},
+		"a%2Eb": map[string]any{
+			"c": float64(1),
+		},
+	}
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_document_key_containing_dot"
+	dstTable := "test_document_key_containing_dot_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	envWaitForDocument(env, dstTable, 1, expectedDocWithEscapedDots, "initial load should match")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	envWaitForDocument(env, dstTable, 2, expectedDocWithEscapedDots, "insert events should match")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+
+	// Test older version should expand dots into nested structures
+	expectedDocWithExpandedDots := map[string]any{
+		"a": map[string]any{
+			"b": map[string]any{
+				"c": float64(1),
+			},
+		},
+	}
+
+	srcTableOld := "test_document_key_containing_dot_old"
+	dstTableOld := "test_document_key_containing_dot_dst_old"
+
+	connectionGenOld := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTableOld),
+		TableMappings: e2e.TableMappings(s, srcTableOld, dstTableOld),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfigOld := s.generateFlowConnectionConfigsDefaultEnv(connectionGenOld)
+	flowConnConfigOld.DoInitialSnapshot = true
+
+	flowConnConfigOld.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(
+		uint64(shared.InternalVersion_MongoDBFullDocumentColumnToDoc), 10)
+	flowConnConfigOld.Version = shared.InternalVersion_MongoDBFullDocumentColumnToDoc
+
+	collectionOld := adminClient.Database(srcDatabase).Collection(srcTableOld)
+
+	res, err = collectionOld.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	envOld := e2e.ExecutePeerflow(t, tc, flowConnConfigOld)
+	envWaitForDocument(envOld, dstTableOld, 1, expectedDocWithExpandedDots, "initial load should expand dots")
+
+	e2e.SetupCDCFlowStatusQuery(t, envOld, flowConnConfigOld)
+
+	res, err = collectionOld.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	envWaitForDocument(envOld, dstTableOld, 2, expectedDocWithExpandedDots, "insert events should expand dots")
+
+	envOld.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, envOld)
+}
+
+func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
+	t := s.T()
+
+	nestedDoc := func(ch string) bson.D {
+		var v any = ch
+		for i := 100; i >= 1; i-- {
+			v = bson.D{bson.E{Key: fmt.Sprintf("lvl_%d", i), Value: v}}
+		}
+		return v.(bson.D)
+	}
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_nested_event"
+	dstTable := "test_nested_event_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// insert nested doc for initial load
+	res, err := collection.InsertOne(t.Context(), nestedDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// insert nested doc for cdc
+	res, err = collection.InsertOne(t.Context(), nestedDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
+
+	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
+
+	// update nested doc for cdc
+	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: nestedDoc("Y")}}, options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
+
+	// replace nested doc for cdc
+	replaceRes, err := collection.ReplaceOne(t.Context(), oid, nestedDoc("Z"), options.Replace())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), replaceRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
+
+	// delete nested doc for cdc
+	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
+	t := s.T()
+
+	largeDoc := func(ch string) bson.D {
+		// maximum byte size that can be inserted for this doc
+		// one more byte we get 'object to insert too large' error
+		sizeBytes := 16*1024*1024 - 41
+		largeString := strings.Repeat(ch, sizeBytes)
+		return bson.D{bson.E{Key: "large_string", Value: largeString}}
+	}
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_large_event"
+	dstTable := "test_large_event_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection("test_large_event")
+
+	// insert large doc for initial load
+	res, err := collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// insert large doc for cdc (to test change event with "fullDocument")
+	res, err = collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
+
+	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
+
+	// update large doc for cdc
+	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: largeDoc("Y")}}, options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
+
+	// replace large doc for cdc
+	replaceRes, err := collection.ReplaceOne(t.Context(), oid, largeDoc("Z"), options.Replace())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), replaceRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
+
+	// delete large doc for cdc
+	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Long_Field_Name_Snapshot_And_CDC() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_long_field_name"
+	dstTable := "test_long_field_name_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Regression coverage for GODRIVER-3809: long field names can trigger
+	// "bufio: buffer full" when decoded through cursor.Decode.
+	longFieldName := strings.Repeat("x", 5000)
+	longKeyDoc := bson.D{{Key: longFieldName, Value: "test"}}
+
+	res, err := collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load with long field name", srcTable, dstTable, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = collection.InsertOne(t.Context(), longKeyDoc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc with long field name", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable1 := "test_transaction_t1"
+	dstTable1 := "test_transaction_t1_dst"
+	srcTable2 := "test_transaction_t2"
+	dstTable2 := "test_transaction_t2_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "test_transaction"),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	session, err := adminClient.StartSession()
+	require.NoError(t, err)
+	defer session.EndSession(t.Context())
+
+	coll1 := adminClient.Database(srcDatabase).Collection(srcTable1)
+	coll2 := adminClient.Database(srcDatabase).Collection(srcTable2)
+	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
+		res1, err1 := coll1.InsertOne(t.Context(), bson.D{bson.E{Key: "foo", Value: 1}}, options.InsertOne())
+		res2, err2 := coll2.InsertOne(t.Context(), bson.D{bson.E{Key: "bar", Value: 2}}, options.InsertOne())
+		err := err1
+		if err2 != nil {
+			err = err2
+		}
+		return []*mongo.InsertOneResult{res1, res2}, err
+	}, options.Transaction())
+	require.NoError(t, err)
+	require.True(t, res.([]*mongo.InsertOneResult)[0].Acknowledged)
+	require.True(t, res.([]*mongo.InsertOneResult)[1].Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable1, dstTable1, "_id,doc")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable2, dstTable2, "_id,doc")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
+		res1, err1 := coll1.UpdateOne(t.Context(),
+			bson.D{bson.E{Key: "foo", Value: 1}},
+			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "foo", Value: 11}}}},
+			options.UpdateOne())
+		res2, err2 := coll2.UpdateOne(t.Context(),
+			bson.D{bson.E{Key: "bar", Value: 2}},
+			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "bar", Value: 22}}}},
+			options.UpdateOne())
+		err := err1
+		if err2 != nil {
+			err = err2
+		}
+		return []*mongo.UpdateResult{res1, res2}, err
+	}, options.Transaction())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[0].ModifiedCount)
+	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[1].ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "t1 to match", srcTable1, dstTable1, "_id,doc")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "t2 to match", srcTable2, dstTable2, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Json_Disabled() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_json_disabled"
+	dstTable := "test_json_disabled_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "false"
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err = collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	var columnType string
+	row := ch.QueryRow(t.Context(),
+		fmt.Sprintf("SELECT type FROM system.columns WHERE database = '%s' AND table = '%s' AND name = 'doc'",
+			peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, row.Err())
+	require.NoError(t, row.Scan(&columnType))
+	require.Equal(t, "String", columnType, "doc column should be of type String when JSON is disabled")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
+	t := s.T()
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable1 := "t1"
+	dstTable1 := "t1_dst"
+	srcTable2 := "t2"
+	dstTable2 := "t2_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "can_resume_after_delete_table"),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	err := db.CreateCollection(t.Context(), srcTable1)
+	require.NoError(t, err)
+	err = db.CreateCollection(t.Context(), srcTable2)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// insert a document to t1 and t2
+	// since t2 is written last, saved resume token references t2
+	insertRes, err := db.Collection(srcTable1).InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	insertRes, err = db.Collection(srcTable2).InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable2, dstTable2, "_id,doc")
+
+	// pause workflow
+	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// resume workflow with t2 removed from table mapping
+	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcDatabase + "." + srcTable2,
+			DestinationTableIdentifier: srcDatabase + "." + dstTable2,
+		}},
+	})
+	e2e.EnvWaitFor(t, env, 1*time.Minute, "resumed workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// insert a document to t1 should succeed
+	insertRes, err = db.Collection(srcTable1).InsertOne(t.Context(), bson.D{bson.E{Key: "key2", Value: "val2"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Json_Types() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_json_types"
+	dstTable := "test_json_types_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	decimal128, err := bson.ParseDecimal128("123.4567890987654321")
+	require.NoError(t, err)
+
+	doc := bson.D{
+		// String types
+		{Key: "string", Value: "hello"},
+		{Key: "empty_string", Value: ""},
+		{Key: "string_special", Value: "hello\nworld\t\"quoted\""},
+
+		// Boolean types
+		{Key: "bool_true", Value: true},
+		{Key: "bool_false", Value: false},
+
+		// Integer types
+		{Key: "int", Value: 42},
+		{Key: "int8", Value: int8(127)},
+		{Key: "int16", Value: int16(32767)},
+		{Key: "int32", Value: int32(2147483647)},
+		{Key: "int64", Value: int64(9223372036854775807)},
+		{Key: "uint", Value: uint(42)},
+		{Key: "uint8", Value: uint8(255)},
+		{Key: "uint16", Value: uint16(65535)},
+		{Key: "uint32", Value: uint32(4294967295)},
+
+		// Negative integers
+		{Key: "neg_int", Value: -42},
+		{Key: "neg_int8", Value: int8(-128)},
+		{Key: "neg_int16", Value: int16(-32768)},
+		{Key: "neg_int32", Value: int32(-2147483648)},
+		{Key: "neg_int64", Value: int64(-9223372036854775807)},
+
+		// Floating point types
+		{Key: "float64", Value: float64(3.14159265359)},
+		{Key: "neg_float64", Value: float64(-3.14159265359)},
+		{Key: "float64_max_int64", Value: float64(math.MaxInt64)},
+		{Key: "float64_min_int64", Value: float64(math.MinInt64)},
+		{Key: "float64_greater_than_max_int64", Value: math.Pow(2, 65)},
+		{Key: "float64_less_than_min_int64", Value: -math.Pow(2, 65)},
+		{Key: "float64_scientific_notation", Value: 1e100},
+
+		// Special float values
+		{Key: "nan", Value: math.NaN()},
+		{Key: "pos_inf", Value: math.Inf(1)},
+		{Key: "neg_inf", Value: math.Inf(-1)},
+
+		// Datetime
+		{Key: "date_time", Value: bson.DateTime(1672531200000)},                   // 2023-01-01 00:00:00 UTC
+		{Key: "date_time_outside_rfc3339", Value: bson.DateTime(253433923200000)}, // 10001-01-01 00:00:00 UTC
+		{Key: "date_time_max", Value: bson.DateTime(math.MaxInt64)},
+		{Key: "date_time_min", Value: bson.DateTime(math.MinInt64)},
+
+		// Arrays with special values
+		{Key: "array_mixed", Value: bson.A{1, "str", true}},
+		{Key: "array_special_values", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64)}},
+
+		// Complex nested documents
+		{Key: "nested_doc", Value: bson.D{
+			{Key: "inner1", Value: "str"},
+			{Key: "inner2", Value: 1},
+			{Key: "inner3", Value: true},
+			{Key: "inner4", Value: bson.D{
+				{Key: "a", Value: math.NaN()},
+				{Key: "b", Value: bson.A{"hello", "world"}},
+			}},
+		}},
+
+		// Complex nested array
+		{Key: "nested_array", Value: bson.A{
+			bson.D{{Key: "inner1", Value: bson.A{
+				bson.D{{Key: "inner_inner", Value: bson.A{
+					math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64),
+				}}},
+			}}},
+			bson.D{{Key: "inner2", Value: 1.23}},
+		}},
+		{Key: "nested_array_2", Value: bson.A{
+			bson.D{{Key: "NaN", Value: math.NaN()}},
+			bson.D{{Key: "binary", Value: bson.Binary{Subtype: 0x00, Data: []byte("test")}}},
+			bson.D{{
+				Key:   "nested_arr",
+				Value: bson.A{bson.A{1}, bson.A{2}, bson.A{3}},
+			}},
+			bson.D{{
+				Key:   "nested_doc",
+				Value: bson.D{{Key: "str", Value: "hello world"}},
+			}},
+			bson.D{{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}}},
+		}},
+
+		// Other bson types
+		{Key: "object_id", Value: oid},
+		{Key: "symbol", Value: bson.Symbol("test_symbol")},
+		{Key: "binary", Value: bson.Binary{Subtype: 0x02, Data: []byte("hello world")}},
+		{Key: "binary_empty", Value: bson.Binary{Subtype: 0x00, Data: []byte{}}},
+		{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}},
+		{Key: "regex", Value: bson.Regex{Pattern: "^test.*", Options: "i"}},
+		{Key: "decimal128", Value: decimal128},
+		{Key: "javascript", Value: bson.JavaScript("function() { return 42; }")},
+		{Key: "js_with_scope", Value: bson.CodeWithScope{Code: "function(x) { return x + y; }", Scope: bson.D{{Key: "y", Value: 10}}}},
+		{Key: "db_pointer", Value: bson.DBPointer{DB: "test_db", Pointer: oid}},
+
+		// Other bson types (not propagated)
+		{Key: "undefined_field", Value: bson.Undefined{}},
+		{Key: "null_field", Value: bson.Null{}},
+		{Key: "max_key", Value: bson.MaxKey{}},
+		{Key: "min_key", Value: bson.MinKey{}},
+	}
+
+	insertRes, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
+
+	rows, err := s.GetRows(dstTable, "_id,doc")
+	require.NoError(t, err)
+	require.Len(t, rows.Records, 2, "Expected 2 rows in destination table")
+
+	row1 := rows.Records[0][1].Value().(string)
+	row2 := rows.Records[1][1].Value().(string)
+	for _, row := range []string{row1, row2} {
+		require.Contains(t, row, `"string":"hello"`)
+		require.Contains(t, row, `"empty_string":""`)
+		require.Contains(t, row, `"string_special":"hello\nworld\t\"quoted\""`)
+		require.Contains(t, row, `"bool_true":true`)
+		require.Contains(t, row, `"bool_false":false`)
+		require.Contains(t, row, `"int":42`)
+		require.Contains(t, row, `"int8":127`)
+		require.Contains(t, row, `"int16":32767`)
+		require.Contains(t, row, `"int32":2147483647`)
+		require.Contains(t, row, `"int64":9223372036854775807`)
+		require.Contains(t, row, `"uint":42`)
+		require.Contains(t, row, `"uint8":255`)
+		require.Contains(t, row, `"uint16":65535`)
+		require.Contains(t, row, `"uint32":4294967295`)
+		require.Contains(t, row, `"neg_int":-42`)
+		require.Contains(t, row, `"neg_int8":-128`)
+		require.Contains(t, row, `"neg_int16":-32768`)
+		require.Contains(t, row, `"neg_int32":-2147483648`)
+		require.Contains(t, row, `"neg_int64":-9223372036854775807`)
+		require.Contains(t, row, `"float64":3.14159265359`)
+		require.Contains(t, row, `"neg_float64":-3.14159265359`)
+		require.Contains(t, row, `"float64_max_int64":9223372036854776000`)
+		require.Contains(t, row, `"float64_min_int64":-9223372036854776000`)
+		require.Contains(t, row, `"float64_greater_than_max_int64":36893488147419103000`)
+		require.Contains(t, row, `"float64_less_than_min_int64":-36893488147419103000`)
+		require.Contains(t, row, `"float64_scientific_notation":1e+100`)
+		require.Contains(t, row, `"nan":"NaN"`)
+		require.Contains(t, row, `"pos_inf":"+Inf"`)
+		require.Contains(t, row, `"neg_inf":"-Inf"`)
+		require.Contains(t, row, `"date_time":"2023-01-01T00:00:00Z"`)
+		require.Contains(t, row, `"date_time_outside_rfc3339":"10001-01-01T00:00:00Z"`)
+		require.Contains(t, row, `"date_time_max":"292278994-08-17T07:12:55.807Z"`)
+		require.Contains(t, row, `"date_time_min":"-292275055-05-16T16:47:04.192Z"`)
+		// mixed array promoted common type
+		require.Contains(t, row, `"array_mixed":[1,"str",true]`)
+		require.Contains(t, row, `"array_special_values":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]`)
+		require.Contains(t, row, `"nested_doc":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}`)
+		require.Contains(t, row,
+			`"nested_array":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]}]},{"inner2":1.23}]`)
+		require.Contains(t, row, `"nested_array_2":[{"NaN":"NaN"},{"binary":{"Data":"dGVzdA==","Subtype":0}},`+
+			`{"nested_arr":[[1],[2],[3]]},{"nested_doc":{"str":"hello world"}},{"timestamp":{"I":1,"T":1672531200}}]`)
+
+		require.Contains(t, row, `"object_id":"507f1f77bcf86cd799439011"`)
+		require.Contains(t, row, `"symbol":"test_symbol"`)
+		// binary data should be base64 encoded
+		require.Contains(t, row, `"binary":{"Data":"aGVsbG8gd29ybGQ=","Subtype":2}`)
+		require.Contains(t, row, `"binary_empty":{"Data":"","Subtype":0}`)
+		require.Contains(t, row, `"timestamp":{"I":1,"T":1672531200}`)
+		require.Contains(t, row, `"regex":{"Options":"i","Pattern":"^test.*"}`)
+		// decimal12 should be converted to string
+		require.Contains(t, row, `"decimal128":"123.4567890987654321"`)
+		require.Contains(t, row, `"javascript":"function() { return 42; }"`)
+		require.Contains(t, row, `"js_with_scope":{"Code":"function(x) { return x + y; }","Scope":{"y":10}}`)
+		require.Contains(t, row, `"db_pointer":{"DB":"test_db","Pointer":"507f1f77bcf86cd799439011"}`)
+
+		// check unsupported types should not be propagated
+		require.NotContains(t, row, `"null_field"`)
+		require.NotContains(t, row, `"undefined_field"`)
+		require.NotContains(t, row, `"max_key"`)
+		require.NotContains(t, row, `"min_key"`)
+	}
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Verifies that date/datetime string inference in JSON columns is order-independent. Previously,
+// the first value in an insert block determines the inferred type, so a post-1970 date infers Date
+// type and clamps subsequent pre-1970 dates as 1970-01-01; while a pre-1970 value arriving first
+// infers DateTime64 type. With InternalVersion_AlwaysUseDateTime64Inference, test ensures both
+// date-like and datetime-like strings will infer as DateTime64 regardless of row order.
+func (s MongoClickhouseSuite) Test_Json_Date_Field_Inference_Consistency() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable1 := "test_json_date_infer_t1"
+	dstTable1 := "test_json_date_infer_t1_dst"
+	srcTable2 := "test_json_date_infer_t2"
+	dstTable2 := "test_json_date_infer_t2_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "test_json_date_infer"),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection1 := adminClient.Database(srcDatabase).Collection(srcTable1)
+	collection2 := adminClient.Database(srcDatabase).Collection(srcTable2)
+
+	post1970Date := "1981-01-01"
+	pre1970Date := "1911-01-01"
+	// DateTime64 JSON paths are scanned as time.Time by clickhouse-go and re-marshaled as RFC3339 on readback
+	expectedDocTemplate := `{"_id":%d,"date_str":"%sT00:00:00Z","datetime_str":"%sT00:00:00Z"}`
+
+	insert := func(collection *mongo.Collection, id int, date string) {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: id},
+			{Key: "date_str", Value: date},
+			{Key: "datetime_str", Value: date + " 00:00:00"},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	validate := func(dstTable string, id int, date string) {
+		rows, err := s.GetRows(dstTable, "_id,doc")
+		require.NoError(t, err)
+		for _, record := range rows.Records {
+			if record[0].Value().(string) == strconv.Itoa(id) {
+				require.Equal(t, fmt.Sprintf(expectedDocTemplate, id, date, date), record[1].Value().(string))
+				return
+			}
+		}
+		require.Failf(t, "row not found", "_id %d not found in %s", id, dstTable)
+	}
+
+	insert(collection1, 1, post1970Date)
+	insert(collection1, 2, pre1970Date)
+	insert(collection2, 1, pre1970Date)
+	insert(collection2, 2, post1970Date)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load t1", dstTable1, "_id,doc", 2)
+	e2e.EnvWaitForCount(env, s, "initial load t2", dstTable2, "_id,doc", 2)
+	validate(dstTable1, 1, post1970Date)
+	validate(dstTable1, 2, pre1970Date)
+	validate(dstTable2, 1, pre1970Date)
+	validate(dstTable2, 2, post1970Date)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insert(collection1, 3, post1970Date)
+	insert(collection1, 4, pre1970Date)
+	insert(collection2, 3, pre1970Date)
+	insert(collection2, 4, post1970Date)
+
+	e2e.EnvWaitForCount(env, s, "cdc t1", dstTable1, "_id,doc", 4)
+	e2e.EnvWaitForCount(env, s, "cdc t2", dstTable2, "_id,doc", 4)
+	validate(dstTable1, 3, post1970Date)
+	validate(dstTable1, 4, pre1970Date)
+	validate(dstTable2, 3, pre1970Date)
+	validate(dstTable2, 4, post1970Date)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}

@@ -56,6 +56,18 @@ message TableMapping {
   // the column to use as a cursor for query-based CDC replication
   // required if replication_method is BIGQUERY_REPLICATION_METHOD_QUERY
   string query_cdc_watermark_column = 11;
+
+  // Structured ingestion settings of the table, if structured ingestion is used.
+  StructuredIngestionTableConfig structured_ingestion_config = 12;
+}
+
+message StructuredIngestionTableConfig {
+  // If true, the mirror will use structured ingestion for the mapped table,
+  // using the column types given by the `columns` (`destination_type`) field in the TableMapping.
+  bool enabled = 1;
+  // If true, when structured ingestion is enabled, reports of unfitting values will not include
+  // the values themselves, just their field and why they did not fit.
+  bool drop_unexpected_values = 2;
 }
 
 message SetupInput {
@@ -501,6 +513,8 @@ message QRepConfig {
   repeated string flags = 31; // internal
   // if true, then a separate null partition will be created for rows with null values in the watermark column
   bool add_null_partition = 32; // internal
+  // Structured ingestion settings of the replicated table, unset for tables that do not use it.
+  StructuredIngestionTableConfig structured_ingestion_config = 33;
 }
 
 message ChildTableRange {
@@ -601,6 +615,8 @@ message CDCFlowConfigUpdate {
   bool skip_initial_snapshot_for_table_additions = 11;
   // removes keys from the env map, applied after updated_env
   repeated string removed_env = 12;
+  // Replaces the QueryCdcConfig settings when present. An absent message leaves them unchanged.
+  QueryCdcConfig query_cdc = 13;
 }
 
 message QRepFlowConfigUpdate {

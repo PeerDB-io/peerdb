@@ -14,12 +14,14 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type NameAndExclude struct {
-	Exclude map[string]struct{}
-	Name    string
+type SourceTableMapping struct {
+	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
+	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
+	Exclude                          map[string]struct{}
+	Name                             string
 }
 
-func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 	var exset map[string]struct{}
 	if len(exclude) != 0 {
 		exset = make(map[string]struct{}, len(exclude))
@@ -27,7 +29,15 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 			exset[col] = struct{}{}
 		}
 	}
-	return NameAndExclude{Name: name, Exclude: exset}
+	return SourceTableMapping{Name: name, Exclude: exset}
+}
+
+func NewSourceTableMappingWithStructuredIngestion(
+	name string, exclude []string, structuredIngestionConfiguration *protos.StructuredIngestionTableConfig,
+) SourceTableMapping {
+	mapping := NewSourceTableMapping(name, exclude)
+	mapping.StructuredIngestionConfiguration = structuredIngestionConfiguration
+	return mapping
 }
 
 type RecordTypeCounts struct {
@@ -74,7 +84,7 @@ type PullRecordsRequest[T Items] struct {
 	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]NameAndExclude
+	TableNameMapping map[string]SourceTableMapping
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// overrides dynamic configuration
@@ -105,8 +115,8 @@ type PullTableRecordsRequest struct {
 	FlowJobName string
 	// SourceTableIdentifier is the source table this request pulls.
 	SourceTableIdentifier string
-	// NameAndExclude carries the destination table name and excluded columns.
-	NameAndExclude NameAndExclude
+	// SourceTableMapping carries the destination table name and excluded columns.
+	SourceTableMapping SourceTableMapping
 	// TableSchema is the schema of the destination table.
 	TableSchema *protos.TableSchema
 	// StartTime and EndTime are the safe source-time window selected by the activity.

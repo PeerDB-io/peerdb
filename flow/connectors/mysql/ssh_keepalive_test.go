@@ -1,3 +1,5 @@
+//go:build tilt
+
 package connmysql
 
 import (
@@ -170,7 +172,7 @@ func setupCDCPullRecords(
 	req := &model.PullRecordsRequest[model.RecordItems]{
 		FlowJobName:            flowJobName,
 		RecordStream:           model.NewCDCStream[model.RecordItems](100),
-		TableNameMapping:       map[string]model.NameAndExclude{},
+		TableNameMapping:       map[string]model.SourceTableMapping{},
 		TableNameSchemaMapping: map[string]*protos.TableSchema{},
 		LastOffset:             model.CdcCheckpoint{Text: offsetText},
 		MaxBatchSize:           10000,
