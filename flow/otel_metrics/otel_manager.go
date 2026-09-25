@@ -28,144 +28,150 @@ const (
 )
 
 const (
-	SlotLagGaugeName                     = "cdc_slot_lag"
-	CurrentBatchIdGaugeName              = "current_batch_id"
-	LastNormalizedBatchIdGaugeName       = "last_normalized_batch_id"
-	OpenConnectionsGaugeName             = "open_connections"
-	OpenReplicationConnectionsGaugeName  = "open_replication_connections"
-	CommittedLSNGaugeName                = "committed_lsn"
-	RestartLSNGaugeName                  = "restart_lsn"
-	ConfirmedFlushLSNGaugeName           = "confirmed_flush_lsn"
-	SentLSNGaugeName                     = "sent_lsn"
-	ReceivedCommitLSNGaugeName           = "received_commit_lsn"
-	CurrentWalLSNGaugeName               = "current_wal_lsn"
-	RestartToConfirmedMBGaugeName        = "restart_to_confirmed_lsn"
-	ConfirmedToCurrentMBGaugeName        = "confirmed_to_current_lsn"
-	WalStatusGaugeName                   = "wal_status"
-	SafeWalSizeGaugeName                 = "safe_wal_size"
-	SourceLogSpaceUsedGaugeName          = "source_log_space_used"
-	SourceLogSpaceLimitGaugeName         = "source_log_space_limit"
-	SourceLogSpaceSafeRatioGaugeName     = "source_log_space_safe_ratio"
-	SlotActiveGaugeName                  = "slot_active"
-	WalSenderStateGaugeName              = "walsender_state"
-	LogicalDecodingWorkMemGaugeName      = "logical_decoding_work_mem"
-	StatsResetGaugeName                  = "stats_reset"
-	SpillTxnsGaugeName                   = "spill_txns"
-	SpillCountGaugeName                  = "spill_count"
-	SpillBytesGaugeName                  = "spill_bytes"
-	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
-	AllFetchedBytesCounterName           = "all_fetched_bytes"
-	FetchedBytesCounterName              = "fetched_bytes"
-	FetchedEventSizeHistogramName        = "fetched_event_size"
-	CDCReceiveTimeCounterName            = "cdc_receive_time"
-	CDCProcessTimeCounterName            = "cdc_process_time"
-	CDCParallelProcessTimeCounterName    = "cdc_parallel_process_time"
-	CDCAddRecordTimeCounterName          = "cdc_add_record_time"
-	SourceLagGaugeName                   = "source_lag"
-	DestinationLagGaugeName              = "destination_lag"
-	E2ELagGaugeName                      = "e2e_lag"
-	ServerSideCommitLagGaugeName         = "server_side_commit_lag"
-	NormalizeLagGaugeName                = "normalize_lag"
-	ErrorEmittedGaugeName                = "error_emitted"
-	ErrorsEmittedCounterName             = "errors_emitted"
-	WarningEmittedGaugeName              = "warning_emitted"
-	WarningsEmittedCounterName           = "warnings_emitted"
-	RecordsSyncedGaugeName               = "records_synced"
-	RecordsSyncedCounterName             = "records_synced_counter"
-	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
-	RecordsSyncedPerTableCounterName     = "records_synced_per_table_counter"
-	SyncedTablesGaugeName                = "synced_tables"
-	InstanceStatusGaugeName              = "instance_status"
-	MaintenanceStatusGaugeName           = "maintenance_status"
-	FlowStatusGaugeName                  = "flow_status"
-	DurationSinceLastFlowUpdateGaugeName = "duration_since_last_flow_update"
-	ActiveFlowsGaugeName                 = "active_flows"
-	CPULimitsPerActiveFlowGaugeName      = "cpu_limits_per_active_flow_vcores"
-	MemoryLimitsPerActiveFlowGaugeName   = "memory_limits_per_active_flow"
-	TotalCPULimitsGaugeName              = "total_cpu_limits_vcores"
-	TotalMemoryLimitsGaugeName           = "total_memory_limits"
-	WorkloadTotalReplicasGaugeName       = "workload_total_replicas"
-	LogRetentionGaugeName                = "log_retention"
-	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
-	UnchangedToastValuesCounterName      = "unchanged_toast_values"
-	CodeNotificationCounterName          = "code_notification"
-	ServerWalEndLagGaugeName             = "wal_end_lag"
-	UsedMySQLCharsetsName                = "used_mysql_charsets"
-	CockroachDBResolvedLagGaugeName      = "cockroachdb_resolved_lag"
-	CockroachDBRecordsReceivedName       = "cockroachdb_records_received"
-	ColumnTypeChangesName                = "column_type_changes"
-	ParseSQLErrorsCounterName            = "parse_sql_errors"
-	OnlineSchemaMigrationsName           = "online_schema_migrations"
-	UnsupportedBinlogEventName           = "unsupported_binlog_event"
+	SlotLagGaugeName                        = "cdc_slot_lag"
+	CurrentBatchIdGaugeName                 = "current_batch_id"
+	QueryCDCCurrentBatchIdGaugeName         = "query_cdc_current_batch_id"
+	LastNormalizedBatchIdGaugeName          = "last_normalized_batch_id"
+	QueryCDCNormalizedBatchIdGaugeName      = "query_cdc_last_normalized_batch_id"
+	OpenConnectionsGaugeName                = "open_connections"
+	OpenReplicationConnectionsGaugeName     = "open_replication_connections"
+	CommittedLSNGaugeName                   = "committed_lsn"
+	RestartLSNGaugeName                     = "restart_lsn"
+	ConfirmedFlushLSNGaugeName              = "confirmed_flush_lsn"
+	SentLSNGaugeName                        = "sent_lsn"
+	ReceivedCommitLSNGaugeName              = "received_commit_lsn"
+	CurrentWalLSNGaugeName                  = "current_wal_lsn"
+	RestartToConfirmedMBGaugeName           = "restart_to_confirmed_lsn"
+	ConfirmedToCurrentMBGaugeName           = "confirmed_to_current_lsn"
+	WalStatusGaugeName                      = "wal_status"
+	SafeWalSizeGaugeName                    = "safe_wal_size"
+	SourceLogSpaceUsedGaugeName             = "source_log_space_used"
+	SourceLogSpaceLimitGaugeName            = "source_log_space_limit"
+	SourceLogSpaceSafeRatioGaugeName        = "source_log_space_safe_ratio"
+	SlotActiveGaugeName                     = "slot_active"
+	WalSenderStateGaugeName                 = "walsender_state"
+	LogicalDecodingWorkMemGaugeName         = "logical_decoding_work_mem"
+	StatsResetGaugeName                     = "stats_reset"
+	SpillTxnsGaugeName                      = "spill_txns"
+	SpillCountGaugeName                     = "spill_count"
+	SpillBytesGaugeName                     = "spill_bytes"
+	IntervalSinceLastNormalizeGaugeName     = "interval_since_last_normalize"
+	AllFetchedBytesCounterName              = "all_fetched_bytes"
+	FetchedBytesCounterName                 = "fetched_bytes"
+	FetchedEventSizeHistogramName           = "fetched_event_size"
+	QueryCDCFetchedBatchesSizeHistogramName = "query_cdc_fetched_batches_size"
+	CDCReceiveTimeCounterName               = "cdc_receive_time"
+	CDCProcessTimeCounterName               = "cdc_process_time"
+	CDCParallelProcessTimeCounterName       = "cdc_parallel_process_time"
+	CDCAddRecordTimeCounterName             = "cdc_add_record_time"
+	SourceLagGaugeName                      = "source_lag"
+	DestinationLagGaugeName                 = "destination_lag"
+	E2ELagGaugeName                         = "e2e_lag"
+	ServerSideCommitLagGaugeName            = "server_side_commit_lag"
+	NormalizeLagGaugeName                   = "normalize_lag"
+	ErrorEmittedGaugeName                   = "error_emitted"
+	ErrorsEmittedCounterName                = "errors_emitted"
+	WarningEmittedGaugeName                 = "warning_emitted"
+	WarningsEmittedCounterName              = "warnings_emitted"
+	RecordsSyncedGaugeName                  = "records_synced"
+	RecordsSyncedCounterName                = "records_synced_counter"
+	RecordsSyncedPerTableGaugeName          = "records_synced_per_table"
+	RecordsSyncedPerTableCounterName        = "records_synced_per_table_counter"
+	SyncedTablesGaugeName                   = "synced_tables"
+	InstanceStatusGaugeName                 = "instance_status"
+	MaintenanceStatusGaugeName              = "maintenance_status"
+	FlowStatusGaugeName                     = "flow_status"
+	DurationSinceLastFlowUpdateGaugeName    = "duration_since_last_flow_update"
+	ActiveFlowsGaugeName                    = "active_flows"
+	CPULimitsPerActiveFlowGaugeName         = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName      = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName                 = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName              = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName          = "workload_total_replicas"
+	LogRetentionGaugeName                   = "log_retention"
+	LatestConsumedLogEventGaugeName         = "latest_consumed_log_event"
+	UnchangedToastValuesCounterName         = "unchanged_toast_values"
+	CodeNotificationCounterName             = "code_notification"
+	ServerWalEndLagGaugeName                = "wal_end_lag"
+	UsedMySQLCharsetsName                   = "used_mysql_charsets"
+	CockroachDBResolvedLagGaugeName         = "cockroachdb_resolved_lag"
+	CockroachDBRecordsReceivedName          = "cockroachdb_records_received"
+	ColumnTypeChangesName                   = "column_type_changes"
+	ParseSQLErrorsCounterName               = "parse_sql_errors"
+	OnlineSchemaMigrationsName              = "online_schema_migrations"
+	UnsupportedBinlogEventName              = "unsupported_binlog_event"
 )
 
 type Metrics struct {
-	SlotLagGauge                      metric.Float64Gauge
-	CurrentBatchIdGauge               metric.Int64Gauge
-	LastNormalizedBatchIdGauge        metric.Int64Gauge
-	OpenConnectionsGauge              metric.Int64Gauge
-	OpenReplicationConnectionsGauge   metric.Int64Gauge
-	CommittedLSNGauge                 metric.Int64Gauge
-	RestartLSNGauge                   metric.Int64Gauge
-	ConfirmedFlushLSNGauge            metric.Int64Gauge
-	SentLSNGauge                      metric.Int64Gauge
-	ReceivedCommitLSNGauge            metric.Int64Gauge
-	CurrentWalLSNGauge                metric.Int64Gauge
-	RestartToConfirmedMBGauge         metric.Float64Gauge
-	ConfirmedToCurrentMBGauge         metric.Float64Gauge
-	WalStatusGauge                    metric.Int64Gauge
-	SafeWalSizeGauge                  metric.Int64Gauge
-	LogSpace                          LogSpaceGauges
-	SlotActiveGauge                   metric.Int64Gauge
-	WalSenderStateGauge               metric.Int64Gauge
-	StatsResetGauge                   metric.Int64Gauge
-	SpillTxnsGauge                    metric.Int64Gauge
-	SpillCountGauge                   metric.Int64Gauge
-	SpillBytesGauge                   metric.Int64Gauge
-	LogicalDecodingWorkMemGauge       metric.Int64Gauge
-	IntervalSinceLastNormalizeGauge   metric.Float64Gauge
-	AllFetchedBytesCounter            metric.Int64Counter
-	FetchedBytesCounter               metric.Int64Counter
-	FetchedEventSizeHistogram         metric.Int64Histogram
-	CDCReceiveTimeCounter             metric.Int64Counter
-	CDCProcessTimeCounter             metric.Int64Counter
-	CDCParallelProcessTimeCounter     metric.Int64Counter
-	CDCAddRecordTimeCounter           metric.Int64Counter
-	SourceLagGauge                    metric.Int64Gauge
-	DestinationLagGauge               metric.Int64Gauge
-	E2ELagGauge                       metric.Int64Gauge
-	ServerSideCommitLagGauge          metric.Int64Gauge
-	NormalizeLagGauge                 metric.Int64Gauge
-	ErrorEmittedGauge                 metric.Int64Gauge
-	ErrorsEmittedCounter              metric.Int64Counter
-	WarningsEmittedGauge              metric.Int64Gauge
-	WarningEmittedCounter             metric.Int64Counter
-	RecordsSyncedGauge                metric.Int64Gauge
-	RecordsSyncedCounter              metric.Int64Counter
-	RecordsSyncedPerTableGauge        metric.Int64Gauge
-	RecordsSyncedPerTableCounter      metric.Int64Counter
-	SyncedTablesGauge                 metric.Int64Gauge
-	InstanceStatusGauge               metric.Int64Gauge
-	MaintenanceStatusGauge            metric.Int64Gauge
-	FlowStatusGauge                   metric.Int64Gauge
-	DurationSinceLastFlowUpdateGauge  metric.Int64Gauge
-	ActiveFlowsGauge                  metric.Int64Gauge
-	CPULimitsPerActiveFlowGauge       metric.Float64Gauge
-	MemoryLimitsPerActiveFlowGauge    metric.Float64Gauge
-	TotalCPULimitsGauge               metric.Float64Gauge
-	TotalMemoryLimitsGauge            metric.Float64Gauge
-	WorkloadTotalReplicasGauge        metric.Int64Gauge
-	LatestConsumedLogEventGauge       metric.Int64Gauge
-	LogRetentionGauge                 metric.Float64Gauge
-	UnchangedToastValuesCounter       metric.Int64Counter
-	ServerWalEndLagGauge              metric.Int64Gauge
-	UsedMySQLCharsetsCounter          metric.Int64Counter
-	ColumnTypeChangesCounter          metric.Int64Counter
-	ParseSQLErrorsCounter             metric.Int64Counter
-	OnlineSchemaMigrationsCounter     metric.Int64Counter
-	UnsupportedBinlogEventCounter     metric.Int64Counter
-	CockroachDBResolvedLagGauge       metric.Float64Gauge
-	CockroachDBRecordsReceivedCounter metric.Int64Counter
+	SlotLagGauge                        metric.Float64Gauge
+	CurrentBatchIdGauge                 metric.Int64Gauge
+	QueryCDCCurrentBatchIdGauge         metric.Int64Gauge
+	LastNormalizedBatchIdGauge          metric.Int64Gauge
+	QueryCDCNormalizedBatchIdGauge      metric.Int64Gauge
+	OpenConnectionsGauge                metric.Int64Gauge
+	OpenReplicationConnectionsGauge     metric.Int64Gauge
+	CommittedLSNGauge                   metric.Int64Gauge
+	RestartLSNGauge                     metric.Int64Gauge
+	ConfirmedFlushLSNGauge              metric.Int64Gauge
+	SentLSNGauge                        metric.Int64Gauge
+	ReceivedCommitLSNGauge              metric.Int64Gauge
+	CurrentWalLSNGauge                  metric.Int64Gauge
+	RestartToConfirmedMBGauge           metric.Float64Gauge
+	ConfirmedToCurrentMBGauge           metric.Float64Gauge
+	WalStatusGauge                      metric.Int64Gauge
+	SafeWalSizeGauge                    metric.Int64Gauge
+	LogSpace                            LogSpaceGauges
+	SlotActiveGauge                     metric.Int64Gauge
+	WalSenderStateGauge                 metric.Int64Gauge
+	StatsResetGauge                     metric.Int64Gauge
+	SpillTxnsGauge                      metric.Int64Gauge
+	SpillCountGauge                     metric.Int64Gauge
+	SpillBytesGauge                     metric.Int64Gauge
+	LogicalDecodingWorkMemGauge         metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge     metric.Float64Gauge
+	AllFetchedBytesCounter              metric.Int64Counter
+	FetchedBytesCounter                 metric.Int64Counter
+	FetchedEventSizeHistogram           metric.Int64Histogram
+	QueryCDCFetchedBatchesSizeHistogram metric.Int64Histogram
+	CDCReceiveTimeCounter               metric.Int64Counter
+	CDCProcessTimeCounter               metric.Int64Counter
+	CDCParallelProcessTimeCounter       metric.Int64Counter
+	CDCAddRecordTimeCounter             metric.Int64Counter
+	SourceLagGauge                      metric.Int64Gauge
+	DestinationLagGauge                 metric.Int64Gauge
+	E2ELagGauge                         metric.Int64Gauge
+	ServerSideCommitLagGauge            metric.Int64Gauge
+	NormalizeLagGauge                   metric.Int64Gauge
+	ErrorEmittedGauge                   metric.Int64Gauge
+	ErrorsEmittedCounter                metric.Int64Counter
+	WarningsEmittedGauge                metric.Int64Gauge
+	WarningEmittedCounter               metric.Int64Counter
+	RecordsSyncedGauge                  metric.Int64Gauge
+	RecordsSyncedCounter                metric.Int64Counter
+	RecordsSyncedPerTableGauge          metric.Int64Gauge
+	RecordsSyncedPerTableCounter        metric.Int64Counter
+	SyncedTablesGauge                   metric.Int64Gauge
+	InstanceStatusGauge                 metric.Int64Gauge
+	MaintenanceStatusGauge              metric.Int64Gauge
+	FlowStatusGauge                     metric.Int64Gauge
+	DurationSinceLastFlowUpdateGauge    metric.Int64Gauge
+	ActiveFlowsGauge                    metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge         metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge      metric.Float64Gauge
+	TotalCPULimitsGauge                 metric.Float64Gauge
+	TotalMemoryLimitsGauge              metric.Float64Gauge
+	WorkloadTotalReplicasGauge          metric.Int64Gauge
+	LatestConsumedLogEventGauge         metric.Int64Gauge
+	LogRetentionGauge                   metric.Float64Gauge
+	UnchangedToastValuesCounter         metric.Int64Counter
+	ServerWalEndLagGauge                metric.Int64Gauge
+	UsedMySQLCharsetsCounter            metric.Int64Counter
+	ColumnTypeChangesCounter            metric.Int64Counter
+	ParseSQLErrorsCounter               metric.Int64Counter
+	OnlineSchemaMigrationsCounter       metric.Int64Counter
+	UnsupportedBinlogEventCounter       metric.Int64Counter
+	CockroachDBResolvedLagGauge         metric.Float64Gauge
+	CockroachDBRecordsReceivedCounter   metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -299,8 +305,18 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName)); err != nil {
 		return err
 	}
+	if om.Metrics.QueryCDCCurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCCurrentBatchIdGaugeName),
+		metric.WithDescription("Latest synced batch ID for each query CDC source table"),
+	); err != nil {
+		return err
+	}
 
 	if om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName)); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCNormalizedBatchIdGaugeName),
+		metric.WithDescription("Latest normalized batch ID for each query CDC destination table"),
+	); err != nil {
 		return err
 	}
 
@@ -484,6 +500,18 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 			10_000_000, 20_000_000, 50_000_000,
 			100_000_000, 200_000_000, 500_000_000,
 			1_000_000_000,
+		),
+	); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCFetchedBatchesSizeHistogram, err = om.GetOrInitInt64Histogram(
+		BuildMetricName(QueryCDCFetchedBatchesSizeHistogramName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes fetched per successful query CDC table poll"),
+		metric.WithExplicitBucketBoundaries(
+			1_000, 10_000, 100_000,
+			1_000_000, 10_000_000, 100_000_000,
+			1_000_000_000, 10_000_000_000,
 		),
 	); err != nil {
 		return err
