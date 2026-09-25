@@ -452,14 +452,25 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed)
+			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts, bytesProcessed int64) {
+func (a *FlowableActivity) recordSyncMetrics(
+	ctx context.Context,
+	destTable string,
+	rowCounts *model.RecordTypeCounts,
+	bytesProcessed int64,
+	batchId int64,
+) {
+	// per table metrics
+	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
+	a.OtelManager.Metrics.QueryCDCFetchedBatchesHistogram.Record(ctx, bytesProcessed, metricsOptions)
+	a.OtelManager.Metrics.QueryCDCCurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -470,17 +481,20 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 	}
 	for _, oc := range opAndCount {
 		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 		a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 	}
 
+	// global mirror metrics, aligned with event based cdc pipes
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx,
+		int64(rowCounts.InsertCount.Load()+rowCounts.UpdateCount.Load()+rowCounts.DeleteCount.Load()))
 }
 
 // queryCDCNormalizeLoop inserts one source table's staged batches
@@ -501,6 +515,9 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	destTable := tableMapping.DestinationTableIdentifier
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+	))
 
 	state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 	if err != nil {
@@ -591,6 +608,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
+		a.OtelManager.Metrics.QueryCDCNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,

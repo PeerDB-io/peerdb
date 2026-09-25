@@ -30,7 +30,9 @@ const (
 const (
 	SlotLagGaugeName                     = "cdc_slot_lag"
 	CurrentBatchIdGaugeName              = "current_batch_id"
+	QueryCDCCurrentBatchIdGaugeName      = "query_cdc_current_batch_id"
 	LastNormalizedBatchIdGaugeName       = "last_normalized_batch_id"
+	QueryCDCNormalizedBatchIdGaugeName   = "query_cdc_last_normalized_batch_id"
 	OpenConnectionsGaugeName             = "open_connections"
 	OpenReplicationConnectionsGaugeName  = "open_replication_connections"
 	CommittedLSNGaugeName                = "committed_lsn"
@@ -57,6 +59,7 @@ const (
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
 	FetchedEventSizeHistogramName        = "fetched_event_size"
+	FetchedBatchesHistogramName          = "fetched_batches"
 	CDCReceiveTimeCounterName            = "cdc_receive_time"
 	CDCProcessTimeCounterName            = "cdc_process_time"
 	CDCParallelProcessTimeCounterName    = "cdc_parallel_process_time"
@@ -102,7 +105,9 @@ const (
 type Metrics struct {
 	SlotLagGauge                      metric.Float64Gauge
 	CurrentBatchIdGauge               metric.Int64Gauge
+	QueryCDCCurrentBatchIdGauge       metric.Int64Gauge
 	LastNormalizedBatchIdGauge        metric.Int64Gauge
+	QueryCDCNormalizedBatchIdGauge    metric.Int64Gauge
 	OpenConnectionsGauge              metric.Int64Gauge
 	OpenReplicationConnectionsGauge   metric.Int64Gauge
 	CommittedLSNGauge                 metric.Int64Gauge
@@ -127,6 +132,7 @@ type Metrics struct {
 	AllFetchedBytesCounter            metric.Int64Counter
 	FetchedBytesCounter               metric.Int64Counter
 	FetchedEventSizeHistogram         metric.Int64Histogram
+	QueryCDCFetchedBatchesHistogram   metric.Int64Histogram
 	CDCReceiveTimeCounter             metric.Int64Counter
 	CDCProcessTimeCounter             metric.Int64Counter
 	CDCParallelProcessTimeCounter     metric.Int64Counter
@@ -299,8 +305,18 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName)); err != nil {
 		return err
 	}
+	if om.Metrics.QueryCDCCurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCCurrentBatchIdGaugeName),
+		metric.WithDescription("Latest synced batch ID for each query CDC source table"),
+	); err != nil {
+		return err
+	}
 
 	if om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName)); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCNormalizedBatchIdGaugeName),
+		metric.WithDescription("Latest normalized batch ID for each query CDC destination table"),
+	); err != nil {
 		return err
 	}
 
@@ -484,6 +500,18 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 			10_000_000, 20_000_000, 50_000_000,
 			100_000_000, 200_000_000, 500_000_000,
 			1_000_000_000,
+		),
+	); err != nil {
+		return err
+	}
+	if om.Metrics.QueryCDCFetchedBatchesHistogram, err = om.GetOrInitInt64Histogram(
+		BuildMetricName(FetchedBatchesHistogramName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes fetched per successful query CDC table poll"),
+		metric.WithExplicitBucketBoundaries(
+			1_000, 10_000, 100_000,
+			1_000_000, 10_000_000, 100_000_000,
+			1_000_000_000, 10_000_000_000,
 		),
 	); err != nil {
 		return err
