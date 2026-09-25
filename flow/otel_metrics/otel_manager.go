@@ -59,7 +59,7 @@ const (
 	AllFetchedBytesCounterName           = "all_fetched_bytes"
 	FetchedBytesCounterName              = "fetched_bytes"
 	FetchedEventSizeHistogramName        = "fetched_event_size"
-	FetchedBatchesHistogramName          = "fetched_batches"
+	QueryCDCFetchedBatchesHistogramName  = "query_cdc_fetched_batches"
 	CDCReceiveTimeCounterName            = "cdc_receive_time"
 	CDCProcessTimeCounterName            = "cdc_process_time"
 	CDCParallelProcessTimeCounterName    = "cdc_parallel_process_time"
@@ -505,7 +505,7 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 	if om.Metrics.QueryCDCFetchedBatchesHistogram, err = om.GetOrInitInt64Histogram(
-		BuildMetricName(FetchedBatchesHistogramName),
+		BuildMetricName(QueryCDCFetchedBatchesHistogramName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes fetched per successful query CDC table poll"),
 		metric.WithExplicitBucketBoundaries(
