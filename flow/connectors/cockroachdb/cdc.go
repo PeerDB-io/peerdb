@@ -290,9 +290,6 @@ func (c *CockroachDBConnector) PullRecords(
 
 	pullStart := time.Now()
 	defer func() {
-		if state.recordCount == 0 {
-			req.RecordStream.SignalAsEmpty()
-		}
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(state.recordCount)),
@@ -750,9 +747,6 @@ func (c *CockroachDBConnector) emitBuffered(
 			return err
 		}
 		state.recordCount++
-		if state.recordCount == 1 {
-			state.req.RecordStream.SignalAsNotEmpty()
-		}
 		if state.recordCount%pullProgressLogInterval == 0 {
 			c.logger.Info("[cockroachdb] PullRecords streaming",
 				slog.Uint64("records", uint64(state.recordCount)),
