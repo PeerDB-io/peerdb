@@ -308,7 +308,8 @@ services:
       - USER_NAME=testuser
       - USER_PASSWORD=testpass
       - PASSWORD_ACCESS=true
-      - DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel
+    volumes:
+      - ./local_provision_scripts/openssh-config/sshd_config.d:/config/sshd/sshd_config.d:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
