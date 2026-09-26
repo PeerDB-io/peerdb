@@ -246,7 +246,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		hasNullableKeyFn := buildIsNullableKeyFn(tableMapping, tableSchema.Columns, tableSchema.NullableEnabled)
 		orderByColumns, allowNullableKey := getOrderedOrderByColumns(
-			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn)
+			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn,
+		)
 		if sourceSchemaAsDestinationColumn {
 			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 		}
@@ -286,7 +287,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString(chSettings.String())
 
 		if c.Config.Cluster != "" {
-			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
+			fmt.Fprintf(
+				&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
 				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
 				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
 				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+shardSuffix),
@@ -448,11 +450,121 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	endBatchID := min(req.SyncBatchID, lastNormBatchID+groupBatches)
+	startBatchID := lastNormBatchID + 1
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version); err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
+	if err := c.pipelineNormalizeRecords(ctx, req, lastNormBatchID, endBatchID); err != nil {
+		return model.NormalizeResponse{}, err
 	}
+	return model.NormalizeResponse{
+		StartBatchID: startBatchID,
+		EndBatchID:   endBatchID,
+	}, nil
+}
 
+func (c *ClickHouseConnector) pipelineNormalizeRecords(
+	ctx context.Context,
+	req *model.NormalizeRecordsRequest,
+	lastNormBatchID int64,
+	endBatchID int64,
+) error {
+	lastBatchIDInRawTable, err := c.GetLastBatchIDInRawTable(ctx, req.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
+	}
+	lastCopiedBatchID := max(lastBatchIDInRawTable, lastNormBatchID)
+	return runNormalizePipeline(
+		ctx, lastNormBatchID, lastCopiedBatchID, endBatchID,
+		func(copyCtx context.Context, batchID int64) error {
+			c.logger.Info("[clickhouse] pushing s3 data to raw table", slog.Int64("batchID", batchID))
+			if err := c.copyAvroStageToDestination(
+				copyCtx, req.FlowJobName, batchID, req.Env, req.Version,
+			); err != nil {
+				return fmt.Errorf("failed to copy avro stage for batch %d to destination: %w", batchID, err)
+			}
+			if err := c.SetLastBatchIDInRawTable(copyCtx, req.FlowJobName, batchID); err != nil {
+				return fmt.Errorf("failed to set last batch id in raw table for batch %d: %w", batchID, err)
+			}
+			return nil
+		},
+		func(normalizeCtx context.Context, startBatchID int64, readyBatchID int64) error {
+			return c.normalizeRawBatchRange(normalizeCtx, req, startBatchID, readyBatchID)
+		},
+	)
+}
+
+func runNormalizePipeline(
+	ctx context.Context,
+	lastNormBatchID int64,
+	lastCopiedBatchID int64,
+	endBatchID int64,
+	copyBatch func(context.Context, int64) error,
+	normalizeRange func(context.Context, int64, int64) error,
+) error {
+	readyBatchID := min(lastCopiedBatchID, endBatchID)
+	pendingBatchCount := max(endBatchID-lastCopiedBatchID, 0)
+	rawBatchReady := make(chan int64, pendingBatchCount)
+
+	group, pipelineCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		defer close(rawBatchReady)
+		for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
+			if err := copyBatch(pipelineCtx, batchID); err != nil {
+				return err
+			}
+			select {
+			case rawBatchReady <- batchID:
+			case <-pipelineCtx.Done():
+				return context.Cause(pipelineCtx)
+			}
+		}
+		return nil
+	})
+
+	group.Go(func() error {
+		normalizedBatchID := lastNormBatchID
+		for normalizedBatchID < endBatchID {
+			if readyBatchID <= normalizedBatchID {
+				batchID, ok := <-rawBatchReady
+				if !ok {
+					return nil
+				}
+				readyBatchID = batchID
+			}
+
+			// Coalesce every batch the producer has already copied into one normalize query.
+		drainReady:
+			for {
+				select {
+				case batchID, ok := <-rawBatchReady:
+					if !ok {
+						break drainReady
+					}
+					readyBatchID = batchID
+				default:
+					break drainReady
+				}
+			}
+
+			if err := normalizeRange(pipelineCtx, normalizedBatchID, readyBatchID); err != nil {
+				return err
+			}
+			normalizedBatchID = readyBatchID
+		}
+		return nil
+	})
+
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *ClickHouseConnector) normalizeRawBatchRange(
+	ctx context.Context,
+	req *model.NormalizeRecordsRequest,
+	lastNormBatchID int64,
+	endBatchID int64,
+) error {
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		req.FlowJobName,
@@ -462,22 +574,22 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
-		return model.NormalizeResponse{}, err
+		return err
 	}
 
 	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
-		return model.NormalizeResponse{}, err
+		return err
 	}
 
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
 	if err != nil {
-		return model.NormalizeResponse{}, err
+		return err
 	}
 
 	parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Env)
 	if err != nil {
-		return model.NormalizeResponse{}, err
+		return err
 	}
 	// parallelize normalization up to the number of destination tables
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
@@ -619,21 +731,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}
 		return nil
 	}(); err != nil {
-		return model.NormalizeResponse{}, err
+		return err
 	}
 
 	if err := group.Wait(); err != nil {
-		return model.NormalizeResponse{}, err
+		return err
 	}
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id",
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
-		return model.NormalizeResponse{}, err
+		return err
 	}
-	return model.NormalizeResponse{
-		StartBatchID: lastNormBatchID + 1,
-		EndBatchID:   endBatchID,
-	}, nil
+	return nil
 }
 
 func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
@@ -647,7 +756,8 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
-		peerdb_clickhouse.QuoteIdentifier(rawTbl), lastNormBatchID, endBatchID)
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), lastNormBatchID, endBatchID,
+	)
 
 	rows, err := c.query(ctx, q)
 	if err != nil {
@@ -691,34 +801,6 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 
 	if err := avroSyncMethod.CopyStageToDestination(ctx, avroFile); err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
-	}
-	return nil
-}
-
-func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, lastNormBatchID int64, endBatchID int64, env map[string]string, version uint32,
-) error {
-	// Skip batches already copied to raw table. This can happen if a previous normalization
-	// run failed after copying to raw table but before completing normalization.
-	lastBatchIDInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
-	if err != nil {
-		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
-	}
-	lastCopiedBatchID := max(lastBatchIDInRawTable, lastNormBatchID)
-	c.logger.Info("[clickhouse] pushing s3 data to raw table",
-		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
-
-	for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, env, version); err != nil {
-			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
-		}
-		c.logger.Info("[clickhouse] setting last batch id in raw table",
-			slog.Int64("batchID", batchID))
-		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, batchID); err != nil {
-			c.logger.Error("[clickhouse] error while setting last batch id in raw table",
-				slog.Int64("batchID", batchID), slog.Any("error", err))
-			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
-		}
 	}
 	return nil
 }
