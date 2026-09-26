@@ -136,9 +136,12 @@ jobs:
           - {job: postgres_other,         version: '16',       label: postgres-16_other}
           - {job: postgres_other,         version: '17',       label: postgres-17_other}
           - {job: postgres_other,         version: '18',       label: postgres-18_other}
-          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-11, ch: lts,    label: mysql-gtid-maria-11_ch-lts}
-          - {job: mysql_clickhouse,       version: mysql-pos,  mariadb: maria-12, ch: stable, label: mysql-pos-maria-12_ch-stable}
-          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-13, ch: latest, label: mysql-gtid-maria-13_ch-latest}
+          - {job: mysql_clickhouse,       version: mysql-gtid, ch: lts,    label: mysql-gtid_ch-lts}
+          - {job: mysql_clickhouse,       version: mysql-pos,  ch: stable, label: mysql-pos_ch-stable}
+          - {job: mysql_clickhouse,       version: mysql-gtid, ch: latest, label: mysql-gtid_ch-latest}
+          - {job: mysql_clickhouse,       version: maria-11,   ch: lts,    label: maria-11_ch-lts}
+          - {job: mysql_clickhouse,       version: maria-12,   ch: stable, label: maria-12_ch-stable}
+          - {job: mysql_clickhouse,       version: maria-13,   ch: latest, label: maria-13_ch-latest}
           - {job: mongo_clickhouse,       version: '6.0',      ch: lts,    label: mongo-6.0_ch-lts}
           - {job: mongo_clickhouse,       version: '7.0',      ch: stable, label: mongo-7.0_ch-stable}
           - {job: mongo_clickhouse,       version: '8.0',      ch: latest, label: mongo-8.0_ch-latest}
@@ -172,7 +175,7 @@ jobs:
                 ./e2e/switchboard_mysql/...
                 ./connectors/mysql/...
               pkg: ''
-              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mariadb
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02
             mongo_clickhouse:
               packages: >-
                 ./e2e/mongo_clickhouse/...
@@ -214,18 +217,17 @@ jobs:
       pkg_test_packages: ${{ matrix.jobs[matrix.target.job].pkg }}
       ancillary_services: >-
         ${{ matrix.jobs[matrix.target.job].services }}
-        ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
+        ${{ matrix.target.job == 'mysql_clickhouse' && (startsWith(matrix.target.version, 'maria-') && 'mariadb' || matrix.target.version) || '' }}
       postgres_image: ${{ startsWith(matrix.target.job, 'postgres_') && format('imresamu/postgis:{0}-3.5-alpine', matrix.target.version) || '' }}
       mysql_gtid_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-gtid' && matrix.images.mysql['mysql-gtid'] || '' }}
       mysql_pos_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-pos' && matrix.images.mysql['mysql-pos'] || '' }}
-      mariadb_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.images.mariadb[matrix.target.mariadb] || '' }}
+      mariadb_image: ${{ matrix.target.job == 'mysql_clickhouse' && startsWith(matrix.target.version, 'maria-') && matrix.images.mariadb[matrix.target.version] || '' }}
       mongodb_image: ${{ matrix.target.job == 'mongo_clickhouse' && format('mongo:{0}', matrix.target.version) || '' }}
       clickhouse_image: ${{ matrix.target.ch && matrix.images.clickhouse[matrix.target.ch] || '' }}
       cockroachdb_image: ${{ matrix.target.job == 'cockroachdb_clickhouse' && matrix.images.cockroachdb[matrix.target.version] || '' }}
       test_env: |
         CI_MYSQL_VERSION=${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
-        CI_MYSQL_PORT=${{ matrix.target.version == 'mysql-pos' && '3307' || '3306' }}
-        CI_MARIADB_VERSION=${{ matrix.target.mariadb }}
+        CI_MYSQL_PORT=${{ startsWith(matrix.target.version, 'maria-') && '3308' || matrix.target.version == 'mysql-pos' && '3307' || '3306' }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
 

@@ -9,24 +9,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
-func newTestConnector(t *testing.T, ctx context.Context, sourceName string) *MySqlConnector {
+func newTestConnector(t *testing.T, ctx context.Context) *MySqlConnector {
 	t.Helper()
-	var config *protos.MySqlConfig
-	switch sourceName {
-	case "mysql":
-		flavor, mechanism := internal.MySQLTestFlavorAndMechanism(t)
-		config = internal.GetMySQLConfigFromEnv(flavor, mechanism)
-	case "mariadb":
-		flavor, mechanism := internal.MariaDBTestFlavorAndMechanism(t)
-		config = internal.GetMariaDBConfigFromEnv(flavor, mechanism)
-	default:
-		require.Failf(t, "unexpected MySQL test source", "got %q", sourceName)
-	}
+	flavor, mechanism := internal.MySQLTestFlavorAndMechanism(t)
+	config := internal.GetMySQLConfigFromEnv(flavor, mechanism)
 	connector, err := NewMySqlConnector(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(func() {
