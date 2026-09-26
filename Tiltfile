@@ -14,7 +14,14 @@ def resolve_ancillary_env(var_name, default=None):
             return line.strip().split('=', 1)[1]
     return default
 
-docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
+# Flow tests talk to flow-api directly, so skip nexus and the UI there.
+ci = os.getenv('PEERDB_CI') == '1'
+compose = read_yaml('./docker-compose-dev.yml')
+if ci:
+    compose['services'].pop('peerdb')
+    compose['services'].pop('peerdb-ui')
+
+docker_compose(encode_yaml(compose), project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
 temporal_port = resolve_env('TEMPORAL_PORT', '7233')
@@ -51,20 +58,21 @@ docker_build('flow-snapshot-worker', '.',
     ignore=flow_ignore,
 )
 
-docker_build('peerdb', '.',
-    dockerfile='stacks/peerdb-server.Dockerfile',
-    only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
-    build_args={
-        'BUILD_MODE': 'debug',
-        'CARGO_FLAGS': '--no-default-features --features mysql',
-    },
-)
+if not ci:
+    docker_build('peerdb', '.',
+        dockerfile='stacks/peerdb-server.Dockerfile',
+        only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
+        build_args={
+            'BUILD_MODE': 'debug',
+            'CARGO_FLAGS': '--no-default-features --features mysql',
+        },
+    )
 
-docker_build('peerdb-ui', '.',
-    dockerfile='stacks/peerdb-ui.Dockerfile',
-    target='dev',
-    only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
-)
+    docker_build('peerdb-ui', '.',
+        dockerfile='stacks/peerdb-ui.Dockerfile',
+        target='dev',
+        only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
+    )
 
 local_resource(
     'proto-gen',
@@ -73,9 +81,11 @@ local_resource(
     labels=['PeerDB'],
 )
 
-dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
-])
+if not ci:
+    dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
+        link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
+    ])
+    dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-migrate', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
@@ -89,7 +99,6 @@ dc_resource('temporal', labels=['PeerDB'])
 dc_resource('temporal-admin-tools', labels=['PeerDB'])
 dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])
 
 
@@ -190,7 +199,7 @@ local_resource(
     'setup-cockroachdb-peer',
     cmd='./local_provision_scripts/setup-cockroachdb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-cockroachdb'],
+    resource_deps=['flow-api', 'provision-cockroachdb'],
 )
 
 local_resource(
