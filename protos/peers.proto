@@ -113,6 +113,7 @@ message AwsAuthenticationConfig {
 enum PostgresAuthType {
   POSTGRES_PASSWORD = 0;
   POSTGRES_IAM_AUTH = 1;
+  POSTGRES_GCP_CLOUD_SQL_IAM_AUTH = 2;
 }
 
 message ClientTlsConfig {
@@ -236,6 +237,7 @@ enum MySqlReplicationMechanism {
 enum MySqlAuthType {
   MYSQL_PASSWORD = 0;
   MYSQL_IAM_AUTH = 1;
+  MYSQL_GCP_CLOUD_SQL_IAM_AUTH = 2;
 }
 message MySqlConfig {
   string host = 1;

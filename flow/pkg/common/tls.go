@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 )
 
 // Modified from https://github.com/golang/go/blob/master/src/crypto/tls/example_test.go.
@@ -35,6 +36,21 @@ type ClientCertificate struct {
 	privateKey  string
 }
 
+type tlsConfigOptions struct {
+	verifyCertificateChainOnly bool
+}
+
+// TLSConfigOption customizes TLS verification without changing the default behavior.
+type TLSConfigOption func(*tlsConfigOptions)
+
+// WithCertificateChainOnlyVerification verifies the server chain against the provided root CA without hostname matching.
+// The caller-provided per-instance CA is the server identity anchor; broad or shared roots are not safe for this mode.
+func WithCertificateChainOnlyVerification() TLSConfigOption {
+	return func(options *tlsConfigOptions) {
+		options.verifyCertificateChainOnly = true
+	}
+}
+
 // NewClientCertificate requires both the certificate and private key to be non-empty.
 func NewClientCertificate(certificate string, privateKey string) (*ClientCertificate, error) {
 	if certificate == "" || privateKey == "" {
@@ -45,8 +61,21 @@ func NewClientCertificate(certificate string, privateKey string) (*ClientCertifi
 
 func CreateTlsConfig(
 	minVersion uint16, rootCAs *string, host string, tlsHost string, skipCertVerification bool,
-	clientCert *ClientCertificate,
+	clientCert *ClientCertificate, options ...TLSConfigOption,
 ) (*tls.Config, error) {
+	configOptions := tlsConfigOptions{}
+	for _, option := range options {
+		option(&configOptions)
+	}
+	if configOptions.verifyCertificateChainOnly {
+		if skipCertVerification {
+			return nil, errors.New("certificate chain verification cannot be combined with skip certificate verification")
+		}
+		if rootCAs == nil || strings.TrimSpace(*rootCAs) == "" {
+			return nil, errors.New("certificate chain verification requires a non-empty root CA")
+		}
+	}
+
 	config := &tls.Config{MinVersion: minVersion}
 	if rootCAs != nil {
 		caPool := x509.NewCertPool()
@@ -62,7 +91,10 @@ func CreateTlsConfig(
 		}
 		config.Certificates = []tls.Certificate{cert}
 	}
-	if skipCertVerification {
+	if configOptions.verifyCertificateChainOnly {
+		config.InsecureSkipVerify = true
+		config.VerifyConnection = verifyConnectionWithoutHostname(config.RootCAs)
+	} else if skipCertVerification {
 		// self-hosted instances may generate self-signed certs that can't be verified
 		// but can still be used for TLS — this must be explicitly requested by the user
 		config.InsecureSkipVerify = true
