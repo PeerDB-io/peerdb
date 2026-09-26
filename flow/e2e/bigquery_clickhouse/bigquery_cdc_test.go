@@ -648,7 +648,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Query_Mode_Multi_File_Batch()
 	}
 	require.GreaterOrEqual(t, len(cdcFileKeys), 2,
 		"one logical CDC batch should be split into multiple staged Avro files; staged objects: %v", cdcFileKeys)
-	for chunk := range len(cdcFileKeys) {
+	for chunk := range cdcFileKeys {
 		require.Condition(t, func() bool {
 			expectedSuffix := fmt.Sprintf("%s%06d.avro", cdcFilePrefix, chunk)
 			return slices.ContainsFunc(cdcFileKeys, func(key string) bool {
