@@ -26,6 +26,7 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 	require.NotEmpty(t, user, "missing Cloud SQL PostgreSQL IAM database username")
 	rootCAFile := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES")
 	require.NotEmpty(t, rootCAFile, "missing Cloud SQL PostgreSQL root CA file")
+	// #nosec G703 -- test-only CA path supplied by the trusted integration-test environment.
 	rootCA, err := os.ReadFile(rootCAFile)
 	require.NoError(t, err)
 

@@ -23,6 +23,7 @@ func TestCloudSQLIAMAuthConnectForMySQL(t *testing.T) {
 	require.NotEmpty(t, user, "missing Cloud SQL MySQL IAM database username")
 	rootCAFile := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_MYSQL")
 	require.NotEmpty(t, rootCAFile, "missing Cloud SQL MySQL root CA file")
+	// #nosec G703 -- test-only CA path supplied by the trusted integration-test environment.
 	rootCA, err := os.ReadFile(rootCAFile)
 	require.NoError(t, err)
 
