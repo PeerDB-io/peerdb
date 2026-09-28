@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"cloud.google.com/go/auth"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -60,22 +60,10 @@ func postgresConfigForSchemaDump(
 	ctx context.Context,
 	config *protos.PostgresConfig,
 ) (*protos.PostgresConfig, error) {
-	provider, err := newPostgresCloudSQLTokenProvider(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	if provider == nil {
+	if config.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
 		return config, nil
 	}
-	return postgresConfigWithCloudSQLToken(ctx, config, provider)
-}
-
-func postgresConfigWithCloudSQLToken(
-	ctx context.Context,
-	config *protos.PostgresConfig,
-	provider auth.TokenProvider,
-) (*protos.PostgresConfig, error) {
-	token, err := postgresCloudSQLToken(ctx, provider)
+	token, err := utils.GetCloudSQLToken(ctx, &utils.CloudSQLAuth{}, "POSTGRES")
 	if err != nil {
 		return nil, err
 	}

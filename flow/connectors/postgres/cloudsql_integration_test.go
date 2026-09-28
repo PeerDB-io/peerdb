@@ -8,11 +8,12 @@ import (
 	"strconv"
 	"testing"
 
-	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 // Run this smoke test with GKE workload identity or local application default
@@ -49,25 +50,21 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 		RootCa:   &ca,
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
 	}
-	env := map[string]string{"PEERDB_CDC_STORE_ENABLED": "false"}
-	var connector *PostgresConnector
 	if os.Getenv("PEERDB_GCP_WORKLOAD_IDENTITY_TOKEN_FILE") != "" {
-		connector, err = NewPostgresConnector(t.Context(), env, config)
-	} else {
-		connector, err = newPostgresConnectorWithCloudSQLTokenProvider(
-			t.Context(), env, config, protos.DBType_DBTYPE_UNKNOWN,
-			func(ctx context.Context, config *protos.PostgresConfig) (auth.TokenProvider, error) {
-				return newPostgresCloudSQLTokenProviderWithFactory(ctx, config,
-					func(_ context.Context, scopes []string) (auth.TokenProvider, error) {
-						return credentials.DetectDefault(&credentials.DetectOptions{Scopes: scopes})
-					})
-			},
-		)
+		connector, err := NewPostgresConnector(t.Context(), map[string]string{"PEERDB_CDC_STORE_ENABLED": "false"}, config)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connector.Close()) })
+		require.NoError(t, connector.ConnectionActive(t.Context()))
+		return
 	}
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connector.Close()) })
 
-	var one int
-	require.NoError(t, connector.Conn().QueryRow(t.Context(), "SELECT 1").Scan(&one))
-	require.Equal(t, 1, one)
+	// without workload identity, log in with application default credentials
+	adc, err := credentials.DetectDefault(&credentials.DetectOptions{Scopes: []string{utils.GCPCloudSQLLoginScope}})
+	require.NoError(t, err)
+	connConfig, err := ParseConfig(internal.GetPGConnectionString(config, ""), config)
+	require.NoError(t, err)
+	conn, err := NewPostgresConnFromConfig(t.Context(), connConfig, config.TlsHost, nil,
+		&utils.CloudSQLAuth{TokenProvider: adc}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, conn.Close(context.Background())) })
 }

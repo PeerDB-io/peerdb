@@ -15,9 +15,6 @@ import (
 )
 
 const (
-	// GCPCloudSQLLoginScope authorizes IAM database logins to Cloud SQL.
-	GCPCloudSQLLoginScope = "https://www.googleapis.com/auth/sqlservice.login"
-
 	workloadIdentityServiceAccountEnv = "PEERDB_GCP_WORKLOAD_IDENTITY_TARGET_SERVICE_ACCOUNT"
 	//nolint:gosec // Environment variable name, not a credential.
 	workloadIdentityTokenFileEnv       = "PEERDB_GCP_WORKLOAD_IDENTITY_TOKEN_FILE"

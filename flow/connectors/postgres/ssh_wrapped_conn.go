@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 
-	"cloud.google.com/go/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
 
@@ -18,7 +17,7 @@ func NewPostgresConnFromConfig(
 	connConfig *pgx.ConnConfig,
 	tlsHost string,
 	rdsAuth *utils.RDSAuth,
-	cloudSQLAuth auth.TokenProvider,
+	cloudSQLAuth *utils.CloudSQLAuth,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	if tunnel.IsActive() {
@@ -29,11 +28,33 @@ func NewPostgresConnFromConfig(
 			return []string{host}, nil
 		}
 	}
-	connConfig, err := preparePostgresConnConfig(ctx, connConfig, tlsHost, rdsAuth, cloudSQLAuth)
-	if err != nil {
-		return nil, err
-	}
 	logger := internal.LoggerFromCtx(ctx)
+	if rdsAuth != nil {
+		host := connConfig.Host
+		if tlsHost != "" {
+			host = tlsHost
+		}
+		logger.Info("Setting up IAM auth for Postgres")
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: uint32(connConfig.Port),
+			User: connConfig.User,
+		}, rdsAuth, "POSTGRES")
+		if err != nil {
+			return nil, err
+		}
+		connConfig = connConfig.Copy()
+		connConfig.Password = token
+	}
+	if cloudSQLAuth != nil {
+		logger.Info("Setting up Cloud SQL IAM auth for Postgres")
+		token, err := utils.GetCloudSQLToken(ctx, cloudSQLAuth, "POSTGRES")
+		if err != nil {
+			return nil, err
+		}
+		connConfig = connConfig.Copy()
+		connConfig.Password = token
+	}
 
 	// If the endpoint is misbehaved (e.g. a TCP tunnel started pointing at something new),
 	// the random initial sequence of bytes may be misinterpreted as a multi-GB message and
@@ -58,40 +79,4 @@ func NewPostgresConnFromConfig(
 	conn.PgConn().Frontend().SetMaxBodyLen(0)
 
 	return conn, nil
-}
-
-func preparePostgresConnConfig(
-	ctx context.Context,
-	connConfig *pgx.ConnConfig,
-	tlsHost string,
-	rdsAuth *utils.RDSAuth,
-	cloudSQLAuth auth.TokenProvider,
-) (*pgx.ConnConfig, error) {
-	logger := internal.LoggerFromCtx(ctx)
-	if rdsAuth != nil {
-		host := connConfig.Host
-		if tlsHost != "" {
-			host = tlsHost
-		}
-		logger.Info("Setting up IAM auth for Postgres")
-		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: host,
-			Port: uint32(connConfig.Port),
-			User: connConfig.User,
-		}, rdsAuth, "POSTGRES")
-		if err != nil {
-			return nil, err
-		}
-		connConfig = connConfig.Copy()
-		connConfig.Password = token
-	}
-	if cloudSQLAuth != nil {
-		token, err := postgresCloudSQLToken(ctx, cloudSQLAuth)
-		if err != nil {
-			return nil, err
-		}
-		connConfig = connConfig.Copy()
-		connConfig.Password = token
-	}
-	return connConfig, nil
 }

@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/auth"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -39,7 +38,7 @@ type PostgresConnector struct {
 	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
 	rdsAuth                *utils.RDSAuth
-	cloudSQLAuth           auth.TokenProvider
+	cloudSQLAuth           *utils.CloudSQLAuth
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -86,19 +85,20 @@ func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logge
 func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
-	return newPostgresConnectorWithCloudSQLTokenProvider(
-		ctx, env, pgConfig, destinationType, newPostgresCloudSQLTokenProvider,
-	)
-}
-
-func newPostgresConnectorWithCloudSQLTokenProvider(
-	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
-	tokenProviderFactory func(context.Context, *protos.PostgresConfig) (auth.TokenProvider, error),
-) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	cloudSQLAuth, err := tokenProviderFactory(ctx, pgConfig)
-	if err != nil {
-		return nil, err
+	// verify before ParseConfig so TLS misconfiguration surfaces as an auth config error
+	var cloudSQLAuth *utils.CloudSQLAuth
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		cloudSQLAuth = &utils.CloudSQLAuth{}
+		if err := cloudSQLAuth.VerifyAuthConfig(utils.CloudSQLConnectionConfig{
+			RootCa:               pgConfig.RootCa,
+			TlsHost:              pgConfig.TlsHost,
+			DisableTls:           pgConfig.GetDisableTls(),
+			SkipCertVerification: pgConfig.SkipCertVerification,
+		}); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
 	}
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -199,54 +199,6 @@ func newPostgresConnectorWithCloudSQLTokenProvider(
 	})
 
 	return connector, nil
-}
-
-func newPostgresCloudSQLTokenProvider(
-	ctx context.Context,
-	config *protos.PostgresConfig,
-) (auth.TokenProvider, error) {
-	return newPostgresCloudSQLTokenProviderWithFactory(ctx, config, func(
-		ctx context.Context,
-		scopes []string,
-	) (auth.TokenProvider, error) {
-		return utils.NewGCPWorkloadIdentityCredentials(ctx, scopes)
-	})
-}
-
-func newPostgresCloudSQLTokenProviderWithFactory(
-	ctx context.Context,
-	config *protos.PostgresConfig,
-	credentialsFactory func(context.Context, []string) (auth.TokenProvider, error),
-) (auth.TokenProvider, error) {
-	if config.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
-		return nil, nil
-	}
-	if config.DisableTls != nil && config.GetDisableTls() {
-		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication requires TLS")
-	}
-	if config.SkipCertVerification {
-		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication requires certificate verification")
-	}
-	if strings.TrimSpace(config.TlsHost) == "" &&
-		(config.RootCa == nil || strings.TrimSpace(config.GetRootCa()) == "") {
-		return nil, fmt.Errorf("PostgreSQL Cloud SQL IAM authentication without tls_host requires a non-empty root CA")
-	}
-	credentials, err := credentialsFactory(ctx, []string{utils.GCPCloudSQLLoginScope})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PostgreSQL Cloud SQL IAM credentials: %w", err)
-	}
-	return credentials, nil
-}
-
-func postgresCloudSQLToken(ctx context.Context, provider auth.TokenProvider) (string, error) {
-	token, err := provider.Token(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get PostgreSQL Cloud SQL IAM token: %w", err)
-	}
-	if token == nil || token.Value == "" {
-		return "", fmt.Errorf("PostgreSQL Cloud SQL IAM token is empty")
-	}
-	return token.Value, nil
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
