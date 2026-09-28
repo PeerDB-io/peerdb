@@ -1137,6 +1137,25 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Changes_Insert_Update_Delete(
 	require.NotContains(t, valByID, int64(2), "deleted row should not be present in the destination")
 	require.Equal(t, "inserted", valByID[4])
 
+	apiClient, err := e2e.NewApiClient()
+	require.NoError(t, err)
+	e2e.EnvWaitFor(t, env, 2*time.Minute, "CDC table counts include insert, update, and delete", func() bool {
+		counts, err := apiClient.CDCTableTotalCounts(ctx, &protos.CDCTableTotalCountsRequest{
+			FlowJobName: flowConnConfig.FlowJobName,
+		})
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		if len(counts.TablesData) != 1 || counts.TablesData[0].TableName != flowConnConfig.TableMappings[0].DestinationTableIdentifier {
+			return false
+		}
+		tableCounts := counts.TablesData[0].Counts
+		return tableCounts.InsertsCount == 1 && tableCounts.UpdatesCount == 1 && tableCounts.DeletesCount == 1 &&
+			tableCounts.TotalCount == 3 && counts.TotalData.InsertsCount == 1 &&
+			counts.TotalData.UpdatesCount == 1 && counts.TotalData.DeletesCount == 1 && counts.TotalData.TotalCount == 3
+	})
+
 	// Exercise all three MERGE outcomes in one transaction: update the matched
 	// id=1 row, delete the matched id=3 row, and insert the unmatched id=5 row.
 	mergeSQL := fmt.Sprintf(`MERGE INTO %s AS target
