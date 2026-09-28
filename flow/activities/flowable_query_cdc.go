@@ -470,7 +470,7 @@ func (a *FlowableActivity) recordSyncMetrics(
 	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
 	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
 	a.OtelManager.Metrics.QueryCDCFetchedBatchesSizeHistogram.Record(ctx, bytesProcessed, metricsOptions)
-	a.OtelManager.Metrics.QueryCDCCurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -608,7 +608,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
-		a.OtelManager.Metrics.QueryCDCNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,

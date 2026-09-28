@@ -30,9 +30,7 @@ const (
 const (
 	SlotLagGaugeName                        = "cdc_slot_lag"
 	CurrentBatchIdGaugeName                 = "current_batch_id"
-	QueryCDCCurrentBatchIdGaugeName         = "query_cdc_current_batch_id"
 	LastNormalizedBatchIdGaugeName          = "last_normalized_batch_id"
-	QueryCDCNormalizedBatchIdGaugeName      = "query_cdc_last_normalized_batch_id"
 	OpenConnectionsGaugeName                = "open_connections"
 	OpenReplicationConnectionsGaugeName     = "open_replication_connections"
 	CommittedLSNGaugeName                   = "committed_lsn"
@@ -105,9 +103,7 @@ const (
 type Metrics struct {
 	SlotLagGauge                        metric.Float64Gauge
 	CurrentBatchIdGauge                 metric.Int64Gauge
-	QueryCDCCurrentBatchIdGauge         metric.Int64Gauge
 	LastNormalizedBatchIdGauge          metric.Int64Gauge
-	QueryCDCNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge                metric.Int64Gauge
 	OpenReplicationConnectionsGauge     metric.Int64Gauge
 	CommittedLSNGauge                   metric.Int64Gauge
@@ -305,18 +301,8 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName)); err != nil {
 		return err
 	}
-	if om.Metrics.QueryCDCCurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCCurrentBatchIdGaugeName),
-		metric.WithDescription("Latest synced batch ID for each query CDC source table"),
-	); err != nil {
-		return err
-	}
 
 	if om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName)); err != nil {
-		return err
-	}
-	if om.Metrics.QueryCDCNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(QueryCDCNormalizedBatchIdGaugeName),
-		metric.WithDescription("Latest normalized batch ID for each query CDC destination table"),
-	); err != nil {
 		return err
 	}
 
