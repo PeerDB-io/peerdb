@@ -699,11 +699,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 	}
-	sourceType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
-	if err != nil {
-		return nil, NewInternalApiError(fmt.Errorf("unable to load source peer type: %w", err))
-	}
-	if sourceType == protos.DBType_BIGQUERY {
+	if config.GetBigqueryCdcConfig() != nil {
 		state, apiErr := h.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
 			FlowJobName: req.FlowJobName,
 		})
