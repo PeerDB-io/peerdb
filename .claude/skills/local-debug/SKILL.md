@@ -42,19 +42,19 @@ If a service fails to come up after **two** re-triggers, stop retrying and inspe
 Direct `go test`:
 
 ```bash
-cd flow && go test -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/
+cd flow && go test -tags tilt -count=1 -v -run '<TestPattern>/<SubTest>' ./e2e/mysql_clickhouse/
 ```
 
 or
 
 ```bash
-cd flow && go test -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/
+cd flow && go test -tags tilt -count=1 -v -run '<TestPattern>/<SubTest>' ./connectors/mysql/...
 ```
 
 Note: For MySQL tests, set the flavor overrides:
 
 ```bash
-CI_MYSQL_PORT=3306 CI_MYSQL_VERSION=mysql-gtid go test -count=1 -v -run TestGenericCH_MySQL ./e2e/
+CI_MYSQL_PORT=3306 CI_MYSQL_VERSION=mysql-gtid go test -tags tilt -count=1 -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/
 ```
 
 ## Step 3: Diagnose the failure
@@ -83,7 +83,7 @@ tilt --port 10352 logs --since 5m <database-resource>
 ### Read the test code
 
 Test code lives in:
-- `flow/e2e/` -- e2e test files (`*_test.go`) and helpers (`clickhouse.go`, `pg.go`, `mysql.go`, `mongo.go`, `test_utils.go`)
+- `flow/e2e/<source>_<destination>/` -- e2e test files; `flow/e2e/` holds shared suites (`*_test.go`) and helpers (`clickhouse.go`, `pg.go`, `mysql.go`, `mongo.go`, `test_utils.go`)
 - `flow/connectors/*/` -- connector-specific tests
 - `flow/e2eshared/` -- shared test utilities (`RunSuite`, `CheckQRecordEquality`)
 
@@ -93,7 +93,7 @@ Use `Grep` and `Read` to find the failing test function, understand what it does
 
 1. **Narrow the test pattern** to run only the failing subtest:
    ```bash
-   cd flow && go test -count=1 -v -run 'TestGenericCH_PG/TestSpecificSubtest' ./e2e/
+   cd flow && go test -tags tilt -count=1 -v -run 'TestGenericCH_PG/TestSpecificSubtest' ./e2e/postgres_clickhouse/
    ```
 
 2. **Clear test cache** if you suspect stale results:
@@ -103,7 +103,7 @@ Use `Grep` and `Read` to find the failing test function, understand what it does
 
 3. **Check compilation** after code changes:
    ```bash
-   cd flow && go vet ./e2e/ ./connectors/...
+   cd flow && go vet ./e2e/... ./connectors/...
    ```
 
 4. **Re-run the test** to verify the fix. Use `-count=1` to bypass caching.

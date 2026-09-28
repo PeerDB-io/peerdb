@@ -771,6 +771,10 @@ var catalogTestAccessPool = sync.OnceValues(func() (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, cfg)
 })
 
+func CatalogTestAccessPool() (*pgxpool.Pool, error) {
+	return catalogTestAccessPool()
+}
+
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
 	pool, err := catalogTestAccessPool()

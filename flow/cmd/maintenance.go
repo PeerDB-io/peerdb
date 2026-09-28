@@ -69,6 +69,12 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 	}
 
 	if args.Mode == "start" {
+		if alreadyActive, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
+			return err
+		} else if alreadyActive {
+			slog.InfoContext(ctx, "Maintenance mode is already active, exiting without starting again")
+			return nil
+		}
 		if args.AssumeSkippedMaintenanceWorkflows {
 			slog.InfoContext(ctx, "Assuming maintenance workflows were skipped")
 			return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{

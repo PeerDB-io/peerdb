@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"math/big"
 	"math/rand/v2"
 	"os"
@@ -869,6 +870,16 @@ func writeAvroFileCompressed(
 	genRecord func() []types.QValue,
 ) (*QRecordAvroSchemaDefinition, int64) {
 	t.Helper()
+	env = maps.Clone(env)
+	if env == nil {
+		env = make(map[string]string)
+	}
+	if _, ok := env["PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING"]; !ok {
+		env["PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING"] = "false"
+	}
+	if _, ok := env["PEERDB_CLICKHOUSE_BINARY_FORMAT"]; !ok {
+		env["PEERDB_CLICKHOUSE_BINARY_FORMAT"] = "raw"
+	}
 
 	avroSchema, err := GetAvroSchemaDefinition(
 		context.Background(),

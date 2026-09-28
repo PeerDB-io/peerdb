@@ -22,10 +22,10 @@ type SnowflakeTestHelper struct {
 	adminClient *connsnowflake.SnowflakeConnector
 	// connection to the test database
 	testClient *connsnowflake.SnowflakeConnector
-	// testSchemaName is the schema to use for testing.
-	testSchemaName string
+	// TestSchemaName is the schema to use for testing.
+	TestSchemaName string
 	// dbName is the database used for testing.
-	testDatabaseName string
+	TestDatabaseName string
 }
 
 func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
@@ -48,7 +48,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 
 	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
-	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
+	TestDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
 	adminClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
@@ -56,13 +56,13 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	}
 	_, err = adminClient.ExecContext(
 		t.Context(),
-		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
+		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", TestDatabaseName),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake test database: %w", err)
 	}
 
-	config.Database = testDatabaseName
+	config.Database = TestDatabaseName
 	testClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
@@ -72,8 +72,8 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 		Config:           config,
 		adminClient:      adminClient,
 		testClient:       testClient,
-		testSchemaName:   "PUBLIC",
-		testDatabaseName: testDatabaseName,
+		TestSchemaName:   "PUBLIC",
+		TestDatabaseName: TestDatabaseName,
 	}, nil
 }
 
@@ -82,7 +82,7 @@ func (s *SnowflakeTestHelper) Cleanup(ctx context.Context) error {
 	if err := s.testClient.Close(); err != nil {
 		return err
 	}
-	if _, err := s.adminClient.ExecContext(ctx, "DROP DATABASE "+s.testDatabaseName); err != nil {
+	if _, err := s.adminClient.ExecContext(ctx, "DROP DATABASE "+s.TestDatabaseName); err != nil {
 		return err
 	}
 	return s.adminClient.Close()
@@ -96,20 +96,20 @@ func (s *SnowflakeTestHelper) RunCommand(ctx context.Context, command string) er
 
 // CountRows(tableName) returns the number of rows in the given table.
 func (s *SnowflakeTestHelper) CountRows(ctx context.Context, tableName string) (int64, error) {
-	return s.testClient.CountRows(ctx, s.testSchemaName, tableName)
+	return s.testClient.CountRows(ctx, s.TestSchemaName, tableName)
 }
 
 // CountRows(tableName) returns the non-null number of rows in the given table.
 func (s *SnowflakeTestHelper) CountNonNullRows(ctx context.Context, tableName string, columnName string) (int64, error) {
-	return s.testClient.CountNonNullRows(ctx, s.testSchemaName, tableName, columnName)
+	return s.testClient.CountNonNullRows(ctx, s.TestSchemaName, tableName, columnName)
 }
 
 func (s *SnowflakeTestHelper) CountSRIDs(ctx context.Context, tableName string, columnName string) (int64, error) {
-	return s.testClient.CountSRIDs(ctx, s.testSchemaName, tableName, columnName)
+	return s.testClient.CountSRIDs(ctx, s.TestSchemaName, tableName, columnName)
 }
 
 func (s *SnowflakeTestHelper) CheckNull(ctx context.Context, tableName string, colNames []string) (bool, error) {
-	return s.testClient.CheckNull(ctx, s.testSchemaName, tableName, colNames)
+	return s.testClient.CheckNull(ctx, s.TestSchemaName, tableName, colNames)
 }
 
 func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(ctx context.Context, query string) (*model.QRecordBatch, error) {
@@ -148,7 +148,7 @@ func (s *SnowflakeTestHelper) RunIntQuery(ctx context.Context, query string) (in
 	}
 }
 
-func (s *SnowflakeTestHelper) checkSyncedAt(ctx context.Context, query string) error {
+func (s *SnowflakeTestHelper) CheckSyncedAt(ctx context.Context, query string) error {
 	recordBatch, err := s.testClient.ExecuteAndProcessQuery(ctx, query)
 	if err != nil {
 		return err
@@ -166,7 +166,7 @@ func (s *SnowflakeTestHelper) checkSyncedAt(ctx context.Context, query string) e
 	return nil
 }
 
-func (s *SnowflakeTestHelper) checkIsDeleted(ctx context.Context, query string) error {
+func (s *SnowflakeTestHelper) CheckIsDeleted(ctx context.Context, query string) error {
 	recordBatch, err := s.testClient.ExecuteAndProcessQuery(ctx, query)
 	if err != nil {
 		return err

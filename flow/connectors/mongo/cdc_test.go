@@ -594,6 +594,7 @@ func TestExcludedOperationTypes(t *testing.T) {
 	envKey := "PEERDB_MONGODB_EXCLUDED_OPERATION_TYPES"
 	resolve := func(t *testing.T, env map[string]string) ([]operationType, error) {
 		t.Helper()
+		env["PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS"] = "1"
 		connector := &MongoConnector{logger: internal.LoggerFromCtx(t.Context())}
 		if err := connector.SetupReplConn(t.Context(), env); err != nil {
 			return nil, err

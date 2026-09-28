@@ -36,6 +36,10 @@ type ClickHouseSuite struct {
 	cluster   bool
 }
 
+func (s ClickHouseSuite) S3Helper() *S3TestHelper {
+	return s.s3Helper
+}
+
 func (s ClickHouseSuite) T() *testing.T {
 	return s.t
 }
@@ -54,6 +58,14 @@ func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
 
 func (s ClickHouseSuite) Suffix() string {
 	return s.suffix
+}
+
+func (s ClickHouseSuite) IsCluster() bool {
+	return s.cluster
+}
+
+func (s ClickHouseSuite) Catalog() shared.CatalogPool {
+	return s.catalog
 }
 
 func (s ClickHouseSuite) Peer() *protos.Peer {
