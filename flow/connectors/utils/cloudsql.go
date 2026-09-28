@@ -32,6 +32,8 @@ type CloudSQLConnectionConfig struct {
 }
 
 // VerifyAuthConfig checks that the connection settings are safe for sending an IAM token as the password.
+// TlsHost must be the instance DNS name from its server certificate: without hostname verification any
+// certificate from a shared Cloud SQL CA would be accepted, handing that server a reusable login token.
 func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) error {
 	if connConfig.DisableTls {
 		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS is required"))
@@ -39,9 +41,11 @@ func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) err
 	if connConfig.SkipCertVerification {
 		return exceptions.NewCloudSQLIAMAuthError(errors.New("certificate verification cannot be skipped"))
 	}
-	if strings.TrimSpace(connConfig.TlsHost) == "" &&
-		(connConfig.RootCa == nil || strings.TrimSpace(*connConfig.RootCa) == "") {
-		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS host or root CA is required"))
+	if strings.TrimSpace(connConfig.TlsHost) == "" {
+		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS host must be set to the instance DNS name"))
+	}
+	if connConfig.RootCa == nil || strings.TrimSpace(*connConfig.RootCa) == "" {
+		return exceptions.NewCloudSQLIAMAuthError(errors.New("root CA is required"))
 	}
 	return nil
 }

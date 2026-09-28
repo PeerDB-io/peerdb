@@ -25,6 +25,8 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 	}
 	user := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES")
 	require.NotEmpty(t, user, "missing Cloud SQL PostgreSQL IAM database username")
+	tlsHost := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES")
+	require.NotEmpty(t, tlsHost, "missing Cloud SQL instance DNS name")
 	rootCAFile := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES")
 	require.NotEmpty(t, rootCAFile, "missing Cloud SQL PostgreSQL root CA file")
 	// #nosec G703 -- test-only CA path supplied by the trusted integration-test environment.
@@ -47,6 +49,7 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 		Port:     port,
 		User:     user,
 		Database: database,
+		TlsHost:  tlsHost,
 		RootCa:   &ca,
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
 	}

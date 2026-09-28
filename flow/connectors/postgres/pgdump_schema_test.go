@@ -557,19 +557,6 @@ func TestAppendTLSEnv(t *testing.T) {
 			wantRootCert: "file",
 		},
 		{
-			name: "Cloud SQL IAM synthetic alias verifies CA without hostname",
-			config: &protos.PostgresConfig{
-				Host:     "synthetic-rpe-alias.internal",
-				Port:     5432,
-				Database: "d",
-				AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
-				RootCa:   testCA,
-			},
-			addr:         pgAddr{host: "synthetic-rpe-alias.internal"},
-			wantSSLMode:  "verify-ca",
-			wantRootCert: "file",
-		},
-		{
 			name: "Cloud SQL IAM tls_host verifies hostname",
 			config: &protos.PostgresConfig{
 				Host:     "synthetic-rpe-alias.internal",
