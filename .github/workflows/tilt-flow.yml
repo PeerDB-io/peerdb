@@ -120,6 +120,8 @@ on:
         required: false
       FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_POSTGRES:
         required: false
+      FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_MYSQL:
+        required: false
       CI_O11Y_TARGET_API_KEY_ID:
         required: false
       CI_O11Y_TARGET_API_KEY_SECRET:
@@ -466,13 +468,17 @@ jobs:
 
       - name: Configure Cloud SQL IAM smoke test
         env:
-          ROOT_CA: ${{ secrets.FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_POSTGRES }}
+          ROOT_CA_POSTGRES: ${{ secrets.FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_POSTGRES }}
+          ROOT_CA_MYSQL: ${{ secrets.FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_MYSQL }}
           FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES: "35.238.144.132"
           FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES: "1-9a25984d-521a-420d-a1f3-9c93cf98376e.us-central1.sql.goog"
           FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES: "github-ci@custom-program-353117.iam"
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL: "34.123.123.62"
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_MYSQL: "92c929cc6109.3mbp2nk7x96hk.us-central1.sql.goog."
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL: "github-ci"
         run: |
-          if [ -z "$ROOT_CA" ]; then
-            echo "Cloud SQL IAM smoke test skipped: root CA secret is not set."
+          if [ -z "$ROOT_CA_POSTGRES" ] && [ -z "$ROOT_CA_MYSQL" ]; then
+            echo "Cloud SQL IAM smoke tests skipped: root CA secrets are not set."
             exit 0
           fi
 
@@ -488,17 +494,31 @@ jobs:
           umask 077
           adc_file="$RUNNER_TEMP/cloudsql-github-ci-adc.json"
           jq '. + {type: "service_account"}' "$credentials_file" > "$adc_file"
-          ca_file="$RUNNER_TEMP/cloudsql-postgres-root-ca.pem"
-          printf '%s\n' "$ROOT_CA" > "$ca_file"
-          openssl x509 -in "$ca_file" -noout
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file" >> "$GITHUB_ENV"
 
-          {
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES=$ca_file"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file"
-          } >> "$GITHUB_ENV"
+          if [ -n "$ROOT_CA_POSTGRES" ]; then
+            ca_file="$RUNNER_TEMP/cloudsql-postgres-root-ca.pem"
+            printf '%s\n' "$ROOT_CA_POSTGRES" > "$ca_file"
+            openssl x509 -in "$ca_file" -noout
+            {
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES=$ca_file"
+            } >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$ROOT_CA_MYSQL" ]; then
+            ca_file="$RUNNER_TEMP/cloudsql-mysql-root-ca.pem"
+            printf '%s\n' "$ROOT_CA_MYSQL" > "$ca_file"
+            openssl x509 -in "$ca_file" -noout
+            {
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_MYSQL"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL"
+              echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_MYSQL=$ca_file"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: setup snowflake credentials
         id: sf-credentials

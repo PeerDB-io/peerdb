@@ -16,8 +16,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-// Run this smoke test with GKE workload identity or local application default
-// credentials. The ordinary CI database is not Cloud SQL.
+// Run this smoke test with application default credentials. The ordinary CI
+// database is not Cloud SQL.
 func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 	host := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES")
 	if host == "" {
@@ -53,15 +53,7 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 		RootCa:   &ca,
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
 	}
-	if os.Getenv("PEERDB_GCP_WORKLOAD_IDENTITY_TOKEN_FILE") != "" {
-		connector, err := NewPostgresConnector(t.Context(), map[string]string{"PEERDB_CDC_STORE_ENABLED": "false"}, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, connector.Close()) })
-		require.NoError(t, connector.ConnectionActive(t.Context()))
-		return
-	}
-
-	// without workload identity, log in with application default credentials
+	// Log in with application default credentials.
 	adc, err := credentials.DetectDefault(&credentials.DetectOptions{Scopes: []string{utils.GCPCloudSQLLoginScope}})
 	require.NoError(t, err)
 	connConfig, err := ParseConfig(internal.GetPGConnectionString(config, ""), config)

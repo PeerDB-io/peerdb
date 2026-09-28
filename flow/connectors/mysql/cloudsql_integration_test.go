@@ -7,13 +7,15 @@ import (
 	"strconv"
 	"testing"
 
+	"cloud.google.com/go/auth/credentials"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-// Run this smoke test where the PeerDB GKE workload identity token file and
-// Cloud SQL instance are available. The ordinary CI database is not Cloud SQL.
+// Run this smoke test with application default credentials. The ordinary CI
+// database is not Cloud SQL.
 func TestCloudSQLIAMAuthConnectForMySQL(t *testing.T) {
 	host := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL")
 	if host == "" {
@@ -48,6 +50,11 @@ func TestCloudSQLIAMAuthConnectForMySQL(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connector.Close()) })
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		Scopes: []string{utils.GCPCloudSQLLoginScope},
+	})
+	require.NoError(t, err)
+	connector.cloudSQLAuth.TokenProvider = creds
 
 	require.NoError(t, connector.ConnectionActive(t.Context()))
 }
