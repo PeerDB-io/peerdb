@@ -15,7 +15,7 @@ import (
 )
 
 func TestBigQueryServiceAccountAuthTypeRemainsLegacy(t *testing.T) {
-	config := &protos.BigqueryConfig{
+	config := &protos.BigqueryConfig{ //nolint:gosec // test fixture, not real credentials
 		AuthType:                BigQueryAuthTypeServiceAccount,
 		ProjectId:               "resource-project",
 		PrivateKeyId:            "key-id",
