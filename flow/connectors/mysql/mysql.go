@@ -204,12 +204,15 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 					return err
 				}
 			}
-			tlsConfig, err := mySQLTLSConfig(c.config)
-			if err != nil {
-				return err
-			}
-			if tlsConfig != nil {
-				conn.SetTLSConfig(tlsConfig)
+			if !c.config.DisableTls {
+				config, err := common.CreateTlsConfig(
+					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+				conn.SetTLSConfig(config)
 			}
 			return nil
 		}}
@@ -256,26 +259,6 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		}
 	}
 	return conn, nil
-}
-
-func mySQLTLSConfig(config *protos.MySqlConfig) (*tls.Config, error) {
-	if config.DisableTls {
-		return nil, nil
-	}
-	var tlsOptions []common.TLSConfigOption
-	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH &&
-		strings.TrimSpace(config.TlsHost) == "" {
-		tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
-	}
-	return common.CreateTlsConfig(
-		tls.VersionTLS12,
-		config.RootCa,
-		config.Host,
-		config.TlsHost,
-		config.SkipCertVerification,
-		nil,
-		tlsOptions...,
-	)
 }
 
 func (c *MySqlConnector) setSessionSettings() error {

@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"google.golang.org/protobuf/proto"
 
@@ -383,14 +382,10 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 	// carry a matching IP SAN, so we only do name verification for hostnames.
 	_, ipErr := netip.ParseAddr(addr.host)
 	hostIsIP := ipErr == nil
-	cloudSQLChainOnly := config.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH &&
-		strings.TrimSpace(config.TlsHost) == ""
 
 	switch {
 	case config.SkipCertVerification:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=require")
-	case cloudSQLChainOnly:
-		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
 	case hasRootCA && hostIsIP:
 		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-ca")
 	case hasRootCA:

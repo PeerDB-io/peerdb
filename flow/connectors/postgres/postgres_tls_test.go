@@ -127,29 +127,8 @@ func TestParseConfigClientTLS(t *testing.T) {
 	})
 }
 
-func TestParseConfigCloudSQLIAMEnablesTLSByDefault(t *testing.T) {
-	rootCA, _ := generateClientCertKey(t, "test-root")
-	config := &protos.PostgresConfig{
-		Host:     "localhost",
-		Port:     5432,
-		User:     "configured-db-user",
-		Database: "testdb",
-		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
-		RootCa:   &rootCA,
-	}
-	require.Nil(t, config.DisableTls)
-	connectionString := internal.GetPGConnectionString(config, "")
-	require.Contains(t, connectionString, "sslmode=require")
-	connConfig, err := ParseConfig(connectionString, config)
-	require.NoError(t, err)
-	require.NotNil(t, connConfig.TLSConfig)
-	require.True(t, connConfig.TLSConfig.InsecureSkipVerify)
-	require.NotNil(t, connConfig.TLSConfig.VerifyConnection)
-	require.Empty(t, connConfig.TLSConfig.ServerName)
-	require.Equal(t, "configured-db-user", connConfig.User)
-}
-
 func TestParseConfigCloudSQLIAMUsesTLSHostIdentity(t *testing.T) {
+	rootCA, _ := generateClientCertKey(t, "test-root")
 	config := &protos.PostgresConfig{
 		Host:     "synthetic-rpe-alias.internal",
 		Port:     5432,
@@ -157,7 +136,9 @@ func TestParseConfigCloudSQLIAMUsesTLSHostIdentity(t *testing.T) {
 		Database: "testdb",
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
 		TlsHost:  "cloudsql.google.internal",
+		RootCa:   &rootCA,
 	}
+	require.Nil(t, config.DisableTls)
 	connConfig, err := ParseConfig(internal.GetPGConnectionString(config, ""), config)
 	require.NoError(t, err)
 	require.False(t, connConfig.TLSConfig.InsecureSkipVerify)

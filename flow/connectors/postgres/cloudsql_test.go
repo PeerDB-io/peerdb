@@ -15,7 +15,7 @@ func TestPostgresCloudSQLAuthRejectsUnsafeTLS(t *testing.T) {
 	for name, config := range map[string]*protos.PostgresConfig{
 		"TLS disabled":           {DisableTls: &disableTLS},
 		"skip cert verification": {SkipCertVerification: true},
-		"no root CA or TLS host": {},
+		"no TLS host":            {},
 	} {
 		t.Run(name, func(t *testing.T) {
 			config.AuthType = protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH

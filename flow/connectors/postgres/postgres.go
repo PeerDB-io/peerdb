@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -224,14 +223,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 				return nil, err
 			}
 		}
-		var tlsOptions []common.TLSConfigOption
-		if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH &&
-			strings.TrimSpace(pgConfig.TlsHost) == "" {
-			tlsOptions = append(tlsOptions, common.WithCertificateChainOnlyVerification())
-		}
 		tlsConfig, err := common.CreateTlsConfig(
 			tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, pgConfig.SkipCertVerification,
-			clientCert, tlsOptions...)
+			clientCert)
 		if err != nil {
 			return nil, err
 		}

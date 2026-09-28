@@ -14,17 +14,22 @@ import (
 func TestCloudSQLAuthVerifyAuthConfig(t *testing.T) {
 	rootCA := "root-ca"
 	emptyRootCA := " "
+	tlsHost := "1-abc.us-central1.sql.goog"
 	for _, test := range []struct {
 		name       string
 		connConfig CloudSQLConnectionConfig
 		valid      bool
 	}{
-		{name: "root CA", connConfig: CloudSQLConnectionConfig{RootCa: &rootCA}, valid: true},
-		{name: "TLS host", connConfig: CloudSQLConnectionConfig{TlsHost: "cloudsql.google.internal"}, valid: true},
-		{name: "TLS disabled", connConfig: CloudSQLConnectionConfig{RootCa: &rootCA, DisableTls: true}},
-		{name: "skip cert verification", connConfig: CloudSQLConnectionConfig{RootCa: &rootCA, SkipCertVerification: true}},
-		{name: "no root CA or TLS host", connConfig: CloudSQLConnectionConfig{}},
-		{name: "empty root CA", connConfig: CloudSQLConnectionConfig{RootCa: &emptyRootCA}},
+		{name: "TLS host and root CA", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &rootCA}, valid: true},
+		{name: "root CA only", connConfig: CloudSQLConnectionConfig{RootCa: &rootCA}},
+		{name: "blank TLS host", connConfig: CloudSQLConnectionConfig{TlsHost: " ", RootCa: &rootCA}},
+		{name: "TLS host only", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost}},
+		{name: "empty root CA", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &emptyRootCA}},
+		{name: "TLS disabled", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &rootCA, DisableTls: true}},
+		{
+			name:       "skip cert verification",
+			connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &rootCA, SkipCertVerification: true},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := (&CloudSQLAuth{}).VerifyAuthConfig(test.connConfig)
