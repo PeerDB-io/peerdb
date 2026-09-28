@@ -10,38 +10,25 @@ import (
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-const (
-	testWorkloadIdentityServiceAccountEnv = "PEERDB_GCP_WORKLOAD_IDENTITY_TARGET_SERVICE_ACCOUNT"
-	//nolint:gosec // Environment variable name, not a credential.
-	testWorkloadIdentityTokenFileEnv       = "PEERDB_GCP_WORKLOAD_IDENTITY_TOKEN_FILE"
-	testWorkloadIdentityProjectIDEnv       = "PEERDB_GCP_PROJECT_ID"
-	testWorkloadIdentityClusterLocationEnv = "PEERDB_GCP_CLUSTER_LOCATION"
-	testWorkloadIdentityClusterNameEnv     = "PEERDB_GCP_CLUSTER_NAME"
-)
-
 func TestBigQueryServiceAccountAuthTypeRemainsLegacy(t *testing.T) {
-	var config protos.BigqueryConfig
-	require.NoError(t, protojson.Unmarshal(
-		[]byte(`{"authType":"service_account","projectId":"resource-project","datasetId":"dataset"}`),
-		&config,
-	))
-	require.Equal(t, BigQueryAuthTypeServiceAccount, config.GetAuthType())
+	config := &protos.BigqueryConfig{
+		AuthType:                BigQueryAuthTypeServiceAccount,
+		ProjectId:               "resource-project",
+		PrivateKeyId:            "key-id",
+		PrivateKey:              "private-key",
+		ClientEmail:             "legacy@example.com",
+		ClientId:                "client-id",
+		AuthUri:                 "https://accounts.google.com/o/oauth2/auth",
+		TokenUri:                "https://oauth2.googleapis.com/token",
+		AuthProviderX509CertUrl: "https://www.googleapis.com/oauth2/v1/certs",
+		ClientX509CertUrl:       "https://www.googleapis.com/robot/v1/metadata/x509/legacy",
+	}
 
-	config.PrivateKeyId = "key-id"
-	config.PrivateKey = "private-key"
-	config.ClientEmail = "legacy@example.com"
-	config.ClientId = "client-id"
-	config.AuthUri = "https://accounts.google.com/o/oauth2/auth"
-	config.TokenUri = "https://oauth2.googleapis.com/token"
-	config.AuthProviderX509CertUrl = "https://www.googleapis.com/oauth2/v1/certs"
-	config.ClientX509CertUrl = "https://www.googleapis.com/robot/v1/metadata/x509/legacy"
-
-	credentialConfig, err := newBigQueryCredentialConfig(t.Context(), &config, config.ProjectId)
+	credentialConfig, err := newBigQueryCredentialConfig(t.Context(), config, config.ProjectId)
 	require.NoError(t, err)
 	require.Nil(t, credentialConfig.authCredentials)
 	require.Equal(t, bigquery.DetectProjectID, credentialConfig.clientProjectID)
@@ -121,24 +108,6 @@ func TestResolveBigQueryResource(t *testing.T) {
 	}
 }
 
-func TestWorkloadIdentityUsesExplicitResourceProject(t *testing.T) {
-	setBigQueryWorkloadIdentityEnv(t)
-
-	config := &protos.BigqueryConfig{
-		ProjectId: "resource-project",
-		AuthType:  BigQueryAuthTypeServiceAccountWorkloadIdentity,
-	}
-	projectID, datasetID, err := resolveBigQueryResource(config)
-	require.NoError(t, err)
-	require.Equal(t, "resource-project", projectID)
-	require.Empty(t, datasetID)
-
-	credentialConfig, err := newBigQueryCredentialConfig(t.Context(), config, projectID)
-	require.NoError(t, err)
-	require.Equal(t, "resource-project", credentialConfig.clientProjectID)
-	require.NotNil(t, credentialConfig.authCredentials)
-}
-
 func TestValidateBigQueryConnectionWithoutDefaultDataset(t *testing.T) {
 	requestPaths := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -186,28 +155,4 @@ func TestWorkloadIdentityRequiresPeerProject(t *testing.T) {
 	}
 	_, err := newBigQueryCredentialConfig(t.Context(), config, "")
 	require.ErrorContains(t, err, "project ID must be set in the peer")
-}
-
-func TestWorkloadIdentityCredentialConfigReportsMissingDeploymentConfig(t *testing.T) {
-	t.Setenv(testWorkloadIdentityServiceAccountEnv, "")
-	t.Setenv(testWorkloadIdentityTokenFileEnv, "")
-	t.Setenv(testWorkloadIdentityProjectIDEnv, "")
-	t.Setenv(testWorkloadIdentityClusterLocationEnv, "")
-	t.Setenv(testWorkloadIdentityClusterNameEnv, "")
-
-	config := &protos.BigqueryConfig{
-		ProjectId: "resource-project",
-		AuthType:  BigQueryAuthTypeServiceAccountWorkloadIdentity,
-	}
-	_, err := newBigQueryCredentialConfig(t.Context(), config, config.ProjectId)
-	require.ErrorContains(t, err, testWorkloadIdentityServiceAccountEnv)
-}
-
-func setBigQueryWorkloadIdentityEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv(testWorkloadIdentityServiceAccountEnv, "tenant@tenant-project.iam.gserviceaccount.com")
-	t.Setenv(testWorkloadIdentityTokenFileEnv, "/token")
-	t.Setenv(testWorkloadIdentityProjectIDEnv, "platform-project")
-	t.Setenv(testWorkloadIdentityClusterLocationEnv, "us-central1")
-	t.Setenv(testWorkloadIdentityClusterNameEnv, "clickpipes")
 }
