@@ -476,11 +476,17 @@ jobs:
           fi
 
           credentials_file="${{ github.workspace }}/bq_service_account.json"
-          if ! jq -e '.client_email == "github-ci@custom-program-353117.iam.gserviceaccount.com"' "$credentials_file" >/dev/null; then
-            echo "::error::GCP_GH_CI_PKEY must contain credentials for the github-ci service account."
+          if ! jq -e '
+            .client_email == "github-ci@custom-program-353117.iam.gserviceaccount.com" and
+            (.auth_type // .type) == "service_account" and
+            ([.project_id, .private_key_id, .private_key, .token_uri] | all(type == "string" and length > 0))
+          ' "$credentials_file" >/dev/null; then
+            echo "::error::GCP_GH_CI_PKEY must contain complete service account credentials for github-ci."
             exit 1
           fi
           umask 077
+          adc_file="$RUNNER_TEMP/cloudsql-github-ci-adc.json"
+          jq '. + {type: "service_account"}' "$credentials_file" > "$adc_file"
           ca_file="$RUNNER_TEMP/cloudsql-postgres-root-ca.pem"
           printf '%s\n' "$ROOT_CA" > "$ca_file"
           openssl x509 -in "$ca_file" -noout
@@ -489,7 +495,7 @@ jobs:
             echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
             echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
             echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES=$ca_file"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials_file"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file"
           } >> "$GITHUB_ENV"
 
       - name: setup snowflake credentials
