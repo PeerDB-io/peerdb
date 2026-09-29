@@ -191,6 +191,18 @@ func queryCDCPollDurations(
 	return safetyLag, maxQueryWindow, nil
 }
 
+// queryCDCPollWindow computes the next bounded source-time window. A false
+// return means the safety lag has not moved past the table's checkpoint yet.
+func queryCDCPollWindow(
+	checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration,
+) (time.Time, bool) {
+	end := checkpoint.Add(maxQueryWindow)
+	if safeEnd := now.Add(-safetyLag); safeEnd.Before(end) {
+		end = safeEnd
+	}
+	return end, end.After(checkpoint)
+}
+
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once syncInterval has
 // passed since its last successful poll started. LastSyncedAt distinguishes a
@@ -337,6 +349,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		var pullResult model.PullTableRecordsResult
 		var rowCounts *model.RecordTypeCounts
+		pollSkipped := false
+		var safetyLagWait time.Duration
 		pollErr, fatalErr := func() (error, error) {
 			// bounded parallelism: only pull+sync for up to parallelism tables at once
 			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
@@ -344,6 +358,25 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 				return err, nil
 			}
 			defer release()
+
+			now, err := srcConn.CurrentSourceTime(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get query CDC source time: %w", err), nil
+			}
+			start, err := model.DecodeQueryCDCCursor(state.CursorText)
+			if err != nil {
+				return err, nil
+			}
+			if start.IsZero() {
+				start = now
+			}
+			safeEnd := now.Add(-queryCDCSafetyLag)
+			end, ok := queryCDCPollWindow(start, now, queryCDCSafetyLag, queryCDCMaxQueryWindow)
+			if !ok {
+				pollSkipped = true
+				safetyLagWait = start.Sub(safeEnd)
+				return nil, nil
+			}
 
 			logger.Info("[cdc] starting poll")
 			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
@@ -359,8 +392,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					SourceTableIdentifier:  sourceTable,
 					SourceTableMapping:     sourceTableMapping,
 					TableSchema:            tableNameSchemaMapping[destTable],
-					Cursor:                 state.CursorText,
-					QueryCDCSafetyLag:      queryCDCSafetyLag,
+					StartTime:              start,
+					EndTime:                end,
+					SafeEndTime:            safeEnd,
 					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
 					Stream:                 stream,
 				})
@@ -408,6 +442,13 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}()
 		if fatalErr != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
+		}
+		if pollSkipped {
+			logger.Info("[cdc] waiting for checkpoint to clear safety lag", slog.Duration("wait", safetyLagWait))
+			if err := waitOrDone(ctx, safetyLagWait); err != nil {
+				return err
+			}
+			continue
 		}
 		if pollErr != nil {
 			if ctx.Err() != nil {
