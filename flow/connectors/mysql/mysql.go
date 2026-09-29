@@ -63,7 +63,6 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			DisableTls:           config.DisableTls,
 			SkipCertVerification: config.SkipCertVerification,
 		}); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
@@ -81,7 +80,6 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			AwsAuthConfig: config.AwsAuth,
 		}
 		if err := rdsAuth.VerifyAuthConfig(); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}

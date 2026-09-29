@@ -96,7 +96,6 @@ func newPostgresConnector(
 			DisableTls:           pgConfig.GetDisableTls(),
 			SkipCertVerification: pgConfig.SkipCertVerification,
 		}); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
@@ -134,7 +133,6 @@ func newPostgresConnector(
 			AwsAuthConfig: pgConfig.AwsAuth,
 		}
 		if err := rdsAuth.VerifyAuthConfig(); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
