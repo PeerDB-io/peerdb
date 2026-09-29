@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -230,6 +231,42 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 		_, err = StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
 		require.Error(t, err)
 	})
+}
+
+// BSON dates must fit DateTime64 columns: they convert to timestamps, not to their RFC3339 rendering.
+func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "createdAt", DestinationType: "Nullable(DateTime64(9))"},
+		{SourceName: "label", DestinationType: "Nullable(String)"},
+	}, true)
+	require.NoError(t, err)
+	schema := GetStructuredSchema(projector)
+	createdAt := time.Date(2026, 8, 26, 18, 34, 5, 200_000_000, time.FixedZone("UTC+2", 2*60*60))
+
+	raw, err := bson.Marshal(bson.D{
+		{Key: "_id", Value: oid},
+		{Key: "createdAt", Value: createdAt},
+		{Key: "label", Value: createdAt}, // a date is not a string
+	})
+	require.NoError(t, err)
+	record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+	require.NoError(t, err)
+	values := make(map[string]types.QValue, len(record))
+	for i, field := range schema.Fields {
+		values[field.Name] = record[i]
+	}
+
+	require.Equal(t, types.QValueTimestamp{Val: createdAt.UTC()}, values["createdAt"])
+	require.Equal(t, types.QValueNull(types.QValueKindString), values["label"])
+	malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+	require.True(t, ok, "the date in the String column should be recorded as malformed data")
+	var reported map[string]map[string]any
+	require.NoError(t, json.Unmarshal([]byte(malformed.Val), &reported))
+	require.Equal(t, map[string]map[string]any{
+		"label": {"type_mismatch": true, "value": "2026-08-26T16:34:05.2Z"},
+	}, reported)
 }
 
 // collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.

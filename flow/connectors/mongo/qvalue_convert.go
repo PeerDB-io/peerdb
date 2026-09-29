@@ -112,7 +112,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		return types.QValueBoolean{Val: v.Boolean()}, nil
 
 	case bsoncore.TypeDateTime:
-		return types.QValueString{Val: v.Time().UTC().Format(time.RFC3339Nano)}, nil
+		return c.QValueTimestampFromTime(v.Time()), nil
 
 	case bsoncore.TypeNull:
 		return types.QValueNull(nullKind), nil
@@ -155,6 +155,10 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		}
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 	}
+}
+
+func (c *DirectBsonConverter) QValueTimestampFromTime(t time.Time) types.QValueTimestamp {
+	return types.QValueTimestamp{Val: t.UTC()}
 }
 
 func (c *DirectBsonConverter) QValueStringFromObjectID(oid bson.ObjectID) types.QValueString {

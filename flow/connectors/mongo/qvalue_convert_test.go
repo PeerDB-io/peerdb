@@ -765,7 +765,7 @@ func TestQValueFromBsonValue(t *testing.T) {
 		{desc: "Double", input: 3.5, expected: types.QValueFloat64{Val: 3.5}},
 		{desc: "Double integral", input: 3.0, expected: types.QValueFloat64{Val: 3}},
 		{desc: "Boolean", input: true, expected: types.QValueBoolean{Val: true}},
-		{desc: "Date", input: date, expected: types.QValueString{Val: "2024-01-02T01:04:05.006Z"}},
+		{desc: "Date", input: date, expected: types.QValueTimestamp{Val: date.UTC()}},
 		{
 			desc:     "Regular Expression",
 			input:    bson.Regex{Pattern: `^a<b>&"c"$`, Options: "im"},
