@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 
@@ -25,6 +26,7 @@ type CloudSQLAuth struct {
 }
 
 type CloudSQLConnectionConfig struct {
+	Host                 string
 	RootCa               *string
 	TlsHost              string
 	DisableTls           bool
@@ -32,8 +34,9 @@ type CloudSQLConnectionConfig struct {
 }
 
 // VerifyAuthConfig checks that the connection settings are safe for sending an IAM token as the password.
-// TlsHost must be the instance DNS name from its server certificate: without hostname verification any
-// certificate from a shared Cloud SQL CA would be accepted, handing that server a reusable login token.
+// The server certificate's hostname must be verified: without it any certificate from a shared Cloud SQL CA
+// would be accepted, handing that server a reusable login token. TlsHost must be the instance DNS name,
+// unless Host is already a DNS name, which then is the name verified.
 func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) error {
 	if connConfig.DisableTls {
 		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS is required"))
@@ -41,8 +44,12 @@ func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) err
 	if connConfig.SkipCertVerification {
 		return exceptions.NewCloudSQLIAMAuthError(errors.New("certificate verification cannot be skipped"))
 	}
-	if strings.TrimSpace(connConfig.TlsHost) == "" {
-		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS host must be set to the instance DNS name"))
+	host := strings.Trim(strings.TrimSpace(connConfig.Host), "[]")
+	// a hostname Host is itself verified against the server certificate, but an IP has no name to check
+	if strings.TrimSpace(connConfig.TlsHost) == "" && (host == "" || net.ParseIP(host) != nil) {
+		return exceptions.NewCloudSQLIAMAuthError(
+			errors.New("TLS host must be set to the instance DNS name unless host is a DNS name"),
+		)
 	}
 	if connConfig.RootCa == nil || strings.TrimSpace(*connConfig.RootCa) == "" {
 		return exceptions.NewCloudSQLIAMAuthError(errors.New("root CA is required"))

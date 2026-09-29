@@ -57,6 +57,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH {
 		cloudSQLAuth = &utils.CloudSQLAuth{}
 		if err := cloudSQLAuth.VerifyAuthConfig(utils.CloudSQLConnectionConfig{
+			Host:                 config.Host,
 			RootCa:               config.RootCa,
 			TlsHost:              config.TlsHost,
 			DisableTls:           config.DisableTls,

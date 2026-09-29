@@ -2,10 +2,49 @@ import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
 import {
   AvroCodec,
   ElasticsearchAuthType,
+  MySqlAuthType,
   MySqlFlavor,
   MySqlReplicationMechanism,
+  PostgresAuthType,
 } from '@/grpc_generated/peers';
 import * as z from 'zod/v4';
+
+// hosts that are IP addresses (bracketed IPv6 included) have no name to verify against a server certificate
+const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
+export function isIPAddress(host: string | undefined): boolean {
+  const trimmed = (host ?? '').trim().replace(/^\[|\]$/g, '');
+  return ipAddressSchema.safeParse(trimmed).success;
+}
+
+interface CloudSQLIAMTlsFields {
+  isCloudSQLIAMAuth: boolean;
+  host: string;
+  tlsHost: string;
+  rootCa?: string;
+  tlsDisabled?: boolean;
+  skipCertVerification?: boolean;
+}
+
+// Cloud SQL IAM auth sends an OAuth token as the password, so the connector
+// (CloudSQLAuth.VerifyAuthConfig in flow/connectors/utils/cloudsql.go) rejects configs that
+// could hand that token to the wrong server. Mirror its rules here so the peer form fails
+// before the peer is created. Returns an error message, or undefined when the config is fine.
+function cloudSQLIAMTlsError(fields: CloudSQLIAMTlsFields): string | undefined {
+  if (!fields.isCloudSQLIAMAuth) return undefined;
+  if (fields.tlsDisabled) {
+    return 'GCP Cloud SQL IAM Auth requires TLS to be enabled';
+  }
+  if (fields.skipCertVerification) {
+    return 'GCP Cloud SQL IAM Auth does not allow skipping certificate verification';
+  }
+  if (!fields.tlsHost.trim() && isIPAddress(fields.host)) {
+    return 'TLS Hostname is required for GCP Cloud SQL IAM Auth when Host is an IP address (use the instance DNS name)';
+  }
+  if (!fields.rootCa?.trim()) {
+    return 'Root Certificate is required for GCP Cloud SQL IAM Auth';
+  }
+  return undefined;
+}
 
 const sshSchema = z
   .object({
@@ -66,7 +105,7 @@ export const peerNameSchema = z
       'Peer name must contain only lowercase letters, numbers and underscores',
   });
 
-export const pgSchema = z.object({
+const pgBaseSchema = z.object({
   host: z
     .string({
       error: (issue) =>
@@ -123,6 +162,8 @@ export const pgSchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  skipCertVerification: z.boolean().optional(),
+  authType: z.enum(PostgresAuthType).optional(),
   clientTls: z
     .object({
       certificate: z
@@ -134,6 +175,18 @@ export const pgSchema = z.object({
     })
     .optional(),
   sshConfig: sshSchema,
+});
+
+export const pgSchema = pgBaseSchema.superRefine((cfg, ctx) => {
+  const message = cloudSQLIAMTlsError({
+    isCloudSQLIAMAuth:
+      cfg.authType === PostgresAuthType.POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+    host: cfg.host,
+    tlsHost: cfg.tlsHost,
+    rootCa: cfg.rootCa,
+    skipCertVerification: cfg.skipCertVerification,
+  });
+  if (message) ctx.addIssue({ code: 'custom', message });
 });
 
 export const crdbSchema = z.object({
@@ -162,7 +215,7 @@ export const crdbSchema = z.object({
   sshConfig: sshSchema,
 });
 
-export const mySchema = z.object({
+const mySqlBaseSchema = z.object({
   host: z
     .string({
       error: (issue) =>
@@ -217,7 +270,21 @@ export const mySchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  authType: z.enum(MySqlAuthType).optional(),
   sshConfig: sshSchema,
+});
+
+export const mySchema = mySqlBaseSchema.superRefine((cfg, ctx) => {
+  const message = cloudSQLIAMTlsError({
+    isCloudSQLIAMAuth:
+      cfg.authType === MySqlAuthType.MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+    host: cfg.host,
+    tlsHost: cfg.tlsHost,
+    rootCa: cfg.rootCa,
+    tlsDisabled: cfg.disableTls,
+    skipCertVerification: cfg.skipCertVerification,
+  });
+  if (message) ctx.addIssue({ code: 'custom', message });
 });
 
 export const sfSchema = z.object({

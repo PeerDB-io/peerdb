@@ -23,6 +23,18 @@ func TestCloudSQLAuthVerifyAuthConfig(t *testing.T) {
 		{name: "TLS host and root CA", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &rootCA}, valid: true},
 		{name: "root CA only", connConfig: CloudSQLConnectionConfig{RootCa: &rootCA}},
 		{name: "blank TLS host", connConfig: CloudSQLConnectionConfig{TlsHost: " ", RootCa: &rootCA}},
+		{name: "DNS host without TLS host", connConfig: CloudSQLConnectionConfig{Host: tlsHost, RootCa: &rootCA}, valid: true},
+		{name: "IPv4 host without TLS host", connConfig: CloudSQLConnectionConfig{Host: "35.238.144.132", RootCa: &rootCA}},
+		{name: "IPv6 host without TLS host", connConfig: CloudSQLConnectionConfig{Host: "[2001:db8::1]", RootCa: &rootCA}},
+		{
+			name:       "IP host with TLS host",
+			connConfig: CloudSQLConnectionConfig{Host: "35.238.144.132", TlsHost: tlsHost, RootCa: &rootCA},
+			valid:      true,
+		},
+		{
+			name:       "DNS host, TLS disabled",
+			connConfig: CloudSQLConnectionConfig{Host: tlsHost, RootCa: &rootCA, DisableTls: true},
+		},
 		{name: "TLS host only", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost}},
 		{name: "empty root CA", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &emptyRootCA}},
 		{name: "TLS disabled", connConfig: CloudSQLConnectionConfig{TlsHost: tlsHost, RootCa: &rootCA, DisableTls: true}},

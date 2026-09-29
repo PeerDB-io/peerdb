@@ -7,7 +7,12 @@ import {
   PostgresConfig,
 } from '@/grpc_generated/peers';
 
+import { isIPAddress } from '../schema';
 import { PeerSetting } from './common';
+
+const isCloudSQLIAMAuth = (config: unknown) =>
+  (config as PostgresConfig).authType ===
+  PostgresAuthType.POSTGRES_GCP_CLOUD_SQL_IAM_AUTH;
 
 export const postgresSetting: PeerSetting[] = [
   {
@@ -82,15 +87,18 @@ export const postgresSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    tips: 'If not provided, host CA roots will be used.',
+    isRequired: isCloudSQLIAMAuth,
+    tips: 'If not provided, host CA roots will be used. Required for GCP Cloud SQL IAM Auth.',
   },
   {
     label: 'TLS Hostname',
     field: 'tlsHost',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, tlsHost: value as string })),
-    tips: 'Overrides expected hostname during tls cert verification.',
+    tips: 'Overrides expected hostname during tls cert verification. For GCP Cloud SQL IAM Auth, required when Host is an IP address: set it to the instance DNS name so the IAM token is only sent to that instance.',
     optional: true,
+    isRequired: (config) =>
+      isCloudSQLIAMAuth(config) && isIPAddress((config as PostgresConfig).host),
   },
   {
     label: 'Client Certificate',
@@ -154,8 +162,12 @@ export const postgresSetting: PeerSetting[] = [
     options: [
       { value: 'POSTGRES_PASSWORD', label: 'Password' },
       { value: 'POSTGRES_IAM_AUTH', label: 'AWS IAM Auth' },
+      {
+        value: 'POSTGRES_GCP_CLOUD_SQL_IAM_AUTH',
+        label: 'GCP Cloud SQL IAM Auth',
+      },
     ],
-    tips: 'AWS IAM Auth is supported for Initial-Load-Only Mirrors. It is NOT SUPPORTED for CDC',
+    tips: 'AWS IAM Auth is supported for Initial-Load-Only Mirrors. It is NOT SUPPORTED for CDC. GCP Cloud SQL IAM Auth requires TLS and a root certificate, plus the TLS hostname when Host is an IP address.',
   },
   {
     label: 'AWS IAM Auth Mechanism',

@@ -90,6 +90,7 @@ func newPostgresConnector(
 	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
 		cloudSQLAuth = &utils.CloudSQLAuth{}
 		if err := cloudSQLAuth.VerifyAuthConfig(utils.CloudSQLConnectionConfig{
+			Host:                 pgConfig.Host,
 			RootCa:               pgConfig.RootCa,
 			TlsHost:              pgConfig.TlsHost,
 			DisableTls:           pgConfig.GetDisableTls(),

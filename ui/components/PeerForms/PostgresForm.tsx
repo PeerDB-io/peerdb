@@ -131,7 +131,7 @@ export default function PostgresForm({
                 label={
                   <Label>
                     {setting.label}{' '}
-                    {!setting.optional && (
+                    {(!setting.optional || setting.isRequired?.(config)) && (
                       <Tooltip
                         style={{ width: '100%' }}
                         content='This is a required field.'
