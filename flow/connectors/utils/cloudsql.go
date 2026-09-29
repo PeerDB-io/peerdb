@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"strings"
 	"sync"
 
 	"cloud.google.com/go/auth"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -33,26 +32,21 @@ type CloudSQLConnectionConfig struct {
 	SkipCertVerification bool
 }
 
-// VerifyAuthConfig checks that the connection settings are safe for sending an IAM token as the password.
-// The server certificate's hostname must be verified: without it any certificate from a shared Cloud SQL CA
-// would be accepted, handing that server a reusable login token. TlsHost must be the instance DNS name,
-// unless Host is already a DNS name, which then is the name verified.
+// VerifyAuthConfig checks that the connection settings are safe for sending an IAM token as the password,
+// see common.CloudSQLIAMTLSConfig.Verify.
 func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) error {
-	if connConfig.DisableTls {
-		return exceptions.NewCloudSQLIAMAuthError(errors.New("TLS is required"))
+	rootCa := ""
+	if connConfig.RootCa != nil {
+		rootCa = *connConfig.RootCa
 	}
-	if connConfig.SkipCertVerification {
-		return exceptions.NewCloudSQLIAMAuthError(errors.New("certificate verification cannot be skipped"))
-	}
-	host := strings.Trim(strings.TrimSpace(connConfig.Host), "[]")
-	// a hostname Host is itself verified against the server certificate, but an IP has no name to check
-	if strings.TrimSpace(connConfig.TlsHost) == "" && (host == "" || net.ParseIP(host) != nil) {
-		return exceptions.NewCloudSQLIAMAuthError(
-			errors.New("TLS host must be set to the instance DNS name unless host is a DNS name"),
-		)
-	}
-	if connConfig.RootCa == nil || strings.TrimSpace(*connConfig.RootCa) == "" {
-		return exceptions.NewCloudSQLIAMAuthError(errors.New("root CA is required"))
+	if err := (common.CloudSQLIAMTLSConfig{
+		Host:                 connConfig.Host,
+		TlsHost:              connConfig.TlsHost,
+		RootCa:               rootCa,
+		DisableTls:           connConfig.DisableTls,
+		SkipCertVerification: connConfig.SkipCertVerification,
+	}).Verify(); err != nil {
+		return exceptions.NewCloudSQLIAMAuthError(err)
 	}
 	return nil
 }
