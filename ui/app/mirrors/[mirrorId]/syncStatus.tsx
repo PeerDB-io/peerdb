@@ -9,9 +9,13 @@ import TableStats from './tableStats';
 
 type SyncStatusProps = {
   flowJobName: string;
+  hideSyncHistory?: boolean;
 };
 
-export default function SyncStatus({ flowJobName }: SyncStatusProps) {
+export default function SyncStatus({
+  flowJobName,
+  hideSyncHistory,
+}: SyncStatusProps) {
   const {
     data: tableStats,
     error,
@@ -29,10 +33,14 @@ export default function SyncStatus({ flowJobName }: SyncStatusProps) {
     tableStats?.tablesData && (
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
-        <div style={{ marginBlock: '2.5rem' }}>
-          <CdcGraph mirrorName={flowJobName} />
-        </div>
-        <SyncStatusTable mirrorName={flowJobName} />
+        {!hideSyncHistory && (
+          <>
+            <div style={{ marginBlock: '2.5rem' }}>
+              <CdcGraph mirrorName={flowJobName} />
+            </div>
+            <SyncStatusTable mirrorName={flowJobName} />
+          </>
+        )}
         <TableStats tableSyncs={tableStats.tablesData} />
       </div>
     )

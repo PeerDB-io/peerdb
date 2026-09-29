@@ -3,6 +3,9 @@ import QRepQueryTemplate from '@/app/utils/qreptemplate';
 import { DBTypeToGoodText } from '@/components/PeerTypeComponent';
 import {
   BigqueryCdcEventsFunction,
+  bigqueryCdcEventsFunctionFromJSON,
+  BigQueryReplicationMethod,
+  bigQueryReplicationMethodFromJSON,
   FlowConnectionConfigs,
   QRepConfig,
   QRepWriteType,
@@ -60,6 +63,14 @@ export function IsClickHousePeer(peerType?: DBType): boolean {
   );
 }
 
+export function IsBigQueryPeer(peerType?: DBType): boolean {
+  // BIGQUERY is enum value 0, so a truthiness guard would exclude it
+  return (
+    peerType === DBType.BIGQUERY ||
+    peerType?.toString() === DBType[DBType.BIGQUERY]
+  );
+}
+
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
   tableName: string
@@ -71,6 +82,60 @@ function ValidSchemaQualifiedTarget(
   }
 
   return !!tableName && tableName.includes('.') && !tableName.startsWith('.');
+}
+
+// Pre-flight checks for a BigQuery CDC mirror (config.bigqueryCdcConfig is set), returning an
+// error message or ''. The backend re-validates all of this, but catching it here avoids a round trip.
+// Backend rules (flow/pkg/bigquery/validation.go): destination must be ClickHouse; QUERY needs a
+// watermark column on every table; EVENTS needs an events function on every table; a snapshot
+// needs a gs:// staging path.
+function validateBigQueryCDC(
+  tableMappings: TableMapping[],
+  config: CDCConfig,
+  destinationType: DBType
+): string {
+  if (!config.bigqueryCdcConfig) {
+    return '';
+  }
+
+  if (!IsClickHousePeer(destinationType)) {
+    return 'BigQuery CDC requires a ClickHouse destination';
+  }
+
+  // Enums may be numbers or strings depending on where the config came from
+  const method = bigQueryReplicationMethodFromJSON(
+    config.bigqueryCdcConfig.replicationMethod
+  );
+  if (method === BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_QUERY) {
+    const missing = tableMappings.find((t) => !t.queryCdcWatermarkColumn);
+    if (missing) {
+      return `Select a watermark column for table ${missing.sourceTableIdentifier}`;
+    }
+  } else if (
+    method === BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_EVENTS
+  ) {
+    const missing = tableMappings.find((t) => {
+      const fn = bigqueryCdcEventsFunctionFromJSON(t.bigqueryCdcEventsFunction);
+      return (
+        fn !== BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS &&
+        fn !== BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES
+      );
+    });
+    if (missing) {
+      return `Select an events function (APPENDS or CHANGES) for table ${missing.sourceTableIdentifier}`;
+    }
+  } else {
+    return 'Select a BigQuery replication method';
+  }
+
+  if (
+    config.doInitialSnapshot &&
+    !config.snapshotStagingPath.startsWith('gs://')
+  ) {
+    return 'Snapshot Staging Path must be a GCS location like gs://bucket/prefix';
+  }
+
+  return '';
 }
 
 function CDCCheck(
@@ -111,6 +176,19 @@ function CDCCheck(
 
   if (config.doInitialSnapshot == true && config.replicationSlotName !== '') {
     config.replicationSlotName = '';
+  }
+
+  if (config.initialSnapshotOnly) {
+    // Snapshot-only mirrors never take the query CDC path; keep them off it
+    config.bigqueryCdcConfig = undefined;
+  }
+  const bigqueryErr = validateBigQueryCDC(
+    config.tableMappings,
+    config,
+    destinationType
+  );
+  if (bigqueryErr) {
+    return bigqueryErr;
   }
 
   if (!IsPostgresPeer(destinationType)) {
@@ -193,8 +271,7 @@ function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
       shardingKey: row.shardingKey,
       policyName: row.policyName,
       partitionByExpr: row.partitionByExpr,
-      bigqueryCdcEventsFunction:
-        BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+      bigqueryCdcEventsFunction: row.bigqueryCdcEventsFunction,
       queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
       structuredIngestionConfig: row.structuredIngestionConfig,
     }));
@@ -234,6 +311,8 @@ export function changesToTablesMapping(
           shardingKey: row.shardingKey,
           policyName: row.policyName,
           partitionByExpr: row.partitionByExpr,
+          bigqueryCdcEventsFunction: row.bigqueryCdcEventsFunction,
+          queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
           structuredIngestionConfig: row.structuredIngestionConfig,
         }) as TableMapping
     );

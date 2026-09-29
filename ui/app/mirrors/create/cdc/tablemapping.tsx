@@ -1,5 +1,5 @@
 'use client';
-import { TableMapping } from '@/grpc_generated/flow';
+import { BigQueryReplicationMethod, TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
 import { BarLoader } from '@/lib/BarLoader';
@@ -18,6 +18,8 @@ interface TableMappingProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
+  // set only when the source is a BigQuery peer running CDC
+  bigqueryReplicationMethod?: BigQueryReplicationMethod;
   // schema -> omitted source table mapping
   alreadySelectedTablesMapping: Map<string, TableMapping[]>;
   initialLoadOnly: boolean;
@@ -28,6 +30,7 @@ export default function TablePicker({
   rows,
   setRows,
   peerType,
+  bigqueryReplicationMethod,
   alreadySelectedTablesMapping,
   initialLoadOnly,
 }: TableMappingProps) {
@@ -104,6 +107,7 @@ export default function TablePicker({
               structuredIngestionSupported={structuredIngestionSupported}
               setStructuredIngestionSupported={setStructuredIngestionSupported}
               peerType={peerType}
+              bigqueryReplicationMethod={bigqueryReplicationMethod}
               alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
             />
