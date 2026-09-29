@@ -26,6 +26,8 @@ func TestCloudSQLAuthVerifyAuthConfig(t *testing.T) {
 		{name: "DNS host without TLS host", connConfig: CloudSQLConnectionConfig{Host: tlsHost, RootCa: &rootCA}, valid: true},
 		{name: "IPv4 host without TLS host", connConfig: CloudSQLConnectionConfig{Host: "35.238.144.132", RootCa: &rootCA}},
 		{name: "IPv6 host without TLS host", connConfig: CloudSQLConnectionConfig{Host: "[2001:db8::1]", RootCa: &rootCA}},
+		{name: "IPv4 host with pasted suffix", connConfig: CloudSQLConnectionConfig{Host: "35.238.144.132/postgres", RootCa: &rootCA}},
+		{name: "IPv4 host with query suffix", connConfig: CloudSQLConnectionConfig{Host: " 35.238.144.132?sslmode=require", RootCa: &rootCA}},
 		{
 			name:       "IP host with TLS host",
 			connConfig: CloudSQLConnectionConfig{Host: "35.238.144.132", TlsHost: tlsHost, RootCa: &rootCA},

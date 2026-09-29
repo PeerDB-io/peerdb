@@ -39,8 +39,10 @@ func (c *CloudSQLAuth) VerifyAuthConfig(connConfig CloudSQLConnectionConfig) err
 	if connConfig.RootCa != nil {
 		rootCa = *connConfig.RootCa
 	}
+	// the connection string is built from the sanitized host, so verify the same value:
+	// pasted junk such as "10.0.0.5/db" must not turn an IP into a "DNS name" that skips the TLS host check
 	if err := (common.CloudSQLIAMTLSConfig{
-		Host:                 connConfig.Host,
+		Host:                 internal.SanitizePGHost(connConfig.Host),
 		TlsHost:              connConfig.TlsHost,
 		RootCa:               rootCa,
 		DisableTls:           connConfig.DisableTls,
