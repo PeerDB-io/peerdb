@@ -32,6 +32,8 @@ func (c CloudSQLIAMTLSConfig) Verify() error {
 	if strings.TrimSpace(c.TlsHost) == "" && (host == "" || net.ParseIP(host) != nil) {
 		return errors.New("TLS host must be set to the instance DNS name unless host is a DNS name")
 	}
+	// Cloud SQL server certs chain to Google-managed private CA
+	// (per-instance CA, or regional shared "Google Cloud SQL Server CA"). Never public.
 	if strings.TrimSpace(c.RootCa) == "" {
 		return errors.New("root CA is required")
 	}
