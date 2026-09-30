@@ -487,7 +487,7 @@ jobs:
       # role tests, assumed via OIDC. The tests read them as
       # FLOW_TESTS_RDS_IAM_AUTH_AWS_* / FLOW_TESTS_AWS_*
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
