@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -118,11 +119,12 @@ type PullTableRecordsRequest struct {
 	SourceTableMapping SourceTableMapping
 	// TableSchema is the schema of the destination table.
 	TableSchema *protos.TableSchema
-	// Cursor is the opaque value previously returned for this table by
-	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
-	Cursor string
-	// QueryCDCSafetyLag delays the upper bound of the pull window behind the source clock.
-	QueryCDCSafetyLag time.Duration
+	// StartTime and EndTime are the safe source-time window selected by the activity.
+	StartTime time.Time
+	EndTime   time.Time
+	// SafeEndTime is the furthest source time this poll may inspect. Query-mode
+	// sources use it to skip across empty bounded windows without crossing the safety lag.
+	SafeEndTime time.Time
 	// QueryCDCMaxQueryWindow caps the duration covered by a single pull query.
 	QueryCDCMaxQueryWindow time.Duration
 	// Stream is where pulled records are pushed.
@@ -136,6 +138,21 @@ type PullTableRecordsResult struct {
 	NextCursor string
 	// BytesProcessed is the number of bytes fetched from the source for this poll.
 	BytesProcessed int64
+}
+
+func EncodeQueryCDCCursor(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func DecodeQueryCDCCursor(cursor string) (time.Time, error) {
+	if cursor == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, cursor)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse query CDC table cursor %q: %w", cursor, err)
+	}
+	return t, nil
 }
 
 // SyncQueryCDCRequest carries one table's CDC records to

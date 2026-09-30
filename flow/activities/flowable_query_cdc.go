@@ -191,6 +191,18 @@ func queryCDCPollDurations(
 	return safetyLag, maxQueryWindow, nil
 }
 
+// queryCDCPollWindow computes the next bounded source-time window. A false
+// return means the safety lag has not moved past the table's checkpoint yet.
+func queryCDCPollWindow(
+	checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration,
+) (time.Time, bool) {
+	end := checkpoint.Add(maxQueryWindow)
+	if safeEnd := now.Add(-safetyLag); safeEnd.Before(end) {
+		end = safeEnd
+	}
+	return end, end.After(checkpoint)
+}
+
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once syncInterval has
 // passed since its last successful poll started. LastSyncedAt distinguishes a
@@ -337,6 +349,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		var pullResult model.PullTableRecordsResult
 		var rowCounts *model.RecordTypeCounts
+		pollSkipped := false
+		var safetyLagWait time.Duration
 		pollErr, fatalErr := func() (error, error) {
 			// bounded parallelism: only pull+sync for up to parallelism tables at once
 			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
@@ -344,6 +358,25 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 				return err, nil
 			}
 			defer release()
+
+			now, err := srcConn.CurrentSourceTime(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get query CDC source time: %w", err), nil
+			}
+			start, err := model.DecodeQueryCDCCursor(state.CursorText)
+			if err != nil {
+				return err, nil
+			}
+			if start.IsZero() {
+				start = now
+			}
+			safeEnd := now.Add(-queryCDCSafetyLag)
+			end, ok := queryCDCPollWindow(start, now, queryCDCSafetyLag, queryCDCMaxQueryWindow)
+			if !ok {
+				pollSkipped = true
+				safetyLagWait = start.Sub(safeEnd)
+				return nil, nil
+			}
 
 			logger.Info("[cdc] starting poll")
 			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
@@ -359,8 +392,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					SourceTableIdentifier:  sourceTable,
 					SourceTableMapping:     sourceTableMapping,
 					TableSchema:            tableNameSchemaMapping[destTable],
-					Cursor:                 state.CursorText,
-					QueryCDCSafetyLag:      queryCDCSafetyLag,
+					StartTime:              start,
+					EndTime:                end,
+					SafeEndTime:            safeEnd,
 					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
 					Stream:                 stream,
 				})
@@ -409,6 +443,13 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if fatalErr != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
 		}
+		if pollSkipped {
+			logger.Info("[cdc] waiting for checkpoint to clear safety lag", slog.Duration("wait", safetyLagWait))
+			if err := waitOrDone(ctx, safetyLagWait); err != nil {
+				return err
+			}
+			continue
+		}
 		if pollErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -452,14 +493,25 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed)
+			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts, bytesProcessed int64) {
+func (a *FlowableActivity) recordSyncMetrics(
+	ctx context.Context,
+	destTable string,
+	rowCounts *model.RecordTypeCounts,
+	bytesProcessed int64,
+	batchId int64,
+) {
+	// per table metrics
+	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
+	a.OtelManager.Metrics.QueryCDCFetchedBatchesSizeHistogram.Record(ctx, bytesProcessed, metricsOptions)
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -470,17 +522,20 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 	}
 	for _, oc := range opAndCount {
 		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 		a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 	}
 
+	// global mirror metrics, aligned with event based cdc pipes
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx,
+		int64(rowCounts.InsertCount.Load()+rowCounts.UpdateCount.Load()+rowCounts.DeleteCount.Load()))
 }
 
 // queryCDCNormalizeLoop inserts one source table's staged batches
@@ -501,6 +556,9 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	destTable := tableMapping.DestinationTableIdentifier
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+	))
 
 	state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 	if err != nil {
@@ -591,6 +649,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,

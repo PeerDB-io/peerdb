@@ -765,7 +765,7 @@ func TestQValueFromBsonValue(t *testing.T) {
 		{desc: "Double", input: 3.5, expected: types.QValueFloat64{Val: 3.5}},
 		{desc: "Double integral", input: 3.0, expected: types.QValueFloat64{Val: 3}},
 		{desc: "Boolean", input: true, expected: types.QValueBoolean{Val: true}},
-		{desc: "Date", input: date, expected: types.QValueString{Val: "2024-01-02T01:04:05.006Z"}},
+		{desc: "Date", input: date, expected: types.QValueTimestamp{Val: date.UTC()}},
 		{
 			desc:     "Regular Expression",
 			input:    bson.Regex{Pattern: `^a<b>&"c"$`, Options: "im"},
@@ -898,11 +898,17 @@ func TestTypedArraysFromBson(t *testing.T) {
 
 	t.Run("every string-mapped scalar lands as String", func(t *testing.T) {
 		values, err := converter.QValueFromBsonValue(
-			rawArrayValueOf(t, bson.A{"plain", oid, date, decimal}), types.QValueKindArrayString)
+			rawArrayValueOf(t, bson.A{"plain", oid, decimal}), types.QValueKindArrayString)
 		require.NoError(t, err)
 		require.Equal(t, types.QValueArrayString{
-			Val: []string{"plain", "507f1f77bcf86cd799439011", "2024-01-02T03:04:05Z", "12.34"},
+			Val: []string{"plain", "507f1f77bcf86cd799439011", "12.34"},
 		}, values)
+	})
+
+	t.Run("a date is a timestamp, not a String array element", func(t *testing.T) {
+		_, err := converter.QValueFromBsonValue(
+			rawArrayValueOf(t, bson.A{"plain", date}), types.QValueKindArrayString)
+		require.ErrorContains(t, err, "array element 1 maps to timestamp, not string")
 	})
 
 	t.Run("an empty array converts to an empty, non-nil slice", func(t *testing.T) {
