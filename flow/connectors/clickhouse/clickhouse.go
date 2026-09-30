@@ -394,13 +394,16 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
-var parametricTypesPrefixes = []string{
-	"Nullable(",
-	"LowCardinality(",
+const arrayPrefix = "Array("
+
+var parametricTypesPrefixes = map[string]string{
+	"Nullable(":       "",
+	"LowCardinality(": "",
+	"Array(Nullable(": arrayPrefix,
 }
 
 var notNullableTypesPrefixes = []string{
-	"Array(",
+	arrayPrefix,
 	"Map(",
 	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
 }
@@ -417,13 +420,13 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		}
 	}
 
-	for _, parametricPrefix := range parametricTypesPrefixes {
+	for parametricPrefix, replacement := range parametricTypesPrefixes {
 		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
 			inner, found = strings.CutSuffix(inner, ")")
 			if !found {
 				return types.QValueKindInvalid, typeResolutionError(columnType)
 			}
-			return QValueKindForType(inner)
+			return QValueKindForType(replacement + inner)
 		}
 	}
 
@@ -476,7 +479,7 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayUUID, nil
 	case "Array(DateTime64(6))":
 		return types.QValueKindArrayTimestamp, nil
-	case "Array(Int64)", "Array(Nullable(Int64))":
+	case "Array(Int64)":
 		return types.QValueKindArrayInt64, nil
 	case "Array(Bool)":
 		return types.QValueKindArrayBoolean, nil
