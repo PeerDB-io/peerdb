@@ -52,6 +52,8 @@ func DocumentQValueIterator(
 			}
 			value, err := converter.QValueFromBsonValue(element.Value(), maybeExpectedKind)
 			if err != nil && maybeExpectedKind.IsArray() && element.Value().Type == bson.TypeArray {
+				// An array that does not fit its typed column is yielded as JSON: the projector then
+				// reports it as a type mismatch, its JSON form as the value, instead of the record failing.
 				value, err = converter.QValueJSONFromArray(element.Value().Array())
 			}
 			if err != nil {
