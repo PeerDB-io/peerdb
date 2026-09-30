@@ -209,7 +209,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	for _, tm := range cfg.TableMappings {
 		// All top level array columns should have their elements made nullable when structured ingestion is enabled.
-		structured.MakeArrayElementsNullable(tm.StructuredIngestionConfig, tm.Columns)
+		structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 	}
 
 	// Use idempotent validation that skips mirror existence check
@@ -271,7 +271,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	// All top level array columns should have their elements made nullable when structured ingestion is enabled.
-	structured.MakeArrayElementsNullable(cfg.StructuredIngestionConfig, cfg.Columns)
+	structured.NormalizeStructuredIngestionTypes(cfg.StructuredIngestionConfig, cfg.Columns)
 	if apiErr := h.checkQRepTableConfig(ctx, cfg); apiErr != nil {
 		return nil, apiErr
 	}
@@ -469,7 +469,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 		for _, tm := range cdcUpdate.AdditionalTables {
 			// All top level array columns should have their elements made nullable when structured ingestion is enabled.
-			structured.MakeArrayElementsNullable(tm.StructuredIngestionConfig, tm.Columns)
+			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 	}
 

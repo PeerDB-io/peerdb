@@ -3,6 +3,7 @@ package connmongo
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -168,6 +169,9 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 		case types.QValueKindArrayBoolean:
 			values, err := typedArrayFromBson(c, arr, func(q types.QValueBoolean) bool { return q.Val })
 			return types.QValueArrayBoolean{Val: values}, err
+		case types.QValueKindArrayTimestamp:
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueTimestamp) time.Time { return q.Val })
+			return types.QValueArrayTimestamp{Val: values}, err
 		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 			// The array kinds of JSON have no dedicated QValue struct.
 			// This yields a QValueJSON holding the whole array serialized in Val and IsArray: true.

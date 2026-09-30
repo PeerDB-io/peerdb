@@ -3,6 +3,7 @@ package structured
 import (
 	"fmt"
 	"iter"
+	"regexp"
 	"slices"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
@@ -185,12 +186,19 @@ func kindMatches(kind types.QValueKind, value types.QValue) bool {
 	return kind == value.Kind()
 }
 
-func MakeArrayElementsNullable(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
+var dateTime64Regex = regexp.MustCompile(`DateTime64\([0-9]+\)`)
+
+// NormalizeStructuredIngestionTypes rewrites the destination types of a mapping with structured ingestion
+// to normalize infered types as compatible ones.
+func NormalizeStructuredIngestionTypes(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
 	if !config.GetEnabled() {
 		return
 	}
 	for _, column := range columns {
-		column.DestinationType = connclickhouse.NullableArrayType(column.DestinationType)
+		// All structured ingestion dates use fix precision to microseconds
+		destinationType := dateTime64Regex.ReplaceAllString(column.DestinationType, "DateTime64(6)")
+		// All array types are coerced to accept null elements
+		column.DestinationType = connclickhouse.NullableArrayType(destinationType)
 	}
 }
 

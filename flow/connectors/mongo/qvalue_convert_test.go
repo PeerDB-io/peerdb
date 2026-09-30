@@ -905,6 +905,15 @@ func TestTypedArraysFromBson(t *testing.T) {
 		}, values)
 	})
 
+	t.Run("dates land as Timestamp, in UTC", func(t *testing.T) {
+		later := time.Date(2024, 1, 2, 5, 4, 5, 6_000_000, time.FixedZone("UTC+2", 2*60*60))
+		values, err := converter.QValueFromBsonValue(
+			rawArrayValueOf(t, bson.A{date, nil, later}), types.QValueKindArrayTimestamp)
+		require.NoError(t, err)
+		// a null element takes the zero time, as in Postgres timestamp arrays
+		require.Equal(t, types.QValueArrayTimestamp{Val: []time.Time{date, {}, later.UTC()}}, values)
+	})
+
 	t.Run("a date is a timestamp, not a String array element", func(t *testing.T) {
 		_, err := converter.QValueFromBsonValue(
 			rawArrayValueOf(t, bson.A{"plain", date}), types.QValueKindArrayString)

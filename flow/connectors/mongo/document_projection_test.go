@@ -274,6 +274,25 @@ func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	}, reported)
 }
 
+// Arrays of BSON dates must fit DateTime64 array columns: they convert to timestamp arrays
+func TestStructuredQValuesFromBsonRawDateArrays(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "visits", DestinationType: "Array(Nullable(DateTime64(6)))"},
+	}, true)
+	require.NoError(t, err)
+	visit := time.Date(2026, 8, 26, 18, 34, 5, 200_000_000, time.FixedZone("UTC+2", 2*60*60))
+
+	raw, err := bson.Marshal(bson.D{{Key: "_id", Value: "key"}, {Key: "visits", Value: bson.A{visit, nil}}})
+	require.NoError(t, err)
+	record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+	require.NoError(t, err)
+
+	schema := GetStructuredSchema(projector)
+	require.Equal(t, types.QValueKindArrayTimestamp, schema.Fields[1].Type)
+	require.Equal(t, types.QValueArrayTimestamp{Val: []time.Time{visit.UTC(), {}}}, record[1])
+	require.Equal(t, types.QValueNull(types.QValueKindJSON), record[2])
+}
+
 // collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.
 func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]types.QValue, error) {
 	t.Helper()

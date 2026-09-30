@@ -252,27 +252,41 @@ func TestProjectRecordArrayOfJSON(t *testing.T) {
 	require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "{\"k\":1}"}}`, malformed.Val)
 }
 
-func TestMakeArrayElementsNullable(t *testing.T) {
+func TestNormalizeStructuredIngestionTypes(t *testing.T) {
 	columnsOf := func() []*protos.ColumnSetting {
 		return []*protos.ColumnSetting{
 			{SourceName: "tags", DestinationType: "Array(String)"},
 			{SourceName: "codes", DestinationType: "Array(LowCardinality(String))"},
 			{SourceName: "name", DestinationType: "Nullable(String)"},
-			{SourceName: "emails", DestinationType: "Array(Nullable(String))"},
+			{SourceName: "created", DestinationType: "Nullable(DateTime64(9))"},
+			{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
+			{SourceName: "micros", DestinationType: "Array(Nullable(DateTime64(6)))"},
+			{SourceName: "millis", DestinationType: "Nullable(DateTime64(3))"},
+			{SourceName: "seconds", DestinationType: "Array(DateTime64(0))"},
 		}
 	}
 
 	columns := columnsOf()
-	MakeArrayElementsNullable(&protos.StructuredIngestionTableConfig{Enabled: true}, columns)
-	require.Equal(t, "Array(Nullable(String))", columns[0].DestinationType)
-	require.Equal(t, "Array(LowCardinality(String))", columns[1].DestinationType)
-	require.Equal(t, "Nullable(String)", columns[2].DestinationType)
-	require.Equal(t, "Array(Nullable(String))", columns[3].DestinationType)
+	NormalizeStructuredIngestionTypes(&protos.StructuredIngestionTableConfig{Enabled: true}, columns)
+	destinationTypes := make([]string, 0, len(columns))
+	for _, column := range columns {
+		destinationTypes = append(destinationTypes, column.DestinationType)
+	}
+	require.Equal(t, []string{
+		"Array(Nullable(String))",
+		"Array(LowCardinality(String))",
+		"Nullable(String)",
+		"Nullable(DateTime64(6))",
+		"Array(Nullable(DateTime64(6)))",
+		"Array(Nullable(DateTime64(6)))",
+		"Nullable(DateTime64(6))",
+		"Array(Nullable(DateTime64(6)))",
+	}, destinationTypes)
 
 	// without structured ingestion enabled the columns are left as declared
 	for _, config := range []*protos.StructuredIngestionTableConfig{nil, {Enabled: false}} {
 		columns := columnsOf()
-		MakeArrayElementsNullable(config, columns)
+		NormalizeStructuredIngestionTypes(config, columns)
 		require.Equal(t, columnsOf(), columns)
 	}
 }
