@@ -2,7 +2,6 @@ package connmongo
 
 import (
 	"fmt"
-	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -112,7 +111,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, nullKind typ
 		return types.QValueBoolean{Val: v.Boolean()}, nil
 
 	case bsoncore.TypeDateTime:
-		return types.QValueString{Val: v.Time().UTC().Format(time.RFC3339Nano)}, nil
+		return types.QValueTimestamp{Val: shared_mongo.RawDateTimeToTime(v)}, nil
 
 	case bsoncore.TypeNull:
 		return types.QValueNull(nullKind), nil
