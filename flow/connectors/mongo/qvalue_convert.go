@@ -18,11 +18,10 @@ import (
 // (https://clickhouse.com/docs/integrations/clickpipes/mongodb/datatypes).
 //
 // Arrays correspond to typed array QValues when the destination column kind is one of the array kinds
-// QValueFromBsonValue dispatches: each element must map, under this same mapping, to the kind's element
-// type, e.g. an array of 32/64-bit integers into an Int64 array, or one mixing ObjectIds, Dates and
-// Decimal128s into a String array. Arrays of JSON take the elements mapping to JSON: embedded documents
-// and nested arrays included. An element mapping elsewhere, nulls included, fails the conversion.
-// For any other destination kind, arrays land whole as JSON.
+// QValueFromBsonValue dispatches:
+// - Each element must map to the kind's element. e.g. an array of 32/64-bit integers into an Int64 array.
+// - All elements in the array must have the same type, the one hinted by the mapping through `maybeExpectedKind`.
+// // - Null elements take the element type's zero value.
 type BsonToQValueConverter interface {
 	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
@@ -82,15 +81,17 @@ func typedArrayFromBson[Q types.QValue, T any](
 	var want Q
 	values := make([]T, 0, len(rawValues))
 	for i, rawValue := range rawValues {
+		if rawValue.Type == bson.TypeNull {
+			var zero T
+			values = append(values, zero)
+			continue
+		}
 		qValue, err := c.QValueFromBsonValue(rawValue, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert array element %d: %w", i, err)
 		}
 		typed, ok := qValue.(Q)
 		if !ok {
-			if _, isNull := qValue.(types.QValueNull); isNull {
-				return nil, fmt.Errorf("array element %d is null, not %s", i, want.Kind())
-			}
 			return nil, fmt.Errorf("array element %d maps to %s, not %s", i, qValue.Kind(), want.Kind())
 		}
 		values = append(values, element(typed))
@@ -112,6 +113,19 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 		return types.QValueString{}, fmt.Errorf("failed to convert %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
+}
+
+// Used internally to represent an element of an array of JSON, which may be null.
+type nullableJSONElement struct {
+	value    string
+	hasValue bool
+}
+
+func (element nullableJSONElement) String() string {
+	if !element.hasValue {
+		return "null"
+	}
+	return element.value
 }
 
 // IMPORTANT: This is the method defining what types are structured as QValues and how
@@ -156,14 +170,24 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 			values, err := typedArrayFromBson(c, arr, func(q types.QValueBoolean) bool { return q.Val })
 			return types.QValueArrayBoolean{Val: values}, err
 		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-			// The array kinds of JSON have no dedicated QValue struct: as the other connectors
-			// producing JSON arrays, this yield a QValueJSON holding the whole array serialized in
-			// Val and IsArray: true.
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueJSON) string { return q.Val })
+			// The array kinds of JSON have no dedicated QValue struct.
+			// This yields a QValueJSON holding the whole array serialized in Val and IsArray: true.
+			values, err := typedArrayFromBson(c, arr, func(q types.QValueJSON) nullableJSONElement {
+				return nullableJSONElement{value: q.Val, hasValue: true}
+			})
 			if err != nil {
 				return nil, err
 			}
-			return types.QValueJSON{Val: "[" + strings.Join(values, ",") + "]", IsArray: true}, nil
+			var builder strings.Builder
+			builder.WriteByte('[')
+			for i, value := range values {
+				if i > 0 {
+					builder.WriteByte(',')
+				}
+				builder.WriteString(value.String())
+			}
+			builder.WriteByte(']')
+			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil
 		default:
 			return c.QValueJSONFromArray(arr)
 		}

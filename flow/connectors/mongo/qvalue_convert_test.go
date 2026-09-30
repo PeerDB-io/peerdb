@@ -917,10 +917,28 @@ func TestTypedArraysFromBson(t *testing.T) {
 		require.ErrorContains(t, err, "array element 1 maps to string, not int64")
 	})
 
-	t.Run("a null element fails", func(t *testing.T) {
-		_, err := converter.QValueFromBsonValue(
-			rawArrayValueOf(t, bson.A{"one", nil}), types.QValueKindArrayString)
-		require.ErrorContains(t, err, "array element 1 is null, not string")
+	t.Run("a null element takes the element type's zero value", func(t *testing.T) {
+		for _, test := range []struct {
+			kind     types.QValueKind
+			input    bson.A
+			expected types.QValue
+		}{
+			{types.QValueKindArrayString, bson.A{"one", nil}, types.QValueArrayString{Val: []string{"one", ""}}},
+			{types.QValueKindArrayInt64, bson.A{nil, int64(1), nil}, types.QValueArrayInt64{Val: []int64{0, 1, 0}}},
+			{types.QValueKindArrayFloat64, bson.A{1.5, nil}, types.QValueArrayFloat64{Val: []float64{1.5, 0}}},
+			{types.QValueKindArrayBoolean, bson.A{nil, true}, types.QValueArrayBoolean{Val: []bool{false, true}}},
+			// in an array of JSON the zero value is the JSON null, keeping the array well-formed
+			{
+				types.QValueKindArrayJSON, bson.A{bson.D{{Key: "k", Value: int64(1)}}, nil, bson.D{}},
+				types.QValueJSON{Val: `[{"k":1},null,{}]`, IsArray: true},
+			},
+		} {
+			t.Run(string(test.kind), func(t *testing.T) {
+				values, err := converter.QValueFromBsonValue(rawArrayValueOf(t, test.input), test.kind)
+				require.NoError(t, err)
+				require.Equal(t, test.expected, values)
+			})
+		}
 	})
 
 	t.Run("a nested array or document element fails", func(t *testing.T) {
