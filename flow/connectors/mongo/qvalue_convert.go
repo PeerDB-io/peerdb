@@ -31,11 +31,11 @@ type BsonToQValueConverter interface {
 	// QValueJSONFromArray converts a raw BSON array to a QValueJSON.
 	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
 
-	// QValueFromBsonValue converts any BSON value to the QValue prescribed by the type mapping above,
-	// dispatching on the BSON type. columnKind is the kind of the destination column: BSON null (and a
-	// missing value) yields a QValueNull of it, and an array converts to its corresponding typed array
-	// QValue when it names an array kind.
-	QValueFromBsonValue(v bson.RawValue, columnKind types.QValueKind) (types.QValue, error)
+	// QValueFromBsonValue converts any BSON value to the QValue.
+	// `maybeExpectedKind` hints the type of array elements.
+	// IMPORTANT: This is the method defining what types are structured as QValues and how
+	// in structured ingestion.
+	QValueFromBsonValue(v bson.RawValue, maybeExpectedKind types.QValueKind) (types.QValue, error)
 
 	QValueStringFromObjectID(oid bson.ObjectID) types.QValueString
 	QValueStringFromString(s string) types.QValueString
@@ -82,7 +82,7 @@ func typedArrayFromBson[Q types.QValue, T any](
 	var want Q
 	values := make([]T, 0, len(rawValues))
 	for i, rawValue := range rawValues {
-		qValue, err := c.QValueFromBsonValue(rawValue, types.QValueKindInvalid)
+		qValue, err := c.QValueFromBsonValue(rawValue, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert array element %d: %w", i, err)
 		}
@@ -114,9 +114,11 @@ func (c *DirectBsonConverter) QValueStringFromId(id bson.RawValue, version uint3
 	return types.QValueString{Val: string(c.stream.Buffer())}, nil
 }
 
-func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, columnKind types.QValueKind) (types.QValue, error) {
+// IMPORTANT: This is the method defining what types are structured as QValues and how
+// in structured ingestion.
+func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpectedKind types.QValueKind) (types.QValue, error) {
 	if rv.IsZero() {
-		return types.QValueNull(columnKind), nil
+		return types.QValueNull(maybeExpectedKind), nil
 	}
 	v := bsoncore.Value{Type: bsoncore.Type(rv.Type), Data: rv.Value}
 	switch v.Type {
@@ -133,8 +135,14 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, columnKind t
 	case bsoncore.TypeArray:
 		// ... as well as Arrays, unless the destination column is of an array kind, with
 		// corresponding QValue s corresponding to typed arrays.
+
+		// NOTE: Ideally, we would infer the array element type from the BSON array itself,
+		// recursively applying `QValueFromBsonValue` on one or more of its elements.
+		// In practice, it's better not to re-implement an inference step that already took place
+		// when the mappings were generated so we try to bring the value extraction in line with
+		// the expected kind.
 		arr := bson.RawArray(v.Array())
-		switch columnKind {
+		switch maybeExpectedKind {
 		case types.QValueKindArrayString:
 			values, err := typedArrayFromBson(c, arr, func(q types.QValueString) string { return q.Val })
 			return types.QValueArrayString{Val: values}, err
@@ -176,7 +184,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, columnKind t
 		return types.QValueString{Val: v.Time().UTC().Format(time.RFC3339Nano)}, nil
 
 	case bsoncore.TypeNull:
-		return types.QValueNull(columnKind), nil
+		return types.QValueNull(maybeExpectedKind), nil
 
 	case bsoncore.TypeRegex:
 		pattern, options := v.Regex()

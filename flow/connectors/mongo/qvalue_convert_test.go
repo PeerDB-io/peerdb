@@ -957,7 +957,7 @@ func TestTypedArraysFromBson(t *testing.T) {
 	})
 
 	t.Run("any other destination kind keeps the whole array as JSON", func(t *testing.T) {
-		for _, kind := range []types.QValueKind{types.QValueKindJSON, types.QValueKindInvalid} {
+		for _, kind := range []types.QValueKind{types.QValueKindJSON, ""} {
 			asJSON, err := converter.QValueFromBsonValue(rawArrayValueOf(t, bson.A{int32(1), int64(2)}), kind)
 			require.NoError(t, err)
 			require.Equal(t, types.QValueJSON{Val: "[1,2]", IsArray: true}, asJSON)

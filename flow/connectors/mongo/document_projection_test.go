@@ -232,13 +232,18 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	})
 }
 
+// noExpectedKind is the column kind lookup of a document read without a schema: no field has a column.
+func noExpectedKind(string) (types.QValueKind, bool) {
+	return "", false
+}
+
 // collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.
 func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]types.QValue, error) {
 	t.Helper()
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), nil)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -273,7 +278,7 @@ func TestDocumentQValueIterator(t *testing.T) {
 	require.Equal(t, types.QValueFloat64{Val: 9.5}, values["score"])
 	require.Equal(t, types.QValueBoolean{Val: true}, values["active"])
 	// nulls carry no kind, the consumer gives them the kind of the column they land in
-	require.Equal(t, types.QValueNull(types.QValueKindInvalid), values["nickname"])
+	require.Equal(t, types.QValueNull(""), values["nickname"])
 	// embedded documents and arrays are yielded whole, as JSON
 	require.Equal(t, types.QValueJSON{Val: `{"city":"London"}`}, values["address"])
 	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`, IsArray: true}, values["tags"])
@@ -302,7 +307,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), nil)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -317,7 +322,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
-		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), nil)
+		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind)
 		names := []string{}
 		values := map[string]types.QValue{}
 		for field, value := range fields {
@@ -341,7 +346,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter, nil)
+	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
