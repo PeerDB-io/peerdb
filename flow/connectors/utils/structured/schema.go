@@ -185,6 +185,15 @@ func kindMatches(kind types.QValueKind, value types.QValue) bool {
 	return kind == value.Kind()
 }
 
+func MakeArrayElementsNullable(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
+	if !config.GetEnabled() {
+		return
+	}
+	for _, column := range columns {
+		column.DestinationType = connclickhouse.NullableArrayType(column.DestinationType)
+	}
+}
+
 // ApplyRecordSchema is ProjectRecord for consumers taking records as RecordItems, such as CDC.
 func (sc *SchemaProjector) ApplyRecordSchema(record iter.Seq2[string, types.QValue]) (model.RecordItems, error) {
 	values, err := sc.ProjectRecord(record)

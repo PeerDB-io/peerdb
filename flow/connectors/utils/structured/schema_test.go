@@ -251,3 +251,28 @@ func TestProjectRecordArrayOfJSON(t *testing.T) {
 	require.True(t, ok)
 	require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "{\"k\":1}"}}`, malformed.Val)
 }
+
+func TestMakeArrayElementsNullable(t *testing.T) {
+	columnsOf := func() []*protos.ColumnSetting {
+		return []*protos.ColumnSetting{
+			{SourceName: "tags", DestinationType: "Array(String)"},
+			{SourceName: "codes", DestinationType: "Array(LowCardinality(String))"},
+			{SourceName: "name", DestinationType: "Nullable(String)"},
+			{SourceName: "emails", DestinationType: "Array(Nullable(String))"},
+		}
+	}
+
+	columns := columnsOf()
+	MakeArrayElementsNullable(&protos.StructuredIngestionTableConfig{Enabled: true}, columns)
+	require.Equal(t, "Array(Nullable(String))", columns[0].DestinationType)
+	require.Equal(t, "Array(LowCardinality(String))", columns[1].DestinationType)
+	require.Equal(t, "Nullable(String)", columns[2].DestinationType)
+	require.Equal(t, "Array(Nullable(String))", columns[3].DestinationType)
+
+	// without structured ingestion enabled the columns are left as declared
+	for _, config := range []*protos.StructuredIngestionTableConfig{nil, {Enabled: false}} {
+		columns := columnsOf()
+		MakeArrayElementsNullable(config, columns)
+		require.Equal(t, columnsOf(), columns)
+	}
+}

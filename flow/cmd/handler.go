@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -206,6 +207,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 	// No running workflow, do the validations and start a new one
 
+	for _, tm := range cfg.TableMappings {
+		// All top level array columns should have their elements made nullable when structured ingestion is enabled.
+		structured.MakeArrayElementsNullable(tm.StructuredIngestionConfig, tm.Columns)
+	}
+
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
@@ -264,6 +270,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.Flags = flags
 	}
 
+	// All top level array columns should have their elements made nullable when structured ingestion is enabled.
+	structured.MakeArrayElementsNullable(cfg.StructuredIngestionConfig, cfg.Columns)
 	if apiErr := h.checkQRepTableConfig(ctx, cfg); apiErr != nil {
 		return nil, apiErr
 	}
@@ -458,6 +466,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+		}
+		for _, tm := range cdcUpdate.AdditionalTables {
+			// All top level array columns should have their elements made nullable when structured ingestion is enabled.
+			structured.MakeArrayElementsNullable(tm.StructuredIngestionConfig, tm.Columns)
 		}
 	}
 
