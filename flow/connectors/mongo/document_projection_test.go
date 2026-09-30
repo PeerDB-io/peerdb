@@ -233,7 +233,7 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	})
 }
 
-// BSON dates must fit DateTime64 columns: they convert to timestamps, not to their RFC3339 rendering.
+// BSON dates must fit DateTime64 columns: they convert to timestamps
 func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
 	require.NoError(t, err)
