@@ -1071,6 +1071,12 @@ func processMessage[Items model.Items](
 		if len(xld.WALData) > 0 {
 			msgType = string(xld.WALData[0])
 		}
+		logger.Info(
+			"WALData: len=%d, hex=%x, WALStart=%s",
+			len(xld.WALData),
+			xld.WALData,
+			xld.WALStart,
+		)
 		return nil, fmt.Errorf("error parsing logical message (msgType=%q, walStart=%s): %w", msgType, xld.WALStart.String(), err)
 	}
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
