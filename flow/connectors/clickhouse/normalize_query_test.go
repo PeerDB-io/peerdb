@@ -53,6 +53,42 @@ func TestBuildQueryNullableDestinationTypeOverride(t *testing.T) {
 	require.NotContains(t, query, "Nullable(Nullable(")
 }
 
+// TestBuildQueryTimestampArrays checks timestamp arrays with Nullable elements, as structured ingestion
+// declares them, take the clamped best-effort parsing of Array(DateTime64(6)): their elements are stored
+// in the raw data as RFC 3339 strings, which a plain JSONExtract into the array type fails to parse on
+// older ClickHouse versions, and does not clamp on newer ones.
+func TestBuildQueryTimestampArrays(t *testing.T) {
+	schema := &protos.TableSchema{
+		TableIdentifier:   "src.t1",
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		NullableEnabled:   true,
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindString), TypeModifier: -1},
+			{Name: "visits", Type: string(types.QValueKindArrayTimestamp), TypeModifier: -1, Nullable: true},
+		},
+	}
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "src.t1",
+		DestinationTableIdentifier: "t1_dst",
+		Columns:                    []*protos.ColumnSetting{{SourceName: "visits", DestinationType: "Array(Nullable(DateTime64(6)))"}},
+	}
+
+	query, err := NewNormalizeQueryGenerator(
+		"t1_dst",
+		map[string]*protos.TableSchema{"t1_dst": schema},
+		[]*protos.TableMapping{tableMapping},
+		1, 0,
+		false, false,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+	).BuildQuery(t.Context())
+	require.NoError(t, err)
+
+	require.Contains(t, query, `arrayMap(x -> `+clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')")+
+		`,JSONExtract(_peerdb_data,'visits','Array(String)')) AS `+"`visits`")
+	require.NotContains(t, query, `'Array(Nullable(DateTime64(6)))'`)
+}
+
 // TestBuildQueryArrayOfJSON checks arrays of JSON, stored in the raw data as a string holding the whole
 // array, are parsed from that string.
 // Extracting the array type straight from the field yields [].

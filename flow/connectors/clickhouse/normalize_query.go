@@ -236,7 +236,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					)
 				}
 			}
-		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
+		case "Array(DateTime64(6))", "Array(Nullable(DateTime64(6)))", "Nullable(Array(DateTime64(6)))":
 			if colType == types.QValueKindArrayTime {
 				// Array-of-TIME shares ClickHouse's Array(DateTime64(6)) representation with
 				// Array-of-TIMESTAMP, so it needs the same extended-time parsing as the

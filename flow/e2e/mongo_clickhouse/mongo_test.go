@@ -340,6 +340,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
 		// arrays of embedded documents land element by element as JSON, nulls included
 		{SourceName: "attachments", DestinationType: "Array(JSON)"},
+		// arrays of dates, declared as discovery infers them
+		{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
 	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -363,6 +365,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
 				{Key: "mixed", Value: bson.A{int64(i), true}},
 				{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(i)}}, nil}},
+				{Key: "visits", Value: bson.A{time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour), nil}},
 			}, options.InsertOne())
 			require.NoError(t, err)
 			require.True(t, res.Acknowledged)
@@ -386,7 +389,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	defer ch.Close()
 	// the array columns were created with their declared types: verbatim, never Nullable-wrapped
 	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
-		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed', 'attachments')",
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed', 'attachments', 'visits')",
 		peer.GetClickhouseConfig().Database, dstTable))
 	require.NoError(t, err)
 	defer columnTypes.Close()
@@ -399,6 +402,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	require.NoError(t, columnTypes.Err())
 	require.Equal(t, map[string]string{
 		"items": "Array(Nullable(String))", "mixed": "Array(Nullable(Int64))", "attachments": "Array(Nullable(JSON))",
+		// DateTime64(9) declared, created with microseconds: MongoDB dates carry milliseconds
+		"visits": "Array(Nullable(DateTime64(6)))",
 	}, actualColumnTypes)
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
@@ -433,6 +438,19 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		require.Equal(t, uint64(2), attachmentsLength)
 		require.JSONEq(t, `{"k": 3}`, firstAttachment)
 		require.True(t, secondAttachmentIsNull)
+
+		// the array of dates keeps its elements, the null one zero-filled
+		var visitsLength uint64
+		var firstVisit, secondVisit string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT length(visits), toString(visits[1]), toString(visits[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&visitsLength, &firstVisit, &secondVisit))
+		require.Equal(t, uint64(2), visitsLength)
+		require.Equal(t, "2024-01-02 06:04:05.123000", firstVisit)
+		if prefix == "cdc" {
+			// the zero time is clamped to the DateTime64 range by the CDC normalization
+			require.Equal(t, "1900-01-01 00:00:00.000000", secondVisit)
+		}
 	}
 
 	env.Cancel(t.Context())
