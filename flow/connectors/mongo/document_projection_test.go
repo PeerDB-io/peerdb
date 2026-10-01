@@ -293,6 +293,66 @@ func TestStructuredQValuesFromBsonRawDateArrays(t *testing.T) {
 	require.Equal(t, types.QValueNull(types.QValueKindJSON), record[2])
 }
 
+// Numbers must fit float columns whether BSON stores them as doubles or integers, alone or mixed in an array
+func TestStructuredQValuesFromBsonRawFloats(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "score", DestinationType: "Nullable(Float64)"},
+		{SourceName: "ratio", DestinationType: "Nullable(Float32)"},
+		{SourceName: "scores", DestinationType: "Array(Nullable(Float64))"},
+	}, true)
+	require.NoError(t, err)
+	schema := GetStructuredSchema(projector)
+
+	for _, test := range []struct {
+		name     string
+		document bson.D
+		expected map[string]types.QValue
+	}{
+		{
+			name: "doubles",
+			document: bson.D{
+				{Key: "_id", Value: "key"},
+				{Key: "score", Value: 5.0},
+				{Key: "ratio", Value: 5.0},
+				{Key: "scores", Value: bson.A{5.0, 2.5}},
+			},
+			expected: map[string]types.QValue{
+				"score":  types.QValueFloat64{Val: 5},
+				"ratio":  types.QValueNull(types.QValueKindFloat32), // a double is no Float32
+				"scores": types.QValueArrayFloat64{Val: []float64{5, 2.5}},
+			},
+		},
+		{
+			name: "integers and an array mixing doubles and integers",
+			document: bson.D{
+				{Key: "_id", Value: "key"},
+				{Key: "score", Value: int32(5)},
+				{Key: "ratio", Value: int64(5)},
+				{Key: "scores", Value: bson.A{5.0, int32(5)}},
+			},
+			expected: map[string]types.QValue{
+				"score":  types.QValueFloat64{Val: 5},
+				"ratio":  types.QValueFloat32{Val: 5},
+				"scores": types.QValueArrayFloat64{Val: []float64{5, 5}},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := bson.Marshal(test.document)
+			require.NoError(t, err)
+			record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+			require.NoError(t, err)
+			values := make(map[string]types.QValue, len(record))
+			for i, field := range schema.Fields {
+				values[field.Name] = record[i]
+			}
+			for name, expected := range test.expected {
+				require.Equal(t, expected, values[name], name)
+			}
+		})
+	}
+}
+
 // collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.
 func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]types.QValue, error) {
 	t.Helper()

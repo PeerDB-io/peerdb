@@ -21,7 +21,7 @@ import (
 // QValueFromBsonValue dispatches:
 // - Each element must map to the kind's element. e.g. an array of 32/64-bit integers into an Int64 array.
 // - All elements in the array must have the same type, the one hinted by the mapping through `maybeExpectedKind`.
-// // - Null elements take the element type's zero value.
+// - Null elements take the element type's zero value.
 type BsonToQValueConverter interface {
 	// QValueStringFromId converts a raw _id value to a QValueString.
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
@@ -31,7 +31,7 @@ type BsonToQValueConverter interface {
 	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
 
 	// QValueFromBsonValue converts any BSON value to the QValue.
-	// `maybeExpectedKind` hints the type of array elements.
+	// `maybeExpectedKind` hints the elements types.
 	// IMPORTANT: This is the method defining what types are structured as QValues and how
 	// in structured ingestion.
 	QValueFromBsonValue(v bson.RawValue, maybeExpectedKind types.QValueKind) (types.QValue, error)
@@ -72,7 +72,7 @@ func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QVal
 }
 
 func typedArrayFromBson[Q types.QValue, T any](
-	c *DirectBsonConverter, arr bson.RawArray, element func(Q) T,
+	c *DirectBsonConverter, arr bson.RawArray, expectedKind types.QValueKind, element func(Q) T,
 ) ([]T, error) {
 	rawValues, err := arr.Values()
 	if err != nil {
@@ -86,7 +86,7 @@ func typedArrayFromBson[Q types.QValue, T any](
 			values = append(values, zero)
 			continue
 		}
-		qValue, err := c.QValueFromBsonValue(rawValue, "")
+		qValue, err := c.QValueFromBsonValue(rawValue, expectedKind)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert array element %d: %w", i, err)
 		}
@@ -158,24 +158,24 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 		arr := bson.RawArray(v.Array())
 		switch maybeExpectedKind {
 		case types.QValueKindArrayString:
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueString) string { return q.Val })
+			values, err := typedArrayFromBson(c, arr, types.QValueKindString, func(q types.QValueString) string { return q.Val })
 			return types.QValueArrayString{Val: values}, err
 		case types.QValueKindArrayInt64:
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueInt64) int64 { return q.Val })
+			values, err := typedArrayFromBson(c, arr, types.QValueKindInt64, func(q types.QValueInt64) int64 { return q.Val })
 			return types.QValueArrayInt64{Val: values}, err
 		case types.QValueKindArrayFloat64:
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueFloat64) float64 { return q.Val })
+			values, err := typedArrayFromBson(c, arr, types.QValueKindFloat64, func(q types.QValueFloat64) float64 { return q.Val })
 			return types.QValueArrayFloat64{Val: values}, err
 		case types.QValueKindArrayBoolean:
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueBoolean) bool { return q.Val })
+			values, err := typedArrayFromBson(c, arr, types.QValueKindBoolean, func(q types.QValueBoolean) bool { return q.Val })
 			return types.QValueArrayBoolean{Val: values}, err
 		case types.QValueKindArrayTimestamp:
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueTimestamp) time.Time { return q.Val })
+			values, err := typedArrayFromBson(c, arr, types.QValueKindTimestamp, func(q types.QValueTimestamp) time.Time { return q.Val })
 			return types.QValueArrayTimestamp{Val: values}, err
 		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 			// The array kinds of JSON have no dedicated QValue struct.
 			// This yields a QValueJSON holding the whole array serialized in Val and IsArray: true.
-			values, err := typedArrayFromBson(c, arr, func(q types.QValueJSON) nullableJSONElement {
+			values, err := typedArrayFromBson(c, arr, types.QValueKindJSON, func(q types.QValueJSON) nullableJSONElement {
 				return nullableJSONElement{value: q.Val, hasValue: true}
 			})
 			if err != nil {
@@ -226,17 +226,34 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 	case bsoncore.TypeSymbol: // deprecated type, kept for backwards-compatibility
 		return c.QValueStringFromString(v.Symbol()), nil
 
-	case bsoncore.TypeInt32:
-		return types.QValueInt64{Val: int64(v.Int32())}, nil
-
 	case bsoncore.TypeTimestamp:
 		t, i := v.Timestamp()
 		c.stream.Reset(nil)
 		shared_mongo.WriteTimestampJSON(c.stream, t, i)
 		return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 
+	// We use the `maybeExpectedKind` hint to resolve cases where MongoDB driver
+	// reports 5.0 as an integer.
+
+	case bsoncore.TypeInt32:
+		switch maybeExpectedKind {
+		case types.QValueKindFloat32:
+			return types.QValueFloat32{Val: float32(v.Int32())}, nil
+		case types.QValueKindFloat64:
+			return types.QValueFloat64{Val: float64(v.Int32())}, nil
+		default:
+			return types.QValueInt64{Val: int64(v.Int32())}, nil
+		}
+
 	case bsoncore.TypeInt64:
-		return types.QValueInt64{Val: v.Int64()}, nil
+		switch maybeExpectedKind {
+		case types.QValueKindFloat32:
+			return types.QValueFloat32{Val: float32(v.Int64())}, nil
+		case types.QValueKindFloat64:
+			return types.QValueFloat64{Val: float64(v.Int64())}, nil
+		default:
+			return types.QValueInt64{Val: v.Int64()}, nil
+		}
 
 	case bsoncore.TypeDecimal128:
 		h, l := v.Decimal128()

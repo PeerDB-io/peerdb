@@ -838,6 +838,31 @@ func TestQValueFromBsonValue(t *testing.T) {
 		require.Equal(t, types.QValueNull(types.QValueKindInt64), result)
 	})
 
+	t.Run("a number lands as the float kind of its column", func(t *testing.T) {
+		for _, test := range []struct {
+			input    any
+			kind     types.QValueKind
+			expected types.QValue
+		}{
+			{input: 5.0, kind: types.QValueKindFloat64, expected: types.QValueFloat64{Val: 5}},
+			{input: int32(5), kind: types.QValueKindFloat64, expected: types.QValueFloat64{Val: 5}},
+			{input: int64(5), kind: types.QValueKindFloat64, expected: types.QValueFloat64{Val: 5}},
+			{input: int32(5), kind: types.QValueKindFloat32, expected: types.QValueFloat32{Val: 5}},
+			{input: int64(5), kind: types.QValueKindFloat32, expected: types.QValueFloat32{Val: 5}},
+			// integers stay integers in any other column
+			{input: int32(5), kind: types.QValueKindInt64, expected: types.QValueInt64{Val: 5}},
+			{input: int64(5), kind: "", expected: types.QValueInt64{Val: 5}},
+		} {
+			t.Run(fmt.Sprintf("%T into %q", test.input, test.kind), func(t *testing.T) {
+				raw, err := bson.Marshal(bson.D{{Key: "a", Value: test.input}})
+				require.NoError(t, err)
+				result, err := converter.QValueFromBsonValue(bson.Raw(raw).Lookup("a"), test.kind)
+				require.NoError(t, err)
+				require.Equal(t, test.expected, result)
+			})
+		}
+	})
+
 	t.Run("null value is null of the requested kind", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "a", Value: nil}})
 		require.NoError(t, err)
@@ -887,6 +912,13 @@ func TestTypedArraysFromBson(t *testing.T) {
 			rawArrayValueOf(t, bson.A{1.5, -2.25}), types.QValueKindArrayFloat64)
 		require.NoError(t, err)
 		require.Equal(t, types.QValueArrayFloat64{Val: []float64{1.5, -2.25}}, values)
+	})
+
+	t.Run("doubles and integers together land as Float64", func(t *testing.T) {
+		values, err := converter.QValueFromBsonValue(
+			rawArrayValueOf(t, bson.A{5.0, int32(5), int64(5)}), types.QValueKindArrayFloat64)
+		require.NoError(t, err)
+		require.Equal(t, types.QValueArrayFloat64{Val: []float64{5, 5, 5}}, values)
 	})
 
 	t.Run("booleans land as Boolean", func(t *testing.T) {
@@ -1001,7 +1033,7 @@ func TestTypedArraysFromBson(t *testing.T) {
 		// exercised on the element walker directly: the dispatch only ever sees arrays already
 		// extracted from valid documents
 		_, err := typedArrayFromBson(converter,
-			bson.RawArray{0xff, 0x00, 0x00, 0x00, 0x00}, func(q types.QValueInt64) int64 { return q.Val })
+			bson.RawArray{0xff, 0x00, 0x00, 0x00, 0x00}, types.QValueKindInt64, func(q types.QValueInt64) int64 { return q.Val })
 		require.ErrorContains(t, err, "failed to read array elements")
 	})
 }
