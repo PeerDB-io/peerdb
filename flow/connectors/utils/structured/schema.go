@@ -186,10 +186,10 @@ func kindMatches(kind types.QValueKind, value types.QValue) bool {
 	return kind == value.Kind()
 }
 
-var dateTime64Regex = regexp.MustCompile(`DateTime64\([0-9]+\)`)
+var dateTime64Regex = regexp.MustCompile(`DateTime64\(\d+\)`)
 
 // NormalizeStructuredIngestionTypes rewrites the destination types of a mapping with structured ingestion
-// to normalize infered types as compatible ones.
+// to normalize inferred types as compatible ones.
 func NormalizeStructuredIngestionTypes(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
 	if !config.GetEnabled() {
 		return

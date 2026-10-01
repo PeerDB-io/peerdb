@@ -976,7 +976,8 @@ func TestTypedArraysFromBson(t *testing.T) {
 			{types.QValueKindArrayBoolean, bson.A{nil, true}, types.QValueArrayBoolean{Val: []bool{false, true}}},
 			// in an array of JSON the zero value is the JSON null, keeping the array well-formed
 			{
-				types.QValueKindArrayJSON, bson.A{bson.D{{Key: "k", Value: int64(1)}}, nil, bson.D{}},
+				types.QValueKindArrayJSON,
+				bson.A{bson.D{{Key: "k", Value: int64(1)}}, nil, bson.D{}},
 				types.QValueJSON{Val: `[{"k":1},null,{}]`, IsArray: true},
 			},
 		} {
