@@ -208,7 +208,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	for _, tm := range cfg.TableMappings {
-		// All top level array columns should have their elements made nullable when structured ingestion is enabled.
 		structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 	}
 
@@ -270,7 +269,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		cfg.Flags = flags
 	}
 
-	// All top level array columns should have their elements made nullable when structured ingestion is enabled.
 	structured.NormalizeStructuredIngestionTypes(cfg.StructuredIngestionConfig, cfg.Columns)
 	if apiErr := h.checkQRepTableConfig(ctx, cfg); apiErr != nil {
 		return nil, apiErr
@@ -468,7 +466,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
 		}
 		for _, tm := range cdcUpdate.AdditionalTables {
-			// All top level array columns should have their elements made nullable when structured ingestion is enabled.
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 	}
