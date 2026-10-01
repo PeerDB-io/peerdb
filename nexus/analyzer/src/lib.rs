@@ -524,9 +524,16 @@ pub fn check_execute_peer(statement: &Statement) -> anyhow::Result<Option<PeerDD
                     _ => None,
                 } {
                     Ok(Some(PeerDDL::ExecutePeer {
+                        // use the ident value, not to_string(), which keeps the surrounding
+                        // quotes of "my-peer"; quoted names keep their case
                         peer_name: name
                             .as_ref()
-                            .map(|n| n.to_string().to_lowercase())
+                            .and_then(|n| n.0.first())
+                            .and_then(|p| p.as_ident())
+                            .map(|i| match i.quote_style {
+                                Some(_) => i.value.clone(),
+                                None => i.value.to_lowercase(),
+                            })
                             .unwrap_or_default(),
                         query: query.to_string(),
                     }))
