@@ -563,6 +563,22 @@ func TestStructuredArrayColumns(t *testing.T) {
 		require.JSONEq(t, `{"scores": {"type_mismatch": true, "value": "[1,true]"}}`, malformed.Val)
 	})
 
+	t.Run("an array mixing JSON and other elements is a reported type mismatch for an array of JSON", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{
+			{Key: "_id", Value: oid},
+			{Key: "attachments", Value: bson.A{"text", bson.D{{Key: "k", Value: int64(1)}}}},
+		})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		// not stored as a JSON array the column would take: reported, like any other unfitting array
+		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
+		malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "[\"text\",{\"k\":1}]"}}`, malformed.Val)
+	})
+
 	t.Run("an absent array column is a null of its array kind", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: oid}})
 		require.NoError(t, err)

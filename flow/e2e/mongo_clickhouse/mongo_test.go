@@ -337,6 +337,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
 		// arrays of embedded documents land element by element as JSON, a null as the empty object
 		{SourceName: "attachments", DestinationType: "Array(JSON)"},
+		// receives an array mixing documents and scalars, which an array of JSON does not take
+		{SourceName: "notes", DestinationType: "Array(JSON)"},
 		// arrays of dates, declared as discovery infers them
 		{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
 	}
@@ -362,6 +364,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
 				{Key: "mixed", Value: bson.A{int64(i), true}},
 				{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(i)}}, nil}},
+				{Key: "notes", Value: bson.A{"text", bson.D{{Key: "k", Value: int64(i)}}}},
 				{Key: "visits", Value: bson.A{time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour), nil}},
 			}, options.InsertOne())
 			require.NoError(t, err)
@@ -405,14 +408,15 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
 	// column empty and was reported instead
-	var nestedRows, arrayRows, emptyMixedRows, reportedRows uint64
+	var nestedRows, arrayRows, emptyMixedRows, emptyNotesRows, reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)),
+		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)), countIf(empty(notes)),
 			countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
-		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &reportedRows))
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &emptyNotesRows, &reportedRows))
 	require.Equal(t, uint64(20), nestedRows)
 	require.Equal(t, uint64(20), arrayRows)
 	require.Equal(t, uint64(20), emptyMixedRows)
+	require.Equal(t, uint64(20), emptyNotesRows)
 	require.Equal(t, uint64(20), reportedRows)
 	// per leg, the nested document survives whole, the typed array lands element by element, and the
 	// unfitting array is reported verbatim in its JSON form
@@ -423,7 +427,10 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &items, &malformed))
 		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
 		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
-		require.JSONEq(t, `{"mixed": {"type_mismatch": true, "value": "[3,true]"}}`, malformed)
+		require.JSONEq(t, `{
+			"mixed": {"type_mismatch": true, "value": "[3,true]"},
+			"notes": {"type_mismatch": true, "value": "[\"text\",{\"k\":3}]"}
+		}`, malformed)
 
 		// the array of JSON keeps its elements, the null one as the empty object
 		var attachmentsLength uint64
