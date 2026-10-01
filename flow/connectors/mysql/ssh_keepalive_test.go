@@ -23,13 +23,13 @@ import (
 )
 
 const (
-	toxiproxyDownProxyPort              = 12001
-	toxiproxyLatencyProxyPort           = 12002
-	toxiproxyResetProxyPort             = 12003
-	toxiproxyCDCHangProxyPort           = 12004
-	toxiproxyCDCCloseHangProxyPort      = 12005
-	toxiproxyCloseSyncerWithTimeoutPort = 12006
-	toxiproxyBinlogStalenessPort        = 12007
+	toxiproxyDownProxyPort       = 12001
+	toxiproxyLatencyProxyPort    = 12002
+	toxiproxyResetProxyPort      = 12003
+	toxiproxyCDCHangProxyPort    = 12004
+	toxiproxyCDCCancellationPort = 12005
+	toxiproxyStalledSSHClosePort = 12006
+	toxiproxyBinlogStalenessPort = 12007
 )
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
@@ -249,7 +249,7 @@ func TestSSHKeepaliveCDCHang(t *testing.T) {
 	}
 }
 
-func TestSSHKeepaliveCDCCloseHang(t *testing.T) {
+func TestCDCCancellationWithStalledSSH(t *testing.T) {
 	t.Parallel()
 	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
 	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
@@ -257,13 +257,10 @@ func TestSSHKeepaliveCDCCloseHang(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-latency-test", toxiproxyCDCCloseHangProxyPort)
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-ssh-cdc-cancellation-test", toxiproxyCDCCancellationPort)
 	defer connector.Close()
 
-	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
-	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
-
-	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_close_hang")
+	req, otelManager := setupCDCPullRecords(ctx, t, connector, "test_ssh_cdc_cancellation")
 
 	// Use a short-lived context so PullRecords starts shutting down while
 	// the connection is blocked by latency
@@ -289,66 +286,16 @@ func TestSSHKeepaliveCDCCloseHang(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	t.Logf("Waiting for context cancel (~5s), then PullRecords should hang until keepalive fires (within %s)", 3*utils.SSHKeepaliveInterval)
+	<-cancelCtx.Done()
 
-	// Wait for keepalive to detect the failure — PullRecords should be hanging
-	// until keepalive closes the underlying connection
-	select {
-	case <-keepaliveChan:
-		t.Log("SSH keepalive detected failure")
-	case <-time.After(3 * utils.SSHKeepaliveInterval):
-		t.Fatal("SSH keepalive did not fire in time")
-	}
-
+	// Allow the 10s syncer-close timeout plus scheduling margin. Cancellation
+	// must return within this budget whether cleanup closes the tunnel or not.
 	select {
 	case <-pullDone.Chan():
 		pullErr := pullDone.Wait()
 		require.ErrorIs(t, pullErr, context.DeadlineExceeded)
-	case <-time.After(10 * time.Second):
-		t.Fatal("PullRecords did not return after SSH keepalive closed the connection")
-	}
-}
-
-func TestCloseSyncerWithTimeout(t *testing.T) {
-	t.Parallel()
-	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
-	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		t.Skip("SSH tests only run for MySQL")
-	}
-	ctx := t.Context()
-	connector, mysqlProxy := setupMySQLConnectorWithMySQLProxy(
-		ctx, t, "my-close-syncer-timeout-test", toxiproxyCloseSyncerWithTimeoutPort)
-	defer connector.Close()
-
-	pos, err := connector.GetMasterPos(ctx)
-	require.NoError(t, err)
-	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
-	require.NoError(t, err)
-
-	// Let CDC streaming establish before blocking the MySQL server.
-	time.Sleep(2 * time.Second)
-
-	// Black-hole the MySQL server so syncer.Close() hangs
-	_, err = mysqlProxy.AddToxic("latency", "latency", "", 1.0, toxiproxy.Attributes{
-		"latency": 120000,
-	})
-	require.NoError(t, err)
-
-	syncerCloseTimeout := 2 * time.Second
-	done := make(chan struct{})
-	start := time.Now()
-	go func() {
-		connector.closeSyncerWithTimeout(syncer, syncerCloseTimeout)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		elapsed := time.Since(start)
-		require.GreaterOrEqual(t, elapsed, syncerCloseTimeout)
-		require.Less(t, elapsed, syncerCloseTimeout+time.Second)
-	case <-time.After(10 * time.Second):
-		t.Fatal("closeSyncerWithTimeout did not return on timeout")
+	case <-time.After(15 * time.Second):
+		t.Fatal("PullRecords did not return within the cleanup budget after its context expired")
 	}
 }
 
@@ -401,5 +348,42 @@ func TestBinlogStalenessThreshold(t *testing.T) {
 			staleErr.Since, staleErr.HeartbeatPeriod)
 	case <-time.After(30 * time.Second):
 		t.Fatal("PullRecords did not return MySQLStaleConnectionError within staleness budget")
+	}
+}
+
+// Verify that syncer.Close completes with SSH downstream traffic stalled,
+// without triggering the timeout that force-closes the tunnel. Opening a
+// new SSH channel for go-mysql's shutdown KILL would require a server reply
+// and prevent shutdown from completing within the timeout.
+func TestSyncerCloseWithStalledSSHDownstream(t *testing.T) {
+	t.Parallel()
+	flavor, _ := internal.MySQLTestFlavorAndMechanism(t)
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		t.Skip("SSH tests only run for MySQL")
+	}
+	ctx := t.Context()
+	connector, sshProxy := setupMySQLConnectorWithSSHProxy(ctx, t, "my-stalled-ssh-close-test", toxiproxyStalledSSHClosePort)
+	defer connector.Close()
+
+	pos, err := connector.GetMasterPos(ctx)
+	require.NoError(t, err)
+	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
+	require.NoError(t, err)
+
+	_, err = sshProxy.AddToxic("stall", "latency", "downstream", 1.0, toxiproxy.Attributes{"latency": 120000})
+	require.NoError(t, err)
+
+	// Use a timeout shorter than go-mysql's 10s dial timeout so an attempted
+	// KILL connection triggers the fallback and fails the tunnel-health check.
+	done := make(chan struct{})
+	go func() {
+		connector.closeSyncerWithTimeout(syncer, 5*time.Second)
+		close(done)
+	}()
+	select {
+	case <-done:
+		require.False(t, connector.ssh.IsBad(), "syncer.Close waited on the SSH server and the tunnel was force-closed")
+	case <-time.After(30 * time.Second):
+		t.Fatal("closeSyncerWithTimeout did not return")
 	}
 }
