@@ -283,6 +283,8 @@ services:
       - 12003:12003
       - 12004:12004
       - 12005:12005
+      - 12006:12006
+      # 12007 doesn't need publishing (only used within the docker network)
       - 14001:14001
       - 14002:14002
       - 14003:14003

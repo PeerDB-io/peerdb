@@ -28,7 +28,7 @@ import (
 func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *replication.BinlogStreamer {
 	t.Helper()
 
-	var syncer *replication.BinlogSyncer
+	var syncer *binlogSyncer
 	var stream *replication.BinlogStreamer
 	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 		pos, err := c.GetMasterPos(ctx)
