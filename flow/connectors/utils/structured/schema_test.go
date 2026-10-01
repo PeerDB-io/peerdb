@@ -272,15 +272,16 @@ func TestNormalizeStructuredIngestionTypes(t *testing.T) {
 	for _, column := range columns {
 		destinationTypes = append(destinationTypes, column.DestinationType)
 	}
+	// dates of any precision are declared with microseconds, any other type is left as declared
 	require.Equal(t, []string{
-		"Array(Nullable(String))",
+		"Array(String)",
 		"Array(LowCardinality(String))",
 		"Nullable(String)",
 		"Nullable(DateTime64(6))",
-		"Array(Nullable(DateTime64(6)))",
+		"Array(DateTime64(6))",
 		"Array(Nullable(DateTime64(6)))",
 		"Nullable(DateTime64(6))",
-		"Array(Nullable(DateTime64(6)))",
+		"Array(DateTime64(6))",
 	}, destinationTypes)
 
 	// without structured ingestion enabled the columns are left as declared

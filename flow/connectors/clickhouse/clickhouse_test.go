@@ -135,30 +135,3 @@ func TestQValueKindForTypeUnsupported(t *testing.T) {
 		})
 	}
 }
-
-func TestNullableArrayType(t *testing.T) {
-	for columnType, expected := range map[string]string{
-		"Array(Int64)":                            "Array(Nullable(Int64))",
-		"Array(String)":                           "Array(Nullable(String))",
-		"Array(JSON)":                             "Array(Nullable(JSON))",
-		"Array(DateTime64(6))":                    "Array(Nullable(DateTime64(6)))",
-		"Array(Decimal(38,9))":                    "Array(Nullable(Decimal(38,9)))",
-		"Array(Nullable(Int64))":                  "Array(Nullable(Int64))",
-		"Array(LowCardinality(String))":           "Array(LowCardinality(String))",
-		"Array(LowCardinality(Nullable(String)))": "Array(LowCardinality(Nullable(String)))",
-		// elements that cannot be Nullable
-		"Array(Array(Int64))":          "Array(Array(Int64))",
-		"Array(Map(String,Int64))":     "Array(Map(String,Int64))",
-		"Array(Tuple(Int64,String))":   "Array(Tuple(Int64,String))",
-		"Array(Variant(Int64,String))": "Array(Variant(Int64,String))",
-		"Array(Dynamic)":               "Array(Dynamic)",
-		// not arrays
-		"Int64":           "Int64",
-		"Nullable(Int64)": "Nullable(Int64)",
-		"":                "",
-	} {
-		t.Run(columnType, func(t *testing.T) {
-			require.Equal(t, expected, NullableArrayType(columnType))
-		})
-	}
-}

@@ -338,7 +338,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "items", DestinationType: "Array(String)"},
 		// receives an array its element types do not fit
 		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
-		// arrays of embedded documents land element by element as JSON, nulls included
+		// arrays of embedded documents land element by element as JSON, a null as the empty object
 		{SourceName: "attachments", DestinationType: "Array(JSON)"},
 		// arrays of dates, declared as discovery infers them
 		{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
@@ -401,9 +401,9 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	}
 	require.NoError(t, columnTypes.Err())
 	require.Equal(t, map[string]string{
-		"items": "Array(Nullable(String))", "mixed": "Array(Nullable(Int64))", "attachments": "Array(Nullable(JSON))",
+		"items": "Array(String)", "mixed": "Array(Nullable(Int64))", "attachments": "Array(JSON)",
 		// DateTime64(9) declared, created with microseconds: MongoDB dates carry milliseconds
-		"visits": "Array(Nullable(DateTime64(6)))",
+		"visits": "Array(DateTime64(6))",
 	}, actualColumnTypes)
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
@@ -428,16 +428,15 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
 		require.JSONEq(t, `{"mixed": {"type_mismatch": true, "value": "[3,true]"}}`, malformed)
 
-		// the array of JSON keeps its elements, the null one included
+		// the array of JSON keeps its elements, the null one as the empty object
 		var attachmentsLength uint64
-		var firstAttachment string
-		var secondAttachmentIsNull bool
+		var firstAttachment, secondAttachment string
 		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT length(attachments), toString(attachments[1]), isNull(attachments[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
-			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&attachmentsLength, &firstAttachment, &secondAttachmentIsNull))
+			`SELECT length(attachments), toString(attachments[1]), toString(attachments[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&attachmentsLength, &firstAttachment, &secondAttachment))
 		require.Equal(t, uint64(2), attachmentsLength)
 		require.JSONEq(t, `{"k": 3}`, firstAttachment)
-		require.True(t, secondAttachmentIsNull)
+		require.JSONEq(t, `{}`, secondAttachment)
 
 		// the array of dates keeps its elements, the null one zero-filled
 		var visitsLength uint64

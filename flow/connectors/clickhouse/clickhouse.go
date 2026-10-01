@@ -408,27 +408,6 @@ var notNullableTypesPrefixes = []string{
 	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
 }
 
-// Element types an array keeps as declared when its elements are made Nullable: already Nullable,
-// LowCardinality, or not allowed inside Nullable.
-var arrayElementNotNullablePrefixes = append([]string{"Nullable(", "LowCardinality(", "Variant(", "Dynamic"},
-	notNullableTypesPrefixes...)
-
-// NullableArrayType declares the elements of an array type Nullable, Array(T) into Array(Nullable(T)),
-// unless they already are or cannot be. Any other type is returned as is.
-func NullableArrayType(columnType string) string {
-	elementType, isArray := strings.CutPrefix(columnType, arrayPrefix)
-	if !isArray {
-		return columnType
-	}
-	for _, prefix := range arrayElementNotNullablePrefixes {
-		if strings.HasPrefix(elementType, prefix) {
-			return columnType
-		}
-	}
-	// elementType still ends with the array's closing parenthesis
-	return arrayPrefix + "Nullable(" + elementType + ")"
-}
-
 func typeResolutionError(columnType string) error {
 	return fmt.Errorf("failed to resolve QValueKind for %s", columnType)
 }

@@ -196,9 +196,7 @@ func NormalizeStructuredIngestionTypes(config *protos.StructuredIngestionTableCo
 	}
 	for _, column := range columns {
 		// All structured ingestion dates use fix precision to microseconds
-		destinationType := dateTime64Regex.ReplaceAllString(column.DestinationType, "DateTime64(6)")
-		// All array types are coerced to accept null elements
-		column.DestinationType = connclickhouse.NullableArrayType(destinationType)
+		column.DestinationType = dateTime64Regex.ReplaceAllString(column.DestinationType, "DateTime64(6)")
 	}
 }
 
