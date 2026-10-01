@@ -318,10 +318,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 }
 
 // Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
-// nested content: embedded documents land whole in JSON columns, arrays included at any depth, and
-// top-level arrays land typed in array columns, while an array that does not fit its column is reported
-// in _peerdb_malformed_data with the column left empty. Note that a top-level array cannot land in a
-// JSON column: ClickHouse JSON accepts only objects at the root.
+// nested content
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
@@ -450,6 +447,132 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 			// the zero time is clamped to the DateTime64 range by the CDC normalization
 			require.Equal(t, "1900-01-01 00:00:00.000000", secondVisit)
 		}
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Scalars_And_Typed_Arrays covers the destination types the other structured
+// ingestion tests leave out, on both the initial load and CDC: floats, integers widened into floats, booleans,
+// dates, typed arrays of integers, floats and booleans, the scalars mapping to strings, and the ones mapping
+// to JSON objects.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Scalars_And_Typed_Arrays() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_scalars"
+	dstTable := "test_structured_scalars_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "score", DestinationType: "Nullable(Float64)"},
+		// integers widen into float columns
+		{SourceName: "score_from_int", DestinationType: "Nullable(Float64)"},
+		{SourceName: "ratio", DestinationType: "Nullable(Float32)"},
+		{SourceName: "active", DestinationType: "Nullable(Bool)"},
+		// declared as discovery infers dates
+		{SourceName: "created", DestinationType: "Nullable(DateTime64(9))"},
+		{SourceName: "counts", DestinationType: "Array(Int64)"},
+		// doubles and integers mixed
+		{SourceName: "weights", DestinationType: "Array(Float64)"},
+		{SourceName: "flags", DestinationType: "Array(Bool)"},
+		// scalars mapping to strings
+		{SourceName: "ref", DestinationType: "Nullable(String)"},
+		{SourceName: "amount", DestinationType: "Nullable(String)"},
+		// scalars mapping to JSON objects
+		{SourceName: "blob", DestinationType: "Nullable(JSON)"},
+		{SourceName: "pattern", DestinationType: "Nullable(JSON)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	ref, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	amount, err := bson.ParseDecimal128("12.34")
+	require.NoError(t, err)
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "score", Value: float64(i) + 0.5},
+				{Key: "score_from_int", Value: int32(i)},
+				{Key: "ratio", Value: int64(i)},
+				{Key: "active", Value: i%2 == 0},
+				{Key: "created", Value: time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour)},
+				{Key: "counts", Value: bson.A{int32(i), int64(i + 1)}},
+				{Key: "weights", Value: bson.A{5.0, int32(i)}},
+				{Key: "flags", Value: bson.A{true, false}},
+				{Key: "ref", Value: ref},
+				{Key: "amount", Value: amount},
+				{Key: "blob", Value: bson.Binary{Subtype: 0x80, Data: []byte("hello")}},
+				{Key: "pattern", Value: bson.Regex{Pattern: "^a", Options: "i"}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// dates are created with microseconds, every other column as declared
+	var createdType string
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		"SELECT type FROM system.columns WHERE database = '%s' AND table = '%s' AND name = 'created'",
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&createdType))
+	require.Equal(t, "Nullable(DateTime64(6))", createdType)
+
+	// every value fitted its column
+	var wellFormedRows uint64
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		`SELECT countIf(_peerdb_malformed_data IS NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&wellFormedRows))
+	require.Equal(t, uint64(20), wellFormedRows)
+
+	for _, prefix := range []string{"init", "cdc"} {
+		var score, scoreFromInt, ratio, active, created, counts, weights, flags, refValue, amountValue, blob, pattern string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT toString(score), toString(score_from_int), toString(ratio), toString(active), toString(created),
+				toString(counts), toString(weights), toString(flags), toString(ref), toString(amount),
+				toString(blob), toString(pattern)
+			FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(
+			&score, &scoreFromInt, &ratio, &active, &created, &counts, &weights, &flags, &refValue, &amountValue, &blob, &pattern))
+		require.Equal(t, "3.5", score, prefix)
+		require.Equal(t, "3", scoreFromInt, prefix)
+		require.Equal(t, "3", ratio, prefix)
+		require.Equal(t, "false", active, prefix)
+		require.Equal(t, "2024-01-02 06:04:05.123000", created, prefix)
+		require.Equal(t, "[3,4]", counts, prefix)
+		require.Equal(t, "[5,3]", weights, prefix)
+		require.Equal(t, "[true,false]", flags, prefix)
+		require.Equal(t, "507f1f77bcf86cd799439011", refValue, prefix)
+		require.Equal(t, "12.34", amountValue, prefix)
+		require.JSONEq(t, `{"Subtype": 128, "Data": "aGVsbG8="}`, blob, prefix)
+		require.JSONEq(t, `{"Pattern": "^a", "Options": "i"}`, pattern, prefix)
 	}
 
 	env.Cancel(t.Context())
