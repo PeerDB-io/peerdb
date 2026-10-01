@@ -80,6 +80,39 @@ func TestBuildInsertFromTableFunctionQueryArrayTime(t *testing.T) {
 		query)
 }
 
+// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks arrays of JSON, staged as a string holding the
+// whole array, are parsed when their column is declared an array, a null one into the empty array, and
+// left as is otherwise, as when they land in a String column.
+func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema: types.QRecordSchema{Fields: []types.QField{
+			{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
+			{Name: "docsb", Type: types.QValueKindArrayJSONB, Nullable: true},
+			{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
+		}},
+		config: &protos.QRepConfig{
+			Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
+				{SourceName: "docsb", DestinationType: "Array(JSON)"},
+			},
+		},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`docs`,`docsb`,`docs_as_string`) SELECT "+
+			"JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))'),"+
+			"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"+
+			"`docs_as_string` "+
+			"FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}
+
 // TestBuildInsertFromTableFunctionQueryJSON checks the native JSON casts: CAST(NULL, 'JSON') fails, so a
 // nullable JSON field has to be cast to Nullable(JSON) while a non-nullable one is cast to JSON.
 func TestBuildInsertFromTableFunctionQueryJSON(t *testing.T) {

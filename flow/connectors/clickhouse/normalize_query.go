@@ -285,6 +285,24 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
+		case "Array(JSON)", "Array(Nullable(JSON))":
+			// Arrays of JSON are stored in the raw data as a string holding the whole array.
+			// Extracting the array type straight from the field would find a string and yield [].
+			// A missing field or a JSON null extracts as '', so as the empty array.
+			fmt.Fprintf(&projection,
+				"JSONExtract(JSONExtractString(_peerdb_data, %s), %s) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteLiteral(clickHouseType),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"JSONExtract(JSONExtractString(_peerdb_match_data, %s), %s) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteLiteral(clickHouseType),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
 		case "Nullable(JSON)":
 			// JSONExtractString yields '' both for a JSON null and for a missing field, and casting
 			// '' (or NULL) with ::JSON raises; route those to NULL instead.

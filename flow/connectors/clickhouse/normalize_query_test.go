@@ -53,6 +53,46 @@ func TestBuildQueryNullableDestinationTypeOverride(t *testing.T) {
 	require.NotContains(t, query, "Nullable(Nullable(")
 }
 
+// TestBuildQueryArrayOfJSON checks arrays of JSON, stored in the raw data as a string holding the whole
+// array, are parsed from that string.
+// Extracting the array type straight from the field yields [].
+func TestBuildQueryArrayOfJSON(t *testing.T) {
+	schema := &protos.TableSchema{
+		TableIdentifier:   "src.t1",
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		NullableEnabled:   true,
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindString), TypeModifier: -1},
+			{Name: "docs", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
+			{Name: "docs_strict", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
+		},
+	}
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "src.t1",
+		DestinationTableIdentifier: "t1_dst",
+		Columns: []*protos.ColumnSetting{
+			{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
+			{SourceName: "docs_strict", DestinationType: "Array(JSON)"},
+		},
+	}
+
+	query, err := NewNormalizeQueryGenerator(
+		"t1_dst",
+		map[string]*protos.TableSchema{"t1_dst": schema},
+		[]*protos.TableMapping{tableMapping},
+		1, 0,
+		false, false,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+	).BuildQuery(t.Context())
+	require.NoError(t, err)
+
+	require.Contains(t, query,
+		`JSONExtract(JSONExtractString(_peerdb_data, 'docs'), 'Array(Nullable(JSON))') AS `+"`docs`")
+	require.Contains(t, query,
+		`JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(JSON)') AS `+"`docs_strict`")
+}
+
 // TestBuildQueryNullableJSON checks the projection for native JSON columns.
 // JSONExtractString yields `""` both for a JSON null and for a missing field so `"" ::JSON` errors.
 // Nullable(JSON) column has to route `""` to NULL.

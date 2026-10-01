@@ -338,6 +338,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "items", DestinationType: "Array(String)"},
 		// receives an array its element types do not fit
 		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
+		// arrays of embedded documents land element by element as JSON, nulls included
+		{SourceName: "attachments", DestinationType: "Array(JSON)"},
 	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -360,6 +362,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 				}},
 				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
 				{Key: "mixed", Value: bson.A{int64(i), true}},
+				{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(i)}}, nil}},
 			}, options.InsertOne())
 			require.NoError(t, err)
 			require.True(t, res.Acknowledged)
@@ -383,7 +386,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	defer ch.Close()
 	// the array columns were created with their declared types: verbatim, never Nullable-wrapped
 	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
-		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed')",
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed', 'attachments')",
 		peer.GetClickhouseConfig().Database, dstTable))
 	require.NoError(t, err)
 	defer columnTypes.Close()
@@ -394,7 +397,9 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		actualColumnTypes[name] = columnType
 	}
 	require.NoError(t, columnTypes.Err())
-	require.Equal(t, map[string]string{"items": "Array(Nullable(String))", "mixed": "Array(Nullable(Int64))"}, actualColumnTypes)
+	require.Equal(t, map[string]string{
+		"items": "Array(Nullable(String))", "mixed": "Array(Nullable(Int64))", "attachments": "Array(Nullable(JSON))",
+	}, actualColumnTypes)
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
 	// column empty and was reported instead
@@ -417,6 +422,17 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
 		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
 		require.JSONEq(t, `{"mixed": {"type_mismatch": true, "value": "[3,true]"}}`, malformed)
+
+		// the array of JSON keeps its elements, the null one included
+		var attachmentsLength uint64
+		var firstAttachment string
+		var secondAttachmentIsNull bool
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT length(attachments), toString(attachments[1]), isNull(attachments[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&attachmentsLength, &firstAttachment, &secondAttachmentIsNull))
+		require.Equal(t, uint64(2), attachmentsLength)
+		require.JSONEq(t, `{"k": 3}`, firstAttachment)
+		require.True(t, secondAttachmentIsNull)
 	}
 
 	env.Cancel(t.Context())
