@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -662,8 +663,29 @@ const (
 	BinaryFormatHex
 )
 
+// env maps are shared across goroutines within an activity (e.g. pull/sync/normalize),
+// and dynLookup writes resolved values back into them
+// untangling the configs and doing explicit caching / intentional write-back would be better
+// but life is short
+var envMu sync.RWMutex
+
+func envGet(env map[string]string, key string) (string, bool) {
+	envMu.RLock()
+	defer envMu.RUnlock()
+	val, ok := env[key]
+	return val, ok
+}
+
+func envSetIfMissing(env map[string]string, key string, val string) {
+	envMu.Lock()
+	defer envMu.Unlock()
+	if _, ok := env[key]; !ok {
+		env[key] = val
+	}
+}
+
 func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
-	if val, ok := env[key]; ok {
+	if val, ok := envGet(env, key); ok {
 		return val, nil
 	}
 
@@ -687,19 +709,19 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 	if !value.Valid {
 		if val, ok := os.LookupEnv(key); ok {
 			if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = val
+				envSetIfMissing(env, key, val)
 			}
 			return val, nil
 		}
 		if setting != nil {
 			if env != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-				env[key] = setting.DefaultValue
+				envSetIfMissing(env, key, setting.DefaultValue)
 			}
 			return setting.DefaultValue, nil
 		}
 	}
 	if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
-		env[key] = value.String
+		envSetIfMissing(env, key, value.String)
 	}
 	return value.String, nil
 }
