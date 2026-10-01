@@ -333,3 +333,5 @@ replace golang.org/x/crypto => github.com/PeerDB-io/crypto v0.57.17
 replace github.com/tikv/pd/client => github.com/tikv/pd/client v0.0.0-20251229071808-6173d50c004c // PINNED(DBI-444): the underlying dependency changed an interface
 
 replace github.com/PeerDB-io/peerdb/flow/pkg => ./pkg
+
+replace github.com/jackc/pglogrepl => github.com/PeerDB-io/pglogrepl v0.0.0-20261001172435-28b8bdb5772e

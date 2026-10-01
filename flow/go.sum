@@ -103,6 +103,8 @@ github.com/PeerDB-io/gluamsgpack v1.0.5 h1:YYWsAxjLBa6LkRAIYk+Z7O1tejIboi5fUrVpR
 github.com/PeerDB-io/gluamsgpack v1.0.5/go.mod h1:1ufs5NK2DczzQS78Nhy0AkCA0dOVyt/KVEk39lbWzyU=
 github.com/PeerDB-io/gluautf8 v1.0.0 h1:Ubhy6FVnrED5jrosdUOxzAkf3YdcgebYJzX2YBdGedE=
 github.com/PeerDB-io/gluautf8 v1.0.0/go.mod h1:+4RQlCVFCMikYFmiKUA9ADZftgGAZseMmdErxfE1EZQ=
+github.com/PeerDB-io/pglogrepl v0.0.0-20261001172435-28b8bdb5772e h1:UVPAxEUQfiKSGdTz2Kzwsvz3J9ri1eXenyMWV2hOh7c=
+github.com/PeerDB-io/pglogrepl v0.0.0-20261001172435-28b8bdb5772e/go.mod h1:UzTJ5Jjuf4O9hYWW+HYVwVldYz9J7CaePW0iuNJkrPQ=
 github.com/PeerDB-io/tikv-client-go/v2 v2.0.7 h1:5MV9vIGW/LyGZpY0E1exh2cPD/8blZeumoxIuJejLOk=
 github.com/PeerDB-io/tikv-client-go/v2 v2.0.7/go.mod h1:yThJL5frV87FtwMVElAnb1PXkTRkc274RrNgULhgX1M=
 github.com/RaduBerinde/axisds v0.1.0 h1:YItk/RmU5nvlsv/awo2Fjx97Mfpt4JfgtEVAGPrLdz8=
@@ -454,8 +456,6 @@ github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6 h1:D/V0gu4zQ3cL2WK
 github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6/go.mod h1:a/s9Lp5W7n/DD0VrVoyJ00FbP2ytTPDVOivvn2bMlds=
 github.com/jackc/pgio v1.0.0 h1:g12B9UwVnzGhueNavwioyEEpAmqMe1E/BN9ES+8ovkE=
 github.com/jackc/pgio v1.0.0/go.mod h1:oP+2QK2wFfUWgr+gxjoBH9KGBb31Eio69xUb0w5bYf8=
-github.com/jackc/pglogrepl v0.0.0-20260824121319-4ae5c490f7ce h1:vbG2mEA3L71+bAfq0pjZ9dykn5hWwVkP9nFuLBtlC/M=
-github.com/jackc/pglogrepl v0.0.0-20260824121319-4ae5c490f7ce/go.mod h1:UzTJ5Jjuf4O9hYWW+HYVwVldYz9J7CaePW0iuNJkrPQ=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
 github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
