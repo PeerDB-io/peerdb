@@ -394,7 +394,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		actualColumnTypes[name] = columnType
 	}
 	require.NoError(t, columnTypes.Err())
-	require.Equal(t, map[string]string{"items": "Array(String)", "mixed": "Array(Nullable(Int64))"}, actualColumnTypes)
+	require.Equal(t, map[string]string{"items": "Array(Nullable(String))", "mixed": "Array(Nullable(Int64))"}, actualColumnTypes)
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
 	// column empty and was reported instead
