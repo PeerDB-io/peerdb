@@ -21,6 +21,8 @@ type schemaColumn struct {
 type SchemaProjector struct {
 	// Schema columns by the record field they read from.
 	columns map[string]schemaColumn
+	// Set of excluded columns names (finding them is not unexpected)
+	excludedColumns map[string]struct{}
 	// Record fields in order: the schema columns as declared, then the malformed data column.
 	fields []types.QField
 	// Position of the malformed data column in fields, and so in the records ProjectRecord produces.
@@ -35,6 +37,7 @@ type SchemaProjector struct {
 func NewSchemaProjector(
 	schemaToQKind func(schemaType string) (types.QValueKind, error),
 	schemaColumns []*protos.ColumnSetting,
+	excludedColumnSet map[string]struct{},
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
 	schemaFields := make([]types.QField, 0, len(schemaColumns))
@@ -47,11 +50,14 @@ func NewSchemaProjector(
 		schemaFields = append(schemaFields, types.QField{Name: column.SourceName, Type: kind})
 	}
 
-	return NewSchemaProjectorFromQFields(schemaFields, shouldRecordValues)
+	return NewSchemaProjectorFromQFields(schemaFields, excludedColumnSet, shouldRecordValues)
 }
 
 // NewSchemaProjectorFromQFields builds a projector for schema columns whose QKinds are already resolved.
-func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValues bool) (*SchemaProjector, error) {
+// excludedColumnSet holds the record field names that are excluded: dropped instead of reported as unexpected.
+func NewSchemaProjectorFromQFields(
+	schemaFields []types.QField, excludedColumnSet map[string]struct{}, shouldRecordValues bool,
+) (*SchemaProjector, error) {
 	fields := make([]types.QField, 0, len(schemaFields)+1)
 	columns := make(map[string]schemaColumn, len(schemaFields))
 
@@ -80,6 +86,7 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 		malformedDataIndex: malformedDataIndex,
 		columns:            columns,
 		shouldRecordValues: shouldRecordValues,
+		excludedColumns:    excludedColumnSet,
 	}, nil
 }
 
@@ -88,15 +95,21 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 // the same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
 func NewSchemaProjectorFromCHtoQValue(
 	schemaColumns []*protos.ColumnSetting,
+	excludedColumnSet map[string]struct{},
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
-	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, shouldRecordValues)
+	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, excludedColumnSet, shouldRecordValues)
 }
 
 // QRecordSchema is the schema of the records ProjectRecord produces: the schema columns as declared
 // followed by the malformed data column.
 func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
+}
+
+func (sc *SchemaProjector) IsExcludedColumn(columnName string) bool {
+	_, isExcluded := sc.excludedColumns[columnName]
+	return isExcluded
 }
 
 // ProjectRecord projects a record onto the schema, laid out as QRecordSchema. Every schema column gets
@@ -115,6 +128,11 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	malformedData := NewMalformedData()
 
 	for field, value := range record {
+		// Excluded fields are dropped before anything else: never reported, even when repeated or
+		// declared as a schema column.
+		if sc.IsExcludedColumn(field) {
+			continue
+		}
 		// Only the first occurrence of a field is projected, whatever became of it: any later one is
 		// recorded as malformed data.
 		if _, seen := seenFields[field]; seen {
@@ -129,7 +147,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 
 		column, isSchemaColumn := sc.columns[field]
 
-		// Record fields not present in the schema are recorded as malformed data.
+		// Record fields not present in the schema are malformed data.
 		if !isSchemaColumn {
 			var recordedValue types.QValue
 			if sc.shouldRecordValues {

@@ -103,7 +103,7 @@ func (c *MongoConnector) PullQRepRecords(
 	var qValuesFromBsonRaw func(raw bson.Raw) ([]types.QValue, error)
 	structuredCfg := config.StructuredIngestionConfig
 	if structuredCfg.GetEnabled() {
-		projector, err := newStructuredSchemaProjector(config.Columns, !structuredCfg.GetDropUnexpectedValues())
+		projector, err := newStructuredSchemaProjector(config.Columns, config.Exclude, !structuredCfg.GetDropUnexpectedValues())
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
 		}
