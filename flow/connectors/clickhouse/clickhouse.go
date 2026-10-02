@@ -394,13 +394,16 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
-var parametricTypesPrefixes = []string{
-	"Nullable(",
-	"LowCardinality(",
+const arrayPrefix = "Array("
+
+var parametricTypesPrefixes = map[string]string{
+	"Nullable(":       "",
+	"LowCardinality(": "",
+	"Array(Nullable(": arrayPrefix,
 }
 
 var notNullableTypesPrefixes = []string{
-	"Array(",
+	arrayPrefix,
 	"Map(",
 	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
 }
@@ -417,13 +420,13 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		}
 	}
 
-	for _, parametricPrefix := range parametricTypesPrefixes {
+	for parametricPrefix, replacement := range parametricTypesPrefixes {
 		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
 			inner, found = strings.CutSuffix(inner, ")")
 			if !found {
 				return types.QValueKindInvalid, typeResolutionError(columnType)
 			}
-			return QValueKindForType(inner)
+			return QValueKindForType(replacement + inner)
 		}
 	}
 
@@ -484,6 +487,8 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayDate, nil
 	case "JSON":
 		return types.QValueKindJSON, nil
+	case "Array(JSON)":
+		return types.QValueKindArrayJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
 			if strings.HasPrefix(columnType, "Array(") {

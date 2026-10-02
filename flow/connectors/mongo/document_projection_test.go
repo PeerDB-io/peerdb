@@ -233,6 +233,11 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	})
 }
 
+// noExpectedKind is the column kind lookup of a document read without a schema: no field has a column.
+func noExpectedKind(string) (types.QValueKind, bool) {
+	return "", false
+}
+
 // BSON dates must fit DateTime64 columns: they convert to timestamps
 func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
@@ -269,13 +274,92 @@ func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	}, reported)
 }
 
+// Arrays of BSON dates must fit DateTime64 array columns: they convert to timestamp arrays
+func TestStructuredQValuesFromBsonRawDateArrays(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "visits", DestinationType: "Array(Nullable(DateTime64(6)))"},
+	}, nil, true)
+	require.NoError(t, err)
+	visit := time.Date(2026, 8, 26, 18, 34, 5, 200_000_000, time.FixedZone("UTC+2", 2*60*60))
+
+	raw, err := bson.Marshal(bson.D{{Key: "_id", Value: "key"}, {Key: "visits", Value: bson.A{visit, nil}}})
+	require.NoError(t, err)
+	record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+	require.NoError(t, err)
+
+	schema := GetStructuredSchema(projector)
+	require.Equal(t, types.QValueKindArrayTimestamp, schema.Fields[1].Type)
+	require.Equal(t, types.QValueArrayTimestamp{Val: []time.Time{visit.UTC(), {}}}, record[1])
+	require.Equal(t, types.QValueNull(types.QValueKindJSON), record[2])
+}
+
+// Numbers must fit float columns whether BSON stores them as doubles or integers, alone or mixed in an array
+func TestStructuredQValuesFromBsonRawFloats(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "score", DestinationType: "Nullable(Float64)"},
+		{SourceName: "ratio", DestinationType: "Nullable(Float32)"},
+		{SourceName: "scores", DestinationType: "Array(Nullable(Float64))"},
+	}, nil, true)
+	require.NoError(t, err)
+	schema := GetStructuredSchema(projector)
+
+	for _, test := range []struct {
+		name     string
+		document bson.D
+		expected map[string]types.QValue
+	}{
+		{
+			name: "doubles",
+			document: bson.D{
+				{Key: "_id", Value: "key"},
+				{Key: "score", Value: 5.0},
+				{Key: "ratio", Value: 5.0},
+				{Key: "scores", Value: bson.A{5.0, 2.5}},
+			},
+			expected: map[string]types.QValue{
+				"score":  types.QValueFloat64{Val: 5},
+				"ratio":  types.QValueNull(types.QValueKindFloat32), // a double is no Float32
+				"scores": types.QValueArrayFloat64{Val: []float64{5, 2.5}},
+			},
+		},
+		{
+			name: "integers and an array mixing doubles and integers",
+			document: bson.D{
+				{Key: "_id", Value: "key"},
+				{Key: "score", Value: int32(5)},
+				{Key: "ratio", Value: int64(5)},
+				{Key: "scores", Value: bson.A{5.0, int32(5)}},
+			},
+			expected: map[string]types.QValue{
+				"score":  types.QValueFloat64{Val: 5},
+				"ratio":  types.QValueFloat32{Val: 5},
+				"scores": types.QValueArrayFloat64{Val: []float64{5, 5}},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := bson.Marshal(test.document)
+			require.NoError(t, err)
+			record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+			require.NoError(t, err)
+			values := make(map[string]types.QValue, len(record))
+			for i, field := range schema.Fields {
+				values[field.Name] = record[i]
+			}
+			for name, expected := range test.expected {
+				require.Equal(t, expected, values[name], name)
+			}
+		})
+	}
+}
+
 // collectDocumentQValues walks doc, returning the yielded fields in order and the walk error.
 func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]types.QValue, error) {
 	t.Helper()
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter())
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -310,7 +394,7 @@ func TestDocumentQValueIterator(t *testing.T) {
 	require.Equal(t, types.QValueFloat64{Val: 9.5}, values["score"])
 	require.Equal(t, types.QValueBoolean{Val: true}, values["active"])
 	// nulls carry no kind, the consumer gives them the kind of the column they land in
-	require.Equal(t, types.QValueNull(types.QValueKindInvalid), values["nickname"])
+	require.Equal(t, types.QValueNull(""), values["nickname"])
 	// embedded documents and arrays are yielded whole, as JSON
 	require.Equal(t, types.QValueJSON{Val: `{"city":"London"}`}, values["address"])
 	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`, IsArray: true}, values["tags"])
@@ -339,7 +423,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter())
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -354,7 +438,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
-		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter())
+		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind)
 		names := []string{}
 		values := map[string]types.QValue{}
 		for field, value := range fields {
@@ -378,7 +462,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter)
+	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -404,3 +488,105 @@ func (c *failingConverter) QValueFromBsonValue(rv bson.RawValue, nullKind types.
 }
 
 var errConversionFailed = errors.New("conversion failed")
+
+// TestStructuredArrayColumns wires typed BSON array conversion through the structured projection: array
+// destination types resolve to array kinds, homogeneous arrays land typed, and an array that does not
+// fit its column degrades to a JSON-reported type mismatch instead of failing the record.
+func TestStructuredArrayColumns(t *testing.T) {
+	arrayColumns := []*protos.ColumnSetting{
+		{SourceName: "scores", DestinationType: "Array(Nullable(Int64))"},
+		{SourceName: "tags", DestinationType: "Array(String)"},
+		{SourceName: "attachments", DestinationType: "Array(JSON)"},
+	}
+	projector, err := newStructuredSchemaProjector(arrayColumns, nil, true)
+	require.NoError(t, err)
+
+	require.Equal(t, []types.QField{
+		{Name: DefaultDocumentKeyColumnName, Type: types.QValueKindString, Nullable: false},
+		{Name: "scores", Type: types.QValueKindArrayInt64, Nullable: true},
+		{Name: "tags", Type: types.QValueKindArrayString, Nullable: true},
+		{Name: "attachments", Type: types.QValueKindArrayJSON, Nullable: true},
+		{Name: structured.MalformedDataColumn, Type: types.QValueKindJSON, Nullable: true},
+	}, GetStructuredSchema(projector).Fields)
+
+	// the schema persisted at setup round-trips the array kinds into the CDC-side projector
+	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{structuredTableMapping("test.arrays", arrayColumns)})
+	require.NoError(t, err)
+	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.arrays"], nil, true)
+	require.NoError(t, err)
+	require.Equal(t, projector.QRecordSchema(), fromTableSchema.QRecordSchema())
+
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	converter := NewDirectBsonConverter()
+	schema := GetStructuredSchema(projector)
+	byName := func(record []types.QValue) map[string]types.QValue {
+		require.Len(t, record, len(schema.Fields))
+		values := make(map[string]types.QValue, len(record))
+		for i, field := range schema.Fields {
+			values[field.Name] = record[i]
+		}
+		return values
+	}
+
+	t.Run("fitting arrays land typed", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{
+			{Key: "_id", Value: oid},
+			{Key: "scores", Value: bson.A{int32(1), int64(2)}},
+			{Key: "tags", Value: bson.A{"a", oid}},
+			{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(1)}}, bson.A{int64(2)}}},
+		})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		require.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2}}, values["scores"])
+		require.Equal(t, types.QValueArrayString{Val: []string{"a", "507f1f77bcf86cd799439011"}}, values["tags"])
+		require.Equal(t, types.QValueJSON{Val: `[{"k":1},[2]]`, IsArray: true}, values["attachments"])
+		require.Equal(t, types.QValueNull(types.QValueKindJSON), values[structured.MalformedDataColumn])
+	})
+
+	t.Run("an unfitting array degrades to a reported type mismatch", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{
+			{Key: "_id", Value: oid},
+			{Key: "scores", Value: bson.A{int64(1), true}},
+		})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		// the column keeps its null of the array kind, and the report carries the JSON form
+		require.Equal(t, types.QValueNull(types.QValueKindArrayInt64), values["scores"])
+		malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"scores": {"type_mismatch": true, "value": "[1,true]"}}`, malformed.Val)
+	})
+
+	t.Run("an array mixing JSON and other elements is a reported type mismatch for an array of JSON", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{
+			{Key: "_id", Value: oid},
+			{Key: "attachments", Value: bson.A{"text", bson.D{{Key: "k", Value: int64(1)}}}},
+		})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		// not stored as a JSON array the column would take: reported, like any other unfitting array
+		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
+		malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "[\"text\",{\"k\":1}]"}}`, malformed.Val)
+	})
+
+	t.Run("an absent array column is a null of its array kind", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: oid}})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		require.Equal(t, types.QValueNull(types.QValueKindArrayInt64), values["scores"])
+		require.Equal(t, types.QValueNull(types.QValueKindArrayString), values["tags"])
+		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
+	})
+}

@@ -3,6 +3,7 @@ package structured
 import (
 	"fmt"
 	"iter"
+	"regexp"
 	"slices"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
@@ -107,6 +108,12 @@ func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
 }
 
+// ColumnKind is the kind of the schema column reading from a record field, if the field is one.
+func (sc *SchemaProjector) ColumnKind(field string) (types.QValueKind, bool) {
+	column, isSchemaColumn := sc.columns[field]
+	return column.kind, isSchemaColumn
+}
+
 func (sc *SchemaProjector) IsExcludedColumn(columnName string) bool {
 	_, isExcluded := sc.excludedColumns[columnName]
 	return isExcluded
@@ -162,9 +169,8 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 			continue
 		}
 
-		// Otherwise the kinds must match, or the value is recorded as malformed data.
-		// NOTE: The equals comparison canbe replaced by a call to a equivalence function.
-		if column.kind != value.Kind() {
+		// Otherwise the value must fit the column's kind, or it is recorded as malformed data.
+		if !kindMatches(column.kind, value) {
 			var recordedValue types.QValue
 			if sc.shouldRecordValues {
 				recordedValue = value
@@ -185,6 +191,31 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	}
 
 	return values, nil
+}
+
+// kindMatches reports whether value fits a column of kind. Kinds must be equal, except for the
+// array-of-JSON kinds, whose values are, by codebase convention, QValueJSONs flagged IsArray, as those
+// kinds have no dedicated QValue type.
+func kindMatches(kind types.QValueKind, value types.QValue) bool {
+	if jsonValue, isJSON := value.(types.QValueJSON); isJSON &&
+		(kind == types.QValueKindArrayJSON || kind == types.QValueKindArrayJSONB) {
+		return jsonValue.IsArray
+	}
+	return kind == value.Kind()
+}
+
+var dateTime64Regex = regexp.MustCompile(`DateTime64\(\d+\)`)
+
+// NormalizeStructuredIngestionTypes rewrites the destination types of a mapping with structured ingestion
+// to normalize inferred types as compatible ones.
+func NormalizeStructuredIngestionTypes(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
+	if !config.GetEnabled() {
+		return
+	}
+	for _, column := range columns {
+		// All structured ingestion dates use fix precision to microseconds
+		column.DestinationType = dateTime64Regex.ReplaceAllString(column.DestinationType, "DateTime64(6)")
+	}
 }
 
 // ApplyRecordSchema is ProjectRecord for consumers taking records as RecordItems, such as CDC.
