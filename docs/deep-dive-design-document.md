@@ -142,15 +142,28 @@ When a DDL change occurs (e.g., `ALTER TABLE ADD COLUMN`), PostgreSQL sends a `R
 
 Replica identity can change at runtime (e.g., `ALTER TABLE ... REPLICA IDENTITY FULL`), but the current code caches it on first read.
 
-### 1.6 Partitioned Table Support
+### 1.6 Partitioned Table and Table Inheritance Support
 
-For PostgreSQL partitioned tables, child partitions have separate relation IDs from the parent:
+For PostgreSQL partitioned tables, and for plain tables with inheritance children when
+`PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES` is on (the default), children have separate
+relation IDs from the mirrored parent:
 
 ```go
 childToParentRelIDMapping map[uint32]uint32  // child relid → parent relid
 ```
 
-`checkIfUnknownTableInherits()` translates child→parent when an unknown relation ID appears, ensuring partitioned table events are correctly attributed.
+`checkIfUnknownTableInherits()` translates child→parent when an unknown relation ID appears, ensuring child events
+are attributed to the parent's table mapping.
+
+**Column layouts are per relation.** A child's tuples follow the child's own column order, which can differ from
+the parent's and from its siblings (`ALTER TABLE ... INHERIT` only requires matching names and types, and a
+partition can be attached from an existing table). pgoutput sends a relation's RelationMessage before its first
+change and again only after its schema changes, so `relationMessageMapping` is keyed by the relation's own ID,
+never by the parent's, and tuples are decoded with their own relation's layout. Table and schema lookups still go
+through the parent. With `publish_via_partition_root`, tuples arrive under the root's relid in the root's layout.
+A tuple whose column count differs from its RelationMessage is rejected. Earlier versions of PeerDB may have
+decoded a child's tuples with a sibling's column order. Upgrading fixes new changes but does not repair rows
+already written. If a mirror has children with different column orders, resync the affected tables.
 
 ### 1.7 LSN Checkpoint Management
 

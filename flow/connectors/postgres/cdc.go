@@ -353,13 +353,15 @@ func processTuple[Items model.Items](
 	items := processor.NewItems(len(tuple.Columns))
 	var unchangedToastColumns map[string]struct{}
 
+	// pgoutput writes the RelationMessage attributes and every tuple with the same column filter, so any
+	// difference means the tuple would be decoded against the wrong layout
 	var none Items
-	if len(tuple.Columns) > len(rel.Columns) {
+	if len(tuple.Columns) != len(rel.Columns) {
 		return none, nil, fmt.Errorf(
-			"tuple has more columns than the last RelationMessage: %d > %d. "+
+			"column-count mismatch between tuple and RelationMessage for %s.%s (relid %d): %d != %d. "+
 				"One known occurrence of this was due to a bug with replication column lists in PG 15-15.1. "+
 				"https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com",
-			len(tuple.Columns), len(rel.Columns))
+			rel.Namespace, rel.RelationName, rel.RelationID, len(tuple.Columns), len(rel.Columns))
 	}
 
 	for idx, tcol := range tuple.Columns {
@@ -1099,34 +1101,33 @@ func processMessage[Items model.Items](
 			time.Now().UTC().Add(postgresClockOffset).Sub(msg.CommitTime).Milliseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
-		originalRelID := msg.RelationID
-		var parentRelKind byte
-		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, parentRelKind, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		// a child's table and schema mapping is its parent's, but its tuples follow its own column layout,
+		// so the message keeps its own relid and is stored under it
+		mappedRelID, parentRelKind, err := p.checkIfUnknownTableInherits(ctx, msg.RelationID)
 		if err != nil {
 			return nil, err
 		}
 
-		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+		if _, exists := p.srcTableIDNameMapping[mappedRelID]; !exists {
 			return nil, nil
 		}
 
 		// With publish_via_partition_root = true, PG emits a parent RelationMessage
-		// followed by a child RelationMessage for each partition. The parent's
-		// column list matches the tuple data wire format, so skip the child's
-		// to avoid overwriting with a potentially reordered column definition.
-		if originalRelID != msg.RelationID && parentRelKind == 'p' && p.publishViaPartitionRoot {
+		// followed by a child RelationMessage for each partition. Tuples are sent
+		// under the parent's relid in the parent's layout, so the child's message is never used.
+		if msg.RelationID != mappedRelID && parentRelKind == 'p' && p.publishViaPartitionRoot {
 			return nil, nil
 		}
 
 		logger.Info("processing RelationMessage",
 			slog.Any("LSN", currentClientXlogPos),
 			slog.Uint64("RelationID", uint64(msg.RelationID)),
+			slog.Uint64("MappedRelationID", uint64(mappedRelID)),
 			slog.String("Namespace", msg.Namespace),
 			slog.String("RelationName", msg.RelationName),
 			slog.Any("Columns", msg.Columns))
 
-		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
+		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg, mappedRelID)
 	case *pglogrepl.LogicalDecodingMessage:
 		logger.Debug("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
@@ -1167,9 +1168,9 @@ func processInsertMessage[Items model.Items](
 	// log lsn and relation id for debugging
 	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
-	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+	rel, err := p.relationMessageFor(msg.RelationID, relID, tableName)
+	if err != nil {
+		return nil, err
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1224,9 +1225,9 @@ func processUpdateMessage[Items model.Items](
 		}
 	}
 
-	rel, ok := p.relationMessageMapping[relID]
-	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+	rel, err := p.relationMessageFor(msg.RelationID, relID, tableName)
+	if err != nil {
+		return nil, err
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1287,9 +1288,9 @@ func processDeleteMessage[Items model.Items](
 	// log lsn and relation id for debugging
 	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
-	rel, ok := p.relationMessageMapping[relID]
-	if !ok {
-		return nil, fmt.Errorf("unknown relation id %d for table %s", relID, tableName)
+	rel, err := p.relationMessageFor(msg.RelationID, relID, tableName)
+	if err != nil {
+		return nil, err
 	}
 
 	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
@@ -1311,18 +1312,22 @@ func processDeleteMessage[Items model.Items](
 	}, nil
 }
 
-// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
+// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta.
+// mappedRelID is the mirrored table currRel belongs to: currRel itself, or the parent an inheritance child or
+// partition is remapped to. Table, mapping and schema lookups go through mappedRelID, while the message is
+// stored under its own relid because that is the layout its tuples arrive in.
 func processRelationMessage[Items model.Items](
 	ctx context.Context,
 	p *PostgresCDCSource,
 	lsn pglogrepl.LSN,
 	currRel *pglogrepl.RelationMessage,
+	mappedRelID uint32,
 ) (model.Record[Items], error) {
 	// not present in tables to sync, return immediately
-	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
+	currRelName, ok := p.srcTableIDNameMapping[mappedRelID]
 	if !ok {
 		p.logger.Warn("relid not present in srcTableIDNameMapping, skipping relation message",
-			slog.Uint64("relId", uint64(currRel.RelationID)))
+			slog.Uint64("relId", uint64(mappedRelID)))
 		return nil, nil
 	}
 	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
@@ -1380,8 +1385,8 @@ func processRelationMessage[Items model.Items](
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		SrcTableName:    currRelName,
+		DstTableName:    currRelDstInfo.Name,
 		AddedColumns:    nil,
 		System:          prevSchema.System,
 		NullableEnabled: prevSchema.NullableEnabled,
@@ -1392,7 +1397,7 @@ func processRelationMessage[Items model.Items](
 		if inPrevRel {
 			return false
 		}
-		_, isExcluded := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[columnName]
+		_, isExcluded := currRelDstInfo.Exclude[columnName]
 		return !isExcluded
 	}
 
@@ -1413,7 +1418,9 @@ func processRelationMessage[Items model.Items](
 	// Relation messages carry neither nullability nor the value PostgreSQL returns for rows that
 	// predate an added column, so both come from pg_catalog. A later table rewrite can clear the
 	// missing value before a delayed CDC reader observes this relation message.
-	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, currRel.RelationID, addedColumnNames)
+	// Read from the mirrored table (the parent, for an inheritance child): a column only some children have finds
+	// no row there and is added as nullable without a default, which fits a destination every child writes to.
+	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, mappedRelID, addedColumnNames)
 	if err != nil {
 		return nil, err
 	}
@@ -1645,6 +1652,20 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	}
 
 	return relID
+}
+
+// relationMessageFor returns the layout to decode a tuple of relation tupleRelID with, keyed by the tuple's own
+// relid rather than the parent it is remapped to: siblings can order their columns differently, and pgoutput only
+// resends a RelationMessage after the relation's schema changes, so a shared entry would hold whichever sibling
+// was announced last. pgoutput announces every relation before its first tuple, so a missing entry is an error.
+func (p *PostgresCDCSource) relationMessageFor(
+	tupleRelID uint32, mappedRelID uint32, tableName string,
+) (*pglogrepl.RelationMessage, error) {
+	rel, ok := p.relationMessageMapping[tupleRelID]
+	if !ok {
+		return nil, fmt.Errorf("unknown relation id %d (mapped to %d) for table %s", tupleRelID, mappedRelID, tableName)
+	}
+	return rel, nil
 }
 
 // since we generate the childToParent mapping at the beginning of the CDC stream
