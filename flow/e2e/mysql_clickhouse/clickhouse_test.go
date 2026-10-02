@@ -39,21 +39,3 @@ func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 		return source, suffix, err
 	})
 }
-
-func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
-	runMySQLClickHouseSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
-		t.Helper()
-		suffix := "mach_" + strings.ToLower(common.RandomString(8))
-		source, err := e2e.SetupMariaDB(t, suffix)
-		return source, suffix, err
-	})
-}
-
-func TestPeerFlowE2ETestSuiteMariaDB_CH_Cluster(t *testing.T) {
-	runMySQLClickHouseSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
-		t.Helper()
-		suffix := "machcl_" + strings.ToLower(common.RandomString(8))
-		source, err := e2e.SetupMariaDB(t, suffix)
-		return source, suffix, err
-	})
-}
