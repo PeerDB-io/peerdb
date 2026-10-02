@@ -162,6 +162,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
+  # Tells the Tiltfile to skip services the tests don't use (nexus, UI).
+  PEERDB_CI: "1"
   # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
   TILT_PORT: "10352"
   # Pin Tilt for reproducible runs (matches the version used locally).
@@ -169,7 +171,7 @@ env:
   # Don't phone home from CI.
   DO_NOT_TRACK: "1"
   # How many times to (re)load an unhealthy core PeerDB service before giving up.
-  # Core services like flow-api/peerdb occasionally fail to initialize on a cold
+  # Core services like flow-api occasionally fail to initialize on a cold
   # start; reloading the individual resource recovers them. Bump this if the
   # runner is flaky.
   CORE_SERVICE_RECOVERY_ATTEMPTS: "3"
@@ -293,8 +295,20 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          nohup tilt up --port "$TILT_PORT" --stream=true > "$RUNNER_TEMP/tilt-up.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/tilt.pid"
+          # Retain timestamped startup output until initialization finishes.
+          rm -f "$RUNNER_TEMP/tilt-startup-complete"
+          nohup bash -o pipefail -c '
+            export TZ=UTC
+            tilt up --port "$TILT_PORT" --stream=true --log-source=all 2>&1 |
+              while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ -e "$RUNNER_TEMP/tilt-startup-complete" ]]; then
+                  # Keep draining so Tilt cannot block or get a broken pipe.
+                  cat >/dev/null
+                  break
+                fi
+                printf "[%(%Y-%m-%dT%H:%M:%SZ)T] %s\n" -1 "$line"
+              done
+          ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
           for i in $(seq 1 60); do
@@ -304,7 +318,7 @@ jobs:
             fi
             if [ "$i" -eq 60 ]; then
               echo "::error::Tilt API did not become reachable."
-              cat "$RUNNER_TEMP/tilt-up.log" || true
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
               exit 1
             fi
             sleep 2
@@ -313,7 +327,7 @@ jobs:
           echo "Waiting for the Tiltfile evaluation to complete..."
           if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
             echo "::error::Tiltfile evaluation did not complete."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
 
@@ -366,7 +380,7 @@ jobs:
           echo "All requested ancillary services are up and running."
 
       # Bring up the core PeerDB services, recovering any that fail to
-      # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
+      # initialize on the first attempt. Core services (e.g. flow-api, flow-worker)
       # occasionally come up unhealthy on a cold start; when that happens we
       # reload the individual resource with `tilt trigger` and wait again, up to
       # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
@@ -377,8 +391,8 @@ jobs:
           # Main PeerDB services that must be healthy before tests run. proto-gen
           # feeds the image builds; flow-migrate applies the catalog schema;
           # catalog/flow-api/flow-worker/flow-snapshot-worker back the
-          # suites; peerdb and minio support peer setup and S3 staging.
-          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # suites; minio supports S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker minio"
           # Per-attempt wait budget (generous, since flow images are built here).
           PER_ATTEMPT_TIMEOUT=600
 
@@ -445,10 +459,22 @@ jobs:
 
           if [ "$rc" -ne 0 ]; then
             echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
           echo "Core PeerDB services are up."
+
+      - name: Stop capturing Tilt startup logs
+        if: always()
+        run: touch "$RUNNER_TEMP/tilt-startup-complete"
+
+      - name: Upload Tilt startup log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tilt-startup-${{ steps.run-identity.outputs.suffix }}
+          path: ${{ runner.temp }}/tilt-startup.log
+          retention-days: 30
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
