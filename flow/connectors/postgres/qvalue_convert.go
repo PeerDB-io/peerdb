@@ -463,8 +463,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 	case types.QValueKindTimeTZ:
 		timeVal := value.(string)
-		// edge case, Postgres supports this extreme value for time
-		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
+		// edge case, Postgres supports this extreme value for time,
+		// and prints it without a fraction ("24:00:00+00")
+		if rest, ok := strings.CutPrefix(timeVal, "24:00:00"); ok {
+			timeVal = "23:59:59.999999" + strings.TrimLeft(strings.TrimPrefix(rest, "."), "0")
+		}
 		tzidx := strings.LastIndexAny(timeVal, "+-")
 		if tzidx > 0 {
 			// postgres may print +xx00 as +xx
