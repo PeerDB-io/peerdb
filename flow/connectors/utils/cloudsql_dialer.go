@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -15,7 +13,6 @@ import (
 	"cloud.google.com/go/cloudsqlconn"
 	"cloud.google.com/go/cloudsqlconn/errtype"
 
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -152,38 +149,4 @@ func (d *CloudSQLDialer) DialContext(ctx context.Context, _, _ string) (net.Conn
 		return nil, err
 	}
 	return conn, nil
-}
-
-// ServeLocal exposes the instance on a loopback port, for tools that cannot use the connector in-process
-// (pg_dump, psql) and connect over plain TCP instead. Close the returned listener to stop serving.
-// Any local process can use the port to log in as the IAM user for as long as it is open.
-func (d *CloudSQLDialer) ServeLocal(ctx context.Context) (net.Listener, error) {
-	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to listen for Cloud SQL proxy: %w", err)
-	}
-	logger := internal.LoggerFromCtx(ctx)
-	go func() {
-		for {
-			local, err := listener.Accept()
-			if err != nil {
-				return // listener closed
-			}
-			go func() {
-				defer local.Close()
-				remote, err := d.DialContext(ctx, "tcp", "")
-				if err != nil {
-					logger.Error("failed to dial Cloud SQL instance for local proxy", slog.Any("error", err))
-					return
-				}
-				defer remote.Close()
-				done := make(chan struct{}, 2)
-				go func() { _, _ = io.Copy(remote, local); done <- struct{}{} }()
-				go func() { _, _ = io.Copy(local, remote); done <- struct{}{} }()
-				// either side closing ends the session; the deferred closes unblock the other copy
-				<-done
-			}()
-		}
-	}()
-	return listener, nil
 }

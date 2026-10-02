@@ -14,9 +14,6 @@ import (
 	"regexp"
 	"strconv"
 
-	"google.golang.org/protobuf/proto"
-
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -30,16 +27,6 @@ var incompatibleLineRE = regexp.MustCompile(`^SET\s+transaction_timeout\s*=`)
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.
 func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) error {
-	srcConfig, closeSrc, err := postgresConfigForSchemaDump(ctx, srcConfig)
-	if err != nil {
-		return fmt.Errorf("source: %w", err)
-	}
-	defer closeSrc()
-	dstConfig, closeDst, err := postgresConfigForSchemaDump(ctx, dstConfig)
-	if err != nil {
-		return fmt.Errorf("destination: %w", err)
-	}
-	defer closeDst()
 	srcAddr, err := resolvePgAddr(ctx, srcConfig)
 	if err != nil {
 		return fmt.Errorf("source: %w", err)
@@ -55,45 +42,6 @@ func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstC
 	}
 
 	return nil
-}
-
-// postgresConfigForSchemaDump returns the config pg_dump/psql should connect with, and a cleanup to call when done.
-// pg_dump and psql cannot use the Cloud SQL connector in-process, so a Cloud SQL IAM instance is
-// exposed on a loopback port that forwards through the connector and the tools connect to that.
-func postgresConfigForSchemaDump(
-	ctx context.Context,
-	config *protos.PostgresConfig,
-) (*protos.PostgresConfig, func(), error) {
-	if config.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
-		return config, func() {}, nil
-	}
-	dialer := &utils.CloudSQLDialer{Instance: internal.SanitizePGHost(config.Host)}
-	if err := dialer.VerifyAuthConfig(); err != nil {
-		return nil, nil, err
-	}
-	// fail here on bad credentials or instance name, instead of as a cryptic psql connection error
-	probe, err := dialer.DialContext(ctx, "tcp", "")
-	if err != nil {
-		return nil, nil, err
-	}
-	probe.Close()
-	listener, err := dialer.ServeLocal(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		listener.Close()
-		return nil, nil, fmt.Errorf("unexpected proxy address %s", listener.Addr())
-	}
-	// AuthType stays so that the TLS env is left to the connector, see appendTLSEnv
-	config = proto.CloneOf(config)
-	config.Host = addr.IP.String()
-	config.Port = uint32(addr.Port)
-	config.TlsHost = ""
-	config.RootCa = nil
-	config.Password = ""
-	return config, func() { listener.Close() }, nil
 }
 
 // pipeCommand runs srcBinary with the given args, piping its stdout into psql on the destination.
@@ -397,11 +345,6 @@ func buildPsqlArgs(config *protos.PostgresConfig, host string) []string {
 }
 
 func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresConfig, addr pgAddr) {
-	if config.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
-		// the loopback proxy already carries the connector's mTLS session, libpq must not negotiate another one
-		cmd.Env = append(cmd.Env, "PGSSLMODE=disable")
-		return
-	}
 	hasRootCA := config.RootCa != nil && *config.RootCa != ""
 	if !internal.PGMustUseTlsConnection(config) && !hasRootCA {
 		return
