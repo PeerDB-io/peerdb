@@ -203,6 +203,11 @@ func (h *FlowRequestHandler) checkTableMappings(
 		); apiErr != nil {
 			return apiErr
 		}
+		if tm.MongoConfig != nil && peer.GetMongoConfig() == nil {
+			return NewInvalidArgumentApiError(
+				fmt.Errorf("table %s declares MongoDB settings but source peer %s is not MongoDB",
+					tm.SourceTableIdentifier, peer.Name))
+		}
 	}
 
 	return nil

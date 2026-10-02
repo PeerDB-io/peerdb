@@ -56,12 +56,13 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
-	FullDocument  *bson.Raw      `bson:"fullDocument,omitempty"`
-	WallTime      *time.Time     `bson:"wallTime,omitempty"`
-	Ns            Namespace      `bson:"ns"`
-	OperationType string         `bson:"operationType"`
-	DocumentKey   bson.Raw       `bson:"documentKey,omitempty"`
-	ClusterTime   bson.Timestamp `bson:"clusterTime"`
+	FullDocument             *bson.Raw      `bson:"fullDocument,omitempty"`
+	FullDocumentBeforeChange *bson.Raw      `bson:"fullDocumentBeforeChange,omitempty"`
+	WallTime                 *time.Time     `bson:"wallTime,omitempty"`
+	Ns                       Namespace      `bson:"ns"`
+	OperationType            string         `bson:"operationType"`
+	DocumentKey              bson.Raw       `bson:"documentKey,omitempty"`
+	ClusterTime              bson.Timestamp `bson:"clusterTime"`
 }
 
 const mongoClockOffsetTTL = time.Hour
@@ -294,6 +295,7 @@ func (c *MongoConnector) recordSender(
 
 type encodedMongoEvent struct {
 	maybeFullDocument    *bson.Raw
+	maybeBeforeDocument  *bson.Raw
 	operationType        operationType
 	sourceTableName      string
 	destinationTableName string
@@ -331,13 +333,23 @@ func (c *MongoConnector) decodeEvent(
 			return nil, fmt.Errorf("failed to convert key: %w", err)
 		}
 
+		// Deletes never carry `fullDocument`. For tables with delete pre-images enabled, the pipeline
+		// carries `fullDocumentBeforeChange` on deletes instead: the document as it stood immediately
+		// before the delete, so the tombstone keeps its field values rather than defaulting them. It is
+		// never used for other operation types: an update whose document is deleted before the
+		// `updateLookup` resolves must not be written with its pre-update state.
+		maybeDocument := event.maybeFullDocument
+		if event.operationType == operationTypeDelete {
+			maybeDocument = event.maybeBeforeDocument
+		}
+
 		if projector := structuredProjectors[event.sourceTableName]; projector != nil {
 			// Structured ingestion: the document fields are projected onto the table's schema columns.
 
-			// An absent `fullDocument` will end up storing NULL on all structured columns
+			// An absent document will end up storing NULL on all structured columns
 			document := emptyBsonDocument
-			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
-				document = *event.maybeFullDocument
+			if maybeDocument != nil && len(*maybeDocument) > 0 {
+				document = *maybeDocument
 			}
 
 			// This is where the MongoDB specific document iterator is
@@ -356,15 +368,15 @@ func (c *MongoConnector) decodeEvent(
 			// Default ingestion: the entire document is stored in a single column as JSON.
 			items = model.NewRecordItems(2)
 
-			if event.maybeFullDocument != nil && len(*event.maybeFullDocument) > 0 {
-				qValue, err := converter.QValueJSONFromDocument(*event.maybeFullDocument)
+			if maybeDocument != nil && len(*maybeDocument) > 0 {
+				qValue, err := converter.QValueJSONFromDocument(*maybeDocument)
 				if err != nil {
 					return nil, fmt.Errorf("failed to convert document: %w", err)
 				}
 				items.AddColumn(fullDocumentColumnName, qValue)
 			} else {
-				// `fullDocument` field will not exist in the following scenarios:
-				// 1) operationType is 'delete'
+				// A document will not exist in the following scenarios:
+				// 1) operationType is 'delete', and no pre-image is enabled or available for the table
 				// 2) document is deleted / collection is dropped in between update and lookup
 				// 3) update changes the values for at least one of the fields in that collection's
 				//    shard key (although sharding is not supported today)
@@ -437,6 +449,14 @@ func (c *MongoConnector) PullRecords(
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
+
+	if preimageTables := deletePreimageTables(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
+		// whenAvailable, never required: a pre-image can be missing even for a collection that has
+		// changeStreamPreAndPostImages enabled now (expired, or the delete happened while it was
+		// disabled), and that must not fail the stream. The delete then carries only its `_id`.
+		changeStreamOpts.SetFullDocumentBeforeChange(options.WhenAvailable)
+		c.logger.Info("retrieving pre-image for delete events", slog.Any("tables", preimageTables))
+	}
 
 	var resumeToken bson.Raw
 	var err error
@@ -756,6 +776,7 @@ func (c *MongoConnector) PullRecords(
 		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,
+			maybeBeforeDocument:  changeEvent.FullDocumentBeforeChange,
 			operationType:        operationType(changeEvent.OperationType),
 			sourceTableName:      sourceTableName,
 			destinationTableName: destinationTableName,
@@ -810,6 +831,22 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
+// deletePreimageTables returns the sorted source tables whose table mapping enables delete pre-images.
+// It is empty when deletes are excluded from replication, as a pre-image would then be dead weight.
+func deletePreimageTables(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) []string {
+	if slices.Contains(excludedOps, operationTypeDelete) {
+		return nil
+	}
+	var tables []string
+	for sourceTable, mapping := range tableNameMapping {
+		if mapping.MongoConfiguration.GetDeletePreimage() {
+			tables = append(tables, sourceTable)
+		}
+	}
+	slices.Sort(tables)
+	return tables
+}
+
 func createPipeline(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) (mongo.Pipeline, error) {
 	pipeline := mongo.Pipeline{}
 
@@ -853,16 +890,37 @@ func createPipeline(tableNameMapping map[string]model.SourceTableMapping, exclud
 	// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
 	// themselves have a 16MB limit, project required fields for now for code simplicity.
 	// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
-	pipeline = append(pipeline,
-		bson.D{{Key: "$project", Value: bson.D{
-			{Key: "operationType", Value: 1},
-			{Key: "clusterTime", Value: 1},
-			{Key: "wallTime", Value: 1},
-			{Key: "documentKey", Value: 1},
-			{Key: "fullDocument", Value: 1},
-			{Key: "ns", Value: 1},
-		}}},
-	)
+	projection := bson.D{
+		{Key: "operationType", Value: 1},
+		{Key: "clusterTime", Value: 1},
+		{Key: "wallTime", Value: 1},
+		{Key: "documentKey", Value: 1},
+		{Key: "fullDocument", Value: 1},
+		{Key: "ns", Value: 1},
+	}
+
+	// Carry the pre-image on deletes only, and only for the tables that enable it. MongoDB populates
+	// `fullDocumentBeforeChange` for update and replace as well, and for every collection with
+	// changeStreamPreAndPostImages enabled. Keeping it there would put both copies of the document in
+	// a single change event, halving the effective 16 MiB event budget for no benefit: those
+	// operations already carry `fullDocument`.
+	if preimageTables := deletePreimageTables(tableNameMapping, excludedOps); len(preimageTables) > 0 {
+		projection = append(projection, bson.E{Key: "fullDocumentBeforeChange", Value: bson.D{
+			{Key: "$cond", Value: bson.D{
+				{Key: "if", Value: bson.D{{Key: "$and", Value: bson.A{
+					bson.D{{Key: "$eq", Value: bson.A{"$operationType", string(operationTypeDelete)}}},
+					bson.D{{Key: "$in", Value: bson.A{
+						bson.D{{Key: "$concat", Value: bson.A{"$ns.db", ".", "$ns.coll"}}},
+						preimageTables,
+					}}},
+				}}}},
+				{Key: "then", Value: "$fullDocumentBeforeChange"},
+				{Key: "else", Value: "$$REMOVE"},
+			}},
+		}})
+	}
+
+	pipeline = append(pipeline, bson.D{{Key: "$project", Value: projection}})
 
 	return pipeline, nil
 }

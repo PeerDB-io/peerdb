@@ -340,6 +340,7 @@ export default function CDCConfigForm({
 
         <TablePicker
           sourcePeerName={mirrorConfig.sourceName}
+          sourceType={sourceType}
           rows={rows}
           setRows={setRows}
           peerType={destinationType}
