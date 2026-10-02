@@ -170,7 +170,7 @@ func (c *MongoConnector) GetTableSchema(
 		structuredCfg := tm.StructuredIngestionConfig
 		if structuredCfg.GetEnabled() {
 			// only the schema is derived here, so recording malformed values is inconsequential
-			projector, err := newStructuredSchemaProjector(tm.Columns, !structuredCfg.GetDropUnexpectedValues())
+			projector, err := newStructuredSchemaProjector(tm.Columns, tm.Exclude, !structuredCfg.GetDropUnexpectedValues())
 			if err != nil {
 				return nil, fmt.Errorf("invalid structured ingestion schema for %s: %w", tm.SourceTableIdentifier, err)
 			}
@@ -530,7 +530,7 @@ func (c *MongoConnector) PullRecords(
 		if !ok {
 			return fmt.Errorf("no table schema for structured ingestion table %s (destination %s)", sourceTableName, tableMapping.Name)
 		}
-		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, !structuredCfg.GetDropUnexpectedValues())
+		projector, err := newStructuredSchemaProjectorFromTableSchema(schema, tableMapping.Exclude, !structuredCfg.GetDropUnexpectedValues())
 		if err != nil {
 			return fmt.Errorf("failed to build structured schema projector for table %s: %w", sourceTableName, err)
 		}

@@ -72,7 +72,7 @@ func DocumentQValueIterator(
 // newStructuredSchemaProjector builds the projector for the columns of a structured ingestion table
 // mapping. recordMalformedValues controls whether the projector records the offending values.
 func newStructuredSchemaProjector(
-	columns []*protos.ColumnSetting, recordMalformedValues bool,
+	columns []*protos.ColumnSetting, excludedColumnsNames []string, recordMalformedValues bool,
 ) (*structured.SchemaProjector, error) {
 	filteredColumns := make([]*protos.ColumnSetting, 0, len(columns))
 	for _, column := range columns {
@@ -80,14 +80,20 @@ func newStructuredSchemaProjector(
 			filteredColumns = append(filteredColumns, column)
 		}
 	}
-	return structured.NewSchemaProjectorFromCHtoQValue(filteredColumns, recordMalformedValues)
+
+	excludedColumnSet := make(map[string]struct{}, len(excludedColumnsNames))
+	for _, col := range excludedColumnsNames {
+		excludedColumnSet[col] = struct{}{}
+	}
+
+	return structured.NewSchemaProjectorFromCHtoQValue(filteredColumns, excludedColumnSet, recordMalformedValues)
 }
 
 // newStructuredSchemaProjectorFromTableSchema builds the projector for a structured ingestion table from
 // the table schema GetTableSchema emitted for it (persisted at setup), whose column types are already
 // QValueKinds.
 func newStructuredSchemaProjectorFromTableSchema(
-	schema *protos.TableSchema, recordMalformedValues bool,
+	schema *protos.TableSchema, excludedColumnSet map[string]struct{}, recordMalformedValues bool,
 ) (*structured.SchemaProjector, error) {
 	fields := make([]types.QField, 0, len(schema.Columns))
 	for _, column := range schema.Columns {
@@ -95,7 +101,7 @@ func newStructuredSchemaProjectorFromTableSchema(
 			fields = append(fields, types.QField{Name: column.Name, Type: types.QValueKind(column.Type)})
 		}
 	}
-	return structured.NewSchemaProjectorFromQFields(fields, recordMalformedValues)
+	return structured.NewSchemaProjectorFromQFields(fields, excludedColumnSet, recordMalformedValues)
 }
 
 func isProjectedColumn(columnName string) bool {

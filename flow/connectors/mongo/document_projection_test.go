@@ -26,7 +26,7 @@ func structuredTestColumns() []*protos.ColumnSetting {
 }
 
 func TestGetStructuredSchema(t *testing.T) {
-	projector, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	projector, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
 	require.NoError(t, err)
 
 	require.Equal(t, []types.QField{
@@ -47,13 +47,13 @@ func TestGetStructuredSchema(t *testing.T) {
 // it from the mapping's columns, CDC from the table schema GetTableSchema emits for that same mapping.
 // Both must project records with the same layout and kinds.
 func TestStructuredProjectorPathsAgree(t *testing.T) {
-	fromMapping, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	fromMapping, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
 	require.NoError(t, err)
 
 	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{structuredTableMapping("test.t", structuredTestColumns())})
 	require.NoError(t, err)
-	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.t"], true)
+	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.t"], nil, true)
 	require.NoError(t, err)
 
 	require.Equal(t, fromMapping.QRecordSchema(), fromTableSchema.QRecordSchema())
@@ -124,9 +124,9 @@ func TestNewStructuredSchemaProjectorDropsReservedColumns(t *testing.T) {
 		&protos.ColumnSetting{SourceName: DefaultDocumentKeyColumnName, DestinationType: "String"},
 		&protos.ColumnSetting{SourceName: structured.MalformedDataColumn, DestinationType: "JSON"},
 	)
-	withReserved, err := newStructuredSchemaProjector(columns, true)
+	withReserved, err := newStructuredSchemaProjector(columns, nil, true)
 	require.NoError(t, err)
-	withoutReserved, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	withoutReserved, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
 	require.NoError(t, err)
 
 	require.Equal(t, withoutReserved.QRecordSchema(), withReserved.QRecordSchema())
@@ -145,7 +145,7 @@ func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := newStructuredSchemaProjector(tc.columns, true)
+			_, err := newStructuredSchemaProjector(tc.columns, nil, true)
 			require.ErrorContains(t, err, tc.offender)
 		})
 	}
@@ -154,7 +154,7 @@ func TestNewStructuredSchemaProjectorRejects(t *testing.T) {
 func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
 	require.NoError(t, err)
-	projector, err := newStructuredSchemaProjector(structuredTestColumns(), true)
+	projector, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
 	require.NoError(t, err)
 	schema := GetStructuredSchema(projector)
 	converter := NewDirectBsonConverter()
@@ -245,7 +245,7 @@ func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
 		{SourceName: "createdAt", DestinationType: "Nullable(DateTime64(9))"},
 		{SourceName: "label", DestinationType: "Nullable(String)"},
-	}, true)
+	}, nil, true)
 	require.NoError(t, err)
 	schema := GetStructuredSchema(projector)
 	createdAt := time.Date(2026, 8, 26, 18, 34, 5, 200_000_000, time.FixedZone("UTC+2", 2*60*60))
@@ -278,7 +278,7 @@ func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 func TestStructuredQValuesFromBsonRawDateArrays(t *testing.T) {
 	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
 		{SourceName: "visits", DestinationType: "Array(Nullable(DateTime64(6)))"},
-	}, true)
+	}, nil, true)
 	require.NoError(t, err)
 	visit := time.Date(2026, 8, 26, 18, 34, 5, 200_000_000, time.FixedZone("UTC+2", 2*60*60))
 
@@ -299,7 +299,7 @@ func TestStructuredQValuesFromBsonRawFloats(t *testing.T) {
 		{SourceName: "score", DestinationType: "Nullable(Float64)"},
 		{SourceName: "ratio", DestinationType: "Nullable(Float32)"},
 		{SourceName: "scores", DestinationType: "Array(Nullable(Float64))"},
-	}, true)
+	}, nil, true)
 	require.NoError(t, err)
 	schema := GetStructuredSchema(projector)
 
@@ -498,7 +498,7 @@ func TestStructuredArrayColumns(t *testing.T) {
 		{SourceName: "tags", DestinationType: "Array(String)"},
 		{SourceName: "attachments", DestinationType: "Array(JSON)"},
 	}
-	projector, err := newStructuredSchemaProjector(arrayColumns, true)
+	projector, err := newStructuredSchemaProjector(arrayColumns, nil, true)
 	require.NoError(t, err)
 
 	require.Equal(t, []types.QField{
@@ -513,7 +513,7 @@ func TestStructuredArrayColumns(t *testing.T) {
 	schemas, err := (&MongoConnector{}).GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{structuredTableMapping("test.arrays", arrayColumns)})
 	require.NoError(t, err)
-	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.arrays"], true)
+	fromTableSchema, err := newStructuredSchemaProjectorFromTableSchema(schemas["test.arrays"], nil, true)
 	require.NoError(t, err)
 	require.Equal(t, projector.QRecordSchema(), fromTableSchema.QRecordSchema())
 

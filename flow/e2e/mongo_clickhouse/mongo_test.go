@@ -586,6 +586,96 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Scalars_And_Typed_Arrays
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_Structured_Ingestion_Excluded_Fields covers column exclusions under structured ingestion, on both
+// the initial load and CDC.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Excluded_Fields() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_excluded"
+	dstTable := "test_structured_excluded_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
+		// declared but excluded: exclusion wins, even over values not fitting the declared type
+		{SourceName: "internal", DestinationType: "Nullable(Int64)"},
+	}
+	tableMappings[0].Exclude = []string{"secret", "internal"}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "age", Value: int64(i)},
+				{Key: "secret", Value: fmt.Sprintf("secret_%s_%d", prefix, i)},
+				{Key: "internal", Value: fmt.Sprintf("internal_%s_%d", prefix, i)},
+				// a repeated excluded field is not reported as duplicated either
+				{Key: "secret", Value: "repeated"},
+				// neither declared nor excluded
+				{Key: "extra", Value: fmt.Sprintf("extra_%s_%d", prefix, i)},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// excluded fields have no column, declared or not
+	columnNames, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('name', 'age', 'secret', 'internal', 'extra')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnNames.Close()
+	var actualColumns []string
+	for columnNames.Next() {
+		var name string
+		require.NoError(t, columnNames.Scan(&name))
+		actualColumns = append(actualColumns, name)
+	}
+	require.NoError(t, columnNames.Err())
+	require.ElementsMatch(t, []string{"name", "age"}, actualColumns)
+
+	// per leg, the declared columns land and only the field neither declared nor excluded is reported
+	for _, prefix := range []string{"init", "cdc"} {
+		var age int64
+		var malformed string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT age, toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&age, &malformed))
+		require.Equal(t, int64(3), age, prefix)
+		require.JSONEq(t, fmt.Sprintf(`{"extra": {"unexpected_field": true, "value": "extra_%s_3"}}`, prefix), malformed, prefix)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 // Test_QRep_Structured_Ingestion covers structured ingestion on standalone QRep mirrors: invalid
 // configurations are rejected at creation, and a valid one creates the destination table from the
 // declared columns and projects the documents onto it.
