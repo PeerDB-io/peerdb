@@ -19,7 +19,7 @@ export const mysqlSetting: PeerSetting[] = [
     field: 'host',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, host: value as string })),
-    tips: 'Specifies the IP host name or address on which mysql is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it.',
+    tips: 'Specifies the IP host name or address on which mysql is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it. For GCP Cloud SQL IAM Auth, use the instance connection name (project:region:instance).',
   },
   {
     label: 'Port',
@@ -135,14 +135,14 @@ export const mysqlSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    tips: 'If not provided, host CA roots will be used.',
+    tips: 'If not provided, host CA roots will be used. Not used for GCP Cloud SQL IAM Auth.',
   },
   {
     label: 'TLS Hostname',
     field: 'tlsHost',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, tlsHost: value as string })),
-    tips: 'Overrides expected hostname during tls cert verification.',
+    tips: 'Overrides expected hostname during tls cert verification. Not used for GCP Cloud SQL IAM Auth.',
     optional: true,
   },
   {
@@ -159,8 +159,12 @@ export const mysqlSetting: PeerSetting[] = [
     options: [
       { value: 'MYSQL_PASSWORD', label: 'Password' },
       { value: 'MYSQL_IAM_AUTH', label: 'AWS IAM Auth' },
+      {
+        value: 'MYSQL_GCP_CLOUD_SQL_IAM_AUTH',
+        label: 'GCP Cloud SQL IAM Auth',
+      },
     ],
-    tips: 'AWS IAM Auth is supported for all Mirror Types for MySQL',
+    tips: 'AWS IAM Auth is supported for all Mirror Types for MySQL. GCP Cloud SQL IAM Auth connects through the Cloud SQL connector: set Host to the instance connection name (project:region:instance) and User to the service account email without @project.iam.gserviceaccount.com. No password, root certificate or TLS hostname is needed.',
   },
   {
     label: 'AWS IAM Auth Mechanism',

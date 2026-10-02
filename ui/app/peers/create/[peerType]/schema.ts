@@ -2,10 +2,19 @@ import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
 import {
   AvroCodec,
   ElasticsearchAuthType,
+  MySqlAuthType,
   MySqlFlavor,
   MySqlReplicationMechanism,
+  PostgresAuthType,
 } from '@/grpc_generated/peers';
 import * as z from 'zod/v4';
+
+// hosts that are IP addresses (bracketed IPv6 included) have no name to verify against a server certificate
+const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
+export function isIPAddress(host: string | undefined): boolean {
+  const trimmed = (host ?? '').trim().replace(/^\[|\]$/g, '');
+  return ipAddressSchema.safeParse(trimmed).success;
+}
 
 const sshSchema = z
   .object({
@@ -66,7 +75,7 @@ export const peerNameSchema = z
       'Peer name must contain only lowercase letters, numbers and underscores',
   });
 
-export const pgSchema = z.object({
+const pgBaseSchema = z.object({
   host: z
     .string({
       error: (issue) =>
@@ -123,6 +132,8 @@ export const pgSchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  skipCertVerification: z.boolean().optional(),
+  authType: z.enum(PostgresAuthType).optional(),
   clientTls: z
     .object({
       certificate: z
@@ -134,6 +145,27 @@ export const pgSchema = z.object({
     })
     .optional(),
   sshConfig: sshSchema,
+});
+
+// Cloud SQL IAM auth dials through the Cloud SQL connector, which takes the instance connection name
+// (project:region:instance) or a DNS name with a TXT record for one as the host, never an IP address.
+// Mirrors CloudSQLDialer.VerifyAuthConfig in flow/connectors/utils/cloudsql_dialer.go.
+// The connector encrypts and verifies the connection itself, so root CA and TLS hostname do not apply.
+function cloudSQLInstanceHostError(host: string): string | undefined {
+  const trimmed = host.trim();
+  if (isIPAddress(trimmed)) {
+    return 'GCP Cloud SQL IAM Auth needs the instance connection name (project:region:instance) as Host, not an IP address';
+  }
+  if (trimmed.includes(':') && trimmed.split(':').length < 3) {
+    return 'Host must look like project:region:instance for GCP Cloud SQL IAM Auth';
+  }
+  return undefined;
+}
+
+export const pgSchema = pgBaseSchema.superRefine((cfg, ctx) => {
+  if (cfg.authType !== PostgresAuthType.POSTGRES_GCP_CLOUD_SQL_IAM_AUTH) return;
+  const message = cloudSQLInstanceHostError(cfg.host);
+  if (message) ctx.addIssue({ code: 'custom', path: ['host'], message });
 });
 
 export const crdbSchema = z.object({
@@ -162,7 +194,7 @@ export const crdbSchema = z.object({
   sshConfig: sshSchema,
 });
 
-export const mySchema = z.object({
+const mySqlBaseSchema = z.object({
   host: z
     .string({
       error: (issue) =>
@@ -217,7 +249,14 @@ export const mySchema = z.object({
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
   tlsHost: z.string(),
+  authType: z.enum(MySqlAuthType).optional(),
   sshConfig: sshSchema,
+});
+
+export const mySchema = mySqlBaseSchema.superRefine((cfg, ctx) => {
+  if (cfg.authType !== MySqlAuthType.MYSQL_GCP_CLOUD_SQL_IAM_AUTH) return;
+  const message = cloudSQLInstanceHostError(cfg.host);
+  if (message) ctx.addIssue({ code: 'custom', path: ['host'], message });
 });
 
 export const sfSchema = z.object({

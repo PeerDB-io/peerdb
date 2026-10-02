@@ -37,6 +37,7 @@ type PostgresConnector struct {
 	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
 	rdsAuth                *utils.RDSAuth
+	cloudSQLDialer         *utils.CloudSQLDialer
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -84,6 +85,14 @@ func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
+	// verify before ParseConfig so a bad instance name surfaces as an auth config error
+	var cloudSQLDialer *utils.CloudSQLDialer
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		cloudSQLDialer = &utils.CloudSQLDialer{Instance: internal.SanitizePGHost(pgConfig.Host)}
+		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+	}
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
@@ -118,11 +127,13 @@ func newPostgresConnector(
 			AwsAuthConfig: pgConfig.AwsAuth,
 		}
 		if err := rdsAuth.VerifyAuthConfig(); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
+	if cloudSQLDialer != nil {
+		cloudSQLDialer.Tunnel = tunnel
+	}
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, cloudSQLDialer, tunnel)
 	if err != nil {
 		tunnel.Close()
 
@@ -171,6 +182,7 @@ func newPostgresConnector(
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
+		cloudSQLDialer:         cloudSQLDialer,
 		cdcStoreEnabled:        cdcStoreEnabled,
 	}
 
@@ -199,7 +211,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 
 	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
 
-	if shouldUseTls || pgConfig.RootCa != nil {
+	// Cloud SQL IAM connections are encrypted and verified by the connector, root CA and TLS host do not apply
+	isCloudSQLIAM := pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH
+	if !isCloudSQLIAM && (shouldUseTls || pgConfig.RootCa != nil) {
 		var clientCert *common.ClientCertificate
 		if clientTls := pgConfig.GetClientTls(); clientTls != nil {
 			clientCert, err = common.NewClientCertificate(clientTls.GetCertificate(), clientTls.GetPrivateKey())
