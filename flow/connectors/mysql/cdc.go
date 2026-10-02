@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -386,7 +387,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*binlogSyncer, error) {
 	var tlsConfig *tls.Config
 	if !c.config.DisableTls {
 		var err error
@@ -432,7 +433,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
 	}
 
-	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
+	return newBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:              serverId,
 		Flavor:                c.Flavor(),
 		Host:                  config.Host,
@@ -450,14 +451,52 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
 		RowsEventDecodeFunc:   decodeRowsEvent,
-	}), nil
+	}, c.ssh.IsActive()), nil
+}
+
+var errBinlogSyncerClosing = errors.New("binlog syncer is closing")
+
+// binlogSyncer skips go-mysql's shutdown KILL over SSH by rejecting new
+// dials after Close begins. go-mysql normally opens a separate connection
+// to kill the binlog dump thread. Over SSH, opening that connection requires
+// a reply on the same TCP connection that carries the binlog stream.
+// Queued binlog data can delay the reply long enough to trigger
+// closeSyncerWithTimeout and force-close the entire tunnel.
+// New binlogSyncer on the next batch will still have to wait for the
+// previously queued data to arrive before it can process new events.
+//
+// Closing the existing binlog channel lets the SSH server close its MySQL
+// connection, so the dump thread can terminate without an explicit KILL.
+type binlogSyncer struct {
+	*replication.BinlogSyncer
+	closing atomic.Bool
+}
+
+func newBinlogSyncer(cfg replication.BinlogSyncerConfig, overSSH bool) *binlogSyncer {
+	s := &binlogSyncer{}
+	if overSSH {
+		dial := cfg.Dialer
+		cfg.Dialer = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if s.closing.Load() {
+				return nil, errBinlogSyncerClosing
+			}
+			return dial(ctx, network, address)
+		}
+	}
+	s.BinlogSyncer = replication.NewBinlogSyncer(cfg)
+	return s
+}
+
+func (s *binlogSyncer) Close() {
+	s.closing.Store(true)
+	s.BinlogSyncer.Close()
 }
 
 func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -490,7 +529,7 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -507,7 +546,7 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -520,11 +559,11 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	return syncer, stream, gset, mysql.Position{}, nil
 }
 
-// closeSyncerWithTimeout is a safety net around syncer.Close(). go-mysql v1.15.0
-// (https://github.com/go-mysql-org/go-mysql/commit/069f15d92122ca74c563d94cfc8de77a3799bbf6)
-// fixed the bug that led to BinlogSyncer.Close hang, so this timeout should no
-// longer fire. Keeping it around a bit longer before removing to ensure no regression.
-func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer, timeout time.Duration) {
+// closeSyncerWithTimeout limits how long the caller waits for syncer.Close.
+// If shutdown stalls, it closes the SSH tunnel to unblock pending I/O.
+// Keep this fallback even though binlogSyncer skips the shutdown KILL over
+// SSH: closing the existing channel can still block on a stalled transport.
+func (c *MySqlConnector) closeSyncerWithTimeout(syncer *binlogSyncer, timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		syncer.Close()
