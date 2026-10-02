@@ -132,7 +132,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                 label={
                   <Label>
                     {setting.label}{' '}
-                    {(!setting.optional || setting.isRequired?.(config)) && (
+                    {!setting.optional && (
                       <Tooltip
                         style={{ width: '100%' }}
                         content='This is a required field.'

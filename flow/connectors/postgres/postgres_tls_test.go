@@ -127,10 +127,11 @@ func TestParseConfigClientTLS(t *testing.T) {
 	})
 }
 
-func TestParseConfigCloudSQLIAMUsesTLSHostIdentity(t *testing.T) {
+func TestParseConfigCloudSQLIAMLeavesTLSToConnector(t *testing.T) {
+	// root CA and TLS host are leftovers from the manual token flow and must not reach pgx
 	rootCA, _ := generateClientCertKey(t, "test-root")
 	config := &protos.PostgresConfig{
-		Host:     "synthetic-rpe-alias.internal",
+		Host:     "project:region:instance",
 		Port:     5432,
 		User:     "configured-db-user",
 		Database: "testdb",
@@ -138,10 +139,11 @@ func TestParseConfigCloudSQLIAMUsesTLSHostIdentity(t *testing.T) {
 		TlsHost:  "cloudsql.google.internal",
 		RootCa:   &rootCA,
 	}
-	require.Nil(t, config.DisableTls)
-	connConfig, err := ParseConfig(internal.GetPGConnectionString(config, ""), config)
+	connectionString := internal.GetPGConnectionString(config, "")
+	require.Contains(t, connectionString, "sslmode=disable")
+	require.NotContains(t, connectionString, "project:region:instance")
+	connConfig, err := ParseConfig(connectionString, config)
 	require.NoError(t, err)
-	require.False(t, connConfig.TLSConfig.InsecureSkipVerify)
-	require.Nil(t, connConfig.TLSConfig.VerifyConnection)
-	require.Equal(t, "cloudsql.google.internal", connConfig.TLSConfig.ServerName)
+	require.Nil(t, connConfig.TLSConfig)
+	require.Empty(t, connConfig.Password)
 }

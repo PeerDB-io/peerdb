@@ -5,10 +5,9 @@ package connpostgres
 import (
 	"context"
 	"os"
-	"strconv"
 	"testing"
 
-	"cloud.google.com/go/auth/credentials"
+	"cloud.google.com/go/cloudsqlconn"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -25,41 +24,26 @@ func TestCloudSQLIAMAuthConnectForPostgres(t *testing.T) {
 	}
 	user := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES")
 	require.NotEmpty(t, user, "missing Cloud SQL PostgreSQL IAM database username")
-	tlsHost := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES")
-	require.NotEmpty(t, tlsHost, "missing Cloud SQL instance DNS name")
-	rootCAFile := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES")
-	require.NotEmpty(t, rootCAFile, "missing Cloud SQL PostgreSQL root CA file")
-	// #nosec G703 -- test-only CA path supplied by the trusted integration-test environment.
-	rootCA, err := os.ReadFile(rootCAFile)
-	require.NoError(t, err)
-
-	port := uint32(5432)
-	if value := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_PORT_POSTGRES"); value != "" {
-		parsed, err := strconv.ParseUint(value, 10, 16)
-		require.NoError(t, err)
-		port = uint32(parsed)
-	}
 	database := os.Getenv("FLOW_TESTS_CLOUDSQL_IAM_AUTH_DATABASE_POSTGRES")
 	if database == "" {
 		database = "postgres"
 	}
-	ca := string(rootCA)
 	config := &protos.PostgresConfig{
-		Host:     host,
-		Port:     port,
+		Host:     host, // instance connection name
 		User:     user,
 		Database: database,
-		TlsHost:  tlsHost,
-		RootCa:   &ca,
 		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
 	}
 	// Log in with application default credentials.
-	adc, err := credentials.DetectDefault(&credentials.DetectOptions{Scopes: []string{utils.GCPCloudSQLLoginScope}})
+	dialer, err := cloudsqlconn.NewDialer(t.Context(), cloudsqlconn.WithIAMAuthN())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dialer.Close()) })
+	utils.UseCloudSQLDialer(dialer)
+	t.Cleanup(func() { utils.UseCloudSQLDialer(nil) })
 	connConfig, err := ParseConfig(internal.GetPGConnectionString(config, ""), config)
 	require.NoError(t, err)
-	conn, err := NewPostgresConnFromConfig(t.Context(), connConfig, config.TlsHost, nil,
-		&utils.CloudSQLAuth{TokenProvider: adc}, nil)
+	conn, err := NewPostgresConnFromConfig(t.Context(), connConfig, "", nil,
+		&utils.CloudSQLDialer{Instance: host}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close(context.Background())) })
 }

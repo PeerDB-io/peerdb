@@ -37,7 +37,7 @@ type MySqlConnector struct {
 	contexts             atomic.Pointer[chan context.Context]
 	ssh                  *utils.SSHTunnel
 	rdsAuth              *utils.RDSAuth
-	cloudSQLAuth         *utils.CloudSQLAuth
+	cloudSQLDialer       *utils.CloudSQLDialer
 	config               *protos.MySqlConfig
 	*metadataStore.PostgresMetadata
 	warnedUnsupportedEventTypes sync.Map
@@ -53,16 +53,11 @@ type MySqlConnector struct {
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	var cloudSQLAuth *utils.CloudSQLAuth
+	// verify before connecting so a bad instance name surfaces as an auth config error
+	var cloudSQLDialer *utils.CloudSQLDialer
 	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH {
-		cloudSQLAuth = &utils.CloudSQLAuth{}
-		if err := cloudSQLAuth.VerifyAuthConfig(utils.CloudSQLConnectionConfig{
-			Host:                 config.Host,
-			RootCa:               config.RootCa,
-			TlsHost:              config.TlsHost,
-			DisableTls:           config.DisableTls,
-			SkipCertVerification: config.SkipCertVerification,
-		}); err != nil {
+		cloudSQLDialer = &utils.CloudSQLDialer{Instance: config.Host}
+		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
@@ -83,6 +78,9 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
+	if cloudSQLDialer != nil {
+		cloudSQLDialer.Tunnel = ssh
+	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata:      pgMetadata,
@@ -91,7 +89,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		conn:                  atomic.Pointer[client.Conn]{},
 		logger:                logger,
 		rdsAuth:               rdsAuth,
-		cloudSQLAuth:          cloudSQLAuth,
+		cloudSQLDialer:        cloudSQLDialer,
 		binlogHeartbeatPeriod: defaultBinlogHeartbeatPeriod,
 	}
 	c.contexts.Store(&contexts)
@@ -186,7 +184,10 @@ func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh.IsActive() {
+	if c.cloudSQLDialer != nil {
+		// routes through the SSH tunnel itself when one is active
+		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.cloudSQLDialer.DialContext)
+	} else if c.ssh.IsActive() {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.DialContext)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
@@ -203,7 +204,8 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 					return err
 				}
 			}
-			if !c.config.DisableTls {
+			// the Cloud SQL connector encrypts and verifies the connection itself
+			if !c.config.DisableTls && c.cloudSQLDialer == nil {
 				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
 					nil,
@@ -233,17 +235,17 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			config = proto.CloneOf(config)
 			config.Password = token
 		}
-		if c.cloudSQLAuth != nil {
+		addr := shared.JoinHostPort(config.Host, config.Port)
+		if c.cloudSQLDialer != nil {
 			c.logger.Info("Setting up Cloud SQL IAM auth for MySQL")
-			token, err := utils.GetCloudSQLToken(ctx, c.cloudSQLAuth, "MYSQL")
-			if err != nil {
-				return nil, err
-			}
+			// the connector authenticates with an ephemeral client certificate, so there is no password,
+			// and it resolves the instance from its own name, ignoring the address it is asked to dial
 			config = proto.CloneOf(config)
-			config.Password = token
+			config.Password = ""
+			addr = shared.JoinHostPort(internal.CloudSQLConnectorPlaceholderHost, config.Port)
 		}
 		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", shared.JoinHostPort(config.Host, config.Port),
+		conn, err = client.ConnectWithDialer(ctx, "", addr,
 			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err

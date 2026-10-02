@@ -20,9 +20,9 @@ import (
 // 1. If TLS is explicitly required by the user (RequireTls=true), then we use TLS.
 // 2. If TLS is not explicitly required, but DisableTls is explicitly set to false, then we also use TLS.
 // 3. Otherwise, we do not use TLS.
+// Cloud SQL IAM connections never negotiate TLS with Postgres: the Cloud SQL connector encrypts them itself.
 func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
 	return pgConfig.RequireTls ||
-		pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH ||
 		(pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
 }
 
@@ -38,12 +38,25 @@ func SanitizePGHost(host string) string {
 	return host
 }
 
+// CloudSQLConnectorPlaceholderHost stands in for the host of Cloud SQL IAM connections in connection strings:
+// an instance connection name (project:region:instance) does not parse as a URL host, and the Cloud SQL connector
+// ignores the host and port it is asked to dial.
+const CloudSQLConnectorPlaceholderHost = "cloudsql-connector"
+
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
 	host := SanitizePGHost(pgConfig.Host)
+	port := pgConfig.Port
+	isCloudSQLIAM := pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH
+	if isCloudSQLIAM {
+		host = CloudSQLConnectorPlaceholderHost
+		// the connector ignores the port, but the connection string still has to parse
+		// when a peer was created without one
+		port = 5432
+	}
 
 	u := &url.URL{
 		Scheme: "postgres",
-		Host:   shared.JoinHostPort(host, pgConfig.Port),
+		Host:   shared.JoinHostPort(host, port),
 		Path:   "/" + pgConfig.Database,
 	}
 
@@ -61,7 +74,9 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 	q := u.Query()
 	q.Set("application_name", applicationName)
 	q.Set("client_encoding", "UTF8")
-	if PGMustUseTlsConnection(pgConfig) {
+	if isCloudSQLIAM {
+		q.Set("sslmode", "disable")
+	} else if PGMustUseTlsConnection(pgConfig) {
 		q.Set("sslmode", "require")
 		// When require or more strict modes are set, the PostgreSQL client library will use the TLS
 		// configuration provided by the user.

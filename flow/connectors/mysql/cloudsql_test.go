@@ -10,14 +10,17 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-func TestMySQLCloudSQLAuthRejectsUnsafeTLS(t *testing.T) {
-	for name, config := range map[string]*protos.MySqlConfig{
-		"TLS disabled":           {DisableTls: true},
-		"skip cert verification": {SkipCertVerification: true},
-		"no TLS host":            {},
+func TestMySQLCloudSQLAuthRejectsBadInstance(t *testing.T) {
+	for name, host := range map[string]string{
+		"no host":            "",
+		"malformed instance": "project:instance",
+		"IP address":         "35.238.144.132",
 	} {
 		t.Run(name, func(t *testing.T) {
-			config.AuthType = protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH
+			config := &protos.MySqlConfig{
+				Host:     host,
+				AuthType: protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
+			}
 			_, err := NewMySqlConnector(t.Context(), config)
 			_, ok := errors.AsType[*exceptions.CloudSQLIAMAuthError](err)
 			require.True(t, ok, "expected CloudSQLIAMAuthError, got %v", err)

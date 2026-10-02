@@ -557,18 +557,15 @@ func TestAppendTLSEnv(t *testing.T) {
 			wantRootCert: "file",
 		},
 		{
-			name: "Cloud SQL IAM tls_host verifies hostname",
+			name: "Cloud SQL IAM disables libpq TLS, the connector proxy already encrypts",
 			config: &protos.PostgresConfig{
-				Host:     "synthetic-rpe-alias.internal",
-				Port:     5432,
+				Host:     "127.0.0.1",
+				Port:     40000,
 				Database: "d",
 				AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
-				TlsHost:  "cloudsql.google.internal",
-				RootCa:   testCA,
 			},
-			addr:         pgAddr{host: "cloudsql.google.internal", hostaddr: "192.0.2.10"},
-			wantSSLMode:  "verify-full",
-			wantRootCert: "file",
+			addr:        pgAddr{host: "127.0.0.1"},
+			wantSSLMode: "disable",
 		},
 		{
 			name: "provided CA alone verify-ca for IP identity",

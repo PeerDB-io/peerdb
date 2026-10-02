@@ -11,12 +11,7 @@ import {
   mySqlReplicationMechanismFromJSON,
 } from '@/grpc_generated/peers';
 
-import { isIPAddress } from '../schema';
 import { PeerSetting } from './common';
-
-const isCloudSQLIAMAuth = (config: unknown) =>
-  (config as MySqlConfig).authType ===
-  MySqlAuthType.MYSQL_GCP_CLOUD_SQL_IAM_AUTH;
 
 export const mysqlSetting: PeerSetting[] = [
   {
@@ -24,7 +19,7 @@ export const mysqlSetting: PeerSetting[] = [
     field: 'host',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, host: value as string })),
-    tips: 'Specifies the IP host name or address on which mysql is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it.',
+    tips: 'Specifies the IP host name or address on which mysql is to listen for TCP/IP connections from client applications. Ensure that this host has us whitelisted so we can connect to it. For GCP Cloud SQL IAM Auth, use the instance connection name (project:region:instance).',
   },
   {
     label: 'Port',
@@ -140,18 +135,15 @@ export const mysqlSetting: PeerSetting[] = [
     },
     type: 'file',
     optional: true,
-    isRequired: isCloudSQLIAMAuth,
-    tips: 'If not provided, host CA roots will be used. Required for GCP Cloud SQL IAM Auth.',
+    tips: 'If not provided, host CA roots will be used. Not used for GCP Cloud SQL IAM Auth.',
   },
   {
     label: 'TLS Hostname',
     field: 'tlsHost',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, tlsHost: value as string })),
-    tips: 'Overrides expected hostname during tls cert verification. For GCP Cloud SQL IAM Auth, required when Host is an IP address: set it to the instance DNS name so the IAM token is only sent to that instance.',
+    tips: 'Overrides expected hostname during tls cert verification. Not used for GCP Cloud SQL IAM Auth.',
     optional: true,
-    isRequired: (config) =>
-      isCloudSQLIAMAuth(config) && isIPAddress((config as MySqlConfig).host),
   },
   {
     label: 'Authentication type',
@@ -172,7 +164,7 @@ export const mysqlSetting: PeerSetting[] = [
         label: 'GCP Cloud SQL IAM Auth',
       },
     ],
-    tips: 'AWS IAM Auth is supported for all Mirror Types for MySQL. GCP Cloud SQL IAM Auth requires TLS and a root certificate, plus the TLS hostname when Host is an IP address.',
+    tips: 'AWS IAM Auth is supported for all Mirror Types for MySQL. GCP Cloud SQL IAM Auth connects through the Cloud SQL connector: set Host to the instance connection name (project:region:instance) and User to the service account email without @project.iam.gserviceaccount.com. No password, root certificate or TLS hostname is needed.',
   },
   {
     label: 'AWS IAM Auth Mechanism',

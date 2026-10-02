@@ -17,7 +17,7 @@ func NewPostgresConnFromConfig(
 	connConfig *pgx.ConnConfig,
 	tlsHost string,
 	rdsAuth *utils.RDSAuth,
-	cloudSQLAuth *utils.CloudSQLAuth,
+	cloudSQLDialer *utils.CloudSQLDialer,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	if tunnel.IsActive() {
@@ -46,14 +46,18 @@ func NewPostgresConnFromConfig(
 		connConfig = connConfig.Copy()
 		connConfig.Password = token
 	}
-	if cloudSQLAuth != nil {
+	if cloudSQLDialer != nil {
 		logger.Info("Setting up Cloud SQL IAM auth for Postgres")
-		token, err := utils.GetCloudSQLToken(ctx, cloudSQLAuth, "POSTGRES")
-		if err != nil {
-			return nil, err
-		}
 		connConfig = connConfig.Copy()
-		connConfig.Password = token
+		// the connector authenticates with an ephemeral client certificate and already encrypts the connection,
+		// so there is no password and no Postgres-level SSL negotiation
+		connConfig.DialFunc = cloudSQLDialer.DialContext
+		connConfig.LookupFunc = func(ctx context.Context, host string) ([]string, error) {
+			return []string{host}, nil
+		}
+		connConfig.TLSConfig = nil
+		connConfig.Fallbacks = nil
+		connConfig.Password = ""
 	}
 
 	// If the endpoint is misbehaved (e.g. a TCP tunnel started pointing at something new),

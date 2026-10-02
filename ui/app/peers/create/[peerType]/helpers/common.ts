@@ -18,8 +18,6 @@ export interface PeerSetting {
   stateHandler: (value: string | boolean, setter: PeerSetter) => void;
   type?: string;
   optional?: boolean;
-  // marks an otherwise optional field as required for the current config (e.g. for a given auth type)
-  isRequired?: (config: PeerConfig) => boolean;
   tips?: string;
   helpfulLink?: string;
   default?: string | number;

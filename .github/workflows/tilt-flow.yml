@@ -466,16 +466,13 @@ jobs:
 
       - name: Configure Cloud SQL IAM smoke test
         env:
-          ROOT_CA: ${{ secrets.FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_POSTGRES }}
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES: "35.238.144.132"
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES: "1-9a25984d-521a-420d-a1f3-9c93cf98376e.us-central1.sql.goog"
+          # instance connection names: the Cloud SQL connector resolves the instance, its IP and its server CA itself
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES: "custom-program-353117:us-central1:db-integrations-testing-peerdb"
           FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES: "github-ci@custom-program-353117.iam"
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL: "custom-program-353117:us-central1:db-integrations-testing-peerdb-mysql"
+          # MySQL IAM users are the service account email without @project.iam.gserviceaccount.com
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL: "github-ci"
         run: |
-          if [ -z "$ROOT_CA" ]; then
-            echo "Cloud SQL IAM smoke test skipped: root CA secret is not set."
-            exit 0
-          fi
-
           credentials_file="${{ github.workspace }}/bq_service_account.json"
           if ! jq -e '
             .client_email == "github-ci@custom-program-353117.iam.gserviceaccount.com" and
@@ -488,15 +485,12 @@ jobs:
           umask 077
           adc_file="$RUNNER_TEMP/cloudsql-github-ci-adc.json"
           jq '. + {type: "service_account"}' "$credentials_file" > "$adc_file"
-          ca_file="$RUNNER_TEMP/cloudsql-postgres-root-ca.pem"
-          printf '%s\n' "$ROOT_CA" > "$ca_file"
-          openssl x509 -in "$ca_file" -noout
 
           {
             echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_TLS_HOST_POSTGRES"
             echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_ROOT_CA_FILE_POSTGRES=$ca_file"
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL"
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL"
             echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file"
           } >> "$GITHUB_ENV"
 

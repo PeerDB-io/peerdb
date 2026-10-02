@@ -16,36 +16,6 @@ export function isIPAddress(host: string | undefined): boolean {
   return ipAddressSchema.safeParse(trimmed).success;
 }
 
-interface CloudSQLIAMTlsFields {
-  isCloudSQLIAMAuth: boolean;
-  host: string;
-  tlsHost: string;
-  rootCa?: string;
-  tlsDisabled?: boolean;
-  skipCertVerification?: boolean;
-}
-
-// Cloud SQL IAM auth sends an OAuth token as the password, so the connector
-// (CloudSQLAuth.VerifyAuthConfig in flow/connectors/utils/cloudsql.go) rejects configs that
-// could hand that token to the wrong server. Mirror its rules here so the peer form fails
-// before the peer is created. Returns an error message, or undefined when the config is fine.
-function cloudSQLIAMTlsError(fields: CloudSQLIAMTlsFields): string | undefined {
-  if (!fields.isCloudSQLIAMAuth) return undefined;
-  if (fields.tlsDisabled) {
-    return 'GCP Cloud SQL IAM Auth requires TLS to be enabled';
-  }
-  if (fields.skipCertVerification) {
-    return 'GCP Cloud SQL IAM Auth does not allow skipping certificate verification';
-  }
-  if (!fields.tlsHost.trim() && isIPAddress(fields.host)) {
-    return 'TLS Hostname is required for GCP Cloud SQL IAM Auth when Host is an IP address (use the instance DNS name)';
-  }
-  if (!fields.rootCa?.trim()) {
-    return 'Root Certificate is required for GCP Cloud SQL IAM Auth';
-  }
-  return undefined;
-}
-
 const sshSchema = z
   .object({
     host: z
@@ -177,16 +147,25 @@ const pgBaseSchema = z.object({
   sshConfig: sshSchema,
 });
 
+// Cloud SQL IAM auth dials through the Cloud SQL connector, which takes the instance connection name
+// (project:region:instance) or a DNS name with a TXT record for one as the host, never an IP address.
+// Mirrors CloudSQLDialer.VerifyAuthConfig in flow/connectors/utils/cloudsql_dialer.go.
+// The connector encrypts and verifies the connection itself, so root CA and TLS hostname do not apply.
+function cloudSQLInstanceHostError(host: string): string | undefined {
+  const trimmed = host.trim();
+  if (isIPAddress(trimmed)) {
+    return 'GCP Cloud SQL IAM Auth needs the instance connection name (project:region:instance) as Host, not an IP address';
+  }
+  if (trimmed.includes(':') && trimmed.split(':').length < 3) {
+    return 'Host must look like project:region:instance for GCP Cloud SQL IAM Auth';
+  }
+  return undefined;
+}
+
 export const pgSchema = pgBaseSchema.superRefine((cfg, ctx) => {
-  const message = cloudSQLIAMTlsError({
-    isCloudSQLIAMAuth:
-      cfg.authType === PostgresAuthType.POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
-    host: cfg.host,
-    tlsHost: cfg.tlsHost,
-    rootCa: cfg.rootCa,
-    skipCertVerification: cfg.skipCertVerification,
-  });
-  if (message) ctx.addIssue({ code: 'custom', message });
+  if (cfg.authType !== PostgresAuthType.POSTGRES_GCP_CLOUD_SQL_IAM_AUTH) return;
+  const message = cloudSQLInstanceHostError(cfg.host);
+  if (message) ctx.addIssue({ code: 'custom', path: ['host'], message });
 });
 
 export const crdbSchema = z.object({
@@ -275,16 +254,9 @@ const mySqlBaseSchema = z.object({
 });
 
 export const mySchema = mySqlBaseSchema.superRefine((cfg, ctx) => {
-  const message = cloudSQLIAMTlsError({
-    isCloudSQLIAMAuth:
-      cfg.authType === MySqlAuthType.MYSQL_GCP_CLOUD_SQL_IAM_AUTH,
-    host: cfg.host,
-    tlsHost: cfg.tlsHost,
-    rootCa: cfg.rootCa,
-    tlsDisabled: cfg.disableTls,
-    skipCertVerification: cfg.skipCertVerification,
-  });
-  if (message) ctx.addIssue({ code: 'custom', message });
+  if (cfg.authType !== MySqlAuthType.MYSQL_GCP_CLOUD_SQL_IAM_AUTH) return;
+  const message = cloudSQLInstanceHostError(cfg.host);
+  if (message) ctx.addIssue({ code: 'custom', path: ['host'], message });
 });
 
 export const sfSchema = z.object({
