@@ -185,6 +185,7 @@ impl ToSql for ArrayValue {
                 | Type::VARCHAR_ARRAY
                 | Type::TEXT_ARRAY
                 | Type::BYTEA_ARRAY
+                | Type::UUID_ARRAY
                 | Type::DATE_ARRAY
                 | Type::TIME_ARRAY
                 | Type::TIMETZ_ARRAY
@@ -203,6 +204,22 @@ impl ToSql for ArrayValue {
         }
 
         ToSql::to_sql(self, ty, out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ArrayValue;
+    use bytes::BytesMut;
+    use postgres_types::{ToSql, Type};
+    use uuid::Uuid;
+
+    #[test]
+    fn to_sql_checked_accepts_uuid_array() {
+        let value = ArrayValue::Uuid(vec![Uuid::nil()]);
+        let mut out = BytesMut::new();
+
+        assert!(value.to_sql_checked(&Type::UUID_ARRAY, &mut out).is_ok());
     }
 }
 
