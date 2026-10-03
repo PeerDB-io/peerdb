@@ -598,9 +598,6 @@ func (c *MySqlConnector) PullRecords(
 	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
-		if recordCount == 0 {
-			req.RecordStream.SignalAsEmpty()
-		}
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
@@ -657,7 +654,6 @@ func (c *MySqlConnector) PullRecords(
 		processStart = time.Now()
 		addRecordTime.Add(int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
-			req.RecordStream.SignalAsNotEmpty()
 			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {

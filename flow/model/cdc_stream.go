@@ -24,9 +24,6 @@ type CDCStream[T Items] struct {
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID  int64
 	lastCheckpointSet bool
-	needsNormalize    bool
-	empty             bool
-	emptySet          bool
 	firstRowSet       bool
 }
 
@@ -42,10 +39,7 @@ func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 		emptySignal:        make(chan struct{}),
 		lastCheckpointID:   0,
 		lastCheckpointText: "",
-		needsNormalize:     false,
 		lastCheckpointSet:  false,
-		empty:              true,
-		emptySet:           false,
 	}
 }
 
@@ -65,15 +59,13 @@ func (r *CDCStream[T]) GetLastCheckpoint() CdcCheckpoint {
 }
 
 func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
-	if !r.needsNormalize {
+	if !r.firstRowSet {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
-			r.needsNormalize = true
-			if !r.firstRowSet {
-				r.firstRowSet = true
-				r.firstRowReceivedAt = time.Now().UTC()
-				r.firstRowCommitTime = record.GetCommitTime().UTC()
-			}
+			r.firstRowSet = true
+			r.firstRowReceivedAt = time.Now().UTC()
+			r.firstRowCommitTime = record.GetCommitTime().UTC()
+			r.markEmptySignalReady()
 		}
 	}
 
@@ -101,30 +93,16 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 	}
 }
 
-func (r *CDCStream[T]) SignalAsEmpty() {
-	r.emptySet = true
-	close(r.emptySignal)
-}
-
-func (r *CDCStream[T]) SignalAsNotEmpty() {
-	r.empty = false
-	r.emptySet = true
-	close(r.emptySignal)
-}
-
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
 	<-r.emptySignal
-	return r.empty
+	return !r.firstRowSet
 }
 
 func (r *CDCStream[T]) Close() {
 	if !r.lastCheckpointSet {
 		r.lastCheckpointSet = true
 		close(r.records)
-		if !r.emptySet {
-			r.emptySet = true
-			close(r.emptySignal)
-		}
+		r.markEmptySignalReady()
 	}
 }
 
@@ -144,11 +122,19 @@ func (r *CDCStream[T]) AddSchemaDelta(
 }
 
 func (r *CDCStream[T]) NeedsNormalize() bool {
-	return r.needsNormalize
+	return r.firstRowSet
 }
 
 // FirstRowTimes returns the received/commit timestamps of the batch's first row event.
 // ok is false if the batch had no row events (e.g. schema-delta-only batch).
 func (r *CDCStream[T]) FirstRowTimes() (time.Time, time.Time, bool) {
 	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
+}
+
+func (r *CDCStream[T]) markEmptySignalReady() {
+	select {
+	case <-r.emptySignal:
+	default:
+		close(r.emptySignal)
+	}
 }
