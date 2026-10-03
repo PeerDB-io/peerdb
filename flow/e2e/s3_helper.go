@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,8 +37,7 @@ type S3PeerCredentials struct {
 const (
 	Aws S3Environment = iota
 	Gcs
-	Minio
-	MinioTls
+	SeaweedFS
 )
 
 func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestHelper, error) {
@@ -47,8 +45,6 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 	var endpoint string
 	var credsPath string
 	var bucketName string
-	var rootCA *string
-	var tlsHost string
 	switch s3environment {
 	case Aws:
 		credsPath = os.Getenv("TEST_S3_CREDS")
@@ -57,24 +53,12 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		credsPath = os.Getenv("TEST_GCS_CREDS")
 		bucketName = "peerdb_staging"
 		endpoint = "https://storage.googleapis.com"
-	case Minio:
+	case SeaweedFS:
 		bucketName = "peerdb"
 		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3")
 		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
 		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 		config.Region = os.Getenv("AWS_REGION")
-	case MinioTls:
-		bucketName = "peerdb"
-		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3_TLS")
-		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
-		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
-		config.Region = os.Getenv("AWS_REGION")
-		bytes, err := e2eshared.ReadFileToBytes("./certs/cert.crt")
-		if err != nil {
-			return nil, err
-		}
-		rootCA = new(base64.StdEncoding.EncodeToString(bytes))
-		tlsHost = "minio.local"
 	default:
 		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
 	}
@@ -98,8 +82,6 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		SecretAccessKey: &config.SecretAccessKey,
 		Region:          &config.Region,
 		Endpoint:        new(endpoint),
-		RootCa:          rootCA,
-		TlsHost:         tlsHost,
 	}
 
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "ci", utils.NewPeerAWSCredentials(s3config))

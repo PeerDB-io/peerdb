@@ -45,7 +45,7 @@ Tilt manages Docker Compose services defined in `docker-compose-dev.yml` (core P
 
 | Label | Purpose | Examples |
 |-------|---------|---------|
-| `PeerDB` | Core services (always running) | flow-api, flow-worker, flow-snapshot-worker, catalog, temporal, minio |
+| `PeerDB` | Core services (always running) | flow-api, flow-worker, flow-snapshot-worker, catalog, temporal, seaweedfs |
 | `Ancillary-DB` | Data stores (manual start) | postgres, clickhouse, mongodb, mysql-gtid, mysql-pos, mariadb |
 | `Ancillary-DB-Provisioning` | DB setup scripts (auto after DB starts) | provision-postgres, provision-clickhouse, provision-mongodb, provision-mysql-gtid, provision-mysql-pos, provision-mariadb |
 | `Ancillary-TestInfra` | Test infrastructure (manual start, needed by SSH keepalive and chaos tests) | toxiproxy, openssh |

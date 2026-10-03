@@ -8,18 +8,18 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=flow_api_call.sh
 . "$SCRIPT_DIR/flow_api_call.sh"
 
-MINIO_ACCESS_KEY="${AWS_ACCESS_KEY_ID:-_peerdb_minioadmin}"
-MINIO_SECRET_KEY="${AWS_SECRET_ACCESS_KEY:-_peerdb_minioadmin}"
-MINIO_ENDPOINT="http://host.docker.internal:${MINIO_PORT:-9001}"
+S3_ACCESS_KEY="${AWS_ACCESS_KEY_ID:-_peerdb_minioadmin}"
+S3_SECRET_KEY="${AWS_SECRET_ACCESS_KEY:-_peerdb_minioadmin}"
+S3_ENDPOINT="http://host.docker.internal:${SEAWEEDFS_PORT:-9001}"
 
 payload=$(jq -n \
   --arg name "clickhouse_cluster_peer" \
   --arg host "$CI_CLICKHOUSE_HOST" \
   --argjson port "$CI_CLICKHOUSE_NATIVE_PORT" \
   --arg s3Path "s3://peerdb" \
-  --arg accessKeyId "$MINIO_ACCESS_KEY" \
-  --arg secretAccessKey "$MINIO_SECRET_KEY" \
-  --arg endpoint "$MINIO_ENDPOINT" \
+  --arg accessKeyId "$S3_ACCESS_KEY" \
+  --arg secretAccessKey "$S3_SECRET_KEY" \
+  --arg endpoint "$S3_ENDPOINT" \
   '{
     "peer": {
       "name": $name,

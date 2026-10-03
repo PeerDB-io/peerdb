@@ -457,7 +457,7 @@ func SetupClickHouseSuite[TSource SuiteSource](
 		source, suffix, err := setupSource(t)
 		require.NoError(t, err, "failed to setup postgres")
 
-		s3Helper, err := NewS3TestHelper(t.Context(), Minio)
+		s3Helper, err := NewS3TestHelper(t.Context(), SeaweedFS)
 		require.NoError(t, err, "failed to setup S3")
 
 		s := ClickHouseSuite{
