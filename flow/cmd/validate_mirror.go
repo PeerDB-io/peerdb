@@ -97,6 +97,15 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
+	if cronExpr := connectionConfigs.GetBigqueryCdcConfig().GetQueryCdc().GetSyncCron(); cronExpr != "" {
+		if _, err := shared.ParseSyncCron(cronExpr); err != nil {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err),
+				NewMirrorErrorInfo(map[string]string{
+					common.ErrorMetadataOffendingField: "sync_cron",
+				}))
+		}
+	}
+
 	if apiErr := h.checkTableMappings(ctx, connectionConfigs); apiErr != nil {
 		return nil, apiErr
 	}
