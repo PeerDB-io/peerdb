@@ -465,6 +465,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
 		}
+		if cronExpr := cdcUpdate.GetQueryCdc().GetSyncCron(); cronExpr != "" {
+			if _, err := shared.ParseSyncCron(cronExpr); err != nil {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err))
+			}
+		}
 		for _, tm := range cdcUpdate.AdditionalTables {
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
