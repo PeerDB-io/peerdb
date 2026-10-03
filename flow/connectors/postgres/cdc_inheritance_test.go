@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pglogrepl"
@@ -13,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -210,4 +212,90 @@ func TestProcessTupleRejectsColumnCountMismatch(t *testing.T) {
 	items, _, err := processTuple(qProcessor{}, p, nil, rel, mapping, nil, "", model.BaseRecord{})
 	require.NoError(t, err)
 	require.Equal(t, 0, items.Len())
+}
+
+func TestSourceSchemaStampForInheritanceChildren(t *testing.T) {
+	t.Parallel()
+	newSource := func(version uint32, parentRelKind byte) *PostgresCDCSource {
+		p := newInheritanceTestCDCSource(t)
+		p.handleInheritanceForNonPartitionedTables = true
+		p.schemaNameForRelID = map[uint32]string{}
+		p.internalVersion = version
+		p.idToRelKindMap[inhParentRelID] = parentRelKind
+		return p
+	}
+	parentRel := &pglogrepl.RelationMessage{RelationID: inhParentRelID, Namespace: "public", RelationName: "parent"}
+
+	p := newSource(shared.InternalVersion_SourceSchemaFromInheritanceChild, 'r')
+	schema, err := p.getSourceSchemaForDestinationColumn(childARelation(), inhParentRelID, "public.parent")
+	require.NoError(t, err)
+	require.Equal(t, "tenant_a", schema, "a child's rows carry the child's schema")
+	schema, err = p.getSourceSchemaForDestinationColumn(childBRelation(), inhParentRelID, "public.parent")
+	require.NoError(t, err)
+	require.Equal(t, "tenant_b", schema)
+	schema, err = p.getSourceSchemaForDestinationColumn(parentRel, inhParentRelID, "public.parent")
+	require.NoError(t, err)
+	require.Equal(t, "public", schema, "the parent's own rows carry the parent's schema")
+
+	// the stamp also reaches decoded rows
+	_, err = processRelationMessage[model.RecordItems](t.Context(), p, 1, childARelation(), inhParentRelID)
+	require.NoError(t, err)
+	insert, err := processInsertMessage(p, 2, &pglogrepl.InsertMessage{
+		RelationID: inhChildARelID, Tuple: tuple(str("1"), str("alice"), str("a-val"), str("7")),
+	}, qProcessor{}, p.customTypeMapping)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueString{Val: "tenant_a"},
+		insert.(*model.InsertRecord[model.RecordItems]).Items.GetColumnValue("_peerdb_source_schema"))
+
+	for name, p := range map[string]*PostgresCDCSource{
+		"mirror created before the internal version": newSource(shared.InternalVersion_SourceSchemaFromInheritanceChild-1, 'r'),
+		"declarative partition root":                 newSource(shared.InternalVersion_SourceSchemaFromInheritanceChild, 'p'),
+	} {
+		schema, err := p.getSourceSchemaForDestinationColumn(childARelation(), inhParentRelID, "public.parent")
+		require.NoError(t, err, name)
+		require.Equal(t, "public", schema, name)
+	}
+
+	off := newSource(shared.InternalVersion_SourceSchemaFromInheritanceChild, 'r')
+	off.schemaNameForRelID = nil
+	schema, err = off.getSourceSchemaForDestinationColumn(childARelation(), inhParentRelID, "public.parent")
+	require.NoError(t, err)
+	require.Empty(t, schema, "no stamp when the setting is off")
+}
+
+func TestSnapshotSourceSchemaSelectLists(t *testing.T) {
+	t.Parallel()
+	const columns = `"id","name"`
+
+	disabled := snapshotSourceSchema{}
+	require.Equal(t, columns, disabled.tableSelectList(columns))
+	require.Equal(t, columns, disabled.childSelectList(columns, "tenant_a"))
+	require.Equal(t, `"public"."parent"`, disabled.fromClause(`"public"."parent"`))
+	require.Equal(t, `"ctid"`, disabled.watermarkColumn(`"ctid"`))
+
+	literal := snapshotSourceSchema{enabled: true, mirroredSchema: "public", mirroredOID: 16384}
+	require.Equal(t, columns+`, 'public'::text AS "_peerdb_source_schema"`, literal.tableSelectList(columns))
+	require.Equal(t, columns+`, 'public'::text AS "_peerdb_source_schema"`, literal.childSelectList(columns, "tenant_a"),
+		"partition roots and tables without children keep the mirrored table's schema")
+	require.Equal(t, `"public"."parent" AS _peerdb_src`, literal.fromClause(`"public"."parent"`))
+	require.Equal(t, `_peerdb_src."ctid"`, literal.watermarkColumn(`"ctid"`))
+
+	perRow := snapshotSourceSchema{enabled: true, perRow: true, mirroredSchema: "pub'lic", mirroredOID: 16384}
+	require.Equal(t, columns+`, _peerdb_map._peerdb_nspname AS "_peerdb_source_schema"`, perRow.tableSelectList(columns))
+	require.Equal(t, `_peerdb_src.*, _peerdb_map._peerdb_nspname AS "_peerdb_source_schema"`, perRow.tableSelectList("*"))
+	from := perRow.fromClause(`"pub'lic"."parent"`)
+	require.True(t, strings.HasPrefix(from, `"pub'lic"."parent" AS _peerdb_src LEFT JOIN (`))
+	// the parent and every descendant, one row per relation
+	require.Contains(t, from, "WITH RECURSIVE d(oid) AS (SELECT 16384::oid UNION SELECT i.inhrelid")
+	require.Contains(t, from, ") AS _peerdb_map ")
+	require.True(t, strings.HasSuffix(from, "ON _peerdb_map._peerdb_relid = _peerdb_src.tableoid"))
+
+	// source columns named like the map's columns must not become ambiguous
+	clashing := []string{"id", "_peerdb_relid", "_peerdb_nspname"}
+	require.Equal(t, `"id","_peerdb_relid","_peerdb_nspname"`, disabled.tableColumns(clashing))
+	require.Equal(t, `_peerdb_src."id",_peerdb_src."_peerdb_relid",_peerdb_src."_peerdb_nspname"`, perRow.tableColumns(clashing))
+	require.Equal(t, `_peerdb_src."id",_peerdb_src."_peerdb_relid",_peerdb_src."_peerdb_nspname"`, literal.tableColumns(clashing))
+	require.Equal(t, `_peerdb_src."ctid"`, perRow.watermarkColumn(`"ctid"`))
+	require.Equal(t, columns+`, 'TenantA'::text AS "_peerdb_source_schema"`, perRow.childSelectList(columns, "TenantA"))
+	require.Equal(t, columns+`, 'te''nant'::text AS "_peerdb_source_schema"`, perRow.childSelectList(columns, "te'nant"))
 }
