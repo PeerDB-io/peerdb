@@ -90,7 +90,7 @@ dc_resource('temporal-admin-tools', labels=['PeerDB'])
 dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('minio', labels=['PeerDB'])
+dc_resource('seaweedfs', labels=['PeerDB'])
 
 
 # Ancillary services

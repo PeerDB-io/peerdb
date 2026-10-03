@@ -64,8 +64,8 @@ func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuiteGCS)
 }
 
-func TestPeerFlowE2ETestSuiteMinIO(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuiteMinIO)
+func TestPeerFlowE2ETestSuiteSeaweedFS(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuiteSeaweedFS)
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
@@ -113,14 +113,9 @@ func SetupSuiteGCS(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	return setupSuite(t, e2e.Gcs)
 }
 
-func SetupSuiteMinIO(t *testing.T) PeerFlowE2ETestSuiteS3 {
+func SetupSuiteSeaweedFS(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-	return setupSuite(t, e2e.Minio)
-}
-
-func SetupSuiteMinIO_TLS(t *testing.T) PeerFlowE2ETestSuiteS3 {
-	t.Helper()
-	return setupSuite(t, e2e.MinioTls)
+	return setupSuite(t, e2e.SeaweedFS)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {

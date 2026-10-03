@@ -377,8 +377,8 @@ jobs:
           # Main PeerDB services that must be healthy before tests run. proto-gen
           # feeds the image builds; flow-migrate applies the catalog schema;
           # catalog/flow-api/flow-worker/flow-snapshot-worker back the
-          # suites; peerdb and minio support peer setup and S3 staging.
-          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # suites; peerdb and seaweedfs support peer setup and S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb seaweedfs"
           # Per-attempt wait budget (generous, since flow images are built here).
           PER_ATTEMPT_TIMEOUT=600
 
@@ -543,7 +543,7 @@ jobs:
           set +e -u
 
           # The Configure AWS credentials step exports real AWS_* variables into
-          # the job env. Drop them so the tests fall back to the minio values in
+          # the job env. Drop them so the tests fall back to the seaweedfs values in
           # .env (godotenv never overrides variables already present in the
           # process environment); the IAM tests get the real credentials via
           # the FLOW_TESTS_* copies above instead.
@@ -551,7 +551,7 @@ jobs:
           # AWS_DEFAULT_REGION (us-west-2, from the setup-aws step) is kept:
           # the IAM tests blank AWS_REGION and rely on the SDK falling back to
           # it for the real-AWS region — without it the S3 hostname is built
-          # with an empty region ("<bucket>.s3..amazonaws.com"). The minio
+          # with an empty region ("<bucket>.s3..amazonaws.com"). The seaweedfs
           # suites are unaffected because AWS_REGION from .env outranks it.
           unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION
 
@@ -642,7 +642,7 @@ jobs:
              logs/tilt-resources.json 2>/dev/null || true
 
           # Capture container logs for the snapshot path (snapshot-worker writes to
-          # MinIO/S3, ClickHouse loads from it) so server-side failures like a stuck
+          # SeaweedFS/S3, ClickHouse loads from it) so server-side failures like a stuck
           # initial snapshot are visible in the artifact. The mirror runs in the
           # flow-worker/flow-snapshot-worker containers, so these are the only window
           # into why it hangs in STATUS_SNAPSHOT.

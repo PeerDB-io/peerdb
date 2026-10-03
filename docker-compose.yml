@@ -1,10 +1,8 @@
 name: peerdb-quickstart
 
-x-minio-config: &minio-config
+x-s3-config: &s3-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
-  MINIO_ROOT_USER: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
-  MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
@@ -131,7 +129,7 @@ services:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
+      <<: [*catalog-config, *flow-worker-env, *s3-config]
       PEERDB_ALLOWED_TARGETS:
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -146,7 +144,7 @@ services:
     image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.37.10
     restart: unless-stopped
     environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
+      <<: [*catalog-config, *flow-worker-env, *s3-config]
     depends_on:
       flow-migrate:
         condition: service_completed_successfully
@@ -158,7 +156,7 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:stable-v0.37.10
     restart: unless-stopped
     environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
+      <<: [*catalog-config, *flow-worker-env, *s3-config]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -202,28 +200,22 @@ services:
     depends_on:
       - flow-api
 
-  minio:
-    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     restart: unless-stopped
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
     ports:
-      - "9001:9000"
-      - "9002:36987"
+      - "9001:8333"
+      - "9002:23646"
     environment:
-      <<: *minio-config
-    entrypoint: >
-      /bin/sh -c "
-      silo server /data --console-address=:36987 &
-      sleep 2;
-      mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
-      wait
-      "
+      AWS_ACCESS_KEY_ID: _peerdb_minioadmin
+      AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
+      S3_BUCKET: peerdbbucket
 
 volumes:
   pgdata:
-  minio-data:
+  seaweedfs-data:
 
 networks:
   default:
