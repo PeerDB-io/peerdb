@@ -149,6 +149,13 @@ func buildInsertFromTableFunctionQuery(
 	if err != nil {
 		return "", err
 	}
+	// whether the Postgres source projected the source schema column into every row of the snapshot
+	var sourceProjects bool
+	if sourceSchemaAsDestinationColumn {
+		if sourceProjects, err = internal.SnapshotProjectsSourceSchema(ctx, config.config); err != nil {
+			return "", err
+		}
+	}
 
 	selectedColumnNames := make([]string, 0, len(config.schema.Fields))
 	insertedColumnNames := make([]string, 0, len(config.schema.Fields))
@@ -156,9 +163,10 @@ func buildInsertFromTableFunctionQuery(
 	for _, field := range config.schema.Fields {
 		colName := field.Name
 
-		// Skip excluded columns
+		// Skip excluded columns; the projected source schema column is never a source column, so exclusions
+		// do not apply to it
 		excluded := slices.Contains(config.excludedColumns, colName)
-		if excluded {
+		if excluded && !(sourceProjects && colName == sourceSchemaColName) {
 			continue
 		}
 
@@ -188,13 +196,20 @@ func buildInsertFromTableFunctionQuery(
 
 	// Add source schema column if needed
 	if sourceSchemaAsDestinationColumn {
-		qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
-		if err != nil {
-			return "", err
-		}
+		if sourceProjects {
+			// the Postgres source computed the column per row and the loop above selected it
+			if !slices.Contains(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName)) {
+				return "", fmt.Errorf("snapshot of %s is missing column %s", config.config.WatermarkTable, sourceSchemaColName)
+			}
+		} else {
+			qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
+			if err != nil {
+				return "", err
+			}
 
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(qualifiedTable.Namespace))
-		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
+			selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(qualifiedTable.Namespace))
+			insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
+		}
 	}
 
 	selectorStr := strings.Join(selectedColumnNames, ",")

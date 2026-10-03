@@ -31,7 +31,7 @@ const (
 	isDeletedColType        = "UInt8"
 	versionColName          = "_peerdb_version"
 	versionColType          = "UInt64"
-	sourceSchemaColName     = "_peerdb_source_schema"
+	sourceSchemaColName     = internal.SourceSchemaColumnName
 	sourceSchemaColType     = "LowCardinality(String)"
 )
 
