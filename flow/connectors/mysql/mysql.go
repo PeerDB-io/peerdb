@@ -60,6 +60,15 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
+		// the login is the impersonated service account, so the user does not need to be configured
+		if config.User == "" {
+			user, err := utils.CloudSQLMySQLIAMUser()
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify auth config: %w", err)
+			}
+			config = proto.CloneOf(config)
+			config.User = user
+		}
 	}
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {

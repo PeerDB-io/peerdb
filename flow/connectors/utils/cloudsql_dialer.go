@@ -97,6 +97,49 @@ func cloudSQLIPTypeFromEnv() (cloudsqlconn.DialOption, error) {
 	}
 }
 
+// cloudSQLIAMServiceAccount returns the email of the service account this deployment impersonates,
+// for deriving the database user when none is configured.
+func cloudSQLIAMServiceAccount() (string, error) {
+	serviceAccount := envValue(workloadIdentityServiceAccountEnv)
+	if serviceAccount == "" {
+		return "", exceptions.NewCloudSQLIAMAuthError(fmt.Errorf(
+			"user is not set and cannot be derived without deployment environment variable %s",
+			workloadIdentityServiceAccountEnv,
+		))
+	}
+	return serviceAccount, nil
+}
+
+// CloudSQLPostgresIAMUser returns the Postgres database user of the service account this deployment impersonates:
+// Cloud SQL names Postgres IAM service account users after the service account email without ".gserviceaccount.com".
+func CloudSQLPostgresIAMUser() (string, error) {
+	serviceAccount, err := cloudSQLIAMServiceAccount()
+	if err != nil {
+		return "", err
+	}
+	user, found := strings.CutSuffix(serviceAccount, ".gserviceaccount.com")
+	if !found {
+		return "", exceptions.NewCloudSQLIAMAuthError(fmt.Errorf(
+			"user is not set and service account %q is not a .gserviceaccount.com email", serviceAccount))
+	}
+	return user, nil
+}
+
+// CloudSQLMySQLIAMUser returns the MySQL database user of the service account this deployment impersonates:
+// Cloud SQL names MySQL IAM service account users after the part of the email before "@".
+func CloudSQLMySQLIAMUser() (string, error) {
+	serviceAccount, err := cloudSQLIAMServiceAccount()
+	if err != nil {
+		return "", err
+	}
+	user, domain, found := strings.Cut(serviceAccount, "@")
+	if !found || user == "" || !strings.HasSuffix(domain, ".gserviceaccount.com") {
+		return "", exceptions.NewCloudSQLIAMAuthError(fmt.Errorf(
+			"user is not set and service account %q is not a .gserviceaccount.com email", serviceAccount))
+	}
+	return user, nil
+}
+
 // CloudSQLDialer dials one Cloud SQL instance through the process-wide connector.
 type CloudSQLDialer struct {
 	// Tunnel, when active, carries the connection to the instance.

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -91,6 +92,15 @@ func newPostgresConnector(
 		cloudSQLDialer = &utils.CloudSQLDialer{Instance: internal.SanitizePGHost(pgConfig.Host)}
 		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+		// the login is the impersonated service account, so the user does not need to be configured
+		if pgConfig.User == "" {
+			user, err := utils.CloudSQLPostgresIAMUser()
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify auth config: %w", err)
+			}
+			pgConfig = proto.CloneOf(pgConfig)
+			pgConfig.User = user
 		}
 	}
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
