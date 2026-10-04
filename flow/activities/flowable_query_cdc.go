@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
@@ -184,7 +183,7 @@ func queryCDCSyncSchedule(config *protos.FlowConnectionConfigsCore) (cron.Schedu
 	if expr == "" {
 		return nil, nil
 	}
-	schedule, err := shared.ParseSyncCron(expr)
+	schedule, err := common.ParseSyncCron(expr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid query-based CDC sync cron %q: %w", expr, err)
 	}

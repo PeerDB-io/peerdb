@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func TestQueryCDCPollWaitCron(t *testing.T) {
-	hourly, err := shared.ParseSyncCron("0 * * * *")
+	hourly, err := common.ParseSyncCron("0 * * * *")
 	require.NoError(t, err)
 	// interval is ignored under a schedule
 	const syncInterval = 10 * time.Second

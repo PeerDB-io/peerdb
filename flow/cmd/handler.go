@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
@@ -466,7 +467,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
 		}
 		if cronExpr := cdcUpdate.GetQueryCdc().GetSyncCron(); cronExpr != "" {
-			if _, err := shared.ParseSyncCron(cronExpr); err != nil {
+			if _, err := common.ParseSyncCron(cronExpr); err != nil {
 				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err))
 			}
 		}
