@@ -36,7 +36,7 @@ func newS3StagingStore(
 	ctx context.Context,
 	config *protos.ClickhouseConfig,
 	unifiedBucketName string,
-	chVersion clickhouseproto.Version,
+	chVersion *clickhouseproto.Version, // nil when the server version is unknown, skips version checks
 ) (StagingStore, error) {
 	var awsConfig utils.PeerAWSCredentials
 	var awsBucketPath string
@@ -76,14 +76,14 @@ func newS3StagingStore(
 	if err != nil {
 		return nil, err
 	}
-	if credentials.AWS.SessionToken != "" {
+	if credentials.AWS.SessionToken != "" && chVersion != nil {
 		if !clickhouseproto.CheckMinVersion(
 			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
-			chVersion,
+			*chVersion,
 		) {
 			return nil, fmt.Errorf(
 				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				chVersion,
+				*chVersion,
 				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
 		}
 	}

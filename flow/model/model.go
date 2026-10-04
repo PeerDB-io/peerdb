@@ -168,8 +168,6 @@ type SyncQueryCDCRequest struct {
 	TableSchema  *protos.TableSchema
 	Records      <-chan Record[RecordItems]
 	Version      uint32
-	Flags        []string
-	SchemaDeltas []*protos.TableSchemaDelta
 	// BatchID is this table's own batch sequence number for the records being
 	// staged, persisted as its new synced_batch_id on success.
 	BatchID           int64
