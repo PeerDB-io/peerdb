@@ -43,6 +43,28 @@ func TestQueryCDCPollWaitCron(t *testing.T) {
 	})
 }
 
+func TestQueryCDCCatchingUp(t *testing.T) {
+	start := time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
+	safeEnd := start.Add(3 * time.Hour)
+
+	t.Run("cursor advanced but still behind safe end", func(t *testing.T) {
+		require.True(t, queryCDCCatchingUp(start, start.Add(time.Hour), safeEnd))
+	})
+
+	t.Run("cursor reached safe end", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, safeEnd, safeEnd))
+	})
+
+	t.Run("connector advanced past the requested end over an empty range", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, safeEnd.Add(time.Minute), safeEnd))
+	})
+
+	t.Run("no progress is not catching up", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, start, safeEnd))
+		require.False(t, queryCDCCatchingUp(start, time.Time{}, safeEnd))
+	})
+}
+
 func TestQueryCDCSyncSchedule(t *testing.T) {
 	cfg := func(cronExpr string) *protos.FlowConnectionConfigsCore {
 		return &protos.FlowConnectionConfigsCore{
