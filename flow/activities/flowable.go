@@ -391,7 +391,7 @@ func (a *FlowableActivity) SyncFlow(
 	// paths treat the resulting cancel as a clean stop rather than a failure.
 	// Jitter the first poll so mirrors restarted together by a worker rollout don't poll in lockstep.
 	// cancelCtx on pause ends the interval, as ctx is its parent.
-	common.Interval(ctx, 5*time.Second, func() {
+	common.Interval(ctx, 10*time.Second, func() {
 		// lookup errors are retried on the next tick, a catalog blip must never stop a healthy sync
 		status, err := internal.GetWorkflowStatusByName(ctx, a.CatalogPool, config.FlowJobName)
 		if err != nil {
