@@ -2,8 +2,10 @@ package utils
 
 import (
 	"errors"
+	"net"
 	"testing"
 
+	"cloud.google.com/go/cloudsqlconn/errtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -34,17 +36,6 @@ func TestCloudSQLDialerVerifyAuthConfig(t *testing.T) {
 			require.True(t, ok, "expected CloudSQLIAMAuthError, got %v", err)
 		})
 	}
-}
-
-func TestCloudSQLIPTypeFromEnv(t *testing.T) {
-	for _, value := range []string{"", "public", "PRIVATE", "psc", "auto"} {
-		t.Setenv(CloudSQLIPTypeEnv, value)
-		_, err := cloudSQLIPTypeFromEnv()
-		require.NoError(t, err, value)
-	}
-	t.Setenv(CloudSQLIPTypeEnv, "bogus")
-	_, err := cloudSQLIPTypeFromEnv()
-	require.Error(t, err)
 }
 
 func TestCloudSQLPostgresIAMUser(t *testing.T) {
@@ -88,6 +79,48 @@ func TestCloudSQLMySQLIAMUser(t *testing.T) {
 			_, err := CloudSQLMySQLIAMUser()
 			var authErr *exceptions.CloudSQLIAMAuthError
 			require.ErrorAs(t, err, &authErr)
+		})
+	}
+}
+
+func TestCloudSQLPSCUnavailable(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "instance without PSC",
+			err:  errtype.NewConfigError(`instance does not have IP of type "PSC"`, "project:region:instance"),
+			want: true,
+		},
+		{
+			name: "PSC DNS name not found",
+			err: errtype.NewDialError("failed to dial", "project:region:instance",
+				&net.OpError{Op: "dial", Err: &net.DNSError{Err: "no such host", Name: "x.sql.goog", IsNotFound: true}}),
+			want: true,
+		},
+		{
+			name: "PSC DNS lookup timeout",
+			err: errtype.NewDialError("failed to dial", "project:region:instance",
+				&net.OpError{Op: "dial", Err: &net.DNSError{Err: "i/o timeout", Name: "x.sql.goog", IsTimeout: true}}),
+		},
+		{
+			name: "PSC endpoint unreachable",
+			err: errtype.NewDialError("failed to dial", "project:region:instance",
+				&net.OpError{Op: "dial", Err: errors.New("connection refused")}),
+		},
+		{
+			name: "Admin API failure",
+			err:  errtype.NewRefreshError("failed to get instance metadata", "project:region:instance", errors.New("quota exceeded")),
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("boom"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, cloudSQLPSCUnavailable(test.err))
 		})
 	}
 }
