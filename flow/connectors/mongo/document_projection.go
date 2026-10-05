@@ -23,15 +23,19 @@ var emptyBsonDocument = bson.Raw{0x05, 0x00, 0x00, 0x00, 0x00}
 // to avoid having to attempt to inference the array elements values.
 type ExpectedColumnKind func(field string) (types.QValueKind, bool)
 
+// IsExcludedColumn resolves whether a column should be excluded from the projection.
+type IsExcludedColumn func(field string) bool
+
 const bsonDocumentHeaderSize = 4
 
 // DocumentQValueIterator returns an iterator that lazily walks the top-level fields of a document excluding document key and
 // yielding each as a QValue.
 // `expectedColumnKind` is used to attempt to bring the BSON array fields into the expected schema types instead
 // of trying to infer an uniform array element type.
+// `isExcluded` is a performance optimization, used to skip QValue generation of fields that should not be included in the projection.
 // The walk stops at the first failure, which the returned function reports once the walk is over.
 func DocumentQValueIterator(
-	raw bson.Raw, converter BsonToQValueConverter, expectedColumnKind ExpectedColumnKind,
+	raw bson.Raw, converter BsonToQValueConverter, expectedColumnKind ExpectedColumnKind, isExcluded IsExcludedColumn,
 ) (iter.Seq2[string, types.QValue], func() error) {
 	var walkErr error
 	return func(yield func(string, types.QValue) bool) {
@@ -61,6 +65,9 @@ func DocumentQValueIterator(
 				return
 			}
 			if field == DefaultDocumentKeyColumnName {
+				continue
+			}
+			if isExcluded(field) {
 				continue
 			}
 			var maybeExpectedKind types.QValueKind
@@ -154,7 +161,7 @@ func StructuredQValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	fields, walkErr := DocumentQValueIterator(raw, converter, projector.ColumnKind)
+	fields, walkErr := DocumentQValueIterator(raw, converter, projector.ColumnKind, projector.IsExcludedColumn)
 	values, err := projector.ProjectRecord(fields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to project document onto schema: %w", err)
