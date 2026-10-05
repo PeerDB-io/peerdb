@@ -5,6 +5,7 @@ import (
 	"iter"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -22,6 +23,8 @@ var emptyBsonDocument = bson.Raw{0x05, 0x00, 0x00, 0x00, 0x00}
 // to avoid having to attempt to inference the array elements values.
 type ExpectedColumnKind func(field string) (types.QValueKind, bool)
 
+const bsonDocumentHeaderSize = 4
+
 // DocumentQValueIterator returns an iterator that lazily walks the top-level fields of a document excluding document key and
 // yielding each as a QValue.
 // `expectedColumnKind` is used to attempt to bring the BSON array fields into the expected schema types instead
@@ -32,12 +35,26 @@ func DocumentQValueIterator(
 ) (iter.Seq2[string, types.QValue], func() error) {
 	var walkErr error
 	return func(yield func(string, types.QValue) bool) {
-		elements, err := raw.Elements()
-		if err != nil {
-			walkErr = fmt.Errorf("failed to read document fields: %w", err)
+		// Walk the elements in place rather than through raw.Elements(), which builds two slices of all
+		// elements and validates each one before the conversion below parses it again.
+		doc := bsoncore.Document(raw)
+		if len(doc) == 0 {
 			return
 		}
-		for _, element := range elements {
+		length, rem, ok := bsoncore.ReadLength(doc)
+		if !ok {
+			walkErr = fmt.Errorf("failed to read document fields: %w", bsoncore.NewInsufficientBytesError(doc, rem))
+			return
+		}
+		for length -= bsonDocumentHeaderSize; length > 1; {
+			elem, next, ok := bsoncore.ReadElement(rem)
+			if !ok {
+				walkErr = fmt.Errorf("failed to read document fields: %w", bsoncore.NewInsufficientBytesError(doc, rem))
+				return
+			}
+			length -= int32(len(elem))
+			rem = next
+			element := bson.RawElement(elem)
 			field, err := element.KeyErr()
 			if err != nil {
 				walkErr = fmt.Errorf("failed to read document field name: %w", err)
