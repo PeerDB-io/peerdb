@@ -239,7 +239,7 @@ func (c *BigQueryConnector) pullTableAppends(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), nil
 			}
-			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -559,7 +559,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), nil
 			}
-			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -666,7 +666,7 @@ func (c *BigQueryConnector) pullTableQuery(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), maxSeenWatermarkColumnValue, nil
 			}
-			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
