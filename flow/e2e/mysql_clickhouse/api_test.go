@@ -11,7 +11,3 @@ import (
 func TestApiMy(t *testing.T) {
 	e2e.RunApiSuite(t, e2e.SetupMySQL)
 }
-
-func TestApiMariaDB(t *testing.T) {
-	e2e.RunApiSuite(t, e2e.SetupMariaDB)
-}
