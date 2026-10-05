@@ -181,12 +181,9 @@ func (d *CloudSQLDialer) DialContext(ctx context.Context, _, _ string) (net.Conn
 	}
 	conn, err := dialer.Dial(ctx, strings.TrimSpace(d.Instance), opts...)
 	if err != nil {
-		// a bad instance name or a refused Admin API call will not fix itself on retry,
-		// unlike a failure to reach the instance
+		// a bad instance name will not fix itself on retry, unlike a failure to reach the instance.
+		// RefreshError is returned as is: cloudsqlconn documents it as usually retryable (Admin API failures)
 		if _, ok := errors.AsType[*errtype.ConfigError](err); ok {
-			return nil, exceptions.NewCloudSQLIAMAuthError(err)
-		}
-		if _, ok := errors.AsType[*errtype.RefreshError](err); ok {
 			return nil, exceptions.NewCloudSQLIAMAuthError(err)
 		}
 		return nil, err

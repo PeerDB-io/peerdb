@@ -22,6 +22,9 @@ import (
 // 3. Otherwise, we do not use TLS.
 // Cloud SQL IAM connections never negotiate TLS with Postgres: the Cloud SQL connector encrypts them itself.
 func PGMustUseTlsConnection(pgConfig *protos.PostgresConfig) bool {
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		return false
+	}
 	return pgConfig.RequireTls ||
 		(pgConfig.DisableTls != nil && !*pgConfig.DisableTls)
 }
