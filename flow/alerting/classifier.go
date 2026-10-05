@@ -335,6 +335,18 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
+// isBigQueryTransientReason reports whether a BigQuery error reason is one Google documents as
+// safe to retry (server-side failures, not caused by the request). Rate-limit reasons are
+// deliberately excluded: they arrive as 403, which is classified as a connectivity issue. jobBackendError arrives as
+// "Error 400: ... Retrying the job may solve the problem." despite the 400 status.
+func isBigQueryTransientReason(reason string) bool {
+	switch reason {
+	case "jobBackendError", "backendError", "internalError":
+		return true
+	}
+	return false
+}
+
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var pgErr *pgconn.PgError
 	if pgWalErr, ok := errors.AsType[*exceptions.PostgresWalError](err); ok {
@@ -1122,9 +1134,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				403, // Forbidden
 				404: // Not Found (e.g. missing dataset/table/staging bucket)
 				return ErrorNotifyConnectivity, bqErrorInfo
+			case 500, 502, 503, 504: // service-side failures, documented as safe to retry with backoff
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
+			for _, item := range apiErr.Errors {
+				if isBigQueryTransientReason(item.Reason) {
+					bqErrorInfo.Code += "(" + item.Reason + ")"
+					return ErrorRetryRecoverable, bqErrorInfo
+				}
 			}
 		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
 			bqErrorInfo.Code = bqErr.Reason
+			if isBigQueryTransientReason(bqErr.Reason) {
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}

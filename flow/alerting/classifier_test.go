@@ -1852,13 +1852,70 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
 	t.Parallel()
 
-	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	apiErr := &googleapi.Error{Code: 409, Message: "conflict"}
 	err := exceptions.NewBigQueryError(apiErr)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
 	assert.Equal(t, ErrorOther, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
-		Code:   "500",
+		Code:   "409",
+	}, errInfo)
+}
+
+func TestBigQueryJobBackendErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{
+		Code:    400,
+		Message: "The job encountered an error during execution. Retrying the job may solve the problem.",
+		Errors:  []googleapi.ErrorItem{{Reason: "jobBackendError"}},
+	}
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to run watermark query for table dataset.events: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "400(jobBackendError)",
+	}, errInfo)
+}
+
+func TestBigQuery5xxShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{500, 502, 503, 504} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			err := exceptions.NewBigQueryError(&googleapi.Error{Code: code, Message: "server error"})
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryInternalErrorReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 400, Errors: []googleapi.ErrorItem{{Reason: "internalError"}}}
+	errorClass, _ := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(apiErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+}
+
+func TestBigQueryJobErrorBackendReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "backendError", Message: "transient"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(jobErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "backendError",
 	}, errInfo)
 }
 

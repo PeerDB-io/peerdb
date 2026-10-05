@@ -372,7 +372,7 @@ func (c *BigQueryConnector) runPullQuery(
 
 		missingCol, ok := missingSourceColumn(err, effective)
 		if !ok || attempt > 0 {
-			return nil, err
+			return nil, exceptions.NewBigQueryError(err)
 		}
 		c.logger.Warn("[bigquery] column no longer exists on source table, refreshing column list from table metadata",
 			slog.String("table", sourceTableIdentifier), slog.String("column", missingCol))
