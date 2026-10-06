@@ -238,6 +238,10 @@ func noExpectedKind(string) (types.QValueKind, bool) {
 	return "", false
 }
 
+func neverExcluded(string) bool {
+	return false
+}
+
 // BSON dates must fit DateTime64 columns: they convert to timestamps
 func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
@@ -359,7 +363,7 @@ func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]type
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded)
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -423,7 +427,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -438,7 +442,9 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
-		fields, walkErr := DocumentQValueIterator(bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind)
+		fields, walkErr := DocumentQValueIterator(
+			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, neverExcluded,
+		)
 		names := []string{}
 		values := map[string]types.QValue{}
 		for field, value := range fields {
@@ -462,7 +468,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind)
+	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, neverExcluded)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
