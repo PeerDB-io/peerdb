@@ -2072,6 +2072,18 @@ func (s APITestSuite) TestResyncTablesNotInPublication() {
 	//       ],
 	//     },
 	//   ]
+	s.requireTablesNotInPublication(err, pubName, tableNames)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// requireTablesNotInPublication asserts err is a FailedPrecondition carrying a TABLES_NOT_IN_PUBLICATION
+// ErrorInfo for pubName and one PreconditionFailure violation per table in tableNames.
+func (s APITestSuite) requireTablesNotInPublication(err error, pubName string, tableNames []string) {
+	s.t.Helper()
+	require.Error(s.t, err)
+
 	st, ok := status.FromError(err)
 	require.True(s.t, ok, "expected gRPC status error, got %T: %v", err, err)
 	require.Equal(s.t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
@@ -2102,6 +2114,105 @@ func (s APITestSuite) TestResyncTablesNotInPublication() {
 		wantSubjects[i] = fmt.Sprintf("%s.%s", Schema(s), tn)
 	}
 	require.ElementsMatch(s.t, wantSubjects, gotSubjects)
+}
+
+func (s APITestSuite) TestTableAdditionNotInPublication() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only for PostgreSQL (publications are PG-specific)")
+	}
+
+	originalTable := AttachSchema(s, "pub_edit_original")
+	addedTable := AttachSchema(s, "pub_edit_added")
+	for _, qt := range []string{originalTable, addedTable} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", qt)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", qt)))
+	}
+
+	pubName := "pub_edit_" + s.suffix
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", pubName, originalTable)))
+	s.t.Cleanup(func() {
+		_ = s.source.Exec(context.Background(), "DROP PUBLICATION IF EXISTS "+pubName)
+	})
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "add_table_not_in_pub_" + s.suffix,
+		TableNameMapping: map[string]string{originalTable: "pub_edit_original"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.PublicationName = pubName
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "flow running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForCount(env, s.ch, "initial snapshot", "pub_edit_original", "id,val", 1)
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	addTableRequest := &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables: []*protos.TableMapping{
+						{
+							SourceTableIdentifier:      addedTable,
+							DestinationTableIdentifier: "pub_edit_added",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// the added table is not in the user-provided publication, so the edit must be rejected
+	// up front instead of being handed to the workflow, which would retry it indefinitely
+	_, err = s.FlowStateChange(s.t.Context(), addTableRequest)
+	s.requireTablesNotInPublication(err, pubName, []string{"pub_edit_added"})
+
+	// the rejected request must neither resume the mirror nor change its tables
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
+	valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{originalTable})
+	require.NoError(s.t, err)
+	require.True(s.t, valid)
+
+	// once the publication contains the table, the same edit goes through
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s", pubName, addedTable)))
+	_, err = s.FlowStateChange(s.t.Context(), addTableRequest)
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
+			addedTable,
+			originalTable,
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForCount(env, s.ch, "initial snapshot of added table", "pub_edit_added", "id,val", 1)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)

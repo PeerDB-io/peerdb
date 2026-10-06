@@ -477,6 +477,13 @@ func (h *FlowRequestHandler) FlowStateChange(
 			currState != protos.FlowStatus_STATUS_TERMINATING &&
 			currState != protos.FlowStatus_STATUS_FAILED &&
 			currState != protos.FlowStatus_STATUS_COMPLETED) {
+		// validate added tables before signaling, the workflow can't reject the update once it has it
+		if apiErr := h.validateAdditionalTables(
+			ctx, req.FlowJobName, req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
+		); apiErr != nil {
+			slog.WarnContext(ctx, "flow config update rejected", logs, slog.Any("error", apiErr))
+			return nil, apiErr
+		}
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
