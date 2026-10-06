@@ -93,6 +93,10 @@ message QueryCdcConfig {
 
   // maximum duration covered by a single pull query
   int32 max_query_window_seconds = 3;
+
+  // standard 5-field cron expression (UTC), e.g. "0 * * * *" for every hour sharp.
+  // When set, polls run on this schedule instead of every sync interval.
+  string sync_cron = 4;
 }
 
 message BigqueryCdcConfig {

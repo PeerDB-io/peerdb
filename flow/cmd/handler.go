@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
@@ -464,6 +465,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+		}
+		if cronExpr := cdcUpdate.GetQueryCdc().GetSyncCron(); cronExpr != "" {
+			if _, err := common.ParseSyncCron(cronExpr); err != nil {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err))
+			}
 		}
 		for _, tm := range cdcUpdate.AdditionalTables {
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)

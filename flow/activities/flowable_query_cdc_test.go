@@ -5,36 +5,117 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
+
+func TestQueryCDCPollWaitCron(t *testing.T) {
+	hourly, err := common.ParseSyncCron("0 * * * *")
+	require.NoError(t, err)
+	// interval is ignored under a schedule
+	const syncInterval = 10 * time.Second
+
+	t.Run("waits until the next top of the hour", func(t *testing.T) {
+		lastAttemptAt := time.Date(2026, time.September, 16, 12, 0, 5, 0, time.UTC)
+		now := time.Date(2026, time.September, 16, 12, 20, 0, 0, time.UTC)
+		require.Equal(t, 40*time.Minute, queryCDCPollWait(lastAttemptAt, now, now, syncInterval, hourly))
+	})
+
+	t.Run("poll that started late still waits for the following fire", func(t *testing.T) {
+		// started 12:59:50, so 13:00 is only 10s later but is the fire right after it
+		lastAttemptAt := time.Date(2026, time.September, 16, 12, 59, 50, 0, time.UTC)
+		now := time.Date(2026, time.September, 16, 12, 59, 59, 0, time.UTC)
+		require.Equal(t, time.Second, queryCDCPollWait(lastAttemptAt, now, now, syncInterval, hourly))
+	})
+
+	t.Run("missed fires coalesce into one immediate poll", func(t *testing.T) {
+		lastAttemptAt := time.Date(2026, time.September, 16, 8, 0, 5, 0, time.UTC)
+		now := time.Date(2026, time.September, 16, 12, 20, 0, 0, time.UTC)
+		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastAttemptAt, now, syncInterval, hourly))
+	})
+
+	t.Run("failed poll retries without waiting for the schedule", func(t *testing.T) {
+		lastSyncedAt := time.Date(2026, time.September, 16, 11, 0, 5, 0, time.UTC)
+		lastAttemptAt := time.Date(2026, time.September, 16, 12, 0, 5, 0, time.UTC)
+		now := time.Date(2026, time.September, 16, 12, 1, 0, 0, time.UTC)
+		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval, hourly))
+	})
+}
+
+func TestQueryCDCCatchingUp(t *testing.T) {
+	start := time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
+	safeEnd := start.Add(3 * time.Hour)
+
+	t.Run("cursor advanced but still behind safe end", func(t *testing.T) {
+		require.True(t, queryCDCCatchingUp(start, start.Add(time.Hour), safeEnd))
+	})
+
+	t.Run("cursor reached safe end", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, safeEnd, safeEnd))
+	})
+
+	t.Run("connector advanced past the requested end over an empty range", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, safeEnd.Add(time.Minute), safeEnd))
+	})
+
+	t.Run("no progress is not catching up", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, start, safeEnd))
+		require.False(t, queryCDCCatchingUp(start, time.Time{}, safeEnd))
+	})
+}
+
+func TestQueryCDCSyncSchedule(t *testing.T) {
+	cfg := func(cronExpr string) *protos.FlowConnectionConfigsCore {
+		return &protos.FlowConnectionConfigsCore{
+			SourceConnectorConfig: &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+				BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+					QueryCdc: &protos.QueryCdcConfig{SyncCron: cronExpr},
+				},
+			},
+		}
+	}
+
+	schedule, err := queryCDCSyncSchedule(cfg(""))
+	require.NoError(t, err)
+	require.Nil(t, schedule)
+
+	schedule, err = queryCDCSyncSchedule(cfg("0 * * * *"))
+	require.NoError(t, err)
+	require.NotNil(t, schedule)
+
+	_, err = queryCDCSyncSchedule(cfg("nope"))
+	require.Error(t, err)
+}
 
 func TestQueryCDCPollWait(t *testing.T) {
 	now := time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 	syncInterval := 24 * time.Hour
 
 	t.Run("first poll is due immediately", func(t *testing.T) {
-		require.Zero(t, queryCDCPollWait(time.Time{}, time.Time{}, now, syncInterval))
+		require.Zero(t, queryCDCPollWait(time.Time{}, time.Time{}, now, syncInterval, nil))
 	})
 
 	t.Run("cadence starts when successful poll started", func(t *testing.T) {
 		lastAttemptAt := now.Add(-2 * time.Hour)
 		lastSyncedAt := now
-		require.Equal(t, 22*time.Hour, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval))
+		require.Equal(t, 22*time.Hour, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval, nil))
 	})
 
 	t.Run("failed or interrupted poll is due immediately", func(t *testing.T) {
 		lastSyncedAt := now.Add(-20 * time.Hour)
 		lastAttemptAt := now.Add(-time.Hour)
-		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval))
+		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval, nil))
 	})
 
 	t.Run("overdue successful poll is due immediately", func(t *testing.T) {
 		lastAttemptAt := now.Add(-25 * time.Hour)
 		lastSyncedAt := now.Add(-23 * time.Hour)
-		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval))
+		require.Zero(t, queryCDCPollWait(lastAttemptAt, lastSyncedAt, now, syncInterval, nil))
 	})
 
 	t.Run("state without attempt is due immediately", func(t *testing.T) {
-		require.Zero(t, queryCDCPollWait(time.Time{}, now, now, syncInterval))
+		require.Zero(t, queryCDCPollWait(time.Time{}, now, now, syncInterval, nil))
 	})
 }
 
