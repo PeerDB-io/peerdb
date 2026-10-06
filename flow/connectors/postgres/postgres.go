@@ -82,9 +82,36 @@ func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logge
 	}
 }
 
+func prepareCloudSQLPostgresConfig(
+	pgConfig *protos.PostgresConfig,
+) (*protos.PostgresConfig, *utils.CloudSQLDialer, error) {
+	if pgConfig.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		return pgConfig, nil, nil
+	}
+
+	dialer := &utils.CloudSQLDialer{Instance: internal.SanitizePGHost(pgConfig.Host)}
+	if err := dialer.VerifyAuthConfig(); err != nil {
+		return nil, nil, fmt.Errorf("failed to verify auth config: %w", err)
+	}
+	if pgConfig.User == "" {
+		user, err := utils.CloudSQLPostgresIAMUser()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+		pgConfig = proto.CloneOf(pgConfig)
+		pgConfig.User = user
+	}
+	return pgConfig, dialer, nil
+}
+
 func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
+	pgConfig, cloudSQLDialer, err := prepareCloudSQLPostgresConfig(pgConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -124,24 +151,8 @@ func newPostgresConnector(
 		}
 	}
 
-	var cloudSQLDialer *utils.CloudSQLDialer
-	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
-		cloudSQLDialer = &utils.CloudSQLDialer{
-			Instance: internal.SanitizePGHost(pgConfig.Host),
-			Tunnel:   tunnel,
-		}
-		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
-			return nil, fmt.Errorf("failed to verify auth config: %w", err)
-		}
-		// the login is the impersonated service account, so the user does not need to be configured
-		if pgConfig.User == "" {
-			user, err := utils.CloudSQLPostgresIAMUser()
-			if err != nil {
-				return nil, fmt.Errorf("failed to verify auth config: %w", err)
-			}
-			pgConfig = proto.CloneOf(pgConfig)
-			pgConfig.User = user
-		}
+	if cloudSQLDialer != nil {
+		cloudSQLDialer.Tunnel = tunnel
 	}
 
 	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, cloudSQLDialer, tunnel)
