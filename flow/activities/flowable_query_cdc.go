@@ -408,7 +408,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			hasRecords := !stream.WaitAndCheckEmpty()
 			if hasRecords {
 				pollGroup.Go(func() error {
-					dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
+					// staging doesn't need the destination server, so a destination
+					// outage doesn't abort the source pull
+					dstConn, dstClose, syncErr := connectors.GetQueryCDCStagingByName(
 						pollCtx, config.Env, a.CatalogPool, config.DestinationName)
 					if syncErr != nil {
 						return fmt.Errorf("failed to get destination connector: %w", syncErr)
@@ -423,8 +425,6 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 						TableSchema:       tableNameSchemaMapping[destTable],
 						Records:           stream.GetRecords(),
 						Version:           config.Version,
-						Flags:             config.Flags,
-						SchemaDeltas:      stream.SchemaDeltas,
 						BatchID:           nextBatchID,
 						SoftDeleteColName: config.SoftDeleteColName,
 					})
@@ -470,12 +470,6 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}
 		wasLagging = false
 		retryWait = 0
-
-		if len(stream.SchemaDeltas) > 0 {
-			if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
-				return a.Alerter.LogFlowError(ctx, flowName, err)
-			}
-		}
 
 		var numSynced int64
 		if rowCounts != nil {
@@ -599,7 +593,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			}
 			defer release()
 
-			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
+			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCNormalizeConnector](ctx, config.Env,
 				a.CatalogPool, config.DestinationName)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)

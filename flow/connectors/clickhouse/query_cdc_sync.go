@@ -56,8 +56,7 @@ func typedCDCTableSchema(
 	return types.QRecordSchema{Fields: fields}, businessFields, sourceColumnByDest
 }
 
-// SyncQueryCDC replays any pending schema deltas onto the destination table,
-// then converts one table's CDC records directly into size-bounded typed Avro files
+// SyncQueryCDC converts one table's CDC records directly into size-bounded typed Avro files
 // staged to S3/GCS under req.BatchID, this table's own batch sequence,
 // without inserting into the final destination table. Used by the query-based
 // CDC path, see flow/activities/flowable_query_cdc.go. Pair with
@@ -65,12 +64,6 @@ func typedCDCTableSchema(
 func (c *ClickHouseConnector) SyncQueryCDC(
 	ctx context.Context, req *model.SyncQueryCDCRequest,
 ) (*model.RecordTypeCounts, error) {
-	if err := c.ReplayTableSchemaDeltas(
-		ctx, req.Env, req.FlowJobName, []*protos.TableMapping{req.TableMapping}, req.SchemaDeltas, req.Flags,
-	); err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
-
 	schema, businessFields, sourceColumnByDest := typedCDCTableSchema(req.TableSchema, req.TableMapping,
 		isDeletedColNameOrDefault(req.SoftDeleteColName), versionColName)
 
