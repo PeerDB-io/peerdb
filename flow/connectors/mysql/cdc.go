@@ -388,8 +388,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 
 func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
 	var tlsConfig *tls.Config
-	// the Cloud SQL connector encrypts and verifies the connection itself
-	if !c.config.DisableTls && c.cloudSQLDialer == nil {
+	if c.needToVerifyTls() {
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,

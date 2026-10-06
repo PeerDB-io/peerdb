@@ -53,23 +53,6 @@ type MySqlConnector struct {
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	// verify before connecting so a bad instance name surfaces as an auth config error
-	var cloudSQLDialer *utils.CloudSQLDialer
-	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH {
-		cloudSQLDialer = &utils.CloudSQLDialer{Instance: config.Host}
-		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
-			return nil, fmt.Errorf("failed to verify auth config: %w", err)
-		}
-		// the login is the impersonated service account, so the user does not need to be configured
-		if config.User == "" {
-			user, err := utils.CloudSQLMySQLIAMUser()
-			if err != nil {
-				return nil, fmt.Errorf("failed to verify auth config: %w", err)
-			}
-			config = proto.CloneOf(config)
-			config.User = user
-		}
-	}
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
@@ -87,9 +70,24 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	if cloudSQLDialer != nil {
-		cloudSQLDialer.Tunnel = ssh
+
+	var cloudSQLDialer *utils.CloudSQLDialer
+	if config.AuthType == protos.MySqlAuthType_MYSQL_GCP_CLOUD_SQL_IAM_AUTH {
+		cloudSQLDialer = &utils.CloudSQLDialer{Instance: config.Host, Tunnel: ssh}
+		if err := cloudSQLDialer.VerifyAuthConfig(); err != nil {
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+		// the login is the impersonated service account, so the user does not need to be configured
+		if config.User == "" {
+			user, err := utils.CloudSQLMySQLIAMUser()
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify auth config: %w", err)
+			}
+			config = proto.CloneOf(config)
+			config.User = user
+		}
 	}
+
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata:      pgMetadata,
@@ -204,6 +202,11 @@ func (c *MySqlConnector) Dialer() client.Dialer {
 	return meteredDialer.DialContext
 }
 
+func (c *MySqlConnector) needToVerifyTls() bool {
+	// the Cloud SQL connector encrypts and verifies the connection itself
+	return !c.config.DisableTls && c.cloudSQLDialer == nil
+}
+
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 	conn := c.conn.Load()
 	if conn == nil {
@@ -213,8 +216,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 					return err
 				}
 			}
-			// the Cloud SQL connector encrypts and verifies the connection itself
-			if !c.config.DisableTls && c.cloudSQLDialer == nil {
+			if c.needToVerifyTls() {
 				config, err := common.CreateTlsConfig(
 					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
 					nil,

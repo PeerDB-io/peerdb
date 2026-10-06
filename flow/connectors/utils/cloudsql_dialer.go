@@ -17,24 +17,22 @@ import (
 )
 
 const (
-	// scopes for the Cloud SQL Admin API calls the connector makes (instance metadata, ephemeral certificate)
+	// scopes for Cloud SQL Admin API calls (instance metadata, ephemeral certificate)
 	gcpCloudSQLAdminScope = "https://www.googleapis.com/auth/sqlservice.admin"
 	gcpCloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 	// GCPCloudSQLLoginScope authorizes IAM database logins to Cloud SQL.
 	GCPCloudSQLLoginScope = "https://www.googleapis.com/auth/sqlservice.login"
 )
 
-// cloudSQLPSCUnavailable reports whether a failed WithPSC dial means this deployment has no Private Service Connect
-// path to the instance, so the dial should fall back to the instance IP. Any other failure is returned as is:
-// falling back on it could move traffic that is meant to stay private onto the public IP.
+// cloudSQLPSCUnavailable reports whether a failed WithPSC dial means there is no PSC path to the instance,
+// so the dial should fall back to the instance IP. Other failures must not fall back:
+// that could move traffic meant to stay private onto the public IP.
 func cloudSQLPSCUnavailable(err error) bool {
-	// the instance has no PSC DNS name. Also returned for a bad instance name,
-	// which the IP dial fails on again, so falling back still surfaces the right error
+	// no PSC DNS name (or a bad instance name, which the IP dial reports again)
 	if _, ok := errors.AsType[*errtype.ConfigError](err); ok {
 		return true
 	}
-	// the PSC DNS name does not resolve: nothing publishes a record for it here, so there is no PSC endpoint.
-	// Timeouts and other DNS failures are not proof of that and are returned for a retry
+	// PSC DNS name does not exist. Timeouts and other DNS failures are not proof of that
 	if _, ok := errors.AsType[*errtype.DialError](err); ok {
 		if dnsErr, ok := errors.AsType[*net.DNSError](err); ok {
 			return dnsErr.IsNotFound
@@ -43,14 +41,8 @@ func cloudSQLPSCUnavailable(err error) bool {
 	return false
 }
 
-// Automatic IAM database authentication: instead of handing a login token to Postgres as the password,
-// the Cloud SQL Go connector exchanges the login token for an ephemeral client certificate through the
-// Cloud SQL Admin API and opens an mTLS connection to the instance's server-side proxy (port 3307).
-// The connector owns token refresh, certificate refresh and server identity verification,
-// so none of root CA / TLS host / password handling applies to these connections.
-//
-// One dialer per process: it caches instance metadata and certificates and refreshes them in the background,
-// and creating one per connector would multiply Cloud SQL Admin API calls (which are quota limited).
+// The dialer uses deployment-level workload identity and keeps per-instance state internally,
+// so one dialer is shared across all mirrors.
 var sharedCloudSQLDialer struct {
 	dialer *cloudsqlconn.Dialer
 	lock   sync.Mutex
@@ -78,7 +70,7 @@ func getCloudSQLDialer(ctx context.Context) (*cloudsqlconn.Dialer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create login credentials: %w", err)
 	}
-	// the dialer outlives the request that happened to create it
+	// the dialer outlives the request that created it
 	dialer, err := cloudsqlconn.NewDialer(
 		context.WithoutCancel(ctx),
 		cloudsqlconn.WithIAMAuthN(),
@@ -136,7 +128,7 @@ func CloudSQLMySQLIAMUser() (string, error) {
 	return user, nil
 }
 
-// CloudSQLDialer dials one Cloud SQL instance through the process-wide connector.
+// CloudSQLDialer dials one Cloud SQL instance through the shared dialer.
 type CloudSQLDialer struct {
 	// Tunnel, when active, carries the connection to the instance.
 	Tunnel *SSHTunnel
@@ -144,15 +136,14 @@ type CloudSQLDialer struct {
 	Instance string
 }
 
-// VerifyAuthConfig checks the instance reference early so a typo surfaces as an auth config error
-// and not as a connector error on first dial.
+// VerifyAuthConfig checks the instance reference early, so a typo is an auth config error and not a dial error.
 func (d *CloudSQLDialer) VerifyAuthConfig() error {
 	instance := strings.TrimSpace(d.Instance)
 	if instance == "" {
 		return exceptions.NewCloudSQLIAMAuthError(
 			errors.New("host must be the instance connection name (project:region:instance) or a DNS name for it"))
 	}
-	// the connector resolves instances by name, an IP address can only be a misconfigured manual-mode host
+	// instances are resolved by name, so an IP is a misconfigured host
 	if _, err := netip.ParseAddr(strings.Trim(instance, "[]")); err == nil {
 		return exceptions.NewCloudSQLIAMAuthError(
 			fmt.Errorf("host %q is an IP address, use the instance connection name (project:region:instance)", instance))
@@ -164,8 +155,7 @@ func (d *CloudSQLDialer) VerifyAuthConfig() error {
 	return nil
 }
 
-// DialContext matches pgconn.DialFunc. Address is ignored: the connector resolves the instance's IP itself
-// and always connects to the server-side proxy port, so the configured port has no effect either.
+// DialContext matches pgconn.DialFunc. The address is ignored: the dialer resolves the instance IP and port itself.
 func (d *CloudSQLDialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
 	dialer, err := getCloudSQLDialer(ctx)
 	if err != nil {
@@ -176,17 +166,15 @@ func (d *CloudSQLDialer) DialContext(ctx context.Context, _, _ string) (net.Conn
 		tunnelOpts = append(tunnelOpts, cloudsqlconn.WithOneOffDialFunc(d.Tunnel.DialContext))
 	}
 	instance := strings.TrimSpace(d.Instance)
-	// Private Service Connect first: the instance's PSC DNS name only resolves where a PSC endpoint for it is set up
-	// (in ClickPipes, the DNS proxy record of a reverse private endpoint), so one process can reach PSC and
-	// non-PSC instances without being told which is which
+	// try PSC first: its DNS name only resolves where a PSC endpoint is set up,
+	// so no config is needed to tell PSC and non-PSC instances apart
 	conn, err := dialer.Dial(ctx, instance, append(slices.Clip(tunnelOpts), cloudsqlconn.WithPSC())...)
 	if err != nil && cloudSQLPSCUnavailable(err) {
 		// public IP if the instance has one, otherwise private IP
 		conn, err = dialer.Dial(ctx, instance, append(slices.Clip(tunnelOpts), cloudsqlconn.WithAutoIP())...)
 	}
 	if err != nil {
-		// a bad instance name will not fix itself on retry, unlike a failure to reach the instance.
-		// RefreshError is returned as is: cloudsqlconn documents it as usually retryable (Admin API failures)
+		// a bad instance name is not retryable, unlike RefreshError (Admin API failures)
 		if _, ok := errors.AsType[*errtype.ConfigError](err); ok {
 			return nil, exceptions.NewCloudSQLIAMAuthError(err)
 		}
