@@ -1,0 +1,137 @@
+{
+  "fields": [
+    {
+      "name": "_id",
+      "type": "Int64",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_array",
+      "type": "Array(Nullable(Int64))",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_binary",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_bool",
+      "type": "Nullable(Bool)",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_date",
+      "type": "DateTime64(9)",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_decimal",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_double",
+      "type": "Float64",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_int",
+      "type": "Int64",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_javascript",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_long",
+      "type": "Int64",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_maxkey",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_minkey",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_null",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_object",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_objectid",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_regex",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_string",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_timestamp",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_uuid",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    }
+  ]
+}
