@@ -57,6 +57,10 @@ const (
 	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
 	// The error is created with errors.New, so there is no sentinel or type to match on.
 	http2ClientConnectionLost = "http2: client connection lost"
+
+	// bigQueryChangeHistoryBeforeTimeTravel is returned by APPENDS()/CHANGES() when the checkpoint
+	// we resume from is older than the source table's time travel window, so the history is gone.
+	bigQueryChangeHistoryBeforeTimeTravel = "change history start time is before allowed time travel interval"
 )
 
 var (
@@ -296,6 +300,11 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
+	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
+	ErrorNotifyBigQueryTimeTravelExceeded = ErrorClass{
+		Class: "NOTIFY_BIGQUERY_TIME_TRAVEL_EXCEEDED", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
@@ -1114,6 +1123,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  watermarkErr.TableName,
 				ErrorAttributeKeyColumn: watermarkErr.ColumnName,
 			},
+		}
+	}
+
+	// Query CDC pull queries return the raw googleapi.Error, not a BigQueryError
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok &&
+		apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
+		return ErrorNotifyBigQueryTimeTravelExceeded, ErrorInfo{
+			Source: ErrorSourceBigQuery,
+			Code:   "CHANGE_HISTORY_BEFORE_TIME_TRAVEL",
 		}
 	}
 
