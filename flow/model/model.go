@@ -174,7 +174,7 @@ type SyncQueryCDCRequest struct {
 	SoftDeleteColName string
 }
 
-// NormalizeQueryCDCRequest asks QueryCDCSyncConnector.NormalizeQueryCDC to
+// NormalizeQueryCDCRequest asks QueryCDCNormalizeConnector.NormalizeQueryCDC to
 // insert batches [StartBatchID, EndBatchID], previously staged by
 // SyncQueryCDC, straight into the final destination table, bypassing any
 // raw-table hop.

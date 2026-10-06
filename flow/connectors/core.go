@@ -228,14 +228,19 @@ type CDCSyncConnector interface {
 }
 
 // QueryCDCSyncConnector is implemented by destinations that can stage one
-// table's CDC records (SyncQueryCDC) and separately insert staged batches
-// straight into the final destination table (NormalizeQueryCDC), skipping any
-// raw-table hop.
+// table's CDC records (SyncQueryCDC), to be inserted into the final destination
+// table later by QueryCDCNormalizeConnector, skipping any raw-table hop.
 type QueryCDCSyncConnector interface {
 	Connector
 
 	// SyncQueryCDC should be idempotent given the same records and BatchID.
 	SyncQueryCDC(ctx context.Context, req *model.SyncQueryCDCRequest) (*model.RecordTypeCounts, error)
+}
+
+// QueryCDCNormalizeConnector is implemented by destinations that can insert
+// batches staged by QueryCDCSyncConnector straight into the final destination table.
+type QueryCDCNormalizeConnector interface {
+	Connector
 
 	// NormalizeQueryCDC should be idempotent given the same batch range.
 	NormalizeQueryCDC(ctx context.Context, req *model.NormalizeQueryCDCRequest) (*model.RecordTypeCounts, error)
@@ -882,6 +887,7 @@ var (
 	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
 	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
 
-	_ QueryCDCPullConnector = &connbigquery.BigQueryConnector{}
-	_ QueryCDCSyncConnector = &connclickhouse.ClickHouseConnector{}
+	_ QueryCDCPullConnector      = &connbigquery.BigQueryConnector{}
+	_ QueryCDCSyncConnector      = &connclickhouse.ClickHouseConnector{}
+	_ QueryCDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 )

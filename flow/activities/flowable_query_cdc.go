@@ -593,7 +593,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			}
 			defer release()
 
-			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
+			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCNormalizeConnector](ctx, config.Env,
 				a.CatalogPool, config.DestinationName)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)
