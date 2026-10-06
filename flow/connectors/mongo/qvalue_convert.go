@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -208,7 +209,9 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 		return types.QValueBoolean{Val: v.Boolean()}, nil
 
 	case bsoncore.TypeDateTime:
-		return types.QValueTimestamp{Val: shared_mongo.RawDateTimeToTime(v)}, nil
+		// BSON dates span ±292 million years: clamped here like the initial load does, as CDC
+		// renders them as text ClickHouse cannot parse beyond four digit years.
+		return types.QValueTimestamp{Val: qvalue.ClampToClickHouseTime(shared_mongo.RawDateTimeToTime(v))}, nil
 
 	case bsoncore.TypeNull:
 		return types.QValueNull(maybeExpectedKind), nil

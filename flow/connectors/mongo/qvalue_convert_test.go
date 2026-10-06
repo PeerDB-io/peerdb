@@ -767,6 +767,21 @@ func TestQValueFromBsonValue(t *testing.T) {
 		{desc: "Boolean", input: true, expected: types.QValueBoolean{Val: true}},
 		{desc: "Date", input: date, expected: types.QValueTimestamp{Val: date.UTC()}},
 		{
+			desc:     "Date max, clamped",
+			input:    bson.DateTime(math.MaxInt64),
+			expected: types.QValueTimestamp{Val: time.Date(2299, 12, 31, 7, 12, 55, 807_000_000, time.UTC)},
+		},
+		{
+			desc:     "Date min, clamped",
+			input:    bson.DateTime(math.MinInt64),
+			expected: types.QValueTimestamp{Val: time.Date(1900, 1, 1, 16, 47, 4, 192_000_000, time.UTC)},
+		},
+		{
+			desc:     "Date beyond four digit years, clamped",
+			input:    bson.DateTime(253433923200000), // 10001-01-01 00:00:00 UTC
+			expected: types.QValueTimestamp{Val: time.Date(2299, 12, 31, 0, 0, 0, 0, time.UTC)},
+		},
+		{
 			desc:     "Regular Expression",
 			input:    bson.Regex{Pattern: `^a<b>&"c"$`, Options: "im"},
 			expected: types.QValueJSON{Val: `{"Pattern":"^a\u003cb\u003e\u0026\"c\"$","Options":"im"}`},
