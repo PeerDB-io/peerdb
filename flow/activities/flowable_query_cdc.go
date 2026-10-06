@@ -646,23 +646,23 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		// bounded parallelism: only normalize into the destination for up to
 		// normParallelism tables at once.
 		startBatchID := lastNormalized + 1
-		normCounts, normErr, fatalErr := func() (*model.RecordTypeCounts, error, error) {
+		normCounts, normErr := func() (*model.RecordTypeCounts, error) {
 			release, err := acquire(ctx, normSem, logger, "normalize")
 			if err != nil {
-				return nil, err, nil
+				return nil, err
 			}
 			defer release()
 
 			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCNormalizeConnector](ctx, config.Env,
 				a.CatalogPool, config.DestinationName)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)
+				return nil, fmt.Errorf("failed to get destination connector: %w", err)
 			}
 			defer dstClose(ctx)
 
 			logger.Info("[cdc] starting normalize",
 				slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
-			normCounts, err := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
+			return dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
 				Env:               config.Env,
 				FlowJobName:       flowName,
 				TableMapping:      tableMapping,
@@ -673,11 +673,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 				EndBatchID:        reqBatchID,
 				SoftDeleteColName: config.SoftDeleteColName,
 			})
-			return normCounts, err, nil
 		}()
-		if fatalErr != nil {
-			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
-		}
 
 		if normErr != nil {
 			if ctx.Err() != nil {
