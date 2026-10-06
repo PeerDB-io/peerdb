@@ -1031,8 +1031,11 @@ type QueryCdcConfig struct {
 	SafetyLagSeconds int32 `protobuf:"varint,2,opt,name=safety_lag_seconds,json=safetyLagSeconds,proto3" json:"safety_lag_seconds,omitempty"`
 	// maximum duration covered by a single pull query
 	MaxQueryWindowSeconds int32 `protobuf:"varint,3,opt,name=max_query_window_seconds,json=maxQueryWindowSeconds,proto3" json:"max_query_window_seconds,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// standard 5-field cron expression (UTC), e.g. "0 * * * *" for every hour sharp.
+	// When set, polls run on this schedule instead of every sync interval.
+	SyncCron      string `protobuf:"bytes,4,opt,name=sync_cron,json=syncCron,proto3" json:"sync_cron,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryCdcConfig) Reset() {
@@ -1084,6 +1087,13 @@ func (x *QueryCdcConfig) GetMaxQueryWindowSeconds() int32 {
 		return x.MaxQueryWindowSeconds
 	}
 	return 0
+}
+
+func (x *QueryCdcConfig) GetSyncCron() string {
+	if x != nil {
+		return x.SyncCron
+	}
+	return ""
 }
 
 type BigqueryCdcConfig struct {
@@ -6060,11 +6070,12 @@ const file_flow_proto_rawDesc = "" +
 	"\tpeer_name\x18\x03 \x01(\tR\bpeerName\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xab\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc8\x01\n" +
 	"\x0eQueryCdcConfig\x122\n" +
 	"\x15pull_sync_parallelism\x18\x01 \x01(\x05R\x13pullSyncParallelism\x12,\n" +
 	"\x12safety_lag_seconds\x18\x02 \x01(\x05R\x10safetyLagSeconds\x127\n" +
-	"\x18max_query_window_seconds\x18\x03 \x01(\x05R\x15maxQueryWindowSeconds\"\xa4\x01\n" +
+	"\x18max_query_window_seconds\x18\x03 \x01(\x05R\x15maxQueryWindowSeconds\x12\x1b\n" +
+	"\tsync_cron\x18\x04 \x01(\tR\bsyncCron\"\xa4\x01\n" +
 	"\x11BigqueryCdcConfig\x12U\n" +
 	"\x12replication_method\x18\x01 \x01(\x0e2&.peerdb_flow.BigQueryReplicationMethodR\x11replicationMethod\x128\n" +
 	"\tquery_cdc\x18\x02 \x01(\v2\x1b.peerdb_flow.QueryCdcConfigR\bqueryCdc\"\xcb\v\n" +
