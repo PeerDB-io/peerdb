@@ -222,7 +222,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 
 	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
 
-	if shouldUseTls || pgConfig.RootCa != nil {
+	// Cloud SQL IAM connections are encrypted and verified by the dialer, root CA and TLS host do not apply
+	isCloudSQLIAM := pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH
+	if !isCloudSQLIAM && (shouldUseTls || pgConfig.RootCa != nil) {
 		var clientCert *common.ClientCertificate
 		if clientTls := pgConfig.GetClientTls(); clientTls != nil {
 			clientCert, err = common.NewClientCertificate(clientTls.GetCertificate(), clientTls.GetPrivateKey())
