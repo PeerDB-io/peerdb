@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -37,6 +38,7 @@ type PostgresConnector struct {
 	clockOffsetUpdatedAt   time.Time
 	logger                 log.Logger
 	rdsAuth                *utils.RDSAuth
+	cloudSQLDialer         *utils.CloudSQLDialer
 	customTypeMapping      map[uint32]pkg_pg.CustomDataType
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -80,9 +82,36 @@ func setIdleSessionTimeout(ctx context.Context, conn *pgx.Conn, logger log.Logge
 	}
 }
 
+func prepareCloudSQLPostgresConfig(
+	pgConfig *protos.PostgresConfig,
+) (*protos.PostgresConfig, *utils.CloudSQLDialer, error) {
+	if pgConfig.AuthType != protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH {
+		return pgConfig, nil, nil
+	}
+
+	dialer := &utils.CloudSQLDialer{Instance: internal.SanitizePGHost(pgConfig.Host)}
+	if err := dialer.VerifyAuthConfig(); err != nil {
+		return nil, nil, fmt.Errorf("failed to verify auth config: %w", err)
+	}
+	if pgConfig.User == "" {
+		user, err := utils.CloudSQLPostgresIAMUser()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+		pgConfig = proto.CloneOf(pgConfig)
+		pgConfig.User = user
+	}
+	return pgConfig, dialer, nil
+}
+
 func newPostgresConnector(
 	ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig, destinationType protos.DBType,
 ) (*PostgresConnector, error) {
+	pgConfig, cloudSQLDialer, err := prepareCloudSQLPostgresConfig(pgConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -118,11 +147,15 @@ func newPostgresConnector(
 			AwsAuthConfig: pgConfig.AwsAuth,
 		}
 		if err := rdsAuth.VerifyAuthConfig(); err != nil {
-			logger.Error("failed to verify auth config", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
+
+	if cloudSQLDialer != nil {
+		cloudSQLDialer.Tunnel = tunnel
+	}
+
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, cloudSQLDialer, tunnel)
 	if err != nil {
 		tunnel.Close()
 
@@ -171,6 +204,7 @@ func newPostgresConnector(
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
+		cloudSQLDialer:         cloudSQLDialer,
 		cdcStoreEnabled:        cdcStoreEnabled,
 	}
 
@@ -199,7 +233,9 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 
 	shouldUseTls := internal.PGMustUseTlsConnection(pgConfig)
 
-	if shouldUseTls || pgConfig.RootCa != nil {
+	// Cloud SQL IAM connections are encrypted and verified by the dialer, root CA and TLS host do not apply
+	isCloudSQLIAM := pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH
+	if !isCloudSQLIAM && (shouldUseTls || pgConfig.RootCa != nil) {
 		var clientCert *common.ClientCertificate
 		if clientTls := pgConfig.GetClientTls(); clientTls != nil {
 			clientCert, err = common.NewClientCertificate(clientTls.GetCertificate(), clientTls.GetPrivateKey())

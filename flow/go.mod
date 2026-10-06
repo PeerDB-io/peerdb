@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go v0.123.0
 	cloud.google.com/go/auth v0.20.0
 	cloud.google.com/go/bigquery v1.74.0
+	cloud.google.com/go/cloudsqlconn v1.22.1
 	cloud.google.com/go/compute/metadata v0.9.0
 	cloud.google.com/go/kms v1.33.0
 	cloud.google.com/go/pubsub/v2 v2.3.0
@@ -205,6 +206,7 @@ require (
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect

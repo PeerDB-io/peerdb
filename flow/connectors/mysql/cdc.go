@@ -389,7 +389,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 
 func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*binlogSyncer, error) {
 	var tlsConfig *tls.Config
-	if !c.config.DisableTls {
+	if c.needToVerifyTls() {
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
@@ -417,6 +417,15 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		config = proto.CloneOf(config)
 		config.Password = token
 	}
+	host := config.Host
+	if c.cloudSQLDialer != nil {
+		c.logger.Info("Setting up Cloud SQL IAM auth for MySQL replication")
+		// no password, the connector authenticates with an ephemeral client certificate,
+		// and it ignores the address it is asked to dial
+		config = proto.CloneOf(config)
+		config.Password = ""
+		host = internal.CloudSQLConnectorPlaceholderHost
+	}
 
 	eventCacheCount, err := internal.PeerDBMySQLEventCacheCount(ctx, env)
 	if err != nil {
@@ -436,7 +445,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 	return newBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:              serverId,
 		Flavor:                c.Flavor(),
-		Host:                  config.Host,
+		Host:                  host,
 		Port:                  uint16(config.Port),
 		User:                  config.User,
 		Password:              config.Password,

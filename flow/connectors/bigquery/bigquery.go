@@ -91,12 +91,8 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		},
 	}
 	var creds *auth.Credentials
-	if credentialConfig.credentialType == credentials.ExternalAccount {
-		creds, err = credentials.NewCredentialsFromJSON(
-			credentials.ExternalAccount,
-			credentialConfig.credentialsJSON,
-			detectOptions,
-		)
+	if credentialConfig.authCredentials != nil {
+		creds = credentialConfig.authCredentials
 	} else {
 		// Keep the legacy service-account-key path unchanged.
 		detectOptions.CredentialsJSON = credentialConfig.credentialsJSON //nolint:staticcheck // Preserve legacy service-account-key behavior.
