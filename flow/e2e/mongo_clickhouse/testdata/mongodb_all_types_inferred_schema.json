@@ -29,8 +29,22 @@
       "isVirtualDisabledDefault": false
     },
     {
+      "name": "f_codewithscope",
+      "type": "JSON",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
       "name": "f_date",
       "type": "DateTime64(9)",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_dbpointer",
+      "type": "JSON",
       "optional": false,
       "isVirtual": false,
       "isVirtualDisabledDefault": false
@@ -114,6 +128,13 @@
     },
     {
       "name": "f_string",
+      "type": "String",
+      "optional": false,
+      "isVirtual": false,
+      "isVirtualDisabledDefault": false
+    },
+    {
+      "name": "f_symbol",
       "type": "String",
       "optional": false,
       "isVirtual": false,
