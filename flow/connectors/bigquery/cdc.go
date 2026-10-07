@@ -231,7 +231,7 @@ func (c *BigQueryConnector) pullTableAppends(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), nil
 			}
-			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read APPENDS row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -364,7 +364,7 @@ func (c *BigQueryConnector) runPullQuery(
 
 		missingCol, ok := missingSourceColumn(err, effective)
 		if !ok || attempt > 0 {
-			return nil, err
+			return nil, exceptions.NewBigQueryError(err)
 		}
 		c.logger.Warn("[bigquery] column no longer exists on source table, refreshing column list from table metadata",
 			slog.String("table", sourceTableIdentifier), slog.String("column", missingCol))
@@ -418,7 +418,8 @@ func (c *BigQueryConnector) refreshSourceTableColumns(
 	}
 	metadata, err := c.client.DatasetInProject(projectID, dsTable.dataset).Table(dsTable.table).Metadata(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w", sourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w",
+			sourceTableIdentifier, exceptions.NewBigQueryError(err))
 	}
 
 	for column := range missingColumnsFromSchema(requiredColumns, metadata.Schema) {
@@ -551,7 +552,7 @@ func (c *BigQueryConnector) pullTableChanges(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), nil
 			}
-			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, err)
+			return 0, fmt.Errorf("failed to read CHANGES row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call
@@ -658,7 +659,7 @@ func (c *BigQueryConnector) pullTableQuery(
 			if errors.Is(err, iterator.Done) {
 				return bytesTransferred.Load(), maxSeenWatermarkColumnValue, nil
 			}
-			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, err)
+			return 0, time.Time{}, fmt.Errorf("failed to read row for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 
 		// it.Schema is only guaranteed populated after the first Next() call

@@ -89,6 +89,13 @@ var (
 	)
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+
+	// BigQuery error reasons documented as safe to retry
+	bigQueryTransientReasons = map[string]struct{}{
+		"jobBackendError": {},
+		"backendError":    {},
+		"internalError":   {},
+	}
 )
 
 func (e ErrorAction) String() string {
@@ -1122,9 +1129,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				403, // Forbidden
 				404: // Not Found (e.g. missing dataset/table/staging bucket)
 				return ErrorNotifyConnectivity, bqErrorInfo
+			case 500, 502, 503, 504: // service-side failures, documented as safe to retry with backoff
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
+			for _, item := range apiErr.Errors {
+				if _, ok := bigQueryTransientReasons[item.Reason]; ok {
+					bqErrorInfo.Code += "(" + item.Reason + ")"
+					return ErrorRetryRecoverable, bqErrorInfo
+				}
 			}
 		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
 			bqErrorInfo.Code = bqErr.Reason
+			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
