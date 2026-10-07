@@ -202,8 +202,8 @@ jobs:
               maria-12: mariadb:12-ubi
               maria-13: mariadb:13.0-ubi-rc
             clickhouse:
-              lts: clickhouse/clickhouse-server:25.8.28.1
-              stable: clickhouse/clickhouse-server:26.3.16.16
+              lts: clickhouse/clickhouse-server:26.8
+              stable: clickhouse/clickhouse-server:26.9
               latest: clickhouse/clickhouse-server:latest
             cockroachdb:
               v24: cockroachdb/cockroach:v24.1.30
