@@ -15,6 +15,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+// maxMergeTargetListEntries mirrors PostgreSQL's MaxTupleAttributeNumber. A MERGE statement's
+// combined action target lists (the UPDATE SET columns across all WHEN MATCHED clauses) cannot
+// exceed this, otherwise it fails with SQLSTATE 54011 ("target lists can have at most 1664 entries").
+const maxMergeTargetListEntries = 1664
+
 type normalizeStmtGenerator struct {
 	// to log fallback statement selection
 	log.Logger
@@ -76,7 +81,7 @@ func (n *normalizeStmtGenerator) generateNormalizeStatements(dstTable string) []
 
 	if n.supportsMerge {
 		unchangedToastColumns := n.unchangedToastColumnsMap[dstTable]
-		return []string{n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)}
+		return n.generateMergeStatement(dstTable, normalizedTableSchema, unchangedToastColumns)
 	}
 	n.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT+DELETE")
 	n.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
@@ -149,7 +154,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	dstTableName string,
 	normalizedTableSchema *protos.TableSchema,
 	unchangedToastColumns []string,
-) string {
+) []string {
 	columnCount := len(normalizedTableSchema.Columns)
 	quotedColumnNames := make([]string, columnCount)
 
@@ -207,7 +212,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
-	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
+	perComboUpdateClauses := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
@@ -216,16 +221,17 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 	insertColumnsSQL := strings.Join(quotedColumnNames, ",")
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 
+	// The soft-delete NOT MATCHED insert is a structural action that must run exactly once, so it
+	// lives only in the first MERGE statement (alongside the main INSERT and the DELETE/soft-delete).
+	var softDeleteInsertClause string
 	if n.peerdbCols.SoftDeleteColName != "" {
 		softDeleteInsertColumnsSQL := strings.Join(
-			append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
-
-		updateStatementsforToastCols = append(updateStatementsforToastCols,
-			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) VALUES(%s)",
-				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
+			append(slices.Clone(quotedColumnNames), common.QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
+		softDeleteInsertValuesSQL := strings.Join(append(slices.Clone(insertValuesSQLArray), "TRUE"), ",")
+		softDeleteInsertClause = fmt.Sprintf(
+			"WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) VALUES(%s)",
+			softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL)
 	}
-	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
 
 	conflictPart := "DELETE"
 	if n.peerdbCols.SoftDeleteColName != "" {
@@ -236,7 +242,9 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		}
 	}
 
-	var mergeStmt string
+	primaryKeySelectSQL := strings.Join(primaryKeySelectSQLArray, " AND ")
+
+	var partitionBySQL string
 	if useJsonbToRecord {
 		// PARTITION BY uses quoted PK column names directly — jsonb_to_record
 		// already extracted them in the CTE via r.*
@@ -244,37 +252,66 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		for _, pkCol := range normalizedTableSchema.PrimaryKeyColumns {
 			primaryKeyQuotedNames = append(primaryKeyQuotedNames, common.QuoteIdentifier(pkCol))
 		}
-		mergeStmt = fmt.Sprintf(
-			mergeStatementSQLJsonbToRecord,
-			strings.Join(primaryKeyQuotedNames, ","),
-			n.metadataSchema,
-			n.rawTableName,
-			strings.Join(recordDefs, ","),
-			parsedDstTable.String(),
-			selectExprsSQL,
-			strings.Join(primaryKeySelectSQLArray, " AND "),
-			insertColumnsSQL,
-			insertValuesSQL,
-			updateStringToastCols,
-			conflictPart,
-		)
+		partitionBySQL = strings.Join(primaryKeyQuotedNames, ",")
 	} else {
-		mergeStmt = fmt.Sprintf(
-			mergeStatementSQL,
-			strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","),
-			n.metadataSchema,
-			n.rawTableName,
-			parsedDstTable.String(),
-			selectExprsSQL,
-			strings.Join(primaryKeySelectSQLArray, " AND "),
-			insertColumnsSQL,
-			insertValuesSQL,
-			updateStringToastCols,
-			conflictPart,
-		)
+		partitionBySQL = strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ",")
 	}
 
-	return mergeStmt
+	// PostgreSQL caps a MERGE's combined action target lists at MaxTupleAttributeNumber (1664).
+	// Each per-TOAST-combination WHEN MATCHED clause contributes ~columnCount SET entries, so a wide
+	// table with many distinct unchanged-toast combinations can exceed the limit. Split the update
+	// clauses across multiple MERGE statements to stay under it. maxClausesPerStmt reserves one
+	// column budget for the INSERT action and divides the rest by the per-clause cost.
+	maxClausesPerStmt := max(1, (maxMergeTargetListEntries-columnCount)/(columnCount+1))
+	var clauseChunks [][]string
+	if len(perComboUpdateClauses) == 0 {
+		clauseChunks = [][]string{nil}
+	} else {
+		for i := 0; i < len(perComboUpdateClauses); i += maxClausesPerStmt {
+			clauseChunks = append(clauseChunks,
+				perComboUpdateClauses[i:min(i+maxClausesPerStmt, len(perComboUpdateClauses))])
+		}
+	}
+
+	mergeStmts := make([]string, 0, len(clauseChunks))
+	for idx, chunk := range clauseChunks {
+		updateSection := strings.Join(chunk, "\n")
+		if idx == 0 {
+			// INSERT and DELETE/soft-delete handling must run exactly once, so they stay in the first
+			// statement only; subsequent statements carry just their chunk of update clauses.
+			if softDeleteInsertClause != "" {
+				if updateSection != "" {
+					updateSection += "\n"
+				}
+				updateSection += softDeleteInsertClause
+			}
+			if useJsonbToRecord {
+				mergeStmts = append(mergeStmts, fmt.Sprintf(
+					mergeStatementSQLJsonbToRecord,
+					partitionBySQL, n.metadataSchema, n.rawTableName, strings.Join(recordDefs, ","),
+					parsedDstTable.String(), selectExprsSQL, primaryKeySelectSQL,
+					insertColumnsSQL, insertValuesSQL, updateSection, conflictPart))
+			} else {
+				mergeStmts = append(mergeStmts, fmt.Sprintf(
+					mergeStatementSQL,
+					partitionBySQL, n.metadataSchema, n.rawTableName,
+					parsedDstTable.String(), selectExprsSQL, primaryKeySelectSQL,
+					insertColumnsSQL, insertValuesSQL, updateSection, conflictPart))
+			}
+		} else if useJsonbToRecord {
+			mergeStmts = append(mergeStmts, fmt.Sprintf(
+				mergeStatementSQLJsonbToRecordUpdateOnly,
+				partitionBySQL, n.metadataSchema, n.rawTableName, strings.Join(recordDefs, ","),
+				parsedDstTable.String(), selectExprsSQL, primaryKeySelectSQL, updateSection))
+		} else {
+			mergeStmts = append(mergeStmts, fmt.Sprintf(
+				mergeStatementSQLUpdateOnly,
+				partitionBySQL, n.metadataSchema, n.rawTableName,
+				parsedDstTable.String(), selectExprsSQL, primaryKeySelectSQL, updateSection))
+		}
+	}
+
+	return mergeStmts
 }
 
 func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, unchangedToastColumns []string) []string {

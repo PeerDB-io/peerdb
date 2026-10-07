@@ -1,7 +1,9 @@
 package connpostgres
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,7 +176,9 @@ func TestGenerateMergeStatement_BasicColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	// CTE uses jsonb_to_record with record definitions
 	require.Contains(t, result, "jsonb_to_record(_peerdb_data)")
@@ -207,7 +211,9 @@ func TestGenerateMergeStatement_JsonColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	// json/jsonb columns: record defs should declare them as jsonb
 	require.Contains(t, result, `"metadata" jsonb`)
@@ -235,7 +241,9 @@ func TestGenerateMergeStatement_SoftDelete(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	// soft delete: WHEN NOT MATCHED with record_type=2 inserts with soft delete TRUE
 	require.Contains(t, normalizeSQL(result),
@@ -265,7 +273,9 @@ func TestGenerateMergeStatement_CompositePK(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	// composite PK: PARTITION BY should use both PK columns
 	require.Contains(t, normalizeSQL(result), normalizeSQL(`PARTITION BY "tenant_id","user_id"`))
@@ -293,7 +303,9 @@ func TestGenerateMergeStatement_ToastColumns(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{"", "big_col"})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{"", "big_col"})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	normalized := normalizeSQL(result)
 	// Should have an update branch for unchanged toast col = '' (all cols updated)
@@ -321,7 +333,9 @@ func TestGenerateMergeStatement_UserDefinedType(t *testing.T) {
 		supportsMerge:  true,
 	}
 
-	result := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	stmts := gen.generateMergeStatement("public.test_table", schema, []string{""})
+	require.Len(t, stmts, 1)
+	result := stmts[0]
 
 	// User-defined types should be schema-qualified in the record definition
 	require.Contains(t, result, `"status" "my_schema"."my_enum"`)
@@ -349,4 +363,102 @@ func TestGenerateNormalizeStatements_Merge(t *testing.T) {
 	require.Len(t, stmts, 1)
 	require.Contains(t, stmts[0], "jsonb_to_record")
 	require.Contains(t, stmts[0], "MERGE INTO")
+}
+
+// buildWideTableSchema returns a PG-typed schema with 1 PK column and colCount-1 text data columns.
+func buildWideTableSchema(colCount int) *protos.TableSchema {
+	columns := make([]*protos.FieldDescription, 0, colCount)
+	columns = append(columns, &protos.FieldDescription{Name: "id", Type: "integer"})
+	for i := 1; i < colCount; i++ {
+		columns = append(columns, &protos.FieldDescription{Name: fmt.Sprintf("col_%d", i), Type: "text"})
+	}
+	return buildTableSchema(columns, []string{"id"})
+}
+
+func TestGenerateMergeStatement_SplitsWhenManyToastCombos(t *testing.T) {
+	const colCount = 187
+	schema := buildWideTableSchema(colCount)
+
+	// one distinct unchanged-toast combination per data column: enough to exceed 1664 target entries
+	// if they were all emitted into a single MERGE.
+	combos := make([]string, 0, colCount-1)
+	for i := 1; i < colCount; i++ {
+		combos = append(combos, fmt.Sprintf("col_%d", i))
+	}
+
+	gen := normalizeStmtGenerator{
+		rawTableName:       "_peerdb_raw_test",
+		tableSchemaMapping: map[string]*protos.TableSchema{"public.test_table": schema},
+		peerdbCols: &protos.PeerDBColumns{
+			SyncedAtColName:   "_peerdb_synced_at",
+			SoftDeleteColName: "",
+		},
+		metadataSchema: "_peerdb_internal",
+		supportsMerge:  true,
+	}
+
+	stmts := gen.generateMergeStatement("public.test_table", schema, combos)
+
+	require.Greater(t, len(stmts), 1, "wide table with many toast combos should split into multiple statements")
+
+	// Every produced statement must stay under the 1664 target-list limit.
+	for _, stmt := range stmts {
+		clauseCount := strings.Count(stmt, "_peerdb_unchanged_toast_columns='")
+		require.LessOrEqual(t, clauseCount*colCount, maxMergeTargetListEntries,
+			"a single MERGE statement must not exceed the target-list limit")
+	}
+
+	// Structural actions (INSERT / DELETE) live only in the first statement.
+	require.Contains(t, stmts[0], "MERGE INTO")
+	require.Contains(t, stmts[0], "WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN")
+	require.Contains(t, normalizeSQL(stmts[0]), normalizeSQL("WHEN MATCHED AND src._peerdb_record_type=2 THEN DELETE"))
+	for _, stmt := range stmts[1:] {
+		require.Contains(t, stmt, "MERGE INTO")
+		require.Contains(t, stmt, "jsonb_to_record")
+		require.Contains(t, stmt, "WHEN MATCHED AND")
+		require.NotContains(t, stmt, "WHEN NOT MATCHED")
+		require.NotContains(t, normalizeSQL(stmt), normalizeSQL("THEN DELETE"))
+	}
+
+	// All combos must be covered exactly once across the statements (no dropped or duplicated updates).
+	totalClauses := 0
+	for _, stmt := range stmts {
+		totalClauses += strings.Count(stmt, "_peerdb_unchanged_toast_columns='")
+	}
+	require.Equal(t, len(combos), totalClauses)
+}
+
+func TestGenerateMergeStatement_SoftDeleteSplitKeepsInsertInFirst(t *testing.T) {
+	const colCount = 187
+	schema := buildWideTableSchema(colCount)
+	combos := make([]string, 0, colCount-1)
+	for i := 1; i < colCount; i++ {
+		combos = append(combos, fmt.Sprintf("col_%d", i))
+	}
+
+	gen := normalizeStmtGenerator{
+		rawTableName:       "_peerdb_raw_test",
+		tableSchemaMapping: map[string]*protos.TableSchema{"public.test_table": schema},
+		peerdbCols: &protos.PeerDBColumns{
+			SyncedAtColName:   "_peerdb_synced_at",
+			SoftDeleteColName: "_peerdb_soft_delete",
+		},
+		metadataSchema: "_peerdb_internal",
+		supportsMerge:  true,
+	}
+
+	stmts := gen.generateMergeStatement("public.test_table", schema, combos)
+	require.Greater(t, len(stmts), 1)
+
+	// The soft-delete NOT MATCHED insert and the catch-all soft-delete update must appear exactly once,
+	// only in the first statement.
+	softDeleteInsertCount := 0
+	for _, stmt := range stmts {
+		softDeleteInsertCount += strings.Count(normalizeSQL(stmt),
+			normalizeSQL("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT"))
+	}
+	require.Equal(t, 1, softDeleteInsertCount)
+	for _, stmt := range stmts[1:] {
+		require.NotContains(t, stmt, "WHEN NOT MATCHED")
+	}
 }

@@ -393,6 +393,29 @@ func (c *PostgresConnector) normalizeBatch(
 	for _, entry := range entries {
 		ct, err := results.Exec()
 		if err != nil {
+			// pgx prepares every distinct statement in the batch up front. If any prepare fails, the
+			// error is surfaced on the first results.Exec() regardless of which statement caused it,
+			// so entry.tableName here is misleading. Recover the real culprit from the preprocessing
+			// error's SQL (which pgx deliberately omits from Error()) by matching it against queued
+			// statements.
+			var preErr pgx.ErrPreprocessingBatch
+			if errors.As(err, &preErr) {
+				failedTable := entry.tableName
+				failedStatement := preErr.SQL()
+				for _, e := range entries {
+					if e.statement == failedStatement {
+						failedTable = e.tableName
+						break
+					}
+				}
+				c.logger.Error("error preparing normalize statement",
+					slog.String("statement", failedStatement),
+					slog.Int64("batchID", batchID),
+					slog.String("destinationTableName", failedTable),
+					slog.Any("error", err),
+				)
+				return 0, fmt.Errorf("error preparing normalize statement for table %s: %w", failedTable, err)
+			}
 			c.logger.Error("error executing normalize statement",
 				slog.String("statement", entry.statement),
 				slog.Int64("batchID", batchID),

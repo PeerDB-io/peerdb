@@ -79,6 +79,30 @@ const (
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s) %s
 	WHEN MATCHED AND src._peerdb_record_type=2 THEN %s`
+	// update-only variants omit the INSERT and DELETE/soft-delete actions; used for the 2nd..Nth
+	// statement when a wide table's per-TOAST-combination WHEN MATCHED clauses are split across
+	// multiple MERGE statements to stay under PostgreSQL's 1664 target-list limit.
+	mergeStatementSQLJsonbToRecordUpdateOnly = `WITH src_rank AS (
+		SELECT r.*,_peerdb_record_type,_peerdb_unchanged_toast_columns, _peerdb_timestamp,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s, jsonb_to_record(_peerdb_data) AS r(%s)
+		WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name = $2
+	)
+	MERGE INTO %s dst
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns
+		FROM src_rank WHERE _peerdb_rank=1 ORDER BY _peerdb_timestamp) src
+	ON %s
+	%s`
+	mergeStatementSQLUpdateOnly = `WITH src_rank AS (
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns, _peerdb_timestamp,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s WHERE _peerdb_batch_id = $1 AND _peerdb_destination_table_name=$2
+	)
+	MERGE INTO %s dst
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns
+		FROM src_rank WHERE _peerdb_rank=1 ORDER BY _peerdb_timestamp) src
+	ON %s
+	%s`
 	fallbackUpsertStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
