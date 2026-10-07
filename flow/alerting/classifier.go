@@ -1011,6 +1011,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 407: // PooledConnectionAcquisitionExceededTimeLimit
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 211: // KeyNotFound
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 234: // RetryChangeStream

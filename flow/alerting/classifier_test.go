@@ -1287,6 +1287,20 @@ func TestMongoCursorErrors(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoPooledConnectionAcquisitionExceededTimeLimitShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    407,
+		Name:    "PooledConnectionAcquisitionExceededTimeLimit",
+		Message: "Couldn't get a connection within the time limit",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "407",
+	}, errInfo)
+}
+
 func TestMongoInvalidResumeTokenShouldNotifyChangeStreamHistoryLost(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
