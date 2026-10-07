@@ -426,7 +426,8 @@ func (c *BigQueryConnector) refreshSourceTableColumns(
 	}
 	metadata, err := c.client.DatasetInProject(projectID, dsTable.dataset).Table(dsTable.table).Metadata(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w", sourceTableIdentifier, err)
+		return nil, fmt.Errorf("failed to fetch source schema for table %s: %w",
+			sourceTableIdentifier, exceptions.NewBigQueryError(err))
 	}
 
 	for column := range missingColumnsFromSchema(requiredColumns, metadata.Schema) {
