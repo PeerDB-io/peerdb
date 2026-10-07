@@ -1126,21 +1126,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	// Query CDC pull queries return the raw googleapi.Error, not a BigQueryError
-	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok &&
-		apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
-		return ErrorNotifyBigQueryTimeTravelExceeded, ErrorInfo{
-			Source: ErrorSourceBigQuery,
-			Code:   "CHANGE_HISTORY_BEFORE_TIME_TRAVEL",
-		}
-	}
-
 	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
 		bqErrorInfo := ErrorInfo{
 			Source: ErrorSourceBigQuery,
 			Code:   "UNKNOWN",
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			if apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
+				bqErrorInfo.Code = "CHANGE_HISTORY_BEFORE_TIME_TRAVEL"
+				return ErrorNotifyBigQueryTimeTravelExceeded, bqErrorInfo
+			}
 			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
 			switch apiErr.Code {
 			case 401, // Unauthorized

@@ -1796,7 +1796,8 @@ func TestBigQueryChangeHistoryBeforeTimeTravelShouldNotifyTimeTravelExceeded(t *
 		Message: "The change history start time is before allowed time travel interval ... " +
 			"Start time: 2026-10-02T23:40:57.139692Z.",
 	}
-	err := fmt.Errorf("failed to run APPENDS query for table biglake_sc.ga4_events_hot: %w", apiErr)
+	err := fmt.Errorf("failed to run APPENDS query for table biglake_sc.ga4_events_hot: %w",
+		exceptions.NewBigQueryError(apiErr))
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyBigQueryTimeTravelExceeded, errorClass)
 	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
