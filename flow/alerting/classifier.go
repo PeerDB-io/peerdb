@@ -89,6 +89,13 @@ var (
 	)
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+
+	// BigQuery error reasons documented as safe to retry
+	bigQueryTransientReasons = map[string]struct{}{
+		"jobBackendError": {},
+		"backendError":    {},
+		"internalError":   {},
+	}
 )
 
 func (e ErrorAction) String() string {
@@ -333,18 +340,6 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 		return e.action
 	}
 	return NotifyTelemetry
-}
-
-// isBigQueryTransientReason reports whether a BigQuery error reason is one Google documents as
-// safe to retry (server-side failures, not caused by the request). Rate-limit reasons are
-// deliberately excluded: they arrive as 403, which is classified as a connectivity issue. jobBackendError arrives as
-// "Error 400: ... Retrying the job may solve the problem." despite the 400 status.
-func isBigQueryTransientReason(reason string) bool {
-	switch reason {
-	case "jobBackendError", "backendError", "internalError":
-		return true
-	}
-	return false
 }
 
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
@@ -1138,14 +1133,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, bqErrorInfo
 			}
 			for _, item := range apiErr.Errors {
-				if isBigQueryTransientReason(item.Reason) {
+				if _, ok := bigQueryTransientReasons[item.Reason]; ok {
 					bqErrorInfo.Code += "(" + item.Reason + ")"
 					return ErrorRetryRecoverable, bqErrorInfo
 				}
 			}
 		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
 			bqErrorInfo.Code = bqErr.Reason
-			if isBigQueryTransientReason(bqErr.Reason) {
+			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
 				return ErrorRetryRecoverable, bqErrorInfo
 			}
 		}
