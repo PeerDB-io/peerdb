@@ -58,8 +58,6 @@ const (
 	// The error is created with errors.New, so there is no sentinel or type to match on.
 	http2ClientConnectionLost = "http2: client connection lost"
 
-	// bigQueryChangeHistoryBeforeTimeTravel is returned by APPENDS()/CHANGES() when the checkpoint
-	// we resume from is older than the source table's time travel window, so the history is gone.
 	bigQueryChangeHistoryBeforeTimeTravel = "change history start time is before allowed time travel interval"
 )
 
