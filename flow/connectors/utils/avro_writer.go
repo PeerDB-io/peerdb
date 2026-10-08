@@ -32,8 +32,13 @@ const (
 	AvroGCSStorage
 )
 
-type peerDBOCFWriter struct {
-	stream               *model.QRecordStream
+// AvroRecord restricts the OCF writer to generic rows and the CDC envelope.
+type AvroRecord interface {
+	[]types.QValue | *model.RawTableRow
+}
+
+type peerDBOCFWriter[T AvroRecord] struct {
+	stream               *model.RecordStream[T]
 	avroSchema           *model.QRecordAvroSchemaDefinition
 	sizeTracker          *model.QRecordAvroChunkSizeTracker
 	avroCompressionCodec ocf.CodecName
@@ -54,14 +59,14 @@ func (l *AvroFile) Cleanup(ctx context.Context) {
 	}
 }
 
-func NewPeerDBOCFWriter(
-	stream *model.QRecordStream,
+func NewPeerDBOCFWriter[T AvroRecord](
+	stream *model.RecordStream[T],
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec ocf.CodecName,
 	targetDWH protos.DBType,
 	sizeTracker *model.QRecordAvroChunkSizeTracker,
-) *peerDBOCFWriter {
-	return &peerDBOCFWriter{
+) *peerDBOCFWriter[T] {
+	return &peerDBOCFWriter[T]{
 		stream:               stream,
 		avroSchema:           avroSchema,
 		avroCompressionCodec: avroCompressionCodec,
@@ -70,7 +75,7 @@ func NewPeerDBOCFWriter(
 	}
 }
 
-func (p *peerDBOCFWriter) WriteOCF(
+func (p *peerDBOCFWriter[T]) WriteOCF(
 	ctx context.Context,
 	env map[string]string,
 	w io.Writer,
@@ -93,7 +98,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	return numRows, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToS3(
+func (p *peerDBOCFWriter[T]) WriteRecordsToS3(
 	ctx context.Context,
 	env map[string]string,
 	bucketName string,
@@ -164,7 +169,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
+func (p *peerDBOCFWriter[T]) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to create temporary Avro file: %w", err)
@@ -194,7 +199,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	}, nil
 }
 
-func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() []string {
+func (p *peerDBOCFWriter[T]) getAvroFieldNamesFromSchema() []string {
 	fields := p.avroSchema.Schema.Fields()
 	avroFieldNames := make([]string, len(fields))
 	for i, field := range fields {
@@ -203,13 +208,18 @@ func (p *peerDBOCFWriter) getAvroFieldNamesFromSchema() []string {
 	return avroFieldNames
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
+func (p *peerDBOCFWriter[T]) writeRecordsToOCFWriter(
 	ctx context.Context,
 	env map[string]string,
 	ocfWriter *ocf.Encoder,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
+	if _, raw := any(*new(T)).(*model.RawTableRow); raw &&
+		(len(typeConversions) != 0 || numericTruncator != nil || p.sizeTracker != nil) {
+		return 0, fmt.Errorf("raw table Avro rows do not support snapshot conversions or size tracking")
+	}
+
 	logger := internal.LoggerFromCtx(ctx)
 
 	avroFieldNames := p.getAvroFieldNamesFromSchema()
@@ -248,13 +258,20 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, size, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format, calcSize)
+			var avroRecord any
+			var size int64
+			switch record := any(qrecord).(type) {
+			case *model.RawTableRow:
+				avroRecord = record
+			case []types.QValue:
+				avroRecord, size, err = avroConverter.Convert(ctx, env, record, typeConversions, numericTruncator, format, calcSize)
+			}
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 			}
 
-			if err := ocfWriter.Encode(avroMap); err != nil {
+			if err := ocfWriter.Encode(avroRecord); err != nil {
 				logger.Error("Failed to write record to OCF", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}

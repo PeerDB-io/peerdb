@@ -57,7 +57,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	ctx context.Context,
 	env map[string]string,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[*model.RawTableRow],
 	flowJobName string,
 	syncBatchID int64,
 ) (int64, error) {
@@ -379,10 +379,10 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	return avroSchema, nil
 }
 
-func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
+func (s *ClickHouseAvroSyncMethod) writeToAvroFile[T utils.AvroRecord](
 	ctx context.Context,
 	env map[string]string,
-	stream *model.QRecordStream,
+	stream *model.RecordStream[T],
 	sizeTracker *model.QRecordAvroChunkSizeTracker,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,

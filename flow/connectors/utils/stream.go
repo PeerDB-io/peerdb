@@ -17,76 +17,49 @@ import (
 func RecordsToRawTableStream(
 	req *model.RecordsToStreamRequest[model.RecordItems], numericTruncator model.StreamNumericTruncator,
 ) (*model.QRecordStream, error) {
-	recordStream := model.NewQRecordStream(1024)
-	recordStream.SetSchema(types.QRecordSchema{
-		Fields: []types.QField{
-			{
-				Name:     "_peerdb_uid",
-				Type:     types.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_timestamp",
-				Type:     types.QValueKindInt64,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_destination_table_name",
-				Type:     types.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_data",
-				Type:     types.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_record_type",
-				Type:     types.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_match_data",
-				Type:     types.QValueKindString,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_batch_id",
-				Type:     types.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_unchanged_toast_columns",
-				Type:     types.QValueKindString,
-				Nullable: true,
-			},
-		},
-	})
+	return recordsToRawTableStream(req, numericTruncator, func(row *model.RawTableRow) []types.QValue {
+		return row.QRecord()
+	}), nil
+}
+
+// RecordsToRawTableAvroStream retains the fixed CDC envelope through Avro encoding.
+func RecordsToRawTableAvroStream(
+	req *model.RecordsToStreamRequest[model.RecordItems], numericTruncator model.StreamNumericTruncator,
+) (*model.RecordStream[*model.RawTableRow], error) {
+	return recordsToRawTableStream(req, numericTruncator, func(row *model.RawTableRow) *model.RawTableRow { return row }), nil
+}
+
+func recordsToRawTableStream[T any](
+	req *model.RecordsToStreamRequest[model.RecordItems], numericTruncator model.StreamNumericTruncator,
+	convert func(*model.RawTableRow) T,
+) *model.RecordStream[T] {
+	recordStream := model.NewRecordStream[T](1024)
+	recordStream.SetSchema(rawTableSchema())
 
 	go func() {
 		for record := range req.GetRecords() {
 			record.PopulateCountMap(req.TableMapping)
-			qRecord, err := recordToQRecordOrError(
+			qRecord, err := recordToRawTableRow(
 				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator,
 			)
 			if err != nil {
 				recordStream.Close(err)
 				return
 			} else if qRecord != nil {
-				recordStream.Records <- qRecord
+				recordStream.Records <- convert(qRecord)
 			}
 		}
 
-		close(recordStream.Records)
+		recordStream.Close(nil)
 	}()
-	return recordStream, nil
+	return recordStream
 }
 
-func recordToQRecordOrError(
+func recordToRawTableRow(
 	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
-) ([]types.QValue, error) {
-	var entries [8]types.QValue
+) (*model.RawTableRow, error) {
+	row := &model.RawTableRow{}
 	jsonOpts := rawTableJSONOptions(targetDWH)
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[model.RecordItems]:
@@ -99,10 +72,10 @@ func recordToQRecordOrError(
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 		}
 
-		entries[3] = types.QValueString{Val: itemsJSON}
-		entries[4] = types.QValueInt64{Val: 0}
-		entries[5] = types.QValueString{Val: ""}
-		entries[7] = types.QValueString{Val: ""}
+		row.Data = itemsJSON
+		row.RecordType = 0
+		row.MatchData = ""
+		row.UnchangedToastColumns = ""
 	case *model.UpdateRecord[model.RecordItems]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
@@ -117,10 +90,10 @@ func recordToQRecordOrError(
 			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 		}
 
-		entries[3] = types.QValueString{Val: newItemsJSON}
-		entries[4] = types.QValueInt64{Val: 1}
-		entries[5] = types.QValueString{Val: oldItemsJSON}
-		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+		row.Data = newItemsJSON
+		row.RecordType = 1
+		row.MatchData = oldItemsJSON
+		row.UnchangedToastColumns = KeysToString(typedRecord.UnchangedToastColumns)
 
 	case *model.DeleteRecord[model.RecordItems]:
 		itemsJSON, err := typedRecord.Items.ToJSONWithOptions(jsonOpts)
@@ -128,10 +101,10 @@ func recordToQRecordOrError(
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
 
-		entries[3] = types.QValueString{Val: itemsJSON}
-		entries[4] = types.QValueInt64{Val: 2}
-		entries[5] = types.QValueString{Val: itemsJSON}
-		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
+		row.Data = itemsJSON
+		row.RecordType = 2
+		row.MatchData = itemsJSON
+		row.UnchangedToastColumns = KeysToString(typedRecord.UnchangedToastColumns)
 
 	case *model.MessageRecord[model.RecordItems]:
 		return nil, nil
@@ -140,12 +113,12 @@ func recordToQRecordOrError(
 		return nil, fmt.Errorf("unknown record type: %T", typedRecord)
 	}
 
-	entries[0] = types.QValueUUID{Val: uuid.New()}
-	entries[1] = types.QValueInt64{Val: time.Now().UnixNano()}
-	entries[2] = types.QValueString{Val: record.GetDestinationTableName()}
-	entries[6] = types.QValueInt64{Val: batchID}
+	row.UID = uuid.NewString()
+	row.Timestamp = time.Now().UnixNano()
+	row.DestinationTableName = record.GetDestinationTableName()
+	row.BatchID = batchID
 
-	return entries[:], nil
+	return row, nil
 }
 
 // RecordsToTypedCDCStream converts a single table's CDC record channel directly
@@ -327,4 +300,51 @@ func truncateNumerics(
 		newItems.ColToVal[col] = newVal
 	}
 	return newItems
+}
+
+func rawTableSchema() types.QRecordSchema {
+	return types.QRecordSchema{
+		Fields: []types.QField{
+			{
+				Name:     "_peerdb_uid",
+				Type:     types.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp",
+				Type:     types.QValueKindInt64,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_destination_table_name",
+				Type:     types.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_data",
+				Type:     types.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_record_type",
+				Type:     types.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_match_data",
+				Type:     types.QValueKindString,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_batch_id",
+				Type:     types.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_unchanged_toast_columns",
+				Type:     types.QValueKindString,
+				Nullable: true,
+			},
+		},
+	}
 }

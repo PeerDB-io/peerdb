@@ -72,7 +72,7 @@ func BenchmarkRecordStreamToS3(b *testing.B) {
 				// Match production's lazy per-column numeric tracking, including its cost.
 				truncator := model.NewStreamNumericTruncator([]*protos.TableMapping{{DestinationTableIdentifier: "bench"}}, nil)
 				b.StartTimer()
-				stream, err := RecordsToRawTableStream(req, truncator)
+				stream, err := RecordsToRawTableAvroStream(req, truncator)
 				if err != nil {
 					b.Fatal(err)
 				}
