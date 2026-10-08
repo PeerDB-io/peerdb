@@ -1,6 +1,41 @@
-import { TypeSystem } from '@/grpc_generated/flow';
+import {
+  BigqueryCdcConfig,
+  BigQueryReplicationMethod,
+  QueryCdcConfig,
+  TypeSystem,
+} from '@/grpc_generated/flow';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
-import { AdvancedSettingType, blankCDCSetting, MirrorSetting } from './common';
+import {
+  AdvancedSettingType,
+  blankBigqueryCdcConfig,
+  blankCDCSetting,
+  MirrorSetting,
+  QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS,
+  QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM,
+  QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS,
+} from './common';
+
+export const BIGQUERY_EVENTS_METHOD_OPTION = 'Events';
+export const BIGQUERY_QUERY_METHOD_OPTION = 'Query';
+
+function bigqueryQueryCdcUpdate(
+  curr: CDCConfig,
+  update: Partial<QueryCdcConfig>
+): CDCConfig {
+  const bigqueryCdcConfig: BigqueryCdcConfig =
+    curr.bigqueryCdcConfig ?? blankBigqueryCdcConfig;
+  return {
+    ...curr,
+    bigqueryCdcConfig: {
+      ...bigqueryCdcConfig,
+      queryCdc: {
+        ...(bigqueryCdcConfig.queryCdc ?? blankBigqueryCdcConfig.queryCdc!),
+        ...update,
+      },
+    },
+  };
+}
+
 export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Initial Copy',
@@ -39,6 +74,69 @@ export const cdcSettings: MirrorSetting[] = [
     default: '60',
     required: true,
     advanced: AdvancedSettingType.QUEUE,
+  },
+  {
+    label: 'BigQuery Replication Method',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig): CDCConfig => ({
+        ...curr,
+        bigqueryCdcConfig: {
+          ...(curr.bigqueryCdcConfig ?? blankBigqueryCdcConfig),
+          replicationMethod:
+            value === BIGQUERY_QUERY_METHOD_OPTION
+              ? BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_QUERY
+              : BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_EVENTS,
+        },
+      })),
+    tips: 'Events reads BigQuery change history (APPENDS or CHANGES) and needs change history enabled on CHANGES tables. Query polls each table on a TIMESTAMP watermark column and only sees inserts, or updates that bump the watermark.',
+    type: 'select',
+    default: BIGQUERY_EVENTS_METHOD_OPTION,
+    required: true,
+  },
+  {
+    label: 'Pull Sync Parallelism',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig): CDCConfig =>
+        bigqueryQueryCdcUpdate(curr, {
+          pullSyncParallelism:
+            parseInt(value as string, 10) ||
+            QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM,
+        })
+      ),
+    tips: 'Number of tables queried and staged at the same time. Defaults to 4 if left empty.',
+    type: 'number',
+    default: String(QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM),
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
+    label: 'Safety Lag (Seconds)',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig): CDCConfig =>
+        bigqueryQueryCdcUpdate(curr, {
+          safetyLagSeconds:
+            parseInt(value as string, 10) ||
+            QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS,
+        })
+      ),
+    tips: 'How far behind the source clock each poll window ends, so late-arriving rows are still picked up. Defaults to 60 seconds if left empty.',
+    type: 'number',
+    default: String(QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS),
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
+    label: 'Max Query Window (Seconds)',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig): CDCConfig =>
+        bigqueryQueryCdcUpdate(curr, {
+          maxQueryWindowSeconds:
+            parseInt(value as string, 10) ||
+            QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS,
+        })
+      ),
+    tips: 'Longest time span a single poll query may cover. Defaults to 86400 seconds (24 hours) if left empty.',
+    type: 'number',
+    default: String(QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS),
+    advanced: AdvancedSettingType.ALL,
   },
   {
     label: 'Publication Name',
@@ -117,7 +215,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         snapshotStagingPath: value as string | '',
       })),
-    tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
+    tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery source, this is required and must be a GCS location like gs://bucket/prefix. For BigQuery destination, this must be either empty or an existing GCS bucket name. If empty, the local filesystem will be used.',
     advanced: AdvancedSettingType.ALL,
   },
   {

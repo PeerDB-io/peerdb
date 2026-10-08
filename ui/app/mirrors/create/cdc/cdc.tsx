@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 
-import { TableMapping } from '@/grpc_generated/flow';
+import { BigQueryReplicationMethod, TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -20,6 +20,10 @@ import {
   IsQueuePeer,
   fetchPublications,
 } from '../handlers';
+import {
+  BIGQUERY_EVENTS_METHOD_OPTION,
+  BIGQUERY_QUERY_METHOD_OPTION,
+} from '../helpers/cdc';
 import {
   AdvancedSettingType,
   MirrorSetting,
@@ -65,11 +69,11 @@ export default function CDCConfigForm({
   const adjustedSettings = useMemo(
     () =>
       settings!.map((setting) => {
-        if (sourceType.toString() === DBType[DBType.BIGQUERY]) {
-          if (setting.label == 'Snapshot Staging Path') {
-            setting.advanced = undefined;
-            setting.required = true;
-          }
+        if (
+          sourceType.toString() === DBType[DBType.BIGQUERY] &&
+          setting.label == 'Snapshot Staging Path'
+        ) {
+          return { ...setting, advanced: undefined, required: true };
         }
 
         return setting;
@@ -200,16 +204,36 @@ export default function CDCConfigForm({
     );
   };
 
+  const isBigQueryCdcSource = () =>
+    isBigQuerySource() && !mirrorConfig.initialSnapshotOnly;
+
+  // Generic query CDC knobs, shared by any query-based source (only BigQuery today)
+  const queryCdcSettingLabels = [
+    'pull sync parallelism',
+    'safety lag (seconds)',
+    'max query window (seconds)',
+  ];
+
+  const shouldHideBigQueryCdcSettings = (label: string) => {
+    // BigQuery-specific and query CDC settings only apply to a BigQuery source that will run CDC
+    return (
+      (label.startsWith('bigquery') || queryCdcSettingLabels.includes(label)) &&
+      !isBigQueryCdcSource()
+    );
+  };
+
   const shouldHideBigQuerySourceIncompatibleFields = (label: string) => {
     if (!isBigQuerySource()) {
       return false;
     }
 
+    // Initial copy and sync interval stay available for CDC, but snapshot-only
+    // mirrors have no ongoing sync. Query CDC stages through the ClickHouse
+    // destination, so the CDC staging path never applies to a BigQuery source.
     return (
-      label.startsWith('initial copy') || // only initial copy is supported. Values are opt-in by default for BigQuery source.
-      label.includes('cdc') || // CDC is not supported
-      label.includes('sync interval')
-    ); // sync interval is not applicable
+      label.includes('cdc staging path') ||
+      (mirrorConfig.initialSnapshotOnly && label.includes('sync interval'))
+    );
   };
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
@@ -229,6 +253,7 @@ export default function CDCConfigForm({
       shouldHideClickhouseScript(label),
       shouldHideDisableAllPeerDBColumns(label),
       shouldHideBigQuerySourceIncompatibleFields(label),
+      shouldHideBigQueryCdcSettings(label),
     ];
 
     // Show the setting if none of the hide conditions are true
@@ -302,7 +327,12 @@ export default function CDCConfigForm({
                 options={
                   setting?.label === 'Publication Name'
                     ? publications
-                    : undefined
+                    : setting?.label === 'BigQuery Replication Method'
+                      ? [
+                          BIGQUERY_EVENTS_METHOD_OPTION,
+                          BIGQUERY_QUERY_METHOD_OPTION,
+                        ]
+                      : undefined
                 }
               />
             )
@@ -343,6 +373,12 @@ export default function CDCConfigForm({
           rows={rows}
           setRows={setRows}
           peerType={destinationType}
+          bigqueryReplicationMethod={
+            isBigQueryCdcSource()
+              ? (mirrorConfig.bigqueryCdcConfig?.replicationMethod ??
+                BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_EVENTS)
+              : undefined
+          }
           alreadySelectedTablesMapping={new Map<string, TableMapping[]>()}
           initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
