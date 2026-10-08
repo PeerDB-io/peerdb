@@ -604,6 +604,11 @@ enum FlowStatus {
   STATUS_MODIFYING = 11 [(peerdb_maintenance_wait) = true];;
 }
 
+message TableColumnsUpdate {
+  string source_table_identifier = 1;
+  repeated ColumnSetting columns = 2;
+}
+
 message CDCFlowConfigUpdate {
   reserved 4;
   repeated TableMapping additional_tables = 1;
@@ -621,6 +626,9 @@ message CDCFlowConfigUpdate {
   repeated string removed_env = 12;
   // Replaces the QueryCdcConfig settings when present. An absent message leaves them unchanged.
   QueryCdcConfig query_cdc = 13;
+  // Replaces the full column list of existing mirror tables. New columns are added to the
+  // destination schema, catalog schema and table mappings; existing destination rows are not backfilled.
+  repeated TableColumnsUpdate columns_update = 14;
 }
 
 message QRepFlowConfigUpdate {
