@@ -57,7 +57,8 @@ func (d bsonDocument) withID(t *testing.T, id int32) bson.Raw {
 }
 
 // Test_Structured_Ingestion_Inferred_Types replicates, on the initial load and on CDC, a collection holding
-// every non-deprecated BSON type including values at the extremes of their type domains (allTypesDocuments)
+// every non-deprecated BSON type, plus the deprecated DBPointer, JavaScript with scope and Symbol, including
+// values at the extremes of their type domains (allTypesDocuments)
 // and using the type that should have been inferred for them (testdata/mongodb_all_types_inferred_schema.json).
 // Checks every ingested value against the one the example expects.
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Inferred_Types() {
@@ -531,8 +532,27 @@ func allTypesDocuments(t *testing.T) []bsonDocument {
 		}})
 	}
 
+	// deprecated types that inference and ingestion still agree on
+	pointerID := objectID("65a1b2c3d4e5f6a7b8c9d0e1")
 	for i := range documents {
+		id := documents[i].id
 		documents[i].fields = append(documents[i].fields, constants...)
+		documents[i].fields = append(documents[i].fields,
+			bsonField{
+				name:     "f_dbpointer",
+				value:    bson.DBPointer{DB: fmt.Sprintf("db.coll_%d", id), Pointer: pointerID},
+				expected: fmt.Sprintf(`{"DB":"db.coll_%d","Pointer":"%s"}`, id, pointerID.Hex()),
+			},
+			bsonField{
+				name: "f_codewithscope",
+				value: bson.CodeWithScope{
+					Code:  bson.JavaScript(fmt.Sprintf("function () { return x + %d; }", id)),
+					Scope: bson.D{{Key: "x", Value: id}},
+				},
+				expected: fmt.Sprintf(`{"Code":"function () { return x + %d; }","Scope":{"x":%d}}`, id, id),
+			},
+			bsonField{name: "f_symbol", value: bson.Symbol(fmt.Sprintf("sym_%d", id)), expected: fmt.Sprintf("sym_%d", id)},
+		)
 	}
 	return documents
 }
