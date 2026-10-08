@@ -1,8 +1,12 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	"io"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,7 +29,32 @@ func assertRecordJSONCompatible(t *testing.T, r RecordItems, opts ToJSONOptions)
 		return
 	}
 	require.NoError(t, err)
-	require.Equal(t, string(want), string(got))
+	require.Equal(t, recordJSONMembers(t, want), recordJSONMembers(t, got))
+}
+
+// Ignore only top-level member order. Keep raw encoded names and values so
+// escaping, number formatting and duplicate encoded names are still checked.
+func recordJSONMembers(t *testing.T, data []byte) []string {
+	t.Helper()
+	dec := jsontext.NewDecoder(bytes.NewReader(data), json.DefaultOptionsV1())
+	token, err := dec.ReadToken()
+	require.NoError(t, err)
+	require.Equal(t, jsontext.Kind('{'), token.Kind())
+	members := make([]string, 0)
+	for dec.PeekKind() != '}' {
+		name, err := dec.ReadValue()
+		require.NoError(t, err)
+		key := string(name) // ReadValue's buffer may be reused by the next read.
+		value, err := dec.ReadValue()
+		require.NoError(t, err)
+		members = append(members, key+"\x00"+string(value))
+	}
+	_, err = dec.ReadToken()
+	require.NoError(t, err)
+	_, err = dec.ReadToken()
+	require.ErrorIs(t, err, io.EOF)
+	slices.Sort(members)
+	return members
 }
 
 func TestRecordJSONCompatibility(t *testing.T) {

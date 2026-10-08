@@ -5,9 +5,7 @@ import (
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -16,8 +14,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// MarshalJSONWithOptions preserves encoding/json's wire representation without
-// building a second map or asking the generic encoder to rediscover QValue types.
+// MarshalJSONWithOptions preserves encoding/json's key and value encodings
+// without an intermediate map. Object member order is unspecified.
 func (r RecordItems) MarshalJSONWithOptions(opts ToJSONOptions) ([]byte, error) {
 	if len(opts.UnnestColumns) != 0 {
 		return nil, fmt.Errorf("RecordItems JSON unnesting is not supported")
@@ -35,12 +33,11 @@ type recordJSON struct {
 func (r recordJSON) MarshalJSONTo(enc *jsontext.Encoder) error {
 	w := recordJSONWriter{enc: enc}
 	w.token(jsontext.BeginObject)
-	// Sort the original strings, before UTF-8 replacement or escaping, just as
-	// encoding/json does. Distinct invalid UTF-8 keys may encode identically;
+	// Distinct invalid UTF-8 keys may encode identically;
 	// DefaultOptionsV1 deliberately permits those duplicate JSON names.
-	for _, col := range slices.Sorted(maps.Keys(r.items.ColToVal)) {
+	for col, value := range r.items.ColToVal {
 		w.token(jsontext.String(col))
-		w.value(r.items.ColToVal[col], r.opts)
+		w.value(value, r.opts)
 		if w.err != nil {
 			return fmt.Errorf("serialize column %q: %w", col, w.err)
 		}
