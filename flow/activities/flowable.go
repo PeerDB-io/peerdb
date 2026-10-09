@@ -386,6 +386,25 @@ func (a *FlowableActivity) SyncFlow(
 		}()
 	}
 
+	// Temporal delivers cancellation only with the next heartbeat response, so also watch the catalog
+	// to stop promptly on pause without needing frequent heartbeats. Reuses shutDown so both sync
+	// paths treat the resulting cancel as a clean stop rather than a failure.
+	// Jitter the first poll so mirrors restarted together by a worker rollout don't poll in lockstep.
+	// cancelCtx on pause ends the interval, as ctx is its parent.
+	common.Interval(ctx, 10*time.Second, func() {
+		// lookup errors are retried on the next tick, a catalog blip must never stop a healthy sync
+		status, err := internal.GetWorkflowStatusByName(ctx, a.CatalogPool, config.FlowJobName)
+		if err != nil {
+			if ctx.Err() == nil {
+				logger.Warn("failed to poll flow status for stop request", slog.Any("error", err))
+			}
+		} else if status == protos.FlowStatus_STATUS_PAUSING {
+			logger.Info("flow is pausing, shutting down SyncFlow")
+			shutDown.Store(true)
+			cancelCtx()
+		}
+	}, common.WithIntervalJitter())
+
 	destinationType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))

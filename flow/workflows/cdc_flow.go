@@ -855,7 +855,7 @@ func startCDC(
 	var finishedError bool
 	syncCtx, cancelSync := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    3 * time.Minute,
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	}))
