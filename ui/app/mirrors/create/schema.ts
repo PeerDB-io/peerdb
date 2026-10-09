@@ -33,6 +33,11 @@ export const tableMappingSchema = z
             dropUnexpectedValues: z.boolean().optional(),
           })
           .optional(),
+        mongoConfig: z
+          .object({
+            deletePreimage: z.boolean().optional(),
+          })
+          .optional(),
         columns: z
           .array(
             z.looseObject({
