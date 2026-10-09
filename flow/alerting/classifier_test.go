@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"syscall"
@@ -17,6 +18,10 @@ import (
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
@@ -2087,6 +2092,32 @@ func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_CANCELLED",
+	}, errInfo)
+}
+
+func TestS3InternalErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	respErr := &awshttp.ResponseError{
+		ResponseError: &smithyhttp.ResponseError{
+			Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
+			Err:      &smithy.GenericAPIError{Code: "InternalError", Message: "We encountered an internal error. Please try again."},
+		},
+		RequestID: "ABC123",
+	}
+	sdkErr := &smithy.OperationError{
+		ServiceID:     "S3",
+		OperationName: "CompleteMultipartUpload",
+		Err:           &retry.MaxAttemptsError{Attempt: 3, Err: respErr},
+	}
+	err := fmt.Errorf("failed to push records: failed to upload to staging: %w",
+		exceptions.NewS3Error(fmt.Errorf("failed to upload file to S3: upload multipart failed, upload id: XXX, cause: %w", sdkErr)))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceS3,
+		Code:   "500",
 	}, errInfo)
 }
 
