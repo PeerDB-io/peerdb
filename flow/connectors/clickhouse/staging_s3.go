@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 // s3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
@@ -129,7 +130,7 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		}
 		s3Path := "s3://" + s.bucket + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
-		return fmt.Errorf("failed to upload file to S3: %w", err)
+		return exceptions.NewS3Error(fmt.Errorf("failed to upload file to S3: %w", err))
 	}
 
 	logger.Info("finished S3 upload", slog.String("key", key))
