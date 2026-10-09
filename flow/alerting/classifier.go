@@ -52,6 +52,9 @@ const (
 	// once we already know the error came from MySQL geometry parsing.
 	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
 
+	// mysqlServerTLSNotSupported is raised by go-mysql when the server greeting lacks CLIENT_SSL while the client requires TLS
+	mysqlServerTLSNotSupported = "the MySQL Server does not support TLS required by the client"
+
 	// http2ClientConnectionLost is raised by golang.org/x/net/http2 in ClientConn.closeForLostPing,
 	// which tears down the connection and aborts every in-flight request when a keepalive ping goes
 	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
@@ -1455,6 +1458,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		errClass := ErrorOther
 		if mysqlExecuteError.Retryable {
 			errClass = ErrorRetryRecoverable
+		}
+		if strings.Contains(mysqlExecuteError.Error(), mysqlServerTLSNotSupported) {
+			errClass = ErrorNotifyConnectivity
 		}
 		return errClass, ErrorInfo{
 			Source: ErrorSourceMySQL,
