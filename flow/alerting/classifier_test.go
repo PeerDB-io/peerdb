@@ -1492,6 +1492,17 @@ func TestMySQLSecureTransportRequired(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLServerTLSNotSupported(t *testing.T) {
+	handshakeErr := pErrors.Trace(fmt.Errorf("readInitialHandshake: %w",
+		errors.New("the MySQL Server does not support TLS required by the client")))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(handshakeErr))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+}
+
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
 	err := exceptions.NewMySQLExecuteError(
 		fmt.Errorf("failed checksum for WriteRowsEventV2, log pos 12345: %v", replication.ErrChecksumMismatch),
