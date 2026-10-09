@@ -1354,6 +1354,12 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
+			if _, err := pkg_pg.OIDToName(p.typeMap, column.DataType, customTypeMapping); err != nil {
+				p.logger.Warn("unknown type oid in relation message, cached custom type mapping may be stale",
+					slog.String("tableName", currRelName),
+					slog.String("columnName", column.Name),
+					slog.Uint64("typeOid", uint64(column.DataType)))
+			}
 			dataType, _ := pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
 			qKind := p.postgresOIDToQValueKind(dataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
