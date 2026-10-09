@@ -1159,12 +1159,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
-			switch apiErr.Code {
-			case 503: // Service Unavailable
+			// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+			if apiErr.Code == 408 || apiErr.Code == 429 || apiErr.Code >= 500 {
 				return ErrorRetryRecoverable, gcsErrorInfo
-			default:
-				return ErrorOther, gcsErrorInfo
 			}
+			return ErrorOther, gcsErrorInfo
 		}
 		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
 		// and is retried by dialing a new connection.
