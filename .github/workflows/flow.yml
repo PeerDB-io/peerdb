@@ -231,13 +231,17 @@ jobs:
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
 
+  # pull_request and pull_request_target both trigger this workflow, but only one runs tests.
+  # Give the other run a different check name so its skipped tests cannot satisfy the required check.
+  # This job must always run because GitHub does not evaluate dynamic names for skipped jobs.
   flow_tests_passed:
-    name: All flow test jobs succeeded
+    name: ${{ needs.gate.result != 'skipped' && 'All flow test jobs succeeded' || 'Flow tests not run for this event' }}
     needs: [gate, unit_tests, test_selection_coverage, flow_test]
-    if: always() && needs.gate.result != 'skipped'
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - env:
+      - if: needs.gate.result != 'skipped'
+        env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
