@@ -394,6 +394,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 	var parsedData any
 	var err error
 
+	dataType, typmod = pkg_pg.ResolveDataType(dataType, typmod, customTypeMapping)
+
 	// Special handling for JSON types to use relaxed number parsing
 	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
 		var text pgtype.Text
@@ -1352,9 +1354,16 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
+			if _, err := pkg_pg.OIDToName(p.typeMap, column.DataType, customTypeMapping); err != nil {
+				p.logger.Warn("unknown type oid in relation message, cached custom type mapping may be stale",
+					slog.String("tableName", currRelName),
+					slog.String("columnName", column.Name),
+					slog.Uint64("typeOid", uint64(column.DataType)))
+			}
+			dataType, _ := pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
+			qKind := p.postgresOIDToQValueKind(dataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
-				if typeName, ok := customTypeMapping[column.DataType]; ok {
+				if typeName, ok := customTypeMapping[dataType]; ok {
 					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
@@ -1427,10 +1436,14 @@ func processRelationMessage[Items model.Items](
 					defaultExpr = &literal
 				}
 			}
+			typmod := column.TypeModifier
+			if prevSchema.System == protos.TypeSystem_Q {
+				_, typmod = pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
+			}
 			addedColumn := &protos.FieldDescription{
 				Name:           column.Name,
 				Type:           currRelMap[column.Name],
-				TypeModifier:   column.TypeModifier,
+				TypeModifier:   typmod,
 				Nullable:       !catalogInfo.notNull,
 				TypeSchemaName: typeSchemaNameMapping[column.DataType],
 				DefaultExpr:    defaultExpr,
@@ -1474,6 +1487,7 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
+
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
