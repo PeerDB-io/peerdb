@@ -60,6 +60,8 @@ const (
 	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
 	// The error is created with errors.New, so there is no sentinel or type to match on.
 	http2ClientConnectionLost = "http2: client connection lost"
+
+	bigQueryChangeHistoryBeforeTimeTravel = "change history start time is before allowed time travel interval"
 )
 
 var (
@@ -299,6 +301,11 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
+	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
+	ErrorNotifyBigQueryTimeTravelExceeded = ErrorClass{
+		Class: "NOTIFY_BIGQUERY_TIME_TRAVEL_EXCEEDED", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
@@ -1128,6 +1135,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNKNOWN",
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			if apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
+				bqErrorInfo.Code = "CHANGE_HISTORY_BEFORE_TIME_TRAVEL"
+				return ErrorNotifyBigQueryTimeTravelExceeded, bqErrorInfo
+			}
 			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
 			switch apiErr.Code {
 			case 401, // Unauthorized

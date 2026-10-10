@@ -1813,6 +1813,25 @@ func TestBigQueryMissingWatermarkColumnShouldNotifyUser(t *testing.T) {
 	}, errInfo)
 }
 
+func TestBigQueryChangeHistoryBeforeTimeTravelShouldNotifyTimeTravelExceeded(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{
+		Code: 400,
+		Message: "The change history start time is before allowed time travel interval ... " +
+			"Start time: 2026-10-02T23:40:57.139692Z.",
+	}
+	err := fmt.Errorf("failed to run APPENDS query for table biglake_sc.ga4_events_hot: %w",
+		exceptions.NewBigQueryError(apiErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyBigQueryTimeTravelExceeded, errorClass)
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "CHANGE_HISTORY_BEFORE_TIME_TRAVEL",
+	}, errInfo)
+}
+
 // Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
 //
 //	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
