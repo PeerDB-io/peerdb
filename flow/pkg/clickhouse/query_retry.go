@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -39,6 +40,15 @@ var retryableExceptions = map[chproto.Error]struct{}{
 
 var retryableExceptionSubstrings = map[chproto.Error][]string{
 	chproto.ErrStdException: {"unspecified iostream_category error"},
+}
+
+// jsonCastRe matches the JSON type conversions in queries, looking for:
+// CAST(x, 'JSON'), CAST(x, 'Nullable(JSON)'), JSONExtract(x, 'Array(JSON)'), x::JSON and x::Nullable(JSON).
+var jsonCastRe = regexp.MustCompile(`'(?:Array\()?(?:Nullable\()?JSON\)*'|::(?:Array\()?(?:Nullable\()?JSON\b`)
+
+// QueryCastsToJSON is used to best-effort identify whether the query casts one or more values to the JSON type.
+func QueryCastsToJSON(query string) bool {
+	return jsonCastRe.MatchString(query)
 }
 
 func isRetryableException(err error) bool {
@@ -82,13 +92,15 @@ func Exec(ctx context.Context, logger log.Logger,
 		}
 	}
 	if ex, ok := errors.AsType[*clickhouse.Exception](err); ok {
-		isMV := strings.Contains(ex.Error(), "while pushing to view")
+		traits := ExecTraits{
+			View:      strings.Contains(ex.Message, "while pushing to view"),
+			JSONParse: strings.Contains(ex.Message, "Cannot parse JSON object here"),
+			JSONCast:  QueryCastsToJSON(query),
+		}
 		if chproto.Error(ex.Code) == chproto.ErrIncorrectData {
 			ex.Message = "REDACTED"
 		}
-		if isMV {
-			return NewViewError(ex)
-		}
+		return NewExecError(err, traits)
 	}
 	return err
 }

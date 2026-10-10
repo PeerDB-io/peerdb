@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -392,7 +393,7 @@ func (c *ClickHouseConnector) RenameTables(
 					}
 					c.logger.Info("dropped orphaned shard table after resync exchange", slog.String("shardTable", originalShardTable))
 				}
-			} else if ex, ok := err.(*clickhouse.Exception); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
+			} else if ex, ok := errors.AsType[*clickhouse.Exception](err); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
 				// move on to the fallback code if unimplemented, in all other error codes / types return,
 				// since we know/assume exchange would be the sensible action
 				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", renameRequest.NewName, renameRequest.CurrentName, err)

@@ -1180,19 +1180,28 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceClickHouse,
 			Code:   strconv.Itoa(int(chException.Code)),
 		}
+		execErr, isExecErr := errors.AsType[*peerdb_clickhouse.ExecError](err)
+		isViewErr := isExecErr && execErr.View()
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrUnknownTable,
 			chproto.ErrNoSuchColumnInTable,
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+			if isViewErr {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrIncorrectData:
-			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+			if isViewErr {
 				return ErrorNotifyMVOrView, chErrorInfo
+			}
+			if isExecErr && execErr.JSONParse() {
+				// When PeerDB's own query converts to JSON, a rejected source value is a PeerDB bug
+				if execErr.JSONCast() {
+					return ErrorOther, chErrorInfo
+				}
+				return ErrorNotifyDestinationModified, chErrorInfo
 			}
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
@@ -1327,7 +1336,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}
 		// a catch-all for MV or view errors
-		if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+		if isViewErr {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		// a catch-all for normalization errors, which typically indicate a bad MV or view

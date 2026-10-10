@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -140,4 +141,6 @@ func TestBuildInsertFromTableFunctionQueryJSON(t *testing.T) {
 			"CAST(`js`, 'Nullable(JSON)'),CAST(`jsb`, 'Nullable(JSON)'),CAST(`js_required`, 'JSON') "+
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
+	// the classifier relies on Exec recognizing these casts
+	require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 }
