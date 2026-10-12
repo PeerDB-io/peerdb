@@ -52,7 +52,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   const counts = useMemo(() => {
     const rows = syncs.map((sync) => ({
       timestamp: sync.startTime!,
-      count: Number(sync.rowsInPartition) ?? 0,
+      count: Number(sync.rowsInPartition) || 0,
     }));
 
     const aggregatedCounts = aggregateCountsByInterval(rows, aggregateType);
