@@ -1701,3 +1701,258 @@ func queryCDCReplicationStateExists(
 	).Scan(&exists)
 	return exists, err
 }
+
+// bqColumnsUpdateMirror is a BigQuery -> ClickHouse query CDC mirror over a table
+// (id INT64, val STRING) used by the columns update tests.
+type bqColumnsUpdateMirror struct {
+	flowConnConfig *protos.FlowConnectionConfigs
+	env            e2e.WorkflowRun
+	source         *bigQuerySource
+	srcTable       string
+	dstTable       string
+	tableFQN       string
+}
+
+// startColumnsUpdateMirror creates the source table, inserts row 1 and starts a mirror
+// that has replicated the initial snapshot. excluded lists source columns to exclude from the mirror.
+func (s BigQueryClickhouseSuite) startColumnsUpdateMirror(
+	ctx context.Context, t *testing.T, tableSuffix string, excluded []string,
+) *bqColumnsUpdateMirror {
+	t.Helper()
+
+	source := s.Source().(*bigQuerySource)
+	// kept short: gets baked into BigQuery table/flow names, which feed into a Temporal child-workflow ID
+	srcTable := e2e.AddSuffix(s, "cdc_colupd_"+tableSuffix)
+	dstTable := srcTable + "_dst"
+	tableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, srcTable)
+
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s (
+		id INT64 NOT NULL,
+		val STRING,
+		PRIMARY KEY(id) NOT ENFORCED
+	)`, quoteBigQueryTableFQN(tableFQN))), "should create BigQuery CDC source table %s", srcTable)
+	t.Cleanup(func() {
+		table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+		if err := table.Delete(context.Background()); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	})
+
+	// present before the mirror exists - must land via the initial snapshot
+	bqInsertRows(ctx, t, source, tableFQN, []bqCdcRow{{ID: 1, Val: "initial-1"}})
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+	flowConnConfig.TableMappings[0].Exclude = excluded
+	// added columns land as Nullable, so rows replicated before the update are observable as NULL
+	flowConnConfig.Env["PEERDB_NULLABLE"] = "true"
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial snapshot landed", srcTable, dstTable, "id")
+
+	return &bqColumnsUpdateMirror{
+		flowConnConfig: flowConnConfig,
+		env:            env,
+		source:         source,
+		srcTable:       srcTable,
+		dstTable:       dstTable,
+		tableFQN:       tableFQN,
+	}
+}
+
+func (m *bqColumnsUpdateMirror) execSource(ctx context.Context, t *testing.T, format string, args ...any) {
+	t.Helper()
+	require.NoError(t, m.source.Exec(ctx, fmt.Sprintf(format, args...)))
+}
+
+// pauseAndUpdateColumns pauses the mirror, sends the columns update and waits for the mirror to resume.
+func (m *bqColumnsUpdateMirror) pauseAndUpdateColumns(ctx context.Context, t *testing.T, columns []*protos.ColumnSetting) {
+	t.Helper()
+
+	e2e.SignalWorkflow(ctx, m.env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, m.env, 3*time.Minute, "pausing", func() bool {
+		return m.env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	e2e.SignalWorkflow(ctx, m.env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		ColumnsUpdate: []*protos.TableColumnsUpdate{{
+			SourceTableIdentifier: m.flowConnConfig.TableMappings[0].SourceTableIdentifier,
+			Columns:               columns,
+		}},
+	})
+}
+
+func (m *bqColumnsUpdateMirror) waitForResume(t *testing.T) {
+	t.Helper()
+	e2e.EnvWaitFor(t, m.env, 4*time.Minute, "resuming after columns update", func() bool {
+		return m.env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+}
+
+// catalogState returns the source column names of the catalog table schema and the stored table mapping.
+func (m *bqColumnsUpdateMirror) catalogState(ctx context.Context, t *testing.T) ([]string, *protos.TableMapping) {
+	t.Helper()
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+
+	cfg, err := internal.FetchConfigFromDB(ctx, catalogPool, m.flowConnConfig.FlowJobName)
+	require.NoError(t, err)
+	require.Len(t, cfg.TableMappings, 1)
+	tm := cfg.TableMappings[0]
+
+	schema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, m.flowConnConfig.FlowJobName, tm.DestinationTableIdentifier)
+	require.NoError(t, err)
+	columns := make([]string, 0, len(schema.Columns))
+	for _, col := range schema.Columns {
+		columns = append(columns, col.Name)
+	}
+	return columns, tm
+}
+
+// destRows returns dst column values by id; NULLs are nil.
+func (s BigQueryClickhouseSuite) destRows(t *testing.T, dstTable, cols string) map[int64][]any {
+	t.Helper()
+	rows, err := s.GetRows(dstTable, cols)
+	require.NoError(t, err)
+	res := make(map[int64][]any, len(rows.Records))
+	for _, rec := range rows.Records {
+		values := make([]any, 0, len(rec)-1)
+		for _, v := range rec[1:] {
+			values = append(values, v.Value())
+		}
+		res[rec[0].Value().(int64)] = values
+	}
+	return res
+}
+
+func (s BigQueryClickhouseSuite) waitForDestRows(t *testing.T, m *bqColumnsUpdateMirror, count int, reason string) {
+	t.Helper()
+	e2e.EnvWaitFor(t, m.env, 4*time.Minute, reason, func() bool {
+		rows, err := s.GetRows(m.dstTable, "id")
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return len(rows.Records) == count
+	})
+}
+
+// Test_BigQuery_CDC_Columns_Update_Add_Source_Column covers a column added to the BigQuery
+// source table after the mirror was created.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Columns_Update_Add_Source_Column() {
+	t := s.T()
+	ctx := t.Context()
+	m := s.startColumnsUpdateMirror(ctx, t, "add", nil)
+
+	m.execSource(ctx, t, "ALTER TABLE %s ADD COLUMN extra STRING", quoteBigQueryTableFQN(m.tableFQN))
+	m.pauseAndUpdateColumns(ctx, t, []*protos.ColumnSetting{
+		{SourceName: "id"}, {SourceName: "val"}, {SourceName: "extra"},
+	})
+	m.waitForResume(t)
+
+	columns, tm := m.catalogState(ctx, t)
+	require.ElementsMatch(t, []string{"id", "val", "extra"}, columns, "catalog schema should contain the added column")
+	require.True(t, slices.ContainsFunc(tm.Columns, func(c *protos.ColumnSetting) bool { return c.SourceName == "extra" }),
+		"table mapping should contain the added column")
+
+	m.execSource(ctx, t, "INSERT INTO %s (id, val, extra) VALUES (2, %s, %s)",
+		quoteBigQueryTableFQN(m.tableFQN), bqQuoteStringLiteral("row-2"), bqQuoteStringLiteral("extra-2"))
+	s.waitForDestRows(t, m, 2, "row inserted after the columns update is replicated")
+
+	rows := s.destRows(t, m.dstTable, "id,extra")
+	require.Equal(t, []any{"extra-2"}, rows[2], "new row should carry the added column")
+	require.Equal(t, []any{nil}, rows[1], "rows replicated before the update are not backfilled")
+
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, m.env.GetFlowStatus(t))
+	m.env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, m.env)
+}
+
+// Test_BigQuery_CDC_Columns_Update_Destination_Name checks that destination_name of an
+// added column is applied to the destination table and to normalization.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Columns_Update_Destination_Name() {
+	t := s.T()
+	ctx := t.Context()
+	m := s.startColumnsUpdateMirror(ctx, t, "ren", nil)
+
+	m.execSource(ctx, t, "ALTER TABLE %s ADD COLUMN extra STRING", quoteBigQueryTableFQN(m.tableFQN))
+	m.pauseAndUpdateColumns(ctx, t, []*protos.ColumnSetting{
+		{SourceName: "id"}, {SourceName: "val"}, {SourceName: "extra", DestinationName: "renamed_extra"},
+	})
+	m.waitForResume(t)
+
+	m.execSource(ctx, t, "INSERT INTO %s (id, val, extra) VALUES (2, %s, %s)",
+		quoteBigQueryTableFQN(m.tableFQN), bqQuoteStringLiteral("row-2"), bqQuoteStringLiteral("extra-2"))
+	s.waitForDestRows(t, m, 2, "row inserted after the columns update is replicated")
+
+	rows := s.destRows(t, m.dstTable, "id,renamed_extra")
+	require.Equal(t, []any{"extra-2"}, rows[2], "value should land in the renamed destination column")
+	require.Equal(t, []any{nil}, rows[1])
+
+	_, err := s.GetRows(m.dstTable, "id,extra")
+	require.Error(t, err, "destination table should not have a column under the source name")
+
+	m.env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, m.env)
+}
+
+// Test_BigQuery_CDC_Columns_Update_Include_Excluded_Column checks that a column excluded when
+// the mirror was created can be added later, and is removed from the mapping's exclude list.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Columns_Update_Include_Excluded_Column() {
+	t := s.T()
+	ctx := t.Context()
+	m := s.startColumnsUpdateMirror(ctx, t, "inc", []string{"val"})
+
+	columns, _ := m.catalogState(ctx, t)
+	require.Equal(t, []string{"id"}, columns, "excluded column should not be in the catalog schema")
+
+	m.execSource(ctx, t, "INSERT INTO %s (id, val) VALUES (2, %s)", quoteBigQueryTableFQN(m.tableFQN), bqQuoteStringLiteral("while-excluded"))
+	s.waitForDestRows(t, m, 2, "row replicated while the column is excluded")
+
+	m.pauseAndUpdateColumns(ctx, t, []*protos.ColumnSetting{{SourceName: "id"}, {SourceName: "val"}})
+	m.waitForResume(t)
+
+	columns, tm := m.catalogState(ctx, t)
+	require.ElementsMatch(t, []string{"id", "val"}, columns)
+	require.NotContains(t, tm.Exclude, "val", "included column should be removed from exclude")
+
+	m.execSource(ctx, t, "INSERT INTO %s (id, val) VALUES (3, %s)", quoteBigQueryTableFQN(m.tableFQN), bqQuoteStringLiteral("after-include"))
+	s.waitForDestRows(t, m, 3, "row inserted after including the column is replicated")
+
+	rows := s.destRows(t, m.dstTable, "id,val")
+	require.Equal(t, []any{"after-include"}, rows[3])
+	require.Equal(t, []any{nil}, rows[2], "rows replicated while the column was excluded are not backfilled")
+	require.Equal(t, []any{nil}, rows[1])
+
+	m.env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, m.env)
+}
+
+// Test_BigQuery_CDC_Columns_Update_Missing_Source_Column checks that asking for a column that
+// does not exist in the source table fails the update without touching destination or catalog.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Columns_Update_Missing_Source_Column() {
+	t := s.T()
+	ctx := t.Context()
+	m := s.startColumnsUpdateMirror(ctx, t, "miss", nil)
+
+	m.pauseAndUpdateColumns(ctx, t, []*protos.ColumnSetting{
+		{SourceName: "id"}, {SourceName: "val"}, {SourceName: "no_such_column"},
+	})
+	e2e.EnvWaitFor(t, m.env, 4*time.Minute, "mirror fails on unknown source column", func() bool {
+		return m.env.GetFlowStatus(t) == protos.FlowStatus_STATUS_FAILED
+	})
+
+	columns, tm := m.catalogState(ctx, t)
+	require.ElementsMatch(t, []string{"id", "val"}, columns, "catalog schema should be unchanged")
+	require.False(t, slices.ContainsFunc(tm.Columns, func(c *protos.ColumnSetting) bool { return c.SourceName == "no_such_column" }),
+		"table mapping should be unchanged")
+
+	_, err := s.GetRows(m.dstTable, "no_such_column")
+	require.Error(t, err, "destination table should be unchanged")
+}

@@ -225,6 +225,19 @@ func extractSingleQuotedStrings(s string) []string {
 	return result
 }
 
+// findColumnSetting returns the ColumnSetting of the table mapping for a source column, or nil.
+func findColumnSetting(tm *protos.TableMapping, sourceName string) *protos.ColumnSetting {
+	if tm == nil {
+		return nil
+	}
+	for _, col := range tm.Columns {
+		if col.SourceName == sourceName {
+			return col
+		}
+	}
+	return nil
+}
+
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
@@ -267,11 +280,24 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
+			setting := findColumnSetting(tm, addedColumn.Name)
+			columnNullable := schemaDelta.NullableEnabled || setting.GetNullableEnabled()
 			clickHouseColType, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, schemaDelta.NullableEnabled, flags,
+				ctx, qvKind, env, protos.DBType_CLICKHOUSE, c.chVersion, addedColumn, columnNullable, flags,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
+			}
+			if destinationType := setting.GetDestinationType(); destinationType != "" {
+				// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be altered in as Nullable(...)
+				clickHouseColType = destinationType
+				if columnNullable && addedColumn.Nullable && !qvKind.IsArray() && !strings.HasPrefix(destinationType, "Nullable(") {
+					clickHouseColType = fmt.Sprintf("Nullable(%s)", destinationType)
+				}
+			}
+			dstColumnName := addedColumn.Name
+			if destinationName := setting.GetDestinationName(); destinationName != "" {
+				dstColumnName = destinationName
 			}
 
 			defaultExpr := addedColumn.DefaultExpr
@@ -293,7 +319,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
 						peerdb_clickhouse.QuoteIdentifier(tableName), onCluster,
-						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), def))
+						peerdb_clickhouse.QuoteIdentifier(dstColumnName), def))
 			}
 
 			// retry without default if ch rejected the expression

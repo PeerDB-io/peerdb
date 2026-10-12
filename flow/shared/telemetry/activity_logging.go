@@ -97,6 +97,14 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
 
+	if len(update.ColumnsUpdate) > 0 {
+		updatedTables := make([]string, 0, len(update.ColumnsUpdate))
+		for _, u := range update.ColumnsUpdate {
+			updatedTables = append(updatedTables, u.SourceTableIdentifier)
+		}
+		changes = append(changes, fmt.Sprintf("columns updated for tables: %v", updatedTables))
+	}
+
 	logActivity(ctx, ActionStartFlowConfigUpdate,
 		slog.String("flowName", flowName),
 		slog.String("activityDetails", strings.Join(changes, ", ")))
@@ -167,6 +175,14 @@ func LogActivityUpdateFlowConfig(ctx context.Context, flowName string, oldValues
 			removedTables = append(removedTables, t.SourceTableIdentifier)
 		}
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
+	}
+
+	if len(update.ColumnsUpdate) > 0 {
+		updatedTables := make([]string, 0, len(update.ColumnsUpdate))
+		for _, u := range update.ColumnsUpdate {
+			updatedTables = append(updatedTables, u.SourceTableIdentifier)
+		}
+		changes = append(changes, fmt.Sprintf("columns updated for tables: %v", updatedTables))
 	}
 
 	if len(changes) > 0 {
