@@ -1477,6 +1477,21 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLLockWaitTimeout(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    1205, // ER_LOCK_WAIT_TIMEOUT
+		State:   "HY000",
+		Message: "Lock wait timeout exceeded; try restarting transaction",
+	}
+	err := exceptions.NewMySQLExecuteError(mysqlErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1205",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLSecureTransportRequired(t *testing.T) {
 	mysqlErr := &mysql.MyError{
 		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
