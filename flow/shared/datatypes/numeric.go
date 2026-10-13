@@ -79,7 +79,7 @@ func IsValidPrecision(precision int16, warehouseNumeric WarehouseNumericCompatib
 }
 
 func IsValidPrecisionAndScale(precision, scale int16, warehouseNumeric WarehouseNumericCompatibility) bool {
-	return IsValidPrecision(precision, warehouseNumeric) && scale <= warehouseNumeric.MaxScale()
+	return IsValidPrecision(precision, warehouseNumeric) && scale >= 0 && scale <= warehouseNumeric.MaxScale()
 }
 
 func MakeNumericTypmod(precision int32, scale int32) int32 {
