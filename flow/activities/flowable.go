@@ -393,7 +393,10 @@ func (a *FlowableActivity) SyncFlow(
 	// cancelCtx on pause ends the interval, as ctx is its parent.
 	common.Interval(ctx, 10*time.Second, func() {
 		// lookup errors are retried on the next tick, a catalog blip must never stop a healthy sync
-		status, err := internal.GetWorkflowStatusByName(ctx, a.CatalogPool, config.FlowJobName)
+		// bound the lookup so a starved catalog pool or hung query can't hold a connection slot indefinitely
+		pollCtx, cancelPoll := context.WithTimeout(ctx, 5*time.Second)
+		status, err := internal.GetWorkflowStatusByName(pollCtx, a.CatalogPool, config.FlowJobName)
+		cancelPoll()
 		if err != nil {
 			if ctx.Err() == nil {
 				logger.Warn("failed to poll flow status for stop request", slog.Any("error", err))
