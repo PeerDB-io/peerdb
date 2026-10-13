@@ -961,6 +961,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		case 5, // ERR_OUT_OF_MEMORY
+			1205, // ER_LOCK_WAIT_TIMEOUT, transient lock contention on source
 			1317: // ER_QUERY_INTERRUPTED
 			return ErrorRetryRecoverable, myErrorInfo
 		default:
