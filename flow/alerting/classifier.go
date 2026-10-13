@@ -16,6 +16,8 @@ import (
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
@@ -115,6 +117,7 @@ const (
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
 	ErrorSourceGCS             ErrorSource = "gcs"
+	ErrorSourceS3              ErrorSource = "s3"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -1179,6 +1182,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, gcsErrorInfo
 		}
 		return ErrorOther, gcsErrorInfo
+	}
+
+	if s3Err, ok := errors.AsType[*exceptions.S3Error](err); ok {
+		s3ErrorClass := ErrorOther
+		s3ErrorInfo := ErrorInfo{
+			Source: ErrorSourceS3,
+			Code:   "UNKNOWN",
+		}
+		if respErr, ok := errors.AsType[*awshttp.ResponseError](s3Err); ok {
+			if _, ok := retry.DefaultRetryableHTTPStatusCodes[respErr.HTTPStatusCode()]; ok {
+				s3ErrorClass = ErrorRetryRecoverable
+			}
+			s3ErrorInfo.Code = strconv.Itoa(respErr.HTTPStatusCode())
+		}
+		return s3ErrorClass, s3ErrorInfo
 	}
 
 	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {
