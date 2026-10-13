@@ -542,7 +542,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}); err != nil {
 					return nil, err
 				}
-				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				changeErr = h.signalStopStateChange(ctx, workflowID, protos.FlowStatus_STATUS_RESYNC, currState, req)
 				if changeErr == nil {
 					telemetry.LogActivityResyncFlow(ctx, req.FlowJobName)
 					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resync signaled")
@@ -556,7 +556,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				case protos.FlowStatus_STATUS_FAILED:
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 				default:
-					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+					changeErr = h.signalStopStateChange(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING, currState, req)
 				}
 				if changeErr == nil {
 					telemetry.LogActivityTerminateFlow(ctx, req.FlowJobName)
@@ -580,6 +580,33 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	return &protos.FlowStateChangeResponse{}, nil
+}
+
+// signalStopStateChange publishes the stop status (terminating/resync) to the catalog before signaling the workflow,
+// so a running SyncFlow's catalog poll can stop the sync without waiting for a heartbeat response to deliver the cancel.
+// The workflow only writes this status itself after the sync has already ended.
+func (h *FlowRequestHandler) signalStopStateChange(
+	ctx context.Context,
+	workflowID string,
+	stopStatus protos.FlowStatus,
+	currState protos.FlowStatus,
+	req *protos.FlowStateChangeRequest,
+) error {
+	published := true
+	if _, err := internal.UpdateFlowStatusInCatalog(ctx, h.pool, workflowID, stopStatus); err != nil {
+		// best effort, the signal still stops the sync, just on the next heartbeat
+		published = false
+		slog.WarnContext(ctx, "unable to publish stop status ahead of signal", slog.Any("error", err))
+	}
+
+	err := model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+	if err != nil && published {
+		// nothing will move the flow out of the stop status if the signal was never delivered
+		if _, restoreErr := internal.UpdateFlowStatusInCatalog(ctx, h.pool, workflowID, currState); restoreErr != nil {
+			slog.ErrorContext(ctx, "unable to restore flow status after failed signal", slog.Any("error", restoreErr))
+		}
+	}
+	return err
 }
 
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {

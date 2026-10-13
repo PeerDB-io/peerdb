@@ -401,10 +401,16 @@ func (a *FlowableActivity) SyncFlow(
 			if ctx.Err() == nil {
 				logger.Warn("failed to poll flow status for stop request", slog.Any("error", err))
 			}
-		} else if status == protos.FlowStatus_STATUS_PAUSING {
-			logger.Info("flow is pausing, shutting down SyncFlow")
-			shutDown.Store(true)
-			cancelCtx()
+		} else {
+			switch status {
+			case protos.FlowStatus_STATUS_PAUSING,
+				protos.FlowStatus_STATUS_TERMINATING,
+				protos.FlowStatus_STATUS_TERMINATED,
+				protos.FlowStatus_STATUS_RESYNC:
+				logger.Info("flow is stopping, shutting down SyncFlow", slog.Any("status", status))
+				shutDown.Store(true)
+				cancelCtx()
+			}
 		}
 	}, common.WithIntervalJitter())
 
