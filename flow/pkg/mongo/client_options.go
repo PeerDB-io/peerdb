@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -18,17 +19,25 @@ const (
 	ReadPreferenceNearest            = "nearest"
 )
 
+const (
+	authMechanismAWS = "MONGODB-AWS"
+	authSourceAWS    = "$external"
+)
+
 type ClientConfig struct {
-	CreateTlsConfigFunc  func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
-	Dialer               options.ContextDialer
-	Uri                  string
-	Username             string
-	Password             string
-	ReadPreference       string
-	RootCa               string
-	TlsHost              string
-	DisableTls           bool
-	SkipCertVerification bool
+	CreateTlsConfigFunc func(minVersion uint16, rootCAs string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error)
+	Dialer              options.ContextDialer
+	// AWSCredentialsProvider switches login to MONGODB-AWS (IAM auth, as on Amazon DocumentDB)
+	// in place of Username and Password.
+	AWSCredentialsProvider options.AWSCredentialsProvider
+	Uri                    string
+	Username               string
+	Password               string
+	ReadPreference         string
+	RootCa                 string
+	TlsHost                string
+	DisableTls             bool
+	SkipCertVerification   bool
 }
 
 func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
@@ -41,13 +50,26 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 		return nil, fmt.Errorf("connection string should not contain username and password")
 	}
 
+	credential := options.Credential{
+		Username: config.Username,
+		Password: config.Password,
+	}
+	if config.AWSCredentialsProvider != nil {
+		// For MONGODB-AWS the driver treats Username and Password as an AWS access key and secret.
+		if config.Username != "" || config.Password != "" {
+			return nil, errors.New("username and password must be empty for IAM authentication")
+		}
+		credential = options.Credential{
+			AuthMechanism:          authMechanismAWS,
+			AuthSource:             authSourceAWS,
+			AWSCredentialsProvider: config.AWSCredentialsProvider,
+		}
+	}
+
 	clientOptions := options.Client().
 		ApplyURI(config.Uri).
 		SetAppName("PeerDB Mongo Connector").
-		SetAuth(options.Credential{
-			Username: config.Username,
-			Password: config.Password,
-		}).
+		SetAuth(credential).
 		SetCompressors([]string{"zstd", "snappy"}).
 		SetReadConcern(readconcern.Majority()).
 		SetDialer(config.Dialer)

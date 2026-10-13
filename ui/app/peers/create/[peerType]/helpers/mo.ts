@@ -1,4 +1,4 @@
-import { MongoConfig } from '@/grpc_generated/peers';
+import { MongoAuthType, MongoConfig } from '@/grpc_generated/peers';
 import { PeerSetting } from './common';
 
 export const mongoSetting: PeerSetting[] = [
@@ -77,4 +77,5 @@ export const blankMongoSetting: MongoConfig = {
   skipCertVerification: false,
   tlsHost: '',
   readPreference: 0,
+  authType: MongoAuthType.MONGO_PASSWORD,
 };
