@@ -405,8 +405,7 @@ func (a *FlowableActivity) SyncFlow(
 			switch status {
 			case protos.FlowStatus_STATUS_PAUSING,
 				protos.FlowStatus_STATUS_TERMINATING,
-				protos.FlowStatus_STATUS_TERMINATED,
-				protos.FlowStatus_STATUS_RESYNC:
+				protos.FlowStatus_STATUS_TERMINATED:
 				logger.Info("flow is stopping, shutting down SyncFlow", slog.Any("status", status))
 				shutDown.Store(true)
 				cancelCtx()
