@@ -1492,6 +1492,26 @@ func TestMySQLLockWaitTimeout(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLNoSpaceLeftOnDevice(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    14, // EE_CANT_CHSIZE
+		State:   "HY000",
+		Message: "Can't change size of file (OS errno 28 - No space left on device)",
+	}
+	err := exceptions.NewMySQLExecuteError(fmt.Errorf("ReadPacket: %w", mysqlErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in CDC: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "14",
+	}, errInfo, "Unexpected error info")
+
+	// same code without the disk full message stays unclassified
+	mysqlErr.Message = "Can't change size of file (OS errno 13 - Permission denied)"
+	errorClass, _ = GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(mysqlErr))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+}
+
 func TestMySQLSecureTransportRequired(t *testing.T) {
 	mysqlErr := &mysql.MyError{
 		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
