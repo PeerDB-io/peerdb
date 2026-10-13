@@ -584,8 +584,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 // signalTerminateStateChange publishes TERMINATING to the catalog before signaling the workflow,
 // so a running SyncFlow's catalog poll can stop the sync without waiting for a heartbeat response to deliver the cancel.
-// The workflow only writes this status itself after the sync has already ended.
-// Not done for resync: catalog RESYNC is relied on to mean that DropFlowWorkflow has started.
 func (h *FlowRequestHandler) signalTerminateStateChange(
 	ctx context.Context,
 	workflowID string,
