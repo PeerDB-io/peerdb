@@ -176,7 +176,7 @@ S3-compatible object storage used for staging AVRO files during snapshot operati
 |-----------|--------------|------|-----------------|--------------|
 | **PostgreSQL** | WAL logical replication (pglogrepl) | Cursor-based with tx snapshots | Parallel CTID partitions | TOAST handling, schema evolution, custom types, RDS/IAM auth, SSH tunnels, Postgres→Postgres native CDC |
 | **MySQL** | Binary log replication (go-mysql) | Cursor-based | Parallel partitions | GTID and file-position modes, MariaDB support, binlog retention monitoring |
-| **MongoDB** | Change Streams API | Aggregation pipelines | Collection scan | Resume tokens, `fullDocument: updateLookup`, read preferences, Atlas support |
+| **MongoDB** | Change Streams API | Aggregation pipelines | Collection scan | Resume tokens, `fullDocument: updateLookup`, read preferences, Atlas support, DocumentDB IAM auth |
 | **BigQuery** | — | Object-based pull | — | GCP service account auth, Parquet export |
 
 ### 4.2 Destination Connectors
@@ -647,7 +647,7 @@ Runtime-tunable via `PostDynamicSetting` API. These are system-wide settings tha
 - **Peer credentials**: Encrypted at rest in the catalog with optional KMS integration
 - **Authentication**: SCRAM-SHA-256 for the PeerDB server; per-connector auth (IAM, SSH tunnels, TLS, SASL)
 - **Network**: SSH tunnel support for all connectors; TLS with custom CA certificates
-- **Cloud IAM**: RDS IAM auth for Postgres/MySQL; GCP service accounts for BigQuery/PubSub; Azure managed identity for EventHub
+- **Cloud IAM**: RDS IAM auth for Postgres/MySQL; DocumentDB IAM auth (`MONGODB-AWS`) for MongoDB; GCP service accounts for BigQuery/PubSub; Azure managed identity for EventHub
 
 ---
 
