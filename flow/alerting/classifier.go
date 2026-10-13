@@ -892,6 +892,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
+		case 14: // EE_CANT_CHSIZE, e.g. "Can't change size of file (OS errno 28 - No space left on device)"
+			// source disk is full, only the customer can free up space
+			if strings.Contains(strings.ToLower(myErr.Message), "no space left on device") {
+				return ErrorNotifyConnectivity, myErrorInfo
+			}
+			return ErrorOther, myErrorInfo
 		case 29: // EE_FILENOTFOUND
 			if MySqlRdsBinlogFileNotFoundRe.MatchString(myErr.Message) {
 				return ErrorNotifyBinlogInvalid, myErrorInfo
