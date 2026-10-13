@@ -16,6 +16,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -1181,14 +1182,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNKNOWN",
 		}
 		if respErr, ok := errors.AsType[*awshttp.ResponseError](s3Err); ok {
-			switch respErr.HTTPStatusCode() {
-			// https://github.com/aws/aws-sdk-go-v2/blob/v1.47.0/aws/retry/standard.go#L51-L58
-			case 500, 502, 503, 504:
+			if _, ok := retry.DefaultRetryableHTTPStatusCodes[respErr.HTTPStatusCode()]; ok {
 				s3ErrorClass = ErrorRetryRecoverable
-				s3ErrorInfo.Code = strconv.Itoa(respErr.HTTPStatusCode())
-			default:
-				s3ErrorInfo.Code = strconv.Itoa(respErr.HTTPStatusCode())
 			}
+			s3ErrorInfo.Code = strconv.Itoa(respErr.HTTPStatusCode())
 		}
 		return s3ErrorClass, s3ErrorInfo
 	}
