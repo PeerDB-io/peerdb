@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -184,6 +185,8 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		query := build(t, newSchema(true), newMapping(""), false, jsonEnabled)
 		require.Contains(t, query, nullableProjection)
 		require.NotContains(t, query, "::JSON")
+		// the classifier relies on Exec recognizing these casts
+		require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 	})
 
 	t.Run("nullable JSON column via type mapping with primary update", func(t *testing.T) {
@@ -212,6 +215,7 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		require.Contains(t, query, plainProjection)
 		require.Contains(t, query, plainUpdate)
 		require.NotContains(t, query, "Nullable(JSON)")
+		require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 
 		query = build(t, newSchema(false), newMapping("JSON"), true, nil)
 		require.Contains(t, query, plainProjection)

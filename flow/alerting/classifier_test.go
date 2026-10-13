@@ -574,7 +574,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -1067,7 +1068,8 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -1096,11 +1098,42 @@ func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
 		Message: "REDACTED",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONShouldNotify(t *testing.T) {
+	redactedErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(redactedErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONFromPeerDBJSONCastShouldBeOther(t *testing.T) {
+	execErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true, JSONCast: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(execErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
 	}, errInfo, "Unexpected error info")
 }
 
