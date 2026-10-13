@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -109,17 +110,32 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
 
+	var awsCredentials options.AWSCredentialsProvider
+	if config.AuthType == protos.MongoAuthType_MONGO_IAM_AUTH {
+		if err := (&utils.RDSAuth{AwsAuthConfig: config.AwsAuth}).VerifyAuthConfig(); err != nil {
+			sshTunnel.Close()
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+		provider, err := utils.GetAWSCredentialsProvider(ctx, "mongo", utils.BuildPeerAWSCredentials(config.AwsAuth))
+		if err != nil {
+			sshTunnel.Close()
+			return nil, exceptions.NewMongoIAMAuthError(fmt.Errorf("failed to get AWS credentials: %w", err))
+		}
+		awsCredentials = awsCredentialsProvider{provider: provider.GetUnderlyingProvider()}
+	}
+
 	clientOptions, err := peerdb_mongo.BuildClientOptions(peerdb_mongo.ClientConfig{
-		Uri:                  config.Uri,
-		Username:             config.Username,
-		Password:             config.Password,
-		ReadPreference:       protoReadPrefToString[config.ReadPreference],
-		DisableTls:           config.DisableTls,
-		SkipCertVerification: config.SkipCertVerification,
-		RootCa:               config.GetRootCa(),
-		TlsHost:              config.TlsHost,
-		CreateTlsConfigFunc:  common.CreateTlsConfigFromRootCAString,
-		Dialer:               &meteredDialer,
+		Uri:                    config.Uri,
+		Username:               config.Username,
+		Password:               config.Password,
+		AWSCredentialsProvider: awsCredentials,
+		ReadPreference:         protoReadPrefToString[config.ReadPreference],
+		DisableTls:             config.DisableTls,
+		SkipCertVerification:   config.SkipCertVerification,
+		RootCa:                 config.GetRootCa(),
+		TlsHost:                config.TlsHost,
+		CreateTlsConfigFunc:    common.CreateTlsConfigFromRootCAString,
+		Dialer:                 &meteredDialer,
 	})
 	if err != nil {
 		return nil, err
