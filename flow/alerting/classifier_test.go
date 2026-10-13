@@ -1400,6 +1400,24 @@ func TestMySQLServerOfflineModeShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLCantChangeFileSizeDiskFullShouldBeConnectivity(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    14, // EE_CANT_CHSIZE
+		State:   "HY000",
+		Message: "Can't change size of file (OS errno 28 - No space left on device)",
+	}
+	executeErr := exceptions.NewMySQLExecuteError(pErrors.Trace(mysqlErr))
+	require.Equal(t, "MySQL execute error: ERROR 14 (HY000): Can't change size of file (OS errno 28 - No space left on device)",
+		executeErr.Error(), "Unexpected error message")
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", executeErr))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "14",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMySQLProxyMaxConnectTimeoutShouldBeConnectivity(t *testing.T) {
 	// ProxySQL reports 9001 when it cannot hand out a backend connection from the hostgroup
 	// within the connect timeout. This is not a native MySQL error code.

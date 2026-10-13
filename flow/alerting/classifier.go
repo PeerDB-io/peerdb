@@ -892,6 +892,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
+		case 14: // EE_CANT_CHSIZE
+			return ErrorNotifyConnectivity, myErrorInfo
 		case 29: // EE_FILENOTFOUND
 			if MySqlRdsBinlogFileNotFoundRe.MatchString(myErr.Message) {
 				return ErrorNotifyBinlogInvalid, myErrorInfo
