@@ -56,6 +56,11 @@ export default function ViewMirror({
             mirrorStatus={mirrorState.currentFlowState}
             editLink={`/mirrors/${mirrorId}/edit`}
             canResync={canResync}
+            canDrain={
+              dbType === DBType.CLICKHOUSE &&
+              dBTypeFromJSON(mirrorState.cdcStatus.sourceType) ===
+                DBType.POSTGRES
+            }
             isNotPaused={isNotPaused}
           />
         </div>

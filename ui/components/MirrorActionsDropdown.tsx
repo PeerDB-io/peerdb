@@ -14,6 +14,7 @@ type MirrorActionsProps = {
   mirrorStatus: FlowStatus;
   editLink: string;
   canResync: boolean;
+  canDrain: boolean;
   isNotPaused: boolean;
 };
 
@@ -22,6 +23,7 @@ export default function MirrorActions({
   mirrorStatus,
   editLink,
   canResync,
+  canDrain,
   isNotPaused,
 }: MirrorActionsProps) {
   const theme = useStyledTheme();
@@ -55,6 +57,7 @@ export default function MirrorActions({
       {showOptions && (
         <div style={menuStyle}>
           <PauseOrResumeButton
+            canDrain={canDrain}
             mirrorName={mirrorName}
             mirrorStatus={mirrorStatus}
           />

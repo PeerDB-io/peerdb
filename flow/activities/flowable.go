@@ -350,6 +350,26 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
+// DrainFlow runs only after SyncFlow has stopped, so the committed batch boundary is stable.
+func (a *FlowableActivity) DrainFlow(ctx context.Context, config *protos.FlowConnectionConfigsCore) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
+	shutdown := common.HeartbeatRoutine(ctx, func() string { return "draining committed CDC batches" })
+	defer shutdown()
+
+	metadata := connmetadata.NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), a.CatalogPool)
+	batchID, err := metadata.GetLastSyncBatchID(ctx, config.FlowJobName)
+	if err != nil {
+		return err
+	}
+	responses := concurrency.NewLastChan()
+	defer responses.Close()
+	if err := a.startNormalize(ctx, config, batchID, responses); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	return nil
+}
+
 func (a *FlowableActivity) SyncFlow(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
@@ -1676,6 +1696,7 @@ var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RUNNING:   {},
 	protos.FlowStatus_STATUS_PAUSED:    {},
 	protos.FlowStatus_STATUS_PAUSING:   {},
+	protos.FlowStatus_STATUS_DRAINING:  {},
 	protos.FlowStatus_STATUS_SETUP:     {},
 	protos.FlowStatus_STATUS_SNAPSHOT:  {},
 	protos.FlowStatus_STATUS_RESYNC:    {},

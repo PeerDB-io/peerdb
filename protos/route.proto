@@ -469,6 +469,9 @@ message FlowStateChangeRequest {
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
   bool drop_mirror_stats = 6;
   bool skip_destination_drop = 7;
+  // On pause, wait for all committed CDC batches to reach destination tables.
+  // Supported for running PostgreSQL to ClickHouse CDC mirrors.
+  bool drain = 8;
 }
 message FlowStateChangeResponse {}
 

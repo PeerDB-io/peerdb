@@ -176,6 +176,7 @@ export default function EditMirror({
     }
     startSubmit(async () => {
       const req: FlowStateChangeRequest = {
+        drain: false,
         flowJobName: mirrorId,
         requestedFlowState: FlowStatus.STATUS_RUNNING,
         flowConfigUpdate: {

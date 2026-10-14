@@ -12,5 +12,6 @@ func TestMaintenanceStatusesAreCorrectlyPopulated(t *testing.T) {
 	statuses := buildWaitStatuses()
 	t.Logf("statuses: %v", statuses)
 	assert.Contains(t, statuses, protos.FlowStatus_STATUS_SNAPSHOT, "Snapshot should be in statuses")
+	assert.Contains(t, statuses, protos.FlowStatus_STATUS_DRAINING, "Maintenance must wait for draining to finish")
 	assert.NotContains(t, statuses, protos.FlowStatus_STATUS_RUNNING, "Running should not be in statuses")
 }

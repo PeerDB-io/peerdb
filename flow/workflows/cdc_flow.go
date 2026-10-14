@@ -564,6 +564,9 @@ func handlePaused(
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalChan.AddToSelector(selector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
+		if val == model.PauseSignal && state.CurrentFlowStatus == protos.FlowStatus_STATUS_DRAINING {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSING)
+		}
 	})
 	flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 		switch val.RequestedFlowState {
@@ -574,6 +577,41 @@ func handlePaused(
 		}
 	})
 	addCdcPropertiesSignalListener(ctx, logger, selector, state)
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_DRAINING {
+		drainCtx, cancelDrain := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 365 * 24 * time.Hour,
+			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
+		}))
+		defer cancelDrain()
+		future := workflow.ExecuteActivity(drainCtx, flowable.DrainFlow, cfg)
+		var drained bool
+		var drainErr error
+		selector.AddFuture(future, func(f workflow.Future) {
+			drainErr = f.Get(ctx, nil)
+			drained = true
+		})
+		for !drained && state.ActiveSignal == model.PauseSignal &&
+			state.CurrentFlowStatus == protos.FlowStatus_STATUS_DRAINING && ctx.Err() == nil {
+			selector.Select(ctx)
+		}
+		if state.ActiveSignal != model.PauseSignal || state.CurrentFlowStatus != protos.FlowStatus_STATUS_DRAINING || ctx.Err() != nil {
+			cancelDrain()
+			_ = future.Get(ctx, nil)
+			if err := ctx.Err(); err != nil {
+				return nextRunNone, err
+			}
+			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+				return nextRunDrop, nil
+			}
+			if state.ActiveSignal != model.PauseSignal {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
+				return nextRunCDC, nil
+			}
+		} else if drainErr != nil {
+			return nextRunNone, drainErr
+		}
+	}
 	startTime := workflow.Now(ctx)
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
 
@@ -913,6 +951,12 @@ func startCDC(
 	flowSignalStateChangeChan.AddToSelector(mainLoopSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
 		finished = true
 		switch val.RequestedFlowState {
+		case protos.FlowStatus_STATUS_PAUSED:
+			if !val.Drain {
+				break
+			}
+			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, model.PauseSignal, logger)
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_DRAINING)
 		case protos.FlowStatus_STATUS_TERMINATING:
 			processTerminate(ctx, cfg, state, val)
 		case protos.FlowStatus_STATUS_RESYNC:
@@ -961,6 +1005,9 @@ func startCDC(
 
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return nextRunDrop, nil
+			}
+			if state.ActiveSignal == model.NoopSignal && state.CurrentFlowStatus == protos.FlowStatus_STATUS_DRAINING {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 			}
 			return nextRunCDC, nil
 		}

@@ -602,6 +602,8 @@ enum FlowStatus {
   STATUS_RESYNC = 9 [(peerdb_maintenance_wait) = true];;
   STATUS_FAILED = 10;
   STATUS_MODIFYING = 11 [(peerdb_maintenance_wait) = true];;
+  // Stopping CDC sync and applying all committed batches before pausing. Resumable.
+  STATUS_DRAINING = 12 [(peerdb_maintenance_wait) = true];
 }
 
 message CDCFlowConfigUpdate {

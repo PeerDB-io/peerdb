@@ -462,6 +462,37 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, NewInternalApiError(err)
 	}
 
+	if req.Drain {
+		if req.RequestedFlowState != protos.FlowStatus_STATUS_PAUSED ||
+			currState != protos.FlowStatus_STATUS_RUNNING || req.FlowConfigUpdate != nil {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf(
+				"drain requires a running CDC mirror and a pause request without config updates; resume a paused mirror first",
+			))
+		}
+		isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
+		if err != nil {
+			return nil, NewInternalApiError(err)
+		}
+		if !isCDC {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("drain requires a PostgreSQL to ClickHouse CDC mirror"))
+		}
+		cfg, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+		if err != nil {
+			return nil, NewInternalApiError(err)
+		}
+		sourceType, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
+		if err != nil {
+			return nil, NewInternalApiError(err)
+		}
+		destinationType, err := connectors.LoadPeerType(ctx, h.pool, cfg.DestinationName)
+		if err != nil {
+			return nil, NewInternalApiError(err)
+		}
+		if sourceType != protos.DBType_POSTGRES || destinationType != protos.DBType_CLICKHOUSE {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("drain requires a PostgreSQL to ClickHouse CDC mirror"))
+		}
+	}
+
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
@@ -503,15 +534,19 @@ func (h *FlowRequestHandler) FlowStateChange(
 		var changeErr error
 		switch req.RequestedFlowState {
 		case protos.FlowStatus_STATUS_PAUSED:
-			if currState == protos.FlowStatus_STATUS_RUNNING {
-				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+			if currState == protos.FlowStatus_STATUS_RUNNING || currState == protos.FlowStatus_STATUS_DRAINING {
+				if req.Drain {
+					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				} else {
+					changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+				}
 				if changeErr == nil {
 					telemetry.LogActivityPauseFlow(ctx, req.FlowJobName)
 					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror pause signaled")
 				}
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
-			if currState == protos.FlowStatus_STATUS_PAUSED {
+			if currState == protos.FlowStatus_STATUS_PAUSED || currState == protos.FlowStatus_STATUS_DRAINING {
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 				if changeErr == nil {
 					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
