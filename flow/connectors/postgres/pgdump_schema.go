@@ -307,6 +307,8 @@ func buildPgDumpArgs(config *protos.PostgresConfig, host string) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
+		// RLS policies reference roles that may not exist on the destination.
+		"--no-policies",
 		// PeerDB's internal bookkeeping schema
 		"--exclude-schema=_peerdb_internal",
 		"-h", host,
