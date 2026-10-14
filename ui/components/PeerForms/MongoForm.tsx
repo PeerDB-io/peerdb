@@ -126,8 +126,14 @@ export default function MongoForm({
                   </Label>
                 }
                 action={
-                  <div>
-                    <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
                       <ReactSelect
                         placeholder={setting.placeholder}
                         defaultValue={setting.options?.find(
