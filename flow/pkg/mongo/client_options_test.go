@@ -22,13 +22,11 @@ func (fakeAWSCredentialsProvider) Retrieve(context.Context) (options.AWSCredenti
 func TestBuildClientOptions_Auth(t *testing.T) {
 	provider := fakeAWSCredentialsProvider{}
 	tests := []struct {
-		name          string
-		username      string
-		password      string
-		provider      options.AWSCredentialsProvider
-		expectErr     bool
-		expectAuth    options.Credential
-		expectHasAuth bool
+		name       string
+		username   string
+		password   string
+		provider   options.AWSCredentialsProvider
+		expectAuth options.Credential
 	}{
 		{
 			name:       "password login is unchanged",
@@ -46,16 +44,15 @@ func TestBuildClientOptions_Auth(t *testing.T) {
 			},
 		},
 		{
-			name:      "IAM login rejects a username, which the driver would use as an access key",
-			username:  "testuser",
-			provider:  provider,
-			expectErr: true,
-		},
-		{
-			name:      "IAM login rejects a password, which the driver would use as a secret key",
-			password:  "testpass",
-			provider:  provider,
-			expectErr: true,
+			name:     "IAM login ignores a username and password, which the driver would use as AWS keys",
+			username: "testuser",
+			password: "testpass",
+			provider: provider,
+			expectAuth: options.Credential{
+				AuthMechanism:          "MONGODB-AWS",
+				AuthSource:             "$external",
+				AWSCredentialsProvider: provider,
+			},
 		},
 	}
 
@@ -70,10 +67,6 @@ func TestBuildClientOptions_Auth(t *testing.T) {
 				CreateTlsConfigFunc:    common.CreateTlsConfigFromRootCAString,
 				Dialer:                 &net.Dialer{Timeout: time.Second},
 			})
-			if tt.expectErr {
-				require.Error(t, err)
-				return
-			}
 			require.NoError(t, err)
 			require.NotNil(t, opts.Auth)
 			assert.Equal(t, tt.expectAuth, *opts.Auth)

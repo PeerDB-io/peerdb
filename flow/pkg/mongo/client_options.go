@@ -2,7 +2,6 @@ package mongo
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -55,10 +54,7 @@ func BuildClientOptions(config ClientConfig) (*options.ClientOptions, error) {
 		Password: config.Password,
 	}
 	if config.AWSCredentialsProvider != nil {
-		// For MONGODB-AWS the driver treats Username and Password as an AWS access key and secret.
-		if config.Username != "" || config.Password != "" {
-			return nil, errors.New("username and password must be empty for IAM authentication")
-		}
+		// Username and Password are left out: for MONGODB-AWS the driver would treat them as an AWS access key and secret.
 		credential = options.Credential{
 			AuthMechanism:          authMechanismAWS,
 			AuthSource:             authSourceAWS,

@@ -75,7 +75,7 @@ type MongoConnector struct {
 	numDecodeWorkers     int
 }
 
-func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
+func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (_ *MongoConnector, err error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata, err := metadata.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -101,6 +101,11 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
+	defer func() {
+		if err != nil && sshTunnel != nil {
+			sshTunnel.Close()
+		}
+	}()
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
@@ -112,13 +117,14 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 
 	var awsCredentials options.AWSCredentialsProvider
 	if config.AuthType == protos.MongoAuthType_MONGO_IAM_AUTH {
+		if config.Username != "" || config.Password != "" {
+			logger.Warn("username and password are ignored with IAM authentication")
+		}
 		if err := (&utils.RDSAuth{AwsAuthConfig: config.AwsAuth}).VerifyAuthConfig(); err != nil {
-			sshTunnel.Close()
-			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+			return nil, exceptions.NewMongoIAMAuthError(fmt.Errorf("failed to verify auth config: %w", err))
 		}
 		provider, err := utils.GetAWSCredentialsProvider(ctx, "mongo", utils.BuildPeerAWSCredentials(config.AwsAuth))
 		if err != nil {
-			sshTunnel.Close()
 			return nil, exceptions.NewMongoIAMAuthError(fmt.Errorf("failed to get AWS credentials: %w", err))
 		}
 		awsCredentials = awsCredentialsProvider{provider: provider.GetUnderlyingProvider()}
