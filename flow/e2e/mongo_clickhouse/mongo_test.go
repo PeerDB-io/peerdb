@@ -1041,6 +1041,7 @@ func (s MongoClickhouseSuite) Test_CDC_Delete_Preimage() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	// Enable pre-and-post-images in the test collection
 	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
 	for _, table := range []string{srcTable, srcTableWithout} {
 		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), table, preAndPostImages))
@@ -1085,6 +1086,7 @@ func (s MongoClickhouseSuite) Test_CDC_Delete_Preimage() {
 	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
+	// Load a sample document into the test collections, one for pre-image enabled and another without it
 	for _, table := range []string{srcTable, srcTableWithout} {
 		insertRes, err := adminClient.Database(srcDatabase).Collection(table).InsertOne(t.Context(), bson.D{
 			{Key: "_id", Value: documentID},
@@ -1100,6 +1102,7 @@ func (s MongoClickhouseSuite) Test_CDC_Delete_Preimage() {
 		})
 	}
 
+	// Delete the sample document to generate the delete events in both collections
 	for _, table := range []string{srcTable, srcTableWithout} {
 		deleteRes, err := adminClient.Database(srcDatabase).Collection(table).DeleteOne(t.Context(),
 			bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())

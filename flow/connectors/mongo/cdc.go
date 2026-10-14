@@ -442,7 +442,7 @@ func (c *MongoConnector) PullRecords(
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
 
-	if preimageTables := deletePreimageTables(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
+	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
 		// whenAvailable, never required: a pre-image can be missing even for a collection that has
 		// changeStreamPreAndPostImages enabled now (expired, or the delete happened while it was
 		// disabled), and that must not fail the stream. The delete then carries only its `_id`.
@@ -819,9 +819,9 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
-// deletePreimageTables returns the sorted source tables whose table mapping enables delete pre-images.
+// tablesWithDeletePreimage returns the sorted source tables whose table mapping enables delete pre-images.
 // It is empty when deletes are excluded from replication, as a pre-image would then be dead weight.
-func deletePreimageTables(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) []string {
+func tablesWithDeletePreimage(tableNameMapping map[string]model.SourceTableMapping, excludedOps []operationType) []string {
 	if slices.Contains(excludedOps, operationTypeDelete) {
 		return nil
 	}
@@ -892,7 +892,7 @@ func createPipeline(tableNameMapping map[string]model.SourceTableMapping, exclud
 	// changeStreamPreAndPostImages enabled. Keeping it there would put both copies of the document in
 	// a single change event, halving the effective 16 MiB event budget for no benefit: those
 	// operations already carry `fullDocument`.
-	if preimageTables := deletePreimageTables(tableNameMapping, excludedOps); len(preimageTables) > 0 {
+	if preimageTables := tablesWithDeletePreimage(tableNameMapping, excludedOps); len(preimageTables) > 0 {
 		projection = append(projection, bson.E{Key: "fullDocumentBeforeChange", Value: bson.D{
 			{Key: "$cond", Value: bson.D{
 				{Key: "if", Value: bson.D{{Key: "$and", Value: bson.A{

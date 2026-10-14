@@ -637,7 +637,7 @@ func TestCreatePipeline(t *testing.T) {
 		require.NoError(t, err)
 
 		require.True(t, lookupInPipeline(t, pipeline, "$project", "fullDocumentBeforeChange").IsZero())
-		require.Empty(t, deletePreimageTables(preimageTableNameMapping, []operationType{operationTypeDelete}))
+		require.Empty(t, tablesWithDeletePreimage(preimageTableNameMapping, []operationType{operationTypeDelete}))
 	})
 }
 
