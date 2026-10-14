@@ -1,5 +1,10 @@
 import { CDCConfig } from '@/app/dto/MirrorsDTO';
-import { QRepConfig, TypeSystem } from '@/grpc_generated/flow';
+import {
+  BigqueryCdcConfig,
+  BigQueryReplicationMethod,
+  QRepConfig,
+  TypeSystem,
+} from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 
 export enum AdvancedSettingType {
@@ -54,10 +59,24 @@ export const blankCDCSetting: CDCConfig = {
   queryCdcPullSyncParallelism: 0,
 };
 
+export const QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM = 4;
+export const QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS = 60;
+export const QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS = 24 * 60 * 60;
+
+export const blankBigqueryCdcConfig: BigqueryCdcConfig = {
+  replicationMethod:
+    BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_EVENTS,
+  queryCdc: {
+    pullSyncParallelism: QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM,
+    safetyLagSeconds: QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS,
+    maxQueryWindowSeconds: QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS,
+  },
+};
+
 export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
   [DBType[DBType.BIGQUERY]]: {
     doInitialSnapshot: true,
-    initialSnapshotOnly: true,
+    bigqueryCdcConfig: blankBigqueryCdcConfig,
   },
 };
 

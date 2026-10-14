@@ -4,8 +4,10 @@ import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { notifyErr } from '@/app/utils/notify';
 import ThemedToastContainer from '@/components/ThemedToastContainer';
 import {
+  bigQueryReplicationMethodFromJSON,
   CDCFlowConfigUpdate,
   FlowStatus,
+  QueryCdcConfig,
   TableMapping,
 } from '@/grpc_generated/flow';
 import {
@@ -104,9 +106,44 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.snapshotNumTablesInParallel ||
       defaultSnapshotNumTablesInParallel,
     skipInitialSnapshotForTableAdditions: false,
-    queryCdc: undefined,
+    // undefined leaves query CDC settings untouched (and is a no-op for mirrors without query CDC)
+    queryCdc: res.cdcStatus?.config?.bigqueryCdcConfig
+      ? {
+          pullSyncParallelism:
+            res.cdcStatus.config.bigqueryCdcConfig.queryCdc
+              ?.pullSyncParallelism ?? 0,
+          safetyLagSeconds:
+            res.cdcStatus.config.bigqueryCdcConfig.queryCdc?.safetyLagSeconds ??
+            0,
+          maxQueryWindowSeconds:
+            res.cdcStatus.config.bigqueryCdcConfig.queryCdc
+              ?.maxQueryWindowSeconds ?? 0,
+        }
+      : undefined,
   };
 }
+
+const queryCdcFields: {
+  label: string;
+  key: keyof QueryCdcConfig;
+  tips: string;
+}[] = [
+  {
+    label: 'Pull Sync Parallelism',
+    key: 'pullSyncParallelism',
+    tips: 'Tables queried and staged at once. 0 uses the default.',
+  },
+  {
+    label: 'Safety Lag (Seconds)',
+    key: 'safetyLagSeconds',
+    tips: 'How far behind the source clock each poll window ends. 0 uses the default.',
+  },
+  {
+    label: 'Max Query Window (Seconds)',
+    key: 'maxQueryWindowSeconds',
+    tips: 'Longest time span of one poll query. 0 uses the default.',
+  },
+];
 
 export default function EditMirror({
   mirrorId,
@@ -322,6 +359,36 @@ export default function EditMirror({
         }
       />
 
+      {config.queryCdc &&
+        queryCdcFields.map(({ label, key, tips }) => (
+          <RowWithTextField
+            key={`query-cdc-${key}`}
+            label={<Label>{label}</Label>}
+            action={
+              <div style={fieldStyle} title={tips}>
+                <TextField
+                  variant='simple'
+                  type={'number'}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setConfig({
+                      ...config,
+                      queryCdc: {
+                        ...config.queryCdc!,
+                        [key]: e.target.valueAsNumber,
+                      },
+                    })
+                  }
+                  value={
+                    Number.isNaN(config.queryCdc![key])
+                      ? ''
+                      : config.queryCdc![key]
+                  }
+                />
+              </div>
+            }
+          />
+        ))}
+
       <RowWithTextField
         key={6}
         label={<Label>{'Settings override'} </Label>}
@@ -372,6 +439,13 @@ export default function EditMirror({
       <TablePicker
         sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
         peerType={mirrorState.cdcStatus?.destinationType}
+        bigqueryReplicationMethod={
+          mirrorState.cdcStatus?.config?.bigqueryCdcConfig
+            ? bigQueryReplicationMethodFromJSON(
+                mirrorState.cdcStatus.config.bigqueryCdcConfig.replicationMethod
+              )
+            : undefined
+        }
         rows={rows}
         setRows={setRows}
         alreadySelectedTablesMapping={alreadySelectedTablesMapping}

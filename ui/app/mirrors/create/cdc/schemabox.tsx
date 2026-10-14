@@ -3,6 +3,9 @@
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import { useSelectTheme } from '@/app/styles/select';
 import {
+  BigqueryCdcEventsFunction,
+  bigqueryCdcEventsFunctionToJSON,
+  BigQueryReplicationMethod,
   TableEngine,
   tableEngineFromJSON,
   tableEngineToJSON,
@@ -64,6 +67,13 @@ function cannotMirrorReason(row: TableMapRow): string {
   return `This table cannot be mirrored. ${reasons.join(' ')}`;
 }
 
+// Query CDC polls on TIMESTAMP(col); the backend rejects DATETIME and DATE watermarks
+function timestampColumnOptions(columns?: ColumnsItem[]) {
+  return (columns ?? [])
+    .filter((column) => column.type.toUpperCase() === 'TIMESTAMP')
+    .map((column) => ({ value: column.name, label: column.name }));
+}
+
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -76,13 +86,26 @@ interface SchemaBoxProps {
   structuredIngestionSupported: boolean;
   setStructuredIngestionSupported: Dispatch<SetStateAction<boolean>>;
   peerType?: DBType;
+  bigqueryReplicationMethod?: BigQueryReplicationMethod;
   alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
 }
 
+const bigqueryEventsFunctionOptions = [
+  {
+    value: BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+    label: 'APPENDS (inserts only)',
+  },
+  {
+    value: BigqueryCdcEventsFunction.BIGQUERY_CDC_EVENTS_FUNCTION_CHANGES,
+    label: 'CHANGES (inserts, updates, deletes)',
+  },
+];
+
 export default function SchemaBox({
   sourcePeer,
   peerType,
+  bigqueryReplicationMethod,
   schema,
   rows,
   setRows,
@@ -190,6 +213,26 @@ export default function SchemaBox({
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     newRows[index] = { ...newRows[index], partitionByExpr };
+    setRows(newRows);
+  };
+
+  const updateBigqueryEventsFunction = (
+    source: string,
+    bigqueryCdcEventsFunction: BigqueryCdcEventsFunction
+  ) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], bigqueryCdcEventsFunction };
+    setRows(newRows);
+  };
+
+  const updateQueryCdcWatermarkColumn = (
+    source: string,
+    queryCdcWatermarkColumn: string
+  ) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], queryCdcWatermarkColumn };
     setRows(newRows);
   };
 
@@ -301,6 +344,10 @@ export default function SchemaBox({
                 row.shardingKey = existingRow.shardingKey;
                 row.policyName = existingRow.policyName;
                 row.partitionByExpr = existingRow.partitionByExpr;
+                row.bigqueryCdcEventsFunction =
+                  existingRow.bigqueryCdcEventsFunction;
+                row.queryCdcWatermarkColumn =
+                  existingRow.queryCdcWatermarkColumn;
                 row.exclude = new Set(existingRow.exclude ?? []);
                 row.destination = existingRow.destinationTableIdentifier;
                 row.structuredIngestionConfig =
@@ -498,6 +545,61 @@ export default function SchemaBox({
                             ) => updatePartitionKey(row.source, e.target.value)}
                           />
                         </div>
+
+                        {bigqueryReplicationMethod ===
+                          BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_EVENTS && (
+                          <div style={{ width: '30%', fontSize: 12 }}>
+                            Events Function:
+                            <ReactSelect
+                              isDisabled={row.editingDisabled}
+                              styles={engineOptionStyles}
+                              theme={selectTheme}
+                              options={bigqueryEventsFunctionOptions}
+                              value={
+                                bigqueryEventsFunctionOptions.find(
+                                  (x) =>
+                                    x.value === row.bigqueryCdcEventsFunction ||
+                                    bigqueryCdcEventsFunctionToJSON(x.value) ===
+                                      (row.bigqueryCdcEventsFunction as unknown)
+                                ) ?? bigqueryEventsFunctionOptions[0]
+                              }
+                              onChange={(selectedOption) =>
+                                selectedOption &&
+                                updateBigqueryEventsFunction(
+                                  row.source,
+                                  selectedOption.value
+                                )
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {bigqueryReplicationMethod ===
+                          BigQueryReplicationMethod.BIGQUERY_REPLICATION_METHOD_QUERY && (
+                          <div style={{ width: '30%', fontSize: 12 }}>
+                            Watermark Column (TIMESTAMP):
+                            <ReactSelect
+                              isDisabled={row.editingDisabled}
+                              isLoading={columnsLoading}
+                              styles={engineOptionStyles}
+                              theme={selectTheme}
+                              placeholder='Select watermark column'
+                              options={timestampColumnOptions(columns)}
+                              value={
+                                timestampColumnOptions(columns).find(
+                                  (x) => x.value === row.queryCdcWatermarkColumn
+                                ) ?? null
+                              }
+                              onChange={(selectedOption) =>
+                                selectedOption &&
+                                updateQueryCdcWatermarkColumn(
+                                  row.source,
+                                  selectedOption.value
+                                )
+                              }
+                            />
+                          </div>
+                        )}
 
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (

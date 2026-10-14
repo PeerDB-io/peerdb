@@ -8,6 +8,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@radix-ui/react-tabs';
 import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
+import QueryCdcStateTable from './queryCdcState';
 import { SnapshotStatusTable } from './snapshot';
 import { TabListStyle, TabsRootStyle } from './styles/tab.styles';
 
@@ -29,6 +30,8 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
   const handleTab = (index: number) => {
     setSelectedTab(index);
   };
+
+  const isQueryCdc = !!status.cdcStatus?.config?.bigqueryCdcConfig;
 
   let snapshot = null;
   if (status.cdcStatus?.snapshotStatus) {
@@ -60,6 +63,7 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
         </StyledTabTrigger>
         <StyledTabTrigger value='1'>Sync Status</StyledTabTrigger>
         <StyledTabTrigger value='2'>Initial Copy</StyledTabTrigger>
+        {isQueryCdc && <StyledTabTrigger value='3'>Query CDC</StyledTabTrigger>}
       </TabsList>
       <TabsContent className='TabsContent' value='0'>
         <CdcDetails
@@ -74,6 +78,11 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       <TabsContent className='TabsContent' value='2'>
         {snapshot}
       </TabsContent>
+      {isQueryCdc && (
+        <TabsContent className='TabsContent' value='3'>
+          <QueryCdcStateTable flowJobName={status.flowJobName} />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
