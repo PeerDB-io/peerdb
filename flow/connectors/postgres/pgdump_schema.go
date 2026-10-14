@@ -307,7 +307,7 @@ func buildPgDumpArgs(config *protos.PostgresConfig, host string) []string {
 		"--schema-only",
 		"--no-owner",
 		"--no-privileges",
-		// PeerDB's internal bookkeeping schema; it has no place on the destination.
+		// PeerDB's internal bookkeeping schema
 		"--exclude-schema=_peerdb_internal",
 		"-h", host,
 		"-p", strconv.FormatUint(uint64(port), 10),
