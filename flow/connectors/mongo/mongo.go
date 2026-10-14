@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 	"go.temporal.io/sdk/log"
 
 	metadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -117,6 +118,10 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (_ *Mong
 
 	var awsCredentials options.AWSCredentialsProvider
 	if config.AuthType == protos.MongoAuthType_MONGO_IAM_AUTH {
+		// Report a bad URI before the IAM setup, which can call AWS first (role chaining).
+		if _, err := connstring.Parse(config.Uri); err != nil {
+			return nil, fmt.Errorf("error parsing uri: %w", err)
+		}
 		if config.Username != "" || config.Password != "" {
 			logger.Warn("username and password are ignored with IAM authentication")
 		}
