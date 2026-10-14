@@ -425,6 +425,7 @@ func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant
 		info.TLSHost = config.MongoConfig.TlsHost
 		info.SshHost = config.MongoConfig.SshConfig.GetHost()
 		info.ReadPreference = config.MongoConfig.ReadPreference.String()
+		info.AuthType = config.MongoConfig.AuthType.String()
 	case *protos.Peer_BigqueryConfig:
 		info.AuthType = config.BigqueryConfig.AuthType
 	}
