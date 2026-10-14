@@ -113,5 +113,13 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 		(schemaKind == types.QValueKindUUID || schemaKind == types.QValueKindINET) {
 		return false
 	}
+	if schemaKind == types.QValueKindBoolean && wireKind == types.QValueKindInt8 {
+		// TABLE_MAP omits TINYINT display width, so TINYINT(1) arrives as int8.
+		return false
+	}
+	if schemaKind == types.QValueKindEnum && wireKind == types.QValueKindString {
+		// TABLE_MAP encodes ENUM as STRING.
+		return false
+	}
 	return true
 }
