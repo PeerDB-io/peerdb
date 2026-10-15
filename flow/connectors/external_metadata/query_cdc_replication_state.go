@@ -79,9 +79,9 @@ func (p *PostgresMetadata) GetQueryCDCReplicationState(
 	return state, nil
 }
 
-// InitializeQueryCDCReplicationState seeds a table's cursor from the checkpoint
-// of the snapshot that just ran. Existing progress always wins, making retries
-// safe: retaining the earlier cursor can re-read a window but cannot skip it.
+// InitializeQueryCDCReplicationState seeds a table's cursor from the setup
+// checkpoint before any per-table poll starts. Existing progress always wins;
+// this only fills an uninitialized state row.
 func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	ctx context.Context, jobName string, sourceTableIdentifier string, cursor string,
 ) error {
@@ -99,9 +99,8 @@ func (p *PostgresMetadata) InitializeQueryCDCReplicationState(
 	return nil
 }
 
-// RecordQueryCDCAttempt records that a poll attempt for this table started at
-// attemptedAt. It creates a missing row for tables whose initial load was
-// skipped and therefore have no snapshot checkpoint to inherit.
+// RecordQueryCDCAttempt records that a poll attempt for this table
+// started at attemptedAt, creating the row if this is the table's first poll.
 func (p *PostgresMetadata) RecordQueryCDCAttempt(
 	ctx context.Context, jobName string, sourceTableIdentifier string, attemptedAt time.Time,
 ) error {

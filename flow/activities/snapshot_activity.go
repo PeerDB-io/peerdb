@@ -108,8 +108,9 @@ func (a *SnapshotActivity) MaintainTx(
 	sessionID string,
 	flowName string,
 	peer string,
-	tableMappings []*protos.TableMapping,
 	env map[string]string,
+	// last so activities scheduled before it was added still decode, with it unset
+	tableMappings []*protos.TableMapping,
 ) error {
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"

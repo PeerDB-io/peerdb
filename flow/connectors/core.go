@@ -128,6 +128,18 @@ type CDCPullConnectorCore interface {
 	PullFlowCleanup(ctx context.Context, jobName string) error
 }
 
+// TableAdditionSourceConnector is implemented by sources that need per-table setup
+// before tables added to a running mirror can be replicated. Sources whose replication
+// position already covers every table (e.g. MySQL binlog, MongoDB change streams) don't.
+type TableAdditionSourceConnector interface {
+	Connector
+
+	// AddTablesToReplication runs before the added tables' initial snapshot, if any, and
+	// must be idempotent. Starting replication before the snapshot may re-read rows
+	// changed while it runs, which the destination's deduplication absorbs.
+	AddTablesToReplication(ctx context.Context, req *protos.AddTablesToReplicationInput) error
+}
+
 type CDCPullConnector interface {
 	CDCPullConnectorCore
 
@@ -731,6 +743,9 @@ var (
 	_ CDCPullConnector = &connmongo.MongoConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
+
+	_ TableAdditionSourceConnector = &connpostgres.PostgresConnector{}
+	_ TableAdditionSourceConnector = &connbigquery.BigQueryConnector{}
 
 	_ CDCSyncConnector = &connpostgres.PostgresConnector{}
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}

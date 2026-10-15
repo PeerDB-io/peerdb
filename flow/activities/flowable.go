@@ -1904,16 +1904,20 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 }
 
+// AddTablesToPublication sets up replication of tables added to a running mirror on
+// any source that needs it, not only Postgres. It keeps its original name because
+// that is the activity type recorded in the history of running workflows.
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
-		return "adding tables to publication"
+		return "adding tables to replication"
 	})
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.TableAdditionSourceConnector](
+		ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil
@@ -1922,7 +1926,7 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	defer srcClose(ctx)
 
-	if err := srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
+	if err := srcConn.AddTablesToReplication(ctx, &protos.AddTablesToReplicationInput{
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
 		AdditionalTables: additionalTableMappings,
@@ -1930,8 +1934,8 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
-	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("ensured %d tables exist in publication %s",
-		len(additionalTableMappings), cfg.PublicationName))
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("set up replication for %d additional tables",
+		len(additionalTableMappings)))
 	return nil
 }
 
