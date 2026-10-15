@@ -746,7 +746,7 @@ func (c *BigQueryConnector) ensureTableAdditionCheckpoints(
 			return nil, fmt.Errorf("no CDC checkpoint computed for table %s", tm.SourceTableIdentifier)
 		}
 		if err := c.InitializeQueryCDCReplicationState(
-			ctx, flowName, tm.SourceTableIdentifier, EncodeBigQueryTableCursor(checkpoint),
+			ctx, flowName, tm.SourceTableIdentifier, model.EncodeQueryCDCCursor(checkpoint),
 		); err != nil {
 			return nil, fmt.Errorf("failed to initialize CDC checkpoint for table %s: %w", tm.SourceTableIdentifier, err)
 		}
@@ -764,7 +764,7 @@ func (c *BigQueryConnector) storedCDCCheckpoint(ctx context.Context, flowName st
 	if err != nil {
 		return time.Time{}, err
 	}
-	return DecodeBigQueryTableCursor(state.CursorText)
+	return model.DecodeQueryCDCCursor(state.CursorText)
 }
 
 // exportTablesUpToCDCCheckpoints exports each table up to the bound its CDC cursor starts
