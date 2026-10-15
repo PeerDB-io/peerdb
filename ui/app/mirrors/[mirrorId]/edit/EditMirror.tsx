@@ -104,6 +104,7 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.snapshotNumTablesInParallel ||
       defaultSnapshotNumTablesInParallel,
     skipInitialSnapshotForTableAdditions: false,
+    queryCdc: undefined,
   };
 }
 
@@ -370,6 +371,7 @@ export default function EditMirror({
 
       <TablePicker
         sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
+        sourceType={mirrorState.cdcStatus?.sourceType}
         peerType={mirrorState.cdcStatus?.destinationType}
         rows={rows}
         setRows={setRows}

@@ -10,7 +10,12 @@ import {
   handleFieldChange,
   handleSSHParam,
 } from '@/components/PeerForms/common';
-import { MongoConfig, SSHConfig } from '@/grpc_generated/peers';
+import {
+  AwsIAMAuthConfigType,
+  MongoAuthType,
+  MongoConfig,
+  SSHConfig,
+} from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
@@ -41,9 +46,28 @@ export default function MongoForm({
     }));
   }, [sshConfig, setter, showSSH]);
 
+  // Show username and password for password auth, and only the AWS fields for the chosen IAM mechanism.
+  const isHidden = (field?: string) => {
+    const iam = config.authType === MongoAuthType.MONGO_IAM_AUTH;
+    if (field === 'username' || field === 'password') return iam;
+    if (!field?.startsWith('awsAuth.')) return false;
+    if (!iam) return true;
+    if (field.startsWith('awsAuth.role.'))
+      return (
+        config.awsAuth?.authType !== AwsIAMAuthConfigType.IAM_AUTH_ASSUME_ROLE
+      );
+    if (field.startsWith('awsAuth.staticCredentials.'))
+      return (
+        config.awsAuth?.authType !==
+        AwsIAMAuthConfigType.IAM_AUTH_STATIC_CREDENTIALS
+      );
+    return false;
+  };
+
   return (
     <>
       {settings.map((setting, id) => {
+        if (isHidden(setting.field)) return null;
         if (setting.type === 'switch') {
           return (
             <RowWithSwitch
@@ -102,8 +126,14 @@ export default function MongoForm({
                   </Label>
                 }
                 action={
-                  <div>
-                    <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
                       <ReactSelect
                         placeholder={setting.placeholder}
                         defaultValue={setting.options?.find(

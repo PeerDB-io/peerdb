@@ -50,7 +50,7 @@ func recordOf(fields ...recordField) iter.Seq2[string, types.QValue] {
 }
 
 func TestNewSchemaProjector(t *testing.T) {
-	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), true)
+	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), nil, true)
 	require.NoError(t, err)
 
 	// the record schema is the columns in their declared order with the kinds schemaToQKind resolved,
@@ -80,14 +80,14 @@ func TestNewSchemaProjectorRejects(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewSchemaProjector(testSchemaToQKind, tc.columns, true)
+			_, err := NewSchemaProjector(testSchemaToQKind, tc.columns, nil, true)
 			require.ErrorContains(t, err, tc.offender)
 		})
 	}
 }
 
 func TestProjectRecord(t *testing.T) {
-	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), true)
+	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), nil, true)
 	require.NoError(t, err)
 
 	t.Run("complete record", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestProjectRecord(t *testing.T) {
 	})
 
 	t.Run("shouldRecordValues=false omits mismatched, unexpected and duplicated values", func(t *testing.T) {
-		blind, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), false)
+		blind, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), nil, false)
 		require.NoError(t, err)
 		values, err := blind.ProjectRecord(recordOf(
 			recordField{"age", types.QValueString{Val: "thirty six"}},
@@ -224,5 +224,112 @@ func TestProjectRecord(t *testing.T) {
 		malformed, ok := values[3].(types.QValueJSON)
 		require.True(t, ok)
 		require.JSONEq(t, `{"email": {"duplicated_fields": true, "value": "lovelace@example.com"}}`, malformed.Val)
+	})
+}
+
+func TestProjectRecordArrayOfJSON(t *testing.T) {
+	// the array-of-JSON kinds have no dedicated QValue type: their values are QValueJSONs flagged
+	// IsArray, which must fit the column while plain JSON values must not
+	projector, err := NewSchemaProjectorFromQFields([]types.QField{
+		{Name: "attachments", Type: types.QValueKindArrayJSON},
+	}, nil, true)
+	require.NoError(t, err)
+
+	values, err := projector.ProjectRecord(recordOf(
+		recordField{"attachments", types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}},
+	))
+	require.NoError(t, err)
+	require.Equal(t, types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}, values[0])
+	require.Equal(t, types.QValueNull(types.QValueKindJSON), values[1])
+
+	values, err = projector.ProjectRecord(recordOf(
+		recordField{"attachments", types.QValueJSON{Val: `{"k":1}`}},
+	))
+	require.NoError(t, err)
+	require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values[0])
+	malformed, ok := values[1].(types.QValueJSON)
+	require.True(t, ok)
+	require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "{\"k\":1}"}}`, malformed.Val)
+}
+
+func TestNormalizeStructuredIngestionTypes(t *testing.T) {
+	columnsOf := func() []*protos.ColumnSetting {
+		return []*protos.ColumnSetting{
+			{SourceName: "tags", DestinationType: "Array(String)"},
+			{SourceName: "codes", DestinationType: "Array(LowCardinality(String))"},
+			{SourceName: "name", DestinationType: "Nullable(String)"},
+			{SourceName: "created", DestinationType: "Nullable(DateTime64(9))"},
+			{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
+			{SourceName: "micros", DestinationType: "Array(Nullable(DateTime64(6)))"},
+			{SourceName: "millis", DestinationType: "Nullable(DateTime64(3))"},
+			{SourceName: "seconds", DestinationType: "Array(DateTime64(0))"},
+		}
+	}
+
+	columns := columnsOf()
+	NormalizeStructuredIngestionTypes(&protos.StructuredIngestionTableConfig{Enabled: true}, columns)
+	destinationTypes := make([]string, 0, len(columns))
+	for _, column := range columns {
+		destinationTypes = append(destinationTypes, column.DestinationType)
+	}
+	// dates of any precision are declared with microseconds, any other type is left as declared
+	require.Equal(t, []string{
+		"Array(String)",
+		"Array(LowCardinality(String))",
+		"Nullable(String)",
+		"Nullable(DateTime64(6))",
+		"Array(DateTime64(6))",
+		"Array(Nullable(DateTime64(6)))",
+		"Nullable(DateTime64(6))",
+		"Array(DateTime64(6))",
+	}, destinationTypes)
+
+	// without structured ingestion enabled the columns are left as declared
+	for _, config := range []*protos.StructuredIngestionTableConfig{nil, {Enabled: false}} {
+		columns := columnsOf()
+		NormalizeStructuredIngestionTypes(config, columns)
+		require.Equal(t, columnsOf(), columns)
+	}
+}
+
+func TestProjectRecordExcludedFields(t *testing.T) {
+	// excluded record fields are dropped silently, while any other field missing from the schema is
+	// still reported as unexpected
+	projector, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(),
+		map[string]struct{}{"secret": {}}, true)
+	require.NoError(t, err)
+
+	values, err := projector.ProjectRecord(recordOf(
+		recordField{"name", types.QValueString{Val: "Ada"}},
+		recordField{"secret", types.QValueString{Val: "hidden"}},
+		recordField{"extra", types.QValueString{Val: "surprise"}},
+	))
+	require.NoError(t, err)
+	require.Equal(t, types.QValueString{Val: "Ada"}, values[0])
+	malformed, ok := values[3].(types.QValueJSON)
+	require.True(t, ok)
+	require.JSONEq(t, `{"extra": {"unexpected_field": true, "value": "surprise"}}`, malformed.Val)
+
+	t.Run("an excluded field is dropped even when repeated", func(t *testing.T) {
+		values, err := projector.ProjectRecord(recordOf(
+			recordField{"secret", types.QValueString{Val: "first"}},
+			recordField{"secret", types.QValueString{Val: "second"}},
+		))
+		require.NoError(t, err)
+		require.Equal(t, types.QValueNull(types.QValueKindJSON), values[3])
+	})
+
+	t.Run("an excluded field is dropped even when declared, whatever its value", func(t *testing.T) {
+		declaredAndExcluded, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(),
+			map[string]struct{}{"age": {}}, true)
+		require.NoError(t, err)
+		values, err := declaredAndExcluded.ProjectRecord(recordOf(
+			recordField{"name", types.QValueString{Val: "Ada"}},
+			recordField{"age", types.QValueString{Val: "not a number"}},
+		))
+		require.NoError(t, err)
+		// the column keeps its null and the mismatching value is not reported
+		require.Equal(t, types.QValueNull(types.QValueKindInt64), values[1])
+		require.Equal(t, types.QValueNull(types.QValueKindJSON), values[3])
 	})
 }

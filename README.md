@@ -124,7 +124,7 @@ For example:
 ```bash
 cd flow
 go clean -cache
-go test -v -run TestGenericCH_MySQL ./e2e/
+go test -tags tilt -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/
 ```
 
 Or local debugging sessions.
@@ -156,8 +156,10 @@ And follow the status of the services and access logs through the Tilt UI at htt
 Since `.env` is the environment configuration source of truth, tests automatically pick it up from the project root. For example:
 
 ```bash
-go clean -cache; go test -v -run TestGenericCH_MySQL ./e2e/ # Some MySQL generic tests
+go clean -cache; go test -tags tilt -v -run TestGenericCH_MySQL ./e2e/mysql_clickhouse/ # Some MySQL generic tests
 ```
+
+:memo: For unit and Tilt-backed test commands, build tags, and editor setup, see [Testing in CONTRIBUTING.md](CONTRIBUTING.md#testing).
 
 ### Running tests from Tilt
 

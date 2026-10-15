@@ -389,6 +389,17 @@ const (
 	ClickHouseMaxYear = 2299
 )
 
+// ClampToClickHouseTime moves a time whose year is outside the ClickHouse supported range to the boundary date,
+// keeping its time of day.
+func ClampToClickHouseTime(t time.Time) time.Time {
+	if year := t.Year(); year < ClickHouseMinYear {
+		return time.Date(ClickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	} else if year > ClickHouseMaxYear {
+		return time.Date(ClickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	}
+	return t
+}
+
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
@@ -403,11 +414,7 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isD
 			}
 		}
 	case protos.DBType_CLICKHOUSE:
-		if year := t.Year(); year < ClickHouseMinYear {
-			t = time.Date(ClickHouseMinYear, time.January, 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
-		} else if year > ClickHouseMaxYear {
-			t = time.Date(ClickHouseMaxYear, time.December, 31, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
-		}
+		t = ClampToClickHouseTime(t)
 	case protos.DBType_SNOWFLAKE:
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file

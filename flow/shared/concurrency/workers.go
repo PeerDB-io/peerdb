@@ -98,6 +98,9 @@ func (p *PullRecordsWorkerPool[E, D, RT]) Flush(ctx context.Context) error {
 		// Nothing to do.
 		return nil
 	}
+	if err := p.workerCtx.Err(); err != nil {
+		return context.Cause(p.workerCtx)
+	}
 	// Grab a slot in the semaphore.
 	select {
 	case p.sem <- struct{}{}:
@@ -111,7 +114,7 @@ func (p *PullRecordsWorkerPool[E, D, RT]) Flush(ctx context.Context) error {
 			p.ctxCancel()
 			return ctx.Err()
 		case <-p.workerCtx.Done():
-			return nil
+			return context.Cause(p.workerCtx)
 		}
 		p.eg.Go(func() error {
 			defer func() {

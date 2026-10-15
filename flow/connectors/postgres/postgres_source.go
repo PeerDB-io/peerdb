@@ -105,7 +105,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		c.logger.Info("not setting wal_sender_timeout")
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.cloudSQLDialer, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
@@ -806,9 +806,9 @@ func (c *PostgresConnector) SetupReplication(
 		skipSnapshotExport = false
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
+	tableNameMapping := make(map[string]model.SourceTableMapping, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
-		tableNameMapping[k] = model.NameAndExclude{
+		tableNameMapping[k] = model.SourceTableMapping{
 			Name:    v,
 			Exclude: make(map[string]struct{}, 0),
 		}

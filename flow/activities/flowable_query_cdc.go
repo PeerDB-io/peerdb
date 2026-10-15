@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -57,13 +58,19 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	if err != nil {
 		return fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
+	queryCDCSafetyLag, queryCDCMaxQueryWindow, err := queryCDCPollDurations(ctx, config)
+	if err != nil {
+		return err
+	}
 
-	pullSyncParallelism := int(config.GetQueryCdcPullSyncParallelism())
-	if pullSyncParallelism <= 0 {
-		pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
-		if err != nil {
-			return fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
-		}
+	syncSchedule, err := queryCDCSyncSchedule(config)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, flowName, err)
+	}
+
+	pullSyncParallelism, err := queryCDCPullSyncParallelism(ctx, config)
+	if err != nil {
+		return err
 	}
 	// Bounds concurrent pull+sync work only; normalize is bounded separately by
 	// normSem below, so a stalled destination can't be starved by pull work and
@@ -89,9 +96,14 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 	// Same approximation pullAndSyncCore uses: normBufferHours worth of
-	// idleTimeout-cadence polls, at least 2 so a table's own sync can run
+	// poll-cadence polls, at least 2 so a table's own sync can run
 	// ahead of its own normalize by a couple of batches under steady state.
-	normBufferSize := normBufferHours * 3600 / int64(idleTimeout.Seconds())
+	pollCadence := idleTimeout
+	if syncSchedule != nil {
+		firstFire := syncSchedule.Next(time.Now())
+		pollCadence = syncSchedule.Next(firstFire).Sub(firstFire)
+	}
+	normBufferSize := normBufferHours * 3600 / int64(pollCadence.Seconds())
 	normBufferSize = max(normBufferSize, 2)
 
 	sourceTables := make([]string, 0, len(options.TableMappings))
@@ -119,7 +131,8 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		})
 		group.Go(func() error {
 			return a.queryCDCPullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
-				channelBufferSize, idleTimeout, normBufferSize, pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
+				channelBufferSize, idleTimeout, syncSchedule, queryCDCSafetyLag, queryCDCMaxQueryWindow, normBufferSize,
+				pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
 		})
 	}
 
@@ -142,12 +155,93 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	return nil
 }
 
+func queryCDCPullSyncParallelism(ctx context.Context, config *protos.FlowConnectionConfigsCore) (int, error) {
+	var err error
+	pullSyncParallelism := int(config.GetBigqueryCdcConfig().GetQueryCdc().GetPullSyncParallelism())
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
+	}
+	// fallback to deprecated field
+	pullSyncParallelism = int(config.GetQueryCdcPullSyncParallelism()) //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
+	if pullSyncParallelism > 0 {
+		return pullSyncParallelism, nil
+	}
+
+	// fallback to dynamic config env
+	pullSyncParallelism, err = internal.PeerDBQueryCDCPullSyncParallelism(ctx, config.Env)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get CDC table pull-sync parallelism: %w", err)
+	}
+
+	return pullSyncParallelism, nil
+}
+
+// queryCDCSyncSchedule returns the cron schedule polls should follow, or nil
+// when the mirror polls on a fixed sync interval instead.
+func queryCDCSyncSchedule(config *protos.FlowConnectionConfigsCore) (cron.Schedule, error) {
+	expr := config.GetBigqueryCdcConfig().GetQueryCdc().GetSyncCron()
+	if expr == "" {
+		return nil, nil
+	}
+	schedule, err := common.ParseSyncCron(expr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid query-based CDC sync cron %q: %w", expr, err)
+	}
+	return schedule, nil
+}
+
+func queryCDCPollDurations(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigsCore,
+) (time.Duration, time.Duration, error) {
+	queryCdcConfig := config.GetBigqueryCdcConfig().GetQueryCdc()
+	safetyLag := time.Duration(queryCdcConfig.GetSafetyLagSeconds()) * time.Second
+	if safetyLag <= 0 {
+		var err error
+		safetyLag, err = internal.PeerDBQueryCDCSafetyLag(ctx, config.Env)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get query-based CDC safety lag: %w", err)
+		}
+	}
+
+	maxQueryWindow := time.Duration(queryCdcConfig.GetMaxQueryWindowSeconds()) * time.Second
+	if maxQueryWindow <= 0 {
+		var err error
+		maxQueryWindow, err = internal.PeerDBQueryCDCMaxQueryWindow(ctx, config.Env)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get query-based CDC max query window: %w", err)
+		}
+	}
+
+	return safetyLag, maxQueryWindow, nil
+}
+
+// queryCDCPollWindow computes the next bounded source-time window. A false
+// return means the safety lag has not moved past the table's checkpoint yet.
+func queryCDCPollWindow(
+	checkpoint, now time.Time, safetyLag, maxQueryWindow time.Duration,
+) (time.Time, bool) {
+	end := checkpoint.Add(maxQueryWindow)
+	if safeEnd := now.Add(-safetyLag); safeEnd.Before(end) {
+		end = safeEnd
+	}
+	return end, end.After(checkpoint)
+}
+
+// queryCDCCatchingUp reports whether a successful poll advanced the checkpoint
+// but left it behind the safe end that was in effect when the poll started.
+func queryCDCCatchingUp(start, nextCursor, safeEnd time.Time) bool {
+	return nextCursor.After(start) && nextCursor.Before(safeEnd)
+}
+
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
 // generalized to the activity level: a table is due once syncInterval has
-// passed since its last successful poll started. LastSyncedAt distinguishes a
+// passed since its last successful poll started, or, when a cron schedule is
+// set, once the schedule has fired since then. LastSyncedAt distinguishes a
 // completed attempt from a newer failed or interrupted one, which is due now.
 func queryCDCPollWait(
-	lastAttemptAt time.Time, lastSyncedAt time.Time, now time.Time, syncInterval time.Duration,
+	lastAttemptAt time.Time, lastSyncedAt time.Time, now time.Time,
+	syncInterval time.Duration, schedule cron.Schedule,
 ) time.Duration {
 	if lastAttemptAt.IsZero() || lastSyncedAt.IsZero() {
 		return 0
@@ -160,6 +254,11 @@ func queryCDCPollWait(
 	// success case, lastAttemptAt <= lastSyncedAt
 	// so the next poll is at lastAttemptAt + syncInterval
 	nextPollAt := lastAttemptAt.Add(syncInterval)
+	if schedule != nil {
+		// the first fire after the last attempt started: fires missed since then
+		// coalesce into a single immediate poll
+		nextPollAt = schedule.Next(lastAttemptAt)
+	}
 	if !nextPollAt.After(now) {
 		return 0
 	}
@@ -236,6 +335,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	channelBufferSize int,
 	syncInterval time.Duration,
+	syncSchedule cron.Schedule,
+	queryCDCSafetyLag time.Duration,
+	queryCDCMaxQueryWindow time.Duration,
 	normBufferSize int64,
 	pullSyncSem chan struct{},
 	totalRecordsSynced *atomic.Int64,
@@ -245,11 +347,22 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
 	destTable := tableMapping.DestinationTableIdentifier
-	nameAndExclude := model.NewNameAndExclude(destTable, tableMapping.Exclude)
+	sourceTableMapping := model.NewSourceTableMapping(destTable, tableMapping.Exclude)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
+
+	// A cron schedule has no fixed interval to cap the retry backoff with.
+	retryCadence := syncInterval
+	if syncSchedule != nil {
+		retryCadence = queryCDCRetryMaxWait
+	}
 
 	wasLagging := false
 	var retryWait time.Duration
+	// Set when the last poll advanced the checkpoint but it still trails the safe
+	// end (e.g. queryCDCMaxQueryWindow cut the poll short). Under a cron schedule,
+	// waiting for the next fire would leave the checkpoint lagging for good, so
+	// keep polling until caught up.
+	catchingUp := false
 	for ctx.Err() == nil {
 		// captured before the state read so a concurrent normalize commit can't land in the
 		// gap between reading a stale state and waiting, which would wait on a channel that
@@ -273,8 +386,8 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}
 
 		if wait := queryCDCPollWait(
-			state.LastAttemptAt, state.LastSyncedAt, time.Now(), syncInterval,
-		); wait > 0 {
+			state.LastAttemptAt, state.LastSyncedAt, time.Now(), syncInterval, syncSchedule,
+		); wait > 0 && !catchingUp {
 			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
@@ -286,6 +399,11 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		stream := model.NewCDCStream[model.RecordItems](channelBufferSize)
 		var pullResult model.PullTableRecordsResult
 		var rowCounts *model.RecordTypeCounts
+		pollSkipped := false
+		// start and safe end of this poll, compared with the cursor the connector
+		// returns: it may advance past the requested end when nothing was found there
+		var pollStart, pollSafeEnd time.Time
+		var safetyLagWait time.Duration
 		pollErr, fatalErr := func() (error, error) {
 			// bounded parallelism: only pull+sync for up to parallelism tables at once
 			release, err := acquire(ctx, pullSyncSem, logger, "pull-sync")
@@ -293,6 +411,27 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 				return err, nil
 			}
 			defer release()
+
+			now, err := srcConn.CurrentSourceTime(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get query CDC source time: %w", err), nil
+			}
+			start, err := model.DecodeQueryCDCCursor(state.CursorText)
+			if err != nil {
+				return err, nil
+			}
+			if start.IsZero() {
+				start = now
+			}
+			safeEnd := now.Add(-queryCDCSafetyLag)
+			end, ok := queryCDCPollWindow(start, now, queryCDCSafetyLag, queryCDCMaxQueryWindow)
+			if !ok {
+				pollSkipped = true
+				safetyLagWait = start.Sub(safeEnd)
+				return nil, nil
+			}
+
+			pollStart, pollSafeEnd = start, safeEnd
 
 			logger.Info("[cdc] starting poll")
 			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
@@ -303,13 +442,16 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			pollGroup.Go(func() error {
 				var pullErr error
 				pullResult, pullErr = srcConn.PullTableRecords(pollCtx, a.CatalogPool, a.OtelManager, &model.PullTableRecordsRequest{
-					Env:                   config.Env,
-					FlowJobName:           flowName,
-					SourceTableIdentifier: sourceTable,
-					NameAndExclude:        nameAndExclude,
-					TableSchema:           tableNameSchemaMapping[destTable],
-					Cursor:                state.CursorText,
-					Stream:                stream,
+					Env:                    config.Env,
+					FlowJobName:            flowName,
+					SourceTableIdentifier:  sourceTable,
+					SourceTableMapping:     sourceTableMapping,
+					TableSchema:            tableNameSchemaMapping[destTable],
+					StartTime:              start,
+					EndTime:                end,
+					SafeEndTime:            safeEnd,
+					QueryCDCMaxQueryWindow: queryCDCMaxQueryWindow,
+					Stream:                 stream,
 				})
 				stream.Close()
 				if pullErr == nil {
@@ -321,7 +463,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			hasRecords := !stream.WaitAndCheckEmpty()
 			if hasRecords {
 				pollGroup.Go(func() error {
-					dstConn, dstClose, syncErr := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](
+					// staging doesn't need the destination server, so a destination
+					// outage doesn't abort the source pull
+					dstConn, dstClose, syncErr := connectors.GetQueryCDCStagingByName(
 						pollCtx, config.Env, a.CatalogPool, config.DestinationName)
 					if syncErr != nil {
 						return fmt.Errorf("failed to get destination connector: %w", syncErr)
@@ -336,8 +480,6 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 						TableSchema:       tableNameSchemaMapping[destTable],
 						Records:           stream.GetRecords(),
 						Version:           config.Version,
-						Flags:             config.Flags,
-						SchemaDeltas:      stream.SchemaDeltas,
 						BatchID:           nextBatchID,
 						SoftDeleteColName: config.SoftDeleteColName,
 					})
@@ -356,6 +498,13 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if fatalErr != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
 		}
+		if pollSkipped {
+			logger.Info("[cdc] waiting for checkpoint to clear safety lag", slog.Duration("wait", safetyLagWait))
+			if err := waitOrDone(ctx, safetyLagWait); err != nil {
+				return err
+			}
+			continue
+		}
 		if pollErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -367,7 +516,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 					sourceTable, pollErr))
 				wasLagging = true
 			}
-			retryWait = queryCDCRetryWait(retryWait, syncInterval)
+			retryWait = queryCDCRetryWait(retryWait, retryCadence)
 			logger.Info("[cdc] waiting before retrying failed poll", slog.Duration("wait", retryWait))
 			if err := waitOrDone(ctx, retryWait); err != nil {
 				return err
@@ -376,12 +525,11 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		}
 		wasLagging = false
 		retryWait = 0
-
-		if len(stream.SchemaDeltas) > 0 {
-			if err := a.applySchemaDeltas(ctx, config, stream.SchemaDeltas); err != nil {
-				return a.Alerter.LogFlowError(ctx, flowName, err)
-			}
+		nextCursor, err := model.DecodeQueryCDCCursor(pullResult.NextCursor)
+		if err != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+		catchingUp = syncSchedule != nil && queryCDCCatchingUp(pollStart, nextCursor, pollSafeEnd)
 
 		var numSynced int64
 		if rowCounts != nil {
@@ -399,14 +547,25 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
-			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed)
+			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
 			normRequests.Update(newBatchID)
 		}
 	}
 	return ctx.Err()
 }
 
-func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable string, rowCounts *model.RecordTypeCounts, bytesProcessed int64) {
+func (a *FlowableActivity) recordSyncMetrics(
+	ctx context.Context,
+	destTable string,
+	rowCounts *model.RecordTypeCounts,
+	bytesProcessed int64,
+	batchId int64,
+) {
+	// per table metrics
+	dstTableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destTable)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
+	a.OtelManager.Metrics.QueryCDCFetchedBatchesSizeHistogram.Record(ctx, bytesProcessed, metricsOptions)
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
 	opAndCount := []struct {
 		op    string
 		count int64
@@ -417,17 +576,20 @@ func (a *FlowableActivity) recordSyncMetrics(ctx context.Context, destTable stri
 	}
 	for _, oc := range opAndCount {
 		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 		a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
 		)))
 	}
 
+	// global mirror metrics, aligned with event based cdc pipes
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx,
+		int64(rowCounts.InsertCount.Load()+rowCounts.UpdateCount.Load()+rowCounts.DeleteCount.Load()))
 }
 
 // queryCDCNormalizeLoop inserts one source table's staged batches
@@ -448,6 +610,9 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	destTable := tableMapping.DestinationTableIdentifier
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	metricsOptions := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.DestinationTableNameKey, destTable),
+	))
 
 	state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 	if err != nil {
@@ -488,7 +653,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			}
 			defer release()
 
-			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCSyncConnector](ctx, config.Env,
+			dstConn, dstClose, err := connectors.GetByNameAs[connectors.QueryCDCNormalizeConnector](ctx, config.Env,
 				a.CatalogPool, config.DestinationName)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -538,6 +703,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		normResponses.Update(reqBatchID)
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,

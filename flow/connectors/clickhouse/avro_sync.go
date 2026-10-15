@@ -156,13 +156,35 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 		return nil, 0, err
 	}
 
-	bytesPerAvroFile, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
+	return s.writeToAvroFiles(ctx, config.Env, stream, avroSchema, partition.PartitionId,
+		config.FlowJobName, destTypeConversions, numericTruncator)
+}
+
+// writeToAvroFiles drains stream into size-bounded Avro objects. The limit is
+// based on the Avro converter's pre-compression size estimate, so an individual
+// object can exceed it by at most one record.
+func (s *ClickHouseAvroSyncMethod) writeToAvroFiles(
+	ctx context.Context,
+	env map[string]string,
+	stream *model.QRecordStream,
+	avroSchema *model.QRecordAvroSchemaDefinition,
+	identifierForFiles string,
+	flowJobName string,
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
+) ([]utils.AvroFile, int64, error) {
+	bytesPerAvroFile, err := internal.PeerDBS3BytesPerAvroFile(ctx, env)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	schema, err := stream.Schema()
 	if err != nil {
 		return nil, 0, err
 	}
 
 	s.logger.Info("writing avro chunks to S3 start",
-		slog.String("partitionId", partition.PartitionId),
+		slog.String("identifier", identifierForFiles),
 		slog.Int64("bytesPerAvroFile", bytesPerAvroFile))
 
 	// helper function to create a substream for splitting the main stream into chunks
@@ -178,7 +200,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 			for record := range stream.Records {
 				if err := substream.Send(ctx, record); err != nil {
 					s.logger.Warn("substream send failed",
-						slog.String("partitionId", partition.PartitionId),
+						slog.String("identifier", identifierForFiles),
 						slog.Int("chunkNum", chunkNum),
 						slog.Int64("recordsSent", recordCount),
 						slog.Duration("elapsed", time.Since(startTime)),
@@ -212,30 +234,28 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 			}
 
 			substream, sizeTracker := createChunkedSubstream(&done, chunkNum)
-			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, sizeTracker, avroSchema,
-				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, destTypeConversions, numericTruncator,
-			)
+			subFile, err := s.writeToAvroFile(ctx, env, substream, sizeTracker, avroSchema,
+				fmt.Sprintf("%s.%06d", identifierForFiles, chunkNum), flowJobName, typeConversions, numericTruncator)
 			if err != nil {
 				s.logger.Error("writeToAvroFile failed for chunk",
-					slog.String("partitionId", partition.PartitionId),
+					slog.String("identifier", identifierForFiles),
 					slog.Int("chunkNum", chunkNum),
 					slog.Any("error", err))
 				return nil, 0, err
 			}
-			avroFiles = append(avroFiles, subFile)
-			chunkNum += 1
-			totalRecords += subFile.NumRecords
+			if subFile.NumRecords > 0 {
+				avroFiles = append(avroFiles, subFile)
+				totalRecords += subFile.NumRecords
+			}
+			chunkNum++
 		}
 
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
 		}
 	} else {
-		avroFile, err := s.writeToAvroFile(
-			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
-			destTypeConversions, numericTruncator,
-		)
+		avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema,
+			identifierForFiles, flowJobName, typeConversions, numericTruncator)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -244,10 +264,9 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 	}
 
 	s.logger.Info("finished writing avro chunks to S3",
-		slog.String("partitionId", partition.PartitionId),
+		slog.String("identifier", identifierForFiles),
 		slog.Int("totalChunks", len(avroFiles)),
 		slog.Int64("totalRecords", totalRecords))
-
 	return avroFiles, totalRecords, nil
 }
 

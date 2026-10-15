@@ -28,6 +28,10 @@ type MongoSource struct {
 	adminClient *mongo.Client
 }
 
+func (s *MongoSource) Config() *protos.MongoConfig {
+	return s.config
+}
+
 func (s *MongoSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 	peer := &protos.Peer{

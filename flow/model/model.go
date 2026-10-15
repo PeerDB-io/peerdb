@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -13,12 +14,16 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type NameAndExclude struct {
-	Exclude map[string]struct{}
-	Name    string
+type SourceTableMapping struct {
+	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
+	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
+	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
+	MongoConfiguration *protos.MongoTableConfig
+	Exclude            map[string]struct{}
+	Name               string
 }
 
-func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 	var exset map[string]struct{}
 	if len(exclude) != 0 {
 		exset = make(map[string]struct{}, len(exclude))
@@ -26,7 +31,15 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 			exset[col] = struct{}{}
 		}
 	}
-	return NameAndExclude{Name: name, Exclude: exset}
+	return SourceTableMapping{Name: name, Exclude: exset}
+}
+
+func NewSourceTableMappingWithStructuredIngestion(
+	name string, exclude []string, structuredIngestionConfiguration *protos.StructuredIngestionTableConfig,
+) SourceTableMapping {
+	mapping := NewSourceTableMapping(name, exclude)
+	mapping.StructuredIngestionConfiguration = structuredIngestionConfiguration
+	return mapping
 }
 
 type RecordTypeCounts struct {
@@ -73,7 +86,7 @@ type PullRecordsRequest[T Items] struct {
 	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]NameAndExclude
+	TableNameMapping map[string]SourceTableMapping
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// overrides dynamic configuration
@@ -104,13 +117,18 @@ type PullTableRecordsRequest struct {
 	FlowJobName string
 	// SourceTableIdentifier is the source table this request pulls.
 	SourceTableIdentifier string
-	// NameAndExclude carries the destination table name and excluded columns.
-	NameAndExclude NameAndExclude
+	// SourceTableMapping carries the destination table name and excluded columns.
+	SourceTableMapping SourceTableMapping
 	// TableSchema is the schema of the destination table.
 	TableSchema *protos.TableSchema
-	// Cursor is the opaque value previously returned for this table by
-	// PullTableRecordsResult.NextCursor, empty for a table pulled for the first time.
-	Cursor string
+	// StartTime and EndTime are the safe source-time window selected by the activity.
+	StartTime time.Time
+	EndTime   time.Time
+	// SafeEndTime is the furthest source time this poll may inspect. Query-mode
+	// sources use it to skip across empty bounded windows without crossing the safety lag.
+	SafeEndTime time.Time
+	// QueryCDCMaxQueryWindow caps the duration covered by a single pull query.
+	QueryCDCMaxQueryWindow time.Duration
 	// Stream is where pulled records are pushed.
 	Stream *CDCStream[RecordItems]
 }
@@ -122,6 +140,21 @@ type PullTableRecordsResult struct {
 	NextCursor string
 	// BytesProcessed is the number of bytes fetched from the source for this poll.
 	BytesProcessed int64
+}
+
+func EncodeQueryCDCCursor(t time.Time) string {
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func DecodeQueryCDCCursor(cursor string) (time.Time, error) {
+	if cursor == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, cursor)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse query CDC table cursor %q: %w", cursor, err)
+	}
+	return t, nil
 }
 
 // SyncQueryCDCRequest carries one table's CDC records to
@@ -137,15 +170,13 @@ type SyncQueryCDCRequest struct {
 	TableSchema  *protos.TableSchema
 	Records      <-chan Record[RecordItems]
 	Version      uint32
-	Flags        []string
-	SchemaDeltas []*protos.TableSchemaDelta
 	// BatchID is this table's own batch sequence number for the records being
 	// staged, persisted as its new synced_batch_id on success.
 	BatchID           int64
 	SoftDeleteColName string
 }
 
-// NormalizeQueryCDCRequest asks QueryCDCSyncConnector.NormalizeQueryCDC to
+// NormalizeQueryCDCRequest asks QueryCDCNormalizeConnector.NormalizeQueryCDC to
 // insert batches [StartBatchID, EndBatchID], previously staged by
 // SyncQueryCDC, straight into the final destination table, bypassing any
 // raw-table hop.

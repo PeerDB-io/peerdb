@@ -76,7 +76,7 @@ sequenceDiagram
 type PostgresCDCSource struct {
     *PostgresConnector
     srcTableIDNameMapping     map[uint32]string          // OID → table name
-    tableNameMapping          map[string]model.NameAndExclude
+    tableNameMapping          map[string]model.SourceTableMapping
     tableNameSchemaMapping    map[string]*protos.TableSchema
     relationMessageMapping    model.RelationMessageMapping
     childToParentRelIDMapping map[uint32]uint32           // partitioned table support

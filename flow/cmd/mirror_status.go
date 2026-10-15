@@ -695,6 +695,20 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	ctx context.Context,
 	req *protos.CDCTableTotalCountsRequest,
 ) (*protos.CDCTableTotalCountsResponse, APIError) {
+	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+	}
+	if config.GetBigqueryCdcConfig() != nil {
+		state, apiErr := h.GetQueryCDCReplicationState(ctx, &protos.GetQueryCDCReplicationStateRequest{
+			FlowJobName: req.FlowJobName,
+		})
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		return queryCDCTableTotalCounts(state.Tables, config.TableMappings), nil
+	}
+
 	rows, err := h.pool.Query(ctx, `SELECT
 			destination_table_name,
 			inserts_count,
@@ -750,6 +764,46 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	}
 
 	return response, nil
+}
+
+func queryCDCTableTotalCounts(
+	tables []*protos.QueryCDCReplicationState,
+	mappings []*protos.TableMapping,
+) *protos.CDCTableTotalCountsResponse {
+	destinations := make(map[string]string, len(mappings))
+	for _, mapping := range mappings {
+		destinations[mapping.SourceTableIdentifier] = mapping.DestinationTableIdentifier
+	}
+
+	response := &protos.CDCTableTotalCountsResponse{
+		TotalData:  &protos.CDCRowCounts{},
+		TablesData: make([]*protos.CDCTableRowCounts, 0, len(tables)),
+	}
+	for _, table := range tables {
+		counts := &protos.CDCRowCounts{
+			InsertsCount: table.InsertsCount,
+			UpdatesCount: table.UpdatesCount,
+			DeletesCount: table.DeletesCount,
+		}
+		counts.TotalCount = counts.InsertsCount + counts.UpdatesCount + counts.DeletesCount
+
+		tableName := destinations[table.SourceTableIdentifier]
+		if tableName == "" {
+			tableName = table.SourceTableIdentifier
+		}
+		response.TablesData = append(response.TablesData, &protos.CDCTableRowCounts{
+			TableName: tableName,
+			Counts:    counts,
+		})
+		response.TotalData.TotalCount += counts.TotalCount
+		response.TotalData.InsertsCount += counts.InsertsCount
+		response.TotalData.UpdatesCount += counts.UpdatesCount
+		response.TotalData.DeletesCount += counts.DeletesCount
+	}
+	slices.SortFunc(response.TablesData, func(a, b *protos.CDCTableRowCounts) int {
+		return strings.Compare(a.TableName, b.TableName)
+	})
+	return response
 }
 
 func (h *FlowRequestHandler) GetQueryCDCReplicationState(

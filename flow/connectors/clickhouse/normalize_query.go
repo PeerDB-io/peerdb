@@ -236,7 +236,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					)
 				}
 			}
-		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
+		case "Array(DateTime64(6))", "Array(Nullable(DateTime64(6)))", "Nullable(Array(DateTime64(6)))":
 			if colType == types.QValueKindArrayTime {
 				// Array-of-TIME shares ClickHouse's Array(DateTime64(6)) representation with
 				// Array-of-TIMESTAMP, so it needs the same extended-time parsing as the
@@ -282,6 +282,24 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				fmt.Fprintf(&projectionUpdate,
 					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+		case "Array(JSON)", "Array(Nullable(JSON))":
+			// Arrays of JSON are stored in the raw data as a string holding the whole array.
+			// Extracting the array type straight from the field would find a string and yield [].
+			// A missing field or a JSON null extracts as '', so as the empty array.
+			fmt.Fprintf(&projection,
+				"JSONExtract(JSONExtractString(_peerdb_data, %s), %s) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteLiteral(clickHouseType),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"JSONExtract(JSONExtractString(_peerdb_match_data, %s), %s) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteLiteral(clickHouseType),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}

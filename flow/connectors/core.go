@@ -159,9 +159,12 @@ type CDCPullConnector interface {
 type QueryCDCPullConnector interface {
 	CDCPullConnectorCore
 
+	// CurrentSourceTime returns the source clock used to calculate safe pull windows.
+	CurrentSourceTime(ctx context.Context) (time.Time, error)
+
 	// PullTableRecords pulls whatever is newly available for one source table
 	// and streams it into req.Stream. This method should be idempotent given
-	// the same req.Cursor.
+	// the same time window.
 	PullTableRecords(
 		ctx context.Context,
 		catalogPool shared.CatalogPool,
@@ -241,14 +244,19 @@ type CDCSyncConnector interface {
 }
 
 // QueryCDCSyncConnector is implemented by destinations that can stage one
-// table's CDC records (SyncQueryCDC) and separately insert staged batches
-// straight into the final destination table (NormalizeQueryCDC), skipping any
-// raw-table hop.
+// table's CDC records (SyncQueryCDC), to be inserted into the final destination
+// table later by QueryCDCNormalizeConnector, skipping any raw-table hop.
 type QueryCDCSyncConnector interface {
 	Connector
 
 	// SyncQueryCDC should be idempotent given the same records and BatchID.
 	SyncQueryCDC(ctx context.Context, req *model.SyncQueryCDCRequest) (*model.RecordTypeCounts, error)
+}
+
+// QueryCDCNormalizeConnector is implemented by destinations that can insert
+// batches staged by QueryCDCSyncConnector straight into the final destination table.
+type QueryCDCNormalizeConnector interface {
+	Connector
 
 	// NormalizeQueryCDC should be idempotent given the same batch range.
 	NormalizeQueryCDC(ctx context.Context, req *model.NormalizeQueryCDCRequest) (*model.RecordTypeCounts, error)
@@ -667,6 +675,34 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	}
 }
 
+// GetQueryCDCStagingByName gets a connector for staging query-based CDC records only,
+// without connecting to the destination server where that is possible, so staging
+// is not blocked by the destination being down. The returned connector must not be
+// used to normalize.
+func GetQueryCDCStagingByName(
+	ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string,
+) (QueryCDCSyncConnector, func(context.Context), error) {
+	peer, err := LoadPeer(ctx, catalogPool, name)
+	if err != nil {
+		return nil, noopClose, err
+	}
+
+	chConfig, ok := peer.Config.(*protos.Peer_ClickhouseConfig)
+	if !ok {
+		return GetAs[QueryCDCSyncConnector](ctx, env, peer)
+	}
+
+	conn, err := connclickhouse.NewClickHouseStagingConnector(ctx, env, chConfig.ClickhouseConfig)
+	if err != nil {
+		return nil, noopClose, exceptions.NewPeerCreateError(err)
+	}
+	return conn, func(closeCtx context.Context) {
+		if err := conn.Close(); err != nil {
+			internal.LoggerFromCtx(closeCtx).Error("error closing connector", slog.Any("error", err))
+		}
+	}, nil
+}
+
 // Gets peer and connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
 func LoadPeerAndGetByNameAs[T Connector](
 	ctx context.Context,
@@ -870,6 +906,7 @@ var (
 	_ CDCPullConnector                = &conncockroachdb.CockroachDBConnector{}
 	_ MirrorSourceValidationConnector = &conncockroachdb.CockroachDBConnector{}
 
-	_ QueryCDCPullConnector = &connbigquery.BigQueryConnector{}
-	_ QueryCDCSyncConnector = &connclickhouse.ClickHouseConnector{}
+	_ QueryCDCPullConnector      = &connbigquery.BigQueryConnector{}
+	_ QueryCDCSyncConnector      = &connclickhouse.ClickHouseConnector{}
+	_ QueryCDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 )

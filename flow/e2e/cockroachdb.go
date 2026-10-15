@@ -3,9 +3,15 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	conncockroachdb "github.com/PeerDB-io/peerdb/flow/connectors/cockroachdb"
@@ -47,6 +53,18 @@ func (s *CockroachDBSource) Teardown(t *testing.T, ctx context.Context, suffix s
 
 func (s *CockroachDBSource) Connector() connectors.Connector {
 	return s.conn
+}
+
+func (s *CockroachDBSource) CockroachDBConnector() *conncockroachdb.CockroachDBConnector {
+	return s.conn
+}
+
+func (s *CockroachDBSource) AdminConn() *pgx.Conn {
+	return s.adminConn
+}
+
+func (s *CockroachDBSource) Config() *protos.CockroachDBConfig {
+	return s.config
 }
 
 func (s *CockroachDBSource) Exec(ctx context.Context, sql string, args ...any) error {
@@ -92,9 +110,13 @@ func (s *CockroachDBSource) GetRows(ctx context.Context, suffix, table, cols str
 
 func SetupCockroachDB(t *testing.T, suffix string) (*CockroachDBSource, error) {
 	t.Helper()
+	return SetupCockroachDBWithConfig(t, suffix, internal.GetCockroachDBConfigFromEnv())
+}
 
-	config := internal.GetCockroachDBConfigFromEnv()
-
+func SetupCockroachDBWithConfig(
+	t *testing.T, suffix string, config *protos.CockroachDBConfig,
+) (*CockroachDBSource, error) {
+	t.Helper()
 	connector, err := conncockroachdb.NewCockroachDBConnector(t.Context(), nil, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup cockroachdb connector: %w", err)
@@ -120,4 +142,43 @@ func SetupCockroachDB(t *testing.T, suffix string) (*CockroachDBSource, error) {
 	}
 
 	return &CockroachDBSource{conn: connector, config: config, adminConn: adminConn}, nil
+}
+
+// CockroachDBTestContainerConfig starts an isolated source for tests that change cluster settings.
+// CI and Tilt pass COCKROACHDB_IMAGE so this test covers the same version as the shared source.
+func CockroachDBTestContainerConfig(t *testing.T) *protos.CockroachDBConfig {
+	t.Helper()
+	image := os.Getenv("COCKROACHDB_IMAGE")
+	ctr, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        image,
+			Cmd:          []string{"start-single-node", "--insecure"},
+			ExposedPorts: []string{"26257/tcp"},
+			WaitingFor: wait.ForExec([]string{"./cockroach", "sql", "--insecure", "-e", "SELECT 1"}).
+				WithStartupTimeout(3 * time.Minute),
+		},
+		Started: true,
+	})
+	testcontainers.CleanupContainer(t, ctr, testcontainers.StopTimeout(30*time.Second))
+	require.NoError(t, err)
+	host, err := ctr.Host(t.Context())
+	require.NoError(t, err)
+	mappedPort, err := ctr.MappedPort(t.Context(), "26257/tcp")
+	require.NoError(t, err)
+	port, err := strconv.ParseUint(mappedPort.Port(), 10, 32)
+	require.NoError(t, err)
+
+	config := internal.GetCockroachDBConfigFromEnv()
+	config.Host = host
+	config.Port = uint32(port)
+	conn, err := pgx.Connect(t.Context(), conncockroachdb.GetCRDBConnectionString(config, ""))
+	require.NoError(t, err)
+	// Match local_provision_scripts/cockroachdb.sh: single-node CockroachDB
+	// defaults to a four-hour GC window, below the connector's 24-hour floor.
+	_, err = conn.Exec(t.Context(), "ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 90000")
+	require.NoError(t, err)
+	_, err = conn.Exec(t.Context(), "SET CLUSTER SETTING kv.rangefeed.enabled = true")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(t.Context()))
+	return config
 }

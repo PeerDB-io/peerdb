@@ -852,8 +852,8 @@ func newProcessRowTestState() *changefeedPullState {
 	state := &changefeedPullState{
 		req: &model.PullRecordsRequest[model.RecordItems]{
 			FlowJobName: "test_mirror",
-			TableNameMapping: map[string]model.NameAndExclude{
-				"public.users": model.NewNameAndExclude("users_dst", nil),
+			TableNameMapping: map[string]model.SourceTableMapping{
+				"public.users": model.NewSourceTableMapping("users_dst", nil),
 			},
 			RecordStream: model.NewCDCStream[model.RecordItems](32),
 			IdleTimeout:  time.Minute,
@@ -1026,8 +1026,8 @@ func TestChangefeedMetricsRecording(t *testing.T) {
 
 	state := &changefeedPullState{
 		req: &model.PullRecordsRequest[model.RecordItems]{
-			TableNameMapping: map[string]model.NameAndExclude{
-				"public.users": model.NewNameAndExclude("users_dst", nil),
+			TableNameMapping: map[string]model.SourceTableMapping{
+				"public.users": model.NewSourceTableMapping("users_dst", nil),
 			},
 			RecordStream: model.NewCDCStream[model.RecordItems](32),
 			IdleTimeout:  time.Minute,

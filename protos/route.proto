@@ -207,7 +207,10 @@ message SchemaTablesRequest {
   bool cdc_enabled = 3;
 }
 
-message SchemaTablesResponse { repeated TableResponse tables = 1; }
+message SchemaTablesResponse {
+  repeated TableResponse tables = 1;
+  bool structured_ingestion_supported = 2;
+}
 
 message TableResponse {
   string table_name = 1;

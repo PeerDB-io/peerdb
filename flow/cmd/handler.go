@@ -22,9 +22,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
@@ -206,6 +208,10 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 	// No running workflow, do the validations and start a new one
 
+	for _, tm := range cfg.TableMappings {
+		structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
+	}
+
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
@@ -262,6 +268,11 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, NewInternalApiError(err)
 	} else {
 		cfg.Flags = flags
+	}
+
+	structured.NormalizeStructuredIngestionTypes(cfg.StructuredIngestionConfig, cfg.Columns)
+	if apiErr := h.checkQRepTableConfig(ctx, cfg); apiErr != nil {
+		return nil, apiErr
 	}
 
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
@@ -454,6 +465,14 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
 		if err := internal.ValidateEnv(cdcUpdate.UpdatedEnv); err != nil {
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid settings override: %w", err))
+		}
+		if cronExpr := cdcUpdate.GetQueryCdc().GetSyncCron(); cronExpr != "" {
+			if _, err := common.ParseSyncCron(cronExpr); err != nil {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err))
+			}
+		}
+		for _, tm := range cdcUpdate.AdditionalTables {
+			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 	}
 

@@ -1,3 +1,5 @@
+//go:build tilt
+
 package connmysql
 
 import (

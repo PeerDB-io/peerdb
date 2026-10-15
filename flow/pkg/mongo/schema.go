@@ -136,6 +136,12 @@ func RawArrayToJSON(arr bsoncore.Array, stream *jsoniter.Stream) error {
 	return nil
 }
 
+func RawDateTimeToTime(dt bsoncore.Value) time.Time {
+	// DateTime in MongoDB is normalized to UTC.
+	// ref: https://www.mongodb.com/docs/manual/reference/bson-types/#date
+	return dt.Time().UTC()
+}
+
 // RawValueToJSON writes a BSON value to stream as the JSON PeerDB lands MongoDB documents with, following the
 // MongoDB ClickPipes type mapping (https://clickhouse.com/docs/integrations/clickpipes/mongodb/datatypes).
 //
@@ -176,7 +182,7 @@ func RawValueToJSON(v bsoncore.Value, stream *jsoniter.Stream) error {
 
 	case bsoncore.TypeDateTime:
 		stream.WriteRaw(`"`)
-		stream.SetBuffer(v.Time().UTC().AppendFormat(stream.Buffer(), time.RFC3339Nano))
+		stream.SetBuffer(RawDateTimeToTime(v).AppendFormat(stream.Buffer(), time.RFC3339Nano))
 		stream.WriteRaw(`"`)
 
 	case bsoncore.TypeNull:

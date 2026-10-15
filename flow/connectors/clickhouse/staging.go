@@ -15,7 +15,7 @@ func createStagingStore(
 	ctx context.Context,
 	env map[string]string,
 	config *protos.ClickhouseConfig,
-	chVersion clickhouseproto.Version,
+	chVersion *clickhouseproto.Version,
 ) (StagingStore, error) {
 	provider, err := internal.PeerDBClickHouseStagingProvider(ctx, env)
 	if err != nil {

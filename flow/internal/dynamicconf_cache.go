@@ -38,7 +38,7 @@ func (s *CachedDynconfSetting[T]) Get(ctx context.Context, env map[string]string
 		return zero, errors.New("cached dynamic setting is not initialized")
 	}
 
-	if _, overridden := env[s.name]; overridden {
+	if _, overridden := envGet(env, s.name); overridden {
 		return s.getter(ctx, env, s.name)
 	}
 

@@ -290,9 +290,6 @@ func (c *CockroachDBConnector) PullRecords(
 
 	pullStart := time.Now()
 	defer func() {
-		if state.recordCount == 0 {
-			req.RecordStream.SignalAsEmpty()
-		}
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(state.recordCount)),
@@ -609,9 +606,9 @@ func (c *CockroachDBConnector) processChangefeedRow(
 	}
 	commitWallNanos := updatedTs.WallNanos
 
-	nameAndExclude := state.req.TableNameMapping[source]
+	sourceTableMapping := state.req.TableNameMapping[source]
 	if unknown := schema.unknownColumns(envelope.After, envelope.Before); len(unknown) > 0 {
-		if err := c.emitSchemaDelta(ctx, state, source, nameAndExclude.Name, schema, unknown, updatedTs); err != nil {
+		if err := c.emitSchemaDelta(ctx, state, source, sourceTableMapping.Name, schema, unknown, updatedTs); err != nil {
 			return err
 		}
 	}
@@ -620,7 +617,7 @@ func (c *CockroachDBConnector) processChangefeedRow(
 	var record model.Record[model.RecordItems]
 	switch operation {
 	case changefeedOpInsert:
-		items, err := changefeedRecordItems(envelope.After, schema, nameAndExclude.Exclude)
+		items, err := changefeedRecordItems(envelope.After, schema, sourceTableMapping.Exclude)
 		if err != nil {
 			return newTerminalChangefeedError(fmt.Errorf("failed to convert insert for %s: %w", source, err))
 		}
@@ -628,14 +625,14 @@ func (c *CockroachDBConnector) processChangefeedRow(
 			BaseRecord:           baseRecord,
 			Items:                items,
 			SourceTableName:      source,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: sourceTableMapping.Name,
 		}
 	case changefeedOpUpdate:
-		newItems, err := changefeedRecordItems(envelope.After, schema, nameAndExclude.Exclude)
+		newItems, err := changefeedRecordItems(envelope.After, schema, sourceTableMapping.Exclude)
 		if err != nil {
 			return newTerminalChangefeedError(fmt.Errorf("failed to convert update for %s: %w", source, err))
 		}
-		oldItems, err := changefeedRecordItems(envelope.Before, schema, nameAndExclude.Exclude)
+		oldItems, err := changefeedRecordItems(envelope.Before, schema, sourceTableMapping.Exclude)
 		if err != nil {
 			return newTerminalChangefeedError(fmt.Errorf("failed to convert update for %s: %w", source, err))
 		}
@@ -644,10 +641,10 @@ func (c *CockroachDBConnector) processChangefeedRow(
 			NewItems:             newItems,
 			OldItems:             oldItems,
 			SourceTableName:      source,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: sourceTableMapping.Name,
 		}
 	case changefeedOpDelete:
-		items, err := changefeedRecordItems(envelope.Before, schema, nameAndExclude.Exclude)
+		items, err := changefeedRecordItems(envelope.Before, schema, sourceTableMapping.Exclude)
 		if err != nil {
 			return newTerminalChangefeedError(fmt.Errorf("failed to convert delete for %s: %w", source, err))
 		}
@@ -655,12 +652,12 @@ func (c *CockroachDBConnector) processChangefeedRow(
 			BaseRecord:           baseRecord,
 			Items:                items,
 			SourceTableName:      source,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: sourceTableMapping.Name,
 		}
 	case changefeedOpSkip:
 		// delete without a before image: rebuild the row key from the
 		// changefeed key column, a JSON array in primary-key column order
-		items, err := changefeedKeyItems(key, schema, nameAndExclude.Exclude)
+		items, err := changefeedKeyItems(key, schema, sourceTableMapping.Exclude)
 		if err != nil {
 			// dropping the delete would leave the destination row alive for
 			// good while the checkpoint advances past it
@@ -671,7 +668,7 @@ func (c *CockroachDBConnector) processChangefeedRow(
 			BaseRecord:           baseRecord,
 			Items:                items,
 			SourceTableName:      source,
-			DestinationTableName: nameAndExclude.Name,
+			DestinationTableName: sourceTableMapping.Name,
 			// only key columns are known; the sentinel keeps normalize from
 			// touching non-key columns, mirroring sparse postgres deletes
 			UnchangedToastColumns: map[string]struct{}{"_peerdb_not_backfilled_delete": {}},
@@ -750,9 +747,6 @@ func (c *CockroachDBConnector) emitBuffered(
 			return err
 		}
 		state.recordCount++
-		if state.recordCount == 1 {
-			state.req.RecordStream.SignalAsNotEmpty()
-		}
 		if state.recordCount%pullProgressLogInterval == 0 {
 			c.logger.Info("[cockroachdb] PullRecords streaming",
 				slog.Uint64("records", uint64(state.recordCount)),

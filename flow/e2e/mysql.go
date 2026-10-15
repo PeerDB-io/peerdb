@@ -40,12 +40,6 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
 }
 
-func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
-	t.Helper()
-	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
-	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
-}
-
 // MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
 type MySQLTestContainerConfig struct {
 	Image string

@@ -14,7 +14,14 @@ def resolve_ancillary_env(var_name, default=None):
             return line.strip().split('=', 1)[1]
     return default
 
-docker_compose('./docker-compose-dev.yml', project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
+# Flow tests talk to flow-api directly, so skip nexus and the UI there.
+ci = os.getenv('PEERDB_CI') == '1'
+compose = read_yaml('./docker-compose-dev.yml')
+if ci:
+    compose['services'].pop('peerdb')
+    compose['services'].pop('peerdb-ui')
+
+docker_compose(encode_yaml(compose), project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
 temporal_port = resolve_env('TEMPORAL_PORT', '7233')
@@ -51,20 +58,21 @@ docker_build('flow-snapshot-worker', '.',
     ignore=flow_ignore,
 )
 
-docker_build('peerdb', '.',
-    dockerfile='stacks/peerdb-server.Dockerfile',
-    only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
-    build_args={
-        'BUILD_MODE': 'debug',
-        'CARGO_FLAGS': '--no-default-features --features mysql',
-    },
-)
+if not ci:
+    docker_build('peerdb', '.',
+        dockerfile='stacks/peerdb-server.Dockerfile',
+        only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
+        build_args={
+            'BUILD_MODE': 'debug',
+            'CARGO_FLAGS': '--no-default-features --features mysql',
+        },
+    )
 
-docker_build('peerdb-ui', '.',
-    dockerfile='stacks/peerdb-ui.Dockerfile',
-    target='dev',
-    only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
-)
+    docker_build('peerdb-ui', '.',
+        dockerfile='stacks/peerdb-ui.Dockerfile',
+        target='dev',
+        only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
+    )
 
 local_resource(
     'proto-gen',
@@ -73,9 +81,12 @@ local_resource(
     labels=['PeerDB'],
 )
 
-dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
-    link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
-])
+if not ci:
+    dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
+        link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
+    ])
+    dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
+dc_resource('flow-migrate', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
@@ -88,7 +99,6 @@ dc_resource('temporal', labels=['PeerDB'])
 dc_resource('temporal-admin-tools', labels=['PeerDB'])
 dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])
 
 
@@ -98,14 +108,16 @@ local_resource(
     'provision-mongodb',
     cmd='./local_provision_scripts/mongodb.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mongodb']
+    resource_deps=['mongodb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-clickhouse',
     cmd='./local_provision_scripts/clickhouse.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['clickhouse']
+    resource_deps=['clickhouse'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -113,55 +125,63 @@ local_resource(
     cmd='./local_provision_scripts/clickhouse-cluster.sh',
     labels=['Ancillary-DB-Provisioning'],
     resource_deps=['provision-clickhouse', 'clickhouse-02', 'clickhouse-keeper'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-cockroachdb',
     cmd='./local_provision_scripts/cockroachdb.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['cockroachdb']
+    resource_deps=['cockroachdb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mysql-gtid',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-gtid',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mysql-gtid']
+    resource_deps=['mysql-gtid'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mysql-pos',
     cmd='./local_provision_scripts/mysql.sh peerdb-mysql-pos',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mysql-pos']
+    resource_deps=['mysql-pos'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-mariadb',
     cmd='./local_provision_scripts/mysql.sh peerdb-mariadb',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['mariadb']
+    resource_deps=['mariadb'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-postgres',
     cmd='./local_provision_scripts/postgres.sh',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['postgres']
+    resource_deps=['postgres'],
+    allow_parallel=True,
 )
 
 local_resource(
     'provision-postgres2',
     cmd='./local_provision_scripts/postgres.sh peerdb-postgres2',
     labels=['Ancillary-DB-Provisioning'],
-    resource_deps=['postgres2']
+    resource_deps=['postgres2'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-postgres-peer',
     cmd='./local_provision_scripts/setup-postgres-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-postgres']
+    resource_deps=['flow-api', 'provision-postgres'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -169,27 +189,31 @@ local_resource(
     cmd='./local_provision_scripts/setup-postgres2-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-postgres2'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-clickhouse-peer',
     cmd='./local_provision_scripts/setup-clickhouse-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-clickhouse'],
+    resource_deps=['flow-api', 'provision-clickhouse', 'minio'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-clickhouse-cluster-peer',
     cmd='./local_provision_scripts/setup-clickhouse-cluster-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['flow-api', 'provision-clickhouse-cluster'],
+    resource_deps=['flow-api', 'provision-clickhouse-cluster', 'minio'],
+    allow_parallel=True,
 )
 
 local_resource(
     'setup-cockroachdb-peer',
     cmd='./local_provision_scripts/setup-cockroachdb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
-    resource_deps=['peerdb', 'provision-cockroachdb'],
+    resource_deps=['flow-api', 'provision-cockroachdb'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -197,6 +221,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mongodb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mongodb'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -204,6 +229,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mysql-gtid-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mysql-gtid'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -211,6 +237,7 @@ local_resource(
     cmd='./local_provision_scripts/setup-mysql-pos-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mysql-pos'],
+    allow_parallel=True,
 )
 
 local_resource(
@@ -218,18 +245,19 @@ local_resource(
     cmd='./local_provision_scripts/setup-mariadb-peer.sh',
     labels=['Setup-PeerDB-Peers'],
     resource_deps=['flow-api', 'provision-mariadb'],
+    allow_parallel=True,
 )
 
 # CI (tilt-flow.yml) exports the ancillary image pins as empty strings when
 # their workflow inputs are omitted, and compose interpolation lets a
 # set-but-empty process variable shadow the env_file fallbacks that
-# generate-test-environment.sh resolves into ancillary.env.
+# scripts/generate-test-environment.sh resolves into ancillary.env.
 for var in [k for k in os.environ.keys() if k.endswith('_IMAGE') and os.environ[k] == '']:
     os.unsetenv(var)
 
 # This is not defined as a resource as we need the file to be present
 # when `docker_compose` loads the configuration (next line).
-local('./generate-test-environment.sh')
+local('./scripts/generate-test-environment.sh')
 
 tiltfile_dir = config.main_path.replace('/Tiltfile', '')
 docker_compose('./ancillary-docker-compose.yml', env_file=tiltfile_dir + '/ancillary.env')
@@ -331,23 +359,22 @@ cmd_button(
 
 # Tests launchers
 
-def e2e_test(name, test_run, extra_deps=[], vars_overrides={}):
+def e2e_test(name, package, test_run, extra_deps=[], vars_overrides={}):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     local_resource(
         'e2e_' + name,
-        cmd='cd flow && %s go test -count=1 -v -run %s ./e2e/' % (overrides_str, test_run),
+        cmd='cd flow && %s go test -tags tilt -count=1 -v -run %s ./e2e/%s/' % (overrides_str, test_run, package),
         labels=['Test'],
         auto_init=False,
         resource_deps=['flow-api', 'flow-worker', 'catalog', 'provision-clickhouse'] + extra_deps,
         allow_parallel=True,
     )
 
-def connector_test(connector, extra_deps=[], vars_overrides={}, name='', test_run=''):
+def connector_test(connector, extra_deps=[], vars_overrides={}, name=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
-    test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'connector_' + (name or connector),
-        cmd='cd flow && %s go test -count=1 -v%s ./connectors/%s/...' % (overrides_str, test_run_arg, connector),
+        cmd='cd flow && %s go test -tags tilt -count=1 -v ./connectors/%s/...' % (overrides_str, connector),
         labels=['Test'],
         auto_init=False,
         resource_deps=['catalog'] + extra_deps,
@@ -359,7 +386,7 @@ def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
         'pkg_' + pkg,
-        cmd='cd flow/pkg && %s go test -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
+        cmd='cd flow/pkg && %s go test -tags tilt -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
         resource_deps=extra_deps,
@@ -380,68 +407,69 @@ mysql_pos_vars = {
     'CI_SSH_MYSQL_HOST': resolve_env('CI_SSH_MYSQL_HOST'),
 }
 mariadb_vars = {
-    'CI_MARIADB_PORT': resolve_env('CI_MARIADB_PORT'),
-    'CI_MARIADB_VERSION': resolve_env('CI_MARIADB_VERSION'),
-    'CI_MARIADB_ROOT_PASSWORD': resolve_env('CI_MARIADB_ROOT_PASSWORD'),
+    'CI_MYSQL_HOST': resolve_env('CI_MARIADB_HOST'),
+    'CI_MYSQL_PORT': resolve_env('CI_MARIADB_PORT'),
+    'CI_MYSQL_VERSION': resolve_env('CI_MARIADB_VERSION'),
+    'CI_MYSQL_ROOT_PASSWORD': resolve_env('CI_MARIADB_ROOT_PASSWORD'),
 }
 
 # Generic e2e tests
 
 # Postgres to ClickHouse generic tests
-e2e_test('postgres', 'TestGenericCH_PG', ['provision-postgres'])
-e2e_test('postgres-tls', 'TestGenericCH_PG', ['provision-postgres'], vars_overrides={'PG_REQUIRE_TLS': 'true', 'PG_ROOT_CA_PATH': '$(pwd)/../volumes/pg-tls/server.crt'})
+e2e_test('postgres', 'postgres_clickhouse', 'TestGenericCH_PG', ['provision-postgres'])
+e2e_test('postgres-tls', 'postgres_clickhouse', 'TestGenericCH_PG', ['provision-postgres'], vars_overrides={'PG_REQUIRE_TLS': 'true', 'PG_ROOT_CA_PATH': '$(pwd)/../volumes/pg-tls/server.crt'})
 
 # MySQL GTID to ClickHouse generic tests
-e2e_test('mysql-gtid', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('mysql-gtid', 'mysql_clickhouse', 'TestGenericCH_MySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
 
 # MySQL Pos to ClickHouse generic tests
-e2e_test('mysql-pos', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('mysql-pos', 'mysql_clickhouse', 'TestGenericCH_MySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
 
 # MariaDB to ClickHouse generic tests
-e2e_test('mariadb', 'TestGenericCH_MariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('mariadb', 'mysql_clickhouse', 'TestGenericCH_MySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # MongoDB to ClickHouse test suite
-e2e_test('mongodb', 'TestMongoClickhouseSuite', ['provision-mongodb'])
+e2e_test('mongodb', 'mongo_clickhouse', 'TestMongoClickhouseSuite', ['provision-mongodb'])
 
 # CockroachDB source tests (peer/introspection suite and QRep to ClickHouse)
-e2e_test('cockroachdb', 'TestCockroachDB', ['provision-cockroachdb'])
-connector_test('cockroachdb', ['provision-cockroachdb'])
+e2e_test('cockroachdb', 'cockroachdb_clickhouse', 'TestCockroachDB', ['provision-cockroachdb'],
+         vars_overrides={'COCKROACHDB_IMAGE': resolve_ancillary_env('COCKROACHDB_IMAGE')})
 
 # Switchboard tests
 
-e2e_test('switchboard-postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
+e2e_test('switchboard-postgres', 'switchboard_postgres', 'TestSwitchboardPostgres', ['provision-postgres'])
 
-e2e_test('switchboard-mysql-gtid', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
-e2e_test('switchboard-mysql-pos', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('switchboard-mariadb', 'TestSwitchboardMariaDB', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('switchboard-mysql-gtid', 'switchboard_mysql', 'TestSwitchboardMySQL', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('switchboard-mysql-pos', 'switchboard_mysql', 'TestSwitchboardMySQL', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('switchboard-mariadb', 'switchboard_mysql', 'TestSwitchboardMySQL', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
-e2e_test('switchboard-mongodb', 'TestSwitchboardMongo', ['provision-mongodb'])
+e2e_test('switchboard-mongodb', 'switchboard_mongo', 'TestSwitchboardMongo', ['provision-mongodb'])
 
 # Peer flow E2E
 
-e2e_test('peer-flow-postgres', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
+e2e_test('peer-flow-postgres', 'postgres_clickhouse', '^TestPeerFlowE2ETestSuitePG_CH$', ['provision-postgres'])
 
-e2e_test('peer-flow-mysql-gtid', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
-e2e_test('peer-flow-mysql-pos', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
-e2e_test('peer-flow-mariadb', '^TestPeerFlowE2ETestSuiteMariaDB_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
+e2e_test('peer-flow-mysql-gtid', 'mysql_clickhouse', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('peer-flow-mysql-pos', 'mysql_clickhouse', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('peer-flow-mariadb', 'mysql_clickhouse', '^TestPeerFlowE2ETestSuiteMySQL_CH$', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
 # API e2e tests
 
-e2e_test('api-postgres', 'TestApiPg', ['provision-postgres'])
+e2e_test('api-postgres', 'postgres_clickhouse', 'TestApiPg', ['provision-postgres'])
 
-e2e_test('api-mysql-gtid', 'TestApiMy', ['provision-mysql-gtid', 'provision-postgres'], vars_overrides=mysql_gtid_vars)
-e2e_test('api-mysql-pos', 'TestApiMy', ['provision-mysql-pos', 'provision-postgres'], vars_overrides=mysql_pos_vars)
-e2e_test('api-mariadb', 'TestApiMariaDB', ['provision-mariadb', 'provision-postgres'], vars_overrides=mariadb_vars)
+e2e_test('api-mysql-gtid', 'mysql_clickhouse', 'TestApiMy', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars)
+e2e_test('api-mysql-pos', 'mysql_clickhouse', 'TestApiMy', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars)
+e2e_test('api-mariadb', 'mysql_clickhouse', 'TestApiMy', ['provision-mariadb'], vars_overrides=mariadb_vars)
 
-e2e_test('api-mongodb', 'TestApiMongo', ['provision-mongodb'])
+e2e_test('api-mongodb', 'mongo_clickhouse', 'TestApiMongo', ['provision-mongodb'])
 
 # Connectors tests
 
 connector_test('postgres', ['provision-postgres'])
 
-connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos', test_run="'(TestMySQLOnlyIntegration|TestIntegration.*)/mysql$'")
-connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb', test_run="'TestIntegration.*/mariadb$'")
+connector_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid')
+connector_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos')
+connector_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb')
 
 connector_test('mongo', ['provision-mongodb'])
 

@@ -73,7 +73,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     command: -c config_file=/etc/postgresql.conf
     ports:
       - *peerdb-catalog-port
@@ -144,9 +144,26 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3030
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.53.3@sha256:eef301146e60fad34b47adaecfae4149016e34b2d44ba94fca5fd8e5441f182a
+    image: temporalio/ui:2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
     ports:
       - *temporal-ui-port
+
+  # applies catalog schema migrations and exits
+  flow-migrate:
+    container_name: flow-migrate
+    image: flow-api
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
+      args:
+        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
+    entrypoint: ["/home/peerdb/peer-flow", "migrate"]
+    environment:
+      <<: *catalog-config
+    depends_on:
+      catalog:
+        condition: service_healthy
 
   flow-api:
     container_name: flow_api
@@ -171,6 +188,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
@@ -188,6 +207,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
@@ -210,6 +231,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      flow-migrate:
+        condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
 
@@ -227,13 +250,14 @@ services:
       <<: *catalog-config
       PEERDB_PASSWORD: peerdb
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+      PEERDB_MIGRATIONS_DISABLED: true
       RUST_LOG: info
       RUST_BACKTRACE: 1
     ports:
       - *peerdb-nexus-port
     depends_on:
-      catalog:
-        condition: service_healthy
+      flow-migrate:
+        condition: service_completed_successfully
 
   peerdb-ui:
     container_name: peerdb-ui
@@ -269,7 +293,7 @@ services:
       - flow-api
 
   minio:
-    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     volumes:
       - minio-data:/data
     ports:
@@ -279,7 +303,7 @@ services:
       <<: *minio-config
     entrypoint: >
       /bin/sh -c "
-      minio server /data --console-address=:36987 &
+      silo server /data --console-address=:36987 &
       sleep 2;
       mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
       mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;

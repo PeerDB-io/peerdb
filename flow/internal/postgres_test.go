@@ -17,6 +17,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 		disableTls *bool
 		name       string
 		requireTls bool
+		authType   protos.PostgresAuthType
 		expected   bool
 	}{
 		{
@@ -61,6 +62,11 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			disableTls: boolPtr(true),
 			expected:   true,
 		},
+		{
+			name:     "Cloud SQL IAM leaves TLS to the connector",
+			authType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,6 +74,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			config := &protos.PostgresConfig{
 				RequireTls: tt.requireTls,
 				DisableTls: tt.disableTls,
+				AuthType:   tt.authType,
 			}
 			assert.Equal(t, tt.expected, PGMustUseTlsConnection(config))
 		})
@@ -189,4 +196,16 @@ func TestGetPGConnectionString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetPGConnectionStringCloudSQLIAMWithoutPort(t *testing.T) {
+	cfg, err := pgx.ParseConfig(GetPGConnectionString(&protos.PostgresConfig{
+		Host:     "project:region:instance",
+		Database: "testdb",
+		User:     "sa@project.iam",
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+	}, "test"))
+	require.NoError(t, err)
+	assert.Equal(t, CloudSQLConnectorPlaceholderHost, cfg.Host)
+	assert.Equal(t, "sa@project.iam", cfg.User)
 }

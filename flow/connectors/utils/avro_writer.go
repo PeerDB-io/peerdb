@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -147,7 +148,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		}
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
-		return AvroFile{}, fmt.Errorf("failed to upload file: %w", err)
+		return AvroFile{}, exceptions.NewS3Error(fmt.Errorf("failed to upload file: %w", err))
 	}
 
 	if writeOcfError != nil {

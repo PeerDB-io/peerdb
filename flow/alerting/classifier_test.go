@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"syscall"
@@ -17,6 +18,10 @@ import (
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
@@ -32,7 +37,6 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/api/googleapi"
 
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -575,31 +579,12 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "70",
-	}, errInfo, "Unexpected error info")
-}
-
-func TestPostgresQueryCancelledErrorShouldBeNotifyConnectivity(t *testing.T) {
-	t.Parallel()
-
-	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
-	config, err := pgx.ParseConfig(connectionString)
-	require.NoError(t, err)
-	config.Config.RuntimeParams["statement_timeout"] = "1500"
-	connectConfig, err := pgx.ConnectConfig(t.Context(), config)
-	require.NoError(t, err)
-	defer connectConfig.Close(t.Context())
-	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
-
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
-	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   pgerrcode.QueryCanceled,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -883,30 +868,6 @@ func TestPostgresReorderbufferSpillFileBadAddressErrorShouldBeRecoverable(t *tes
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresConnClosedErrorShouldBeNotifyConnectivity(t *testing.T) {
-	t.Parallel()
-
-	// Drive real pgx to produce the "conn closed" error rather than hand-building one, so this
-	// guards against a pgx upgrade changing how the sentinel is wrapped (errors.Is must still match).
-	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
-	config, err := pgx.ParseConfig(connectionString)
-	require.NoError(t, err)
-	conn, err := pgx.ConnectConfig(t.Context(), config)
-	require.NoError(t, err)
-	require.NoError(t, conn.Close(t.Context()))
-
-	// Using the connection after it has been closed yields pgconn.ErrConnClosed (wrapped in connLockError).
-	_, err = conn.Exec(t.Context(), "SELECT 1")
-	require.ErrorIs(t, err, pgconn.ErrConnClosed)
-
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", err))
-	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceNet,
-		Code:   "CONN_CLOSED",
-	}, errInfo, "Unexpected error info")
-}
-
 func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a "could not read from reorderbuffer spill file: Bad file descriptor" error
 	err := &exceptions.PostgresWalError{
@@ -1112,7 +1073,8 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -1141,11 +1103,42 @@ func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
 		Message: "REDACTED",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONShouldNotify(t *testing.T) {
+	redactedErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(redactedErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONFromPeerDBJSONCastShouldBeOther(t *testing.T) {
+	execErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true, JSONCast: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(execErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -1293,6 +1286,21 @@ func TestMongoKeyNotFoundShouldBeRecoverable(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoRetryChangeStreamShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    234,
+		Name:    "RetryChangeStream",
+		Message: "Optimized change-stream updateLookup was disabled; resuming on the legacy path",
+		Labels:  []string{"ResumableChangeStreamError"},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "234",
+	}, errInfo)
+}
+
 func TestMongoCursorErrors(t *testing.T) {
 	err := mongo.CommandError{
 		Code:    6,
@@ -1314,6 +1322,20 @@ func TestMongoCursorErrors(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "43",
+	}, errInfo)
+}
+
+func TestMongoPooledConnectionAcquisitionExceededTimeLimitShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    407,
+		Name:    "PooledConnectionAcquisitionExceededTimeLimit",
+		Message: "Couldn't get a connection within the time limit",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "407",
 	}, errInfo)
 }
 
@@ -1493,6 +1515,41 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLLockWaitTimeout(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    1205, // ER_LOCK_WAIT_TIMEOUT
+		State:   "HY000",
+		Message: "Lock wait timeout exceeded; try restarting transaction",
+	}
+	err := exceptions.NewMySQLExecuteError(mysqlErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1205",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLNoSpaceLeftOnDevice(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    14, // EE_CANT_CHSIZE
+		State:   "HY000",
+		Message: "Can't change size of file (OS errno 28 - No space left on device)",
+	}
+	err := exceptions.NewMySQLExecuteError(fmt.Errorf("ReadPacket: %w", mysqlErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in CDC: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "14",
+	}, errInfo, "Unexpected error info")
+
+	// same code without the disk full message stays unclassified
+	mysqlErr.Message = "Can't change size of file (OS errno 13 - Permission denied)"
+	errorClass, _ = GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(mysqlErr))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+}
+
 func TestMySQLSecureTransportRequired(t *testing.T) {
 	mysqlErr := &mysql.MyError{
 		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
@@ -1506,6 +1563,17 @@ func TestMySQLSecureTransportRequired(t *testing.T) {
 		Source: ErrorSourceMySQL,
 		Code:   "3159",
 	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLServerTLSNotSupported(t *testing.T) {
+	handshakeErr := pErrors.Trace(fmt.Errorf("readInitialHandshake: %w",
+		errors.New("the MySQL Server does not support TLS required by the client")))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(handshakeErr))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
 }
 
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
@@ -1882,13 +1950,70 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
 	t.Parallel()
 
-	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	apiErr := &googleapi.Error{Code: 409, Message: "conflict"}
 	err := exceptions.NewBigQueryError(apiErr)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
 	assert.Equal(t, ErrorOther, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
-		Code:   "500",
+		Code:   "409",
+	}, errInfo)
+}
+
+func TestBigQueryJobBackendErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{
+		Code:    400,
+		Message: "The job encountered an error during execution. Retrying the job may solve the problem.",
+		Errors:  []googleapi.ErrorItem{{Reason: "jobBackendError"}},
+	}
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to run watermark query for table dataset.events: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "400(jobBackendError)",
+	}, errInfo)
+}
+
+func TestBigQuery5xxShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{500, 502, 503, 504} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			err := exceptions.NewBigQueryError(&googleapi.Error{Code: code, Message: "server error"})
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryInternalErrorReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 400, Errors: []googleapi.ErrorItem{{Reason: "internalError"}}}
+	errorClass, _ := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(apiErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+}
+
+func TestBigQueryJobErrorBackendReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "backendError", Message: "transient"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(jobErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "backendError",
 	}, errInfo)
 }
 
@@ -2035,6 +2160,32 @@ func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_CANCELLED",
+	}, errInfo)
+}
+
+func TestS3InternalErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	respErr := &awshttp.ResponseError{
+		ResponseError: &smithyhttp.ResponseError{
+			Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
+			Err:      &smithy.GenericAPIError{Code: "InternalError", Message: "We encountered an internal error. Please try again."},
+		},
+		RequestID: "ABC123",
+	}
+	sdkErr := &smithy.OperationError{
+		ServiceID:     "S3",
+		OperationName: "CompleteMultipartUpload",
+		Err:           &retry.MaxAttemptsError{Attempt: 3, Err: respErr},
+	}
+	err := fmt.Errorf("failed to push records: failed to upload to staging: %w",
+		exceptions.NewS3Error(fmt.Errorf("failed to upload file to S3: upload multipart failed, upload id: XXX, cause: %w", sdkErr)))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceS3,
+		Code:   "500",
 	}, errInfo)
 }
 

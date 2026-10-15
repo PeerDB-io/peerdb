@@ -30,7 +30,7 @@ import (
 type BigQueryTestHelper struct {
 	Config         *protos.BigqueryConfig
 	client         *bigquery.Client
-	serviceAccount *utils.GcpServiceAccount
+	ServiceAccount *utils.GcpServiceAccount
 	runID          uint64
 }
 
@@ -65,7 +65,7 @@ func NewBigQueryTestHelper(t *testing.T, datasetID string) (*BigQueryTestHelper,
 	return &BigQueryTestHelper{
 		runID:          runID,
 		Config:         config,
-		serviceAccount: bqsa,
+		ServiceAccount: bqsa,
 		client:         client,
 	}, nil
 }
@@ -149,12 +149,12 @@ func (b *BigQueryTestHelper) DropDataset(ctx context.Context, datasetName string
 	return nil
 }
 
-// countRows(tableName) returns the number of rows in the given table.
-func (b *BigQueryTestHelper) countRows(ctx context.Context, tableName string) (int, error) {
-	return b.countRowsWithDataset(ctx, b.Config.DatasetId, tableName, "")
+// CountRows(tableName) returns the number of rows in the given table.
+func (b *BigQueryTestHelper) CountRows(ctx context.Context, tableName string) (int, error) {
+	return b.CountRowsWithDataset(ctx, b.Config.DatasetId, tableName, "")
 }
 
-func (b *BigQueryTestHelper) countRowsWithDataset(ctx context.Context, dataset, tableName string, nonNullCol string) (int, error) {
+func (b *BigQueryTestHelper) CountRowsWithDataset(ctx context.Context, dataset, tableName string, nonNullCol string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
 	if nonNullCol != "" {
 		command = "SELECT COUNT(CASE WHEN " + nonNullCol +
@@ -412,7 +412,7 @@ func (b *BigQueryTestHelper) CountObjectsInGCSPath(ctx context.Context, gcsPath 
 	bucketName := u.Host
 	prefix := strings.TrimPrefix(u.Path, "/")
 
-	storageClient, err := b.serviceAccount.CreateStorageClient(ctx)
+	storageClient, err := b.ServiceAccount.CreateStorageClient(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create storage client: %w", err)
 	}

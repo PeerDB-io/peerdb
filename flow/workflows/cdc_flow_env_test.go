@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func TestApplyEnvUpdate(t *testing.T) {
@@ -49,5 +51,43 @@ func TestApplyEnvUpdate(t *testing.T) {
 		t.Parallel()
 		got := applyEnvUpdate(nil, nil, []string{"A"})
 		require.Nil(t, got)
+	})
+}
+
+func TestApplyQueryCDCConfigUpdate(t *testing.T) {
+	t.Parallel()
+
+	old := &protos.QueryCdcConfig{PullSyncParallelism: 3, SafetyLagSeconds: 30, MaxQueryWindowSeconds: 300}
+	newConfig := &protos.QueryCdcConfig{PullSyncParallelism: 5, SafetyLagSeconds: 0, MaxQueryWindowSeconds: 600}
+
+	t.Run("absent update preserves settings", func(t *testing.T) {
+		t.Parallel()
+		cfg := &protos.FlowConnectionConfigsCore{SourceConnectorConfig: &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{QueryCdc: old},
+		}}
+		applyQueryCDCConfigUpdate(cfg, nil)
+		require.Same(t, old, cfg.GetBigqueryCdcConfig().GetQueryCdc())
+	})
+
+	t.Run("present update replaces all settings including zero", func(t *testing.T) {
+		t.Parallel()
+		cfg := &protos.FlowConnectionConfigsCore{SourceConnectorConfig: &protos.FlowConnectionConfigsCore_BigqueryCdcConfig{
+			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
+				ReplicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY,
+				QueryCdc:          old,
+			},
+		}}
+		applyQueryCDCConfigUpdate(cfg, newConfig)
+		require.Equal(t, newConfig, cfg.GetBigqueryCdcConfig().GetQueryCdc())
+		require.NotSame(t, newConfig, cfg.GetBigqueryCdcConfig().GetQueryCdc())
+		require.Equal(t, protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY, cfg.GetBigqueryCdcConfig().GetReplicationMethod())
+		require.Equal(t, int32(30), old.SafetyLagSeconds)
+	})
+
+	t.Run("other source ignores query CDC settings", func(t *testing.T) {
+		t.Parallel()
+		cfg := &protos.FlowConnectionConfigsCore{}
+		applyQueryCDCConfigUpdate(cfg, newConfig)
+		require.Nil(t, cfg.GetBigqueryCdcConfig())
 	})
 }

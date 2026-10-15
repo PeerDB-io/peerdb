@@ -3,6 +3,7 @@ package structured
 import (
 	"fmt"
 	"iter"
+	"regexp"
 	"slices"
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
@@ -21,6 +22,8 @@ type schemaColumn struct {
 type SchemaProjector struct {
 	// Schema columns by the record field they read from.
 	columns map[string]schemaColumn
+	// Set of excluded columns names (finding them is not unexpected)
+	excludedColumns map[string]struct{}
 	// Record fields in order: the schema columns as declared, then the malformed data column.
 	fields []types.QField
 	// Position of the malformed data column in fields, and so in the records ProjectRecord produces.
@@ -35,6 +38,7 @@ type SchemaProjector struct {
 func NewSchemaProjector(
 	schemaToQKind func(schemaType string) (types.QValueKind, error),
 	schemaColumns []*protos.ColumnSetting,
+	excludedColumnSet map[string]struct{},
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
 	schemaFields := make([]types.QField, 0, len(schemaColumns))
@@ -47,11 +51,14 @@ func NewSchemaProjector(
 		schemaFields = append(schemaFields, types.QField{Name: column.SourceName, Type: kind})
 	}
 
-	return NewSchemaProjectorFromQFields(schemaFields, shouldRecordValues)
+	return NewSchemaProjectorFromQFields(schemaFields, excludedColumnSet, shouldRecordValues)
 }
 
 // NewSchemaProjectorFromQFields builds a projector for schema columns whose QKinds are already resolved.
-func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValues bool) (*SchemaProjector, error) {
+// excludedColumnSet holds the record field names that are excluded: dropped instead of reported as unexpected.
+func NewSchemaProjectorFromQFields(
+	schemaFields []types.QField, excludedColumnSet map[string]struct{}, shouldRecordValues bool,
+) (*SchemaProjector, error) {
 	fields := make([]types.QField, 0, len(schemaFields)+1)
 	columns := make(map[string]schemaColumn, len(schemaFields))
 
@@ -80,6 +87,7 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 		malformedDataIndex: malformedDataIndex,
 		columns:            columns,
 		shouldRecordValues: shouldRecordValues,
+		excludedColumns:    excludedColumnSet,
 	}, nil
 }
 
@@ -88,15 +96,27 @@ func NewSchemaProjectorFromQFields(schemaFields []types.QField, shouldRecordValu
 // the same resolution connclickhouse.GetTableSchemaForTable applies when reading a table's schema.
 func NewSchemaProjectorFromCHtoQValue(
 	schemaColumns []*protos.ColumnSetting,
+	excludedColumnSet map[string]struct{},
 	shouldRecordValues bool,
 ) (*SchemaProjector, error) {
-	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, shouldRecordValues)
+	return NewSchemaProjector(connclickhouse.QValueKindForType, schemaColumns, excludedColumnSet, shouldRecordValues)
 }
 
 // QRecordSchema is the schema of the records ProjectRecord produces: the schema columns as declared
 // followed by the malformed data column.
 func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
+}
+
+// ColumnKind is the kind of the schema column reading from a record field, if the field is one.
+func (sc *SchemaProjector) ColumnKind(field string) (types.QValueKind, bool) {
+	column, isSchemaColumn := sc.columns[field]
+	return column.kind, isSchemaColumn
+}
+
+func (sc *SchemaProjector) IsExcludedColumn(columnName string) bool {
+	_, isExcluded := sc.excludedColumns[columnName]
+	return isExcluded
 }
 
 // ProjectRecord projects a record onto the schema, laid out as QRecordSchema. Every schema column gets
@@ -115,6 +135,11 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	malformedData := NewMalformedData()
 
 	for field, value := range record {
+		// Excluded fields are dropped before anything else: never reported, even when repeated or
+		// declared as a schema column.
+		if sc.IsExcludedColumn(field) {
+			continue
+		}
 		// Only the first occurrence of a field is projected, whatever became of it: any later one is
 		// recorded as malformed data.
 		if _, seen := seenFields[field]; seen {
@@ -129,7 +154,7 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 
 		column, isSchemaColumn := sc.columns[field]
 
-		// Record fields not present in the schema are recorded as malformed data.
+		// Record fields not present in the schema are malformed data.
 		if !isSchemaColumn {
 			var recordedValue types.QValue
 			if sc.shouldRecordValues {
@@ -144,9 +169,8 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 			continue
 		}
 
-		// Otherwise the kinds must match, or the value is recorded as malformed data.
-		// NOTE: The equals comparison canbe replaced by a call to a equivalence function.
-		if column.kind != value.Kind() {
+		// Otherwise the value must fit the column's kind, or it is recorded as malformed data.
+		if !kindMatches(column.kind, value) {
 			var recordedValue types.QValue
 			if sc.shouldRecordValues {
 				recordedValue = value
@@ -167,6 +191,31 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	}
 
 	return values, nil
+}
+
+// kindMatches reports whether value fits a column of kind. Kinds must be equal, except for the
+// array-of-JSON kinds, whose values are, by codebase convention, QValueJSONs flagged IsArray, as those
+// kinds have no dedicated QValue type.
+func kindMatches(kind types.QValueKind, value types.QValue) bool {
+	if jsonValue, isJSON := value.(types.QValueJSON); isJSON &&
+		(kind == types.QValueKindArrayJSON || kind == types.QValueKindArrayJSONB) {
+		return jsonValue.IsArray
+	}
+	return kind == value.Kind()
+}
+
+var dateTime64Regex = regexp.MustCompile(`DateTime64\(\d+\)`)
+
+// NormalizeStructuredIngestionTypes rewrites the destination types of a mapping with structured ingestion
+// to normalize inferred types as compatible ones.
+func NormalizeStructuredIngestionTypes(config *protos.StructuredIngestionTableConfig, columns []*protos.ColumnSetting) {
+	if !config.GetEnabled() {
+		return
+	}
+	for _, column := range columns {
+		// All structured ingestion dates use fix precision to microseconds
+		column.DestinationType = dateTime64Regex.ReplaceAllString(column.DestinationType, "DateTime64(6)")
+	}
 }
 
 // ApplyRecordSchema is ProjectRecord for consumers taking records as RecordItems, such as CDC.

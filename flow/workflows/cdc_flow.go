@@ -141,6 +141,7 @@ func processCDCFlowConfigUpdate(
 		state.SyncFlowOptions.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
 	}
 	cfg.Env = applyEnvUpdate(cfg.Env, flowConfigUpdate.UpdatedEnv, flowConfigUpdate.RemovedEnv)
+	applyQueryCDCConfigUpdate(cfg, flowConfigUpdate.QueryCdc)
 	if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
 		state.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
 	}
@@ -185,6 +186,13 @@ func processCDCFlowConfigUpdate(
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nextRunNone, nil
+}
+
+func applyQueryCDCConfigUpdate(cfg *protos.FlowConnectionConfigsCore, update *protos.QueryCdcConfig) {
+	if update == nil || cfg.GetBigqueryCdcConfig() == nil {
+		return
+	}
+	cfg.GetBigqueryCdcConfig().QueryCdc = proto.CloneOf(update)
 }
 
 func applyEnvUpdate(env map[string]string, updatedEnv map[string]string, removedEnv []string) map[string]string {
@@ -527,12 +535,13 @@ func addCdcPropertiesSignalListener(
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
 		logger.Info("CDC Signal received",
-			slog.Uint64("BatchSize", uint64(state.SyncFlowOptions.BatchSize)),
-			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
+			slog.Uint64("BatchSize", uint64(cdcConfigUpdate.BatchSize)),
+			slog.Uint64("IdleTimeout", cdcConfigUpdate.IdleTimeout),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Any("RemovedEnv", cdcConfigUpdate.RemovedEnv),
+			slog.Any("QueryCdc", cdcConfigUpdate.QueryCdc),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
 			slog.Uint64("SnapshotNumPartitionsOverride", uint64(cdcConfigUpdate.SnapshotNumPartitionsOverride)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),

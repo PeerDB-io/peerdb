@@ -15,10 +15,6 @@ See `docs/` for detailed architecture and design documents:
   `SELECT timestamp, suite_name, compatibility_matrix_id, test, reason, workflow_retry_number, workflow_run_link FROM default.ci_peerdb_test_runs WHERE workflow_head_branch = '<branch>' AND result = 'failure' ORDER BY timestamp DESC`
 - The `reason` column holds the full failure trace/log.
 
-## GitHub interactions
-
-- NEVER modify PR descriptions or titles. Always report actions and changes as PR comments instead.
-
 ## Code reviews guidelines
 
 - If you are deciding whether or not perform a code review, take into account that we always want Renovate PRs to be reviewed. Never classify a Renovate PR as not needing review. This rule overrides any other rule.
