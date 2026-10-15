@@ -628,9 +628,23 @@ func (c *BigQueryConnector) SetupReplication(
 	return model.SetupReplicationResult{}, nil
 }
 
+// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc), but a
+// FOR SYSTEM_TIME AS OF snapshot already includes rows committed exactly at snapshotTime,
+// so the first CDC checkpoint is one microsecond (TIMESTAMP's finest granularity) past it.
+func eventsCheckpointAfterSnapshot(snapshotTime time.Time) time.Time {
+	return snapshotTime.Add(time.Microsecond)
+}
+
+// eventsSnapshotTimeForCheckpoint is the inverse of eventsCheckpointAfterSnapshot: given a
+// stored CDC checkpoint, it returns the FOR SYSTEM_TIME AS OF time the snapshot export must
+// use so the snapshot ends exactly where CDC starts.
+func eventsSnapshotTimeForCheckpoint(checkpoint time.Time) time.Time {
+	return checkpoint.Add(-time.Microsecond)
+}
+
 // setupEventsModeReplication captures a single BigQuery-clock timestamp T, exports the
 // initial snapshot as of T (EXPORT DATA ... FOR SYSTEM_TIME AS OF T), and returns T
-// (nudged past the snapshot, see below) as every table's initial CDC checkpoint.
+// (nudged past the snapshot) as every table's initial CDC checkpoint.
 func (c *BigQueryConnector) setupEventsModeReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
@@ -648,12 +662,7 @@ func (c *BigQueryConnector) setupEventsModeReplication(
 		}
 	}
 
-	// APPENDS()/CHANGES()'s start_timestamp is inclusive (see cdc.go's pollWindow doc),
-	// but the snapshot export's FOR SYSTEM_TIME AS OF snapshotTime already includes rows
-	// committed exactly at snapshotTime. Nudging the first CDC checkpoint one microsecond
-	// past it -- BigQuery TIMESTAMP's finest granularity, so this can't skip a row --
-	// keeps CDC's first window from re-pulling what the snapshot already captured.
-	checkpointTime := snapshotTime.Add(time.Microsecond)
+	checkpointTime := eventsCheckpointAfterSnapshot(snapshotTime)
 	checkpointByTable := make(map[string]time.Time, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		checkpointByTable[tableMapping.SourceTableIdentifier] = checkpointTime
@@ -718,40 +727,40 @@ func (c *BigQueryConnector) AddTablesToReplication(ctx context.Context, req *pro
 func (c *BigQueryConnector) ensureTableAdditionCheckpoints(
 	ctx context.Context, flowName string, cfg *protos.FlowConnectionConfigsCore, tableMappings []*protos.TableMapping,
 ) (map[string]time.Time, error) {
+	queryMode := cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY
+	var eventsCheckpoint time.Time // shared by all tables seeded in this call
+
 	checkpointByTable := make(map[string]time.Time, len(tableMappings))
-	var unseeded []*protos.TableMapping
 	for _, tm := range tableMappings {
 		checkpoint, err := c.storedCDCCheckpoint(ctx, flowName, tm.SourceTableIdentifier)
 		if err != nil {
 			return nil, err
 		}
 		if checkpoint.IsZero() {
-			unseeded = append(unseeded, tm)
-		} else {
-			checkpointByTable[tm.SourceTableIdentifier] = checkpoint
-		}
-	}
-	if len(unseeded) == 0 {
-		return checkpointByTable, nil
-	}
-
-	newCheckpoints, err := c.tableAdditionCheckpoints(ctx, cfg, unseeded)
-	if err != nil {
-		return nil, err
-	}
-	for _, tm := range unseeded {
-		checkpoint, ok := newCheckpoints[tm.SourceTableIdentifier]
-		if !ok {
-			return nil, fmt.Errorf("no CDC checkpoint computed for table %s", tm.SourceTableIdentifier)
-		}
-		if err := c.InitializeQueryCDCReplicationState(
-			ctx, flowName, tm.SourceTableIdentifier, model.EncodeQueryCDCCursor(checkpoint),
-		); err != nil {
-			return nil, fmt.Errorf("failed to initialize CDC checkpoint for table %s: %w", tm.SourceTableIdentifier, err)
-		}
-		// read back: InitializeQueryCDCReplicationState keeps a cursor that is already set
-		if checkpoint, err = c.storedCDCCheckpoint(ctx, flowName, tm.SourceTableIdentifier); err != nil {
-			return nil, err
+			if queryMode {
+				checkpoint, err = c.maxWatermarkValue(ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get max watermark for table %s: %w", tm.SourceTableIdentifier, err)
+				}
+			} else {
+				if eventsCheckpoint.IsZero() {
+					snapshotTime, err := c.currentBigQueryTimestamp(ctx)
+					if err != nil {
+						return nil, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
+					}
+					eventsCheckpoint = eventsCheckpointAfterSnapshot(snapshotTime)
+				}
+				checkpoint = eventsCheckpoint
+			}
+			if err := c.InitializeQueryCDCReplicationState(
+				ctx, flowName, tm.SourceTableIdentifier, model.EncodeQueryCDCCursor(checkpoint),
+			); err != nil {
+				return nil, fmt.Errorf("failed to initialize CDC checkpoint for table %s: %w", tm.SourceTableIdentifier, err)
+			}
+			// read back: InitializeQueryCDCReplicationState keeps a cursor that is already set
+			if checkpoint, err = c.storedCDCCheckpoint(ctx, flowName, tm.SourceTableIdentifier); err != nil {
+				return nil, err
+			}
 		}
 		checkpointByTable[tm.SourceTableIdentifier] = checkpoint
 	}
@@ -766,10 +775,8 @@ func (c *BigQueryConnector) storedCDCCheckpoint(ctx context.Context, flowName st
 	return model.DecodeQueryCDCCursor(state.CursorText)
 }
 
-// exportTablesUpToCDCCheckpoints exports each table up to the bound its CDC cursor starts
-// after, matching SetupReplication's handoff: in EVENTS mode the cursor is one microsecond
-// past the FOR SYSTEM_TIME AS OF time (APPENDS()/CHANGES() start inclusively), and in
-// QUERY mode it is the watermark value itself (CDC reads watermark_column > cursor).
+// exportTablesUpToCDCCheckpoints exports each table up to the point its CDC cursor starts
+// from, matching SetupReplication's handoff.
 func (c *BigQueryConnector) exportTablesUpToCDCCheckpoints(
 	ctx context.Context,
 	flowName string,
@@ -789,33 +796,6 @@ func (c *BigQueryConnector) exportTablesUpToCDCCheckpoints(
 			return c.bigQueryExportQueryStatement(
 				ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn, stagingPath, checkpoint)
 		}
-		return c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, "", stagingPath, checkpoint.Add(-time.Microsecond))
+		return c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, "", stagingPath, eventsSnapshotTimeForCheckpoint(checkpoint))
 	})
-}
-
-// tableAdditionCheckpoints returns the cursor each added table's CDC starts from, in the
-// form exportTablesUpToCDCCheckpoints expects for the mirror's replication method.
-func (c *BigQueryConnector) tableAdditionCheckpoints(
-	ctx context.Context, cfg *protos.FlowConnectionConfigsCore, tableMappings []*protos.TableMapping,
-) (map[string]time.Time, error) {
-	checkpointByTable := make(map[string]time.Time, len(tableMappings))
-	if cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY {
-		for _, tm := range tableMappings {
-			watermark, err := c.maxWatermarkValue(ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get max watermark for table %s: %w", tm.SourceTableIdentifier, err)
-			}
-			checkpointByTable[tm.SourceTableIdentifier] = watermark
-		}
-		return checkpointByTable, nil
-	}
-
-	snapshotTime, err := c.currentBigQueryTimestamp(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current BigQuery timestamp: %w", err)
-	}
-	for _, tm := range tableMappings {
-		checkpointByTable[tm.SourceTableIdentifier] = snapshotTime.Add(time.Microsecond)
-	}
-	return checkpointByTable, nil
 }
