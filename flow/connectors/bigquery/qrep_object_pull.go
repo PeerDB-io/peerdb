@@ -330,19 +330,17 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	// Use the activity's mappings rather than the catalog config: during a table
 	// addition, the catalog still contains the mirror's pre-addition table list.
-	// MaintainTx activities scheduled before tableMappings was added pass none.
 	if len(tableMappings) == 0 {
 		tableMappings = cfg.TableMappings
 	}
 
 	if cfg.GetBigqueryCdcConfig() != nil {
-		// A CDC mirror only runs this for a table addition: export each table up to
-		// the CDC cursor AddTablesToReplication stored, so CDC continues exactly
-		// where the snapshot ends.
+		// CDC mirrors run ExportTxSnapshot ONLY for table additions
 		if err := c.exportTablesUpToCDCCheckpoints(ctx, flowName, cfg, tableMappings, runSnapshotStagingPath); err != nil {
 			return nil, nil, err
 		}
 	} else {
+		// This branch covers snapshot only mirrors
 		// snapshotTime (T) anchors every table's export below via FOR SYSTEM_TIME AS OF, so all
 		// tables are read as of the same consistent point in time.
 		snapshotTime, err := c.currentBigQueryTimestamp(ctx)
