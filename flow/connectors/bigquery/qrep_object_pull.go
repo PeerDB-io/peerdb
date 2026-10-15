@@ -336,7 +336,22 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 
 	if cfg.GetBigqueryCdcConfig() != nil {
 		// CDC mirrors run ExportTxSnapshot ONLY for table additions
-		if err := c.exportTablesUpToCDCCheckpoints(ctx, flowName, cfg, tableMappings, runSnapshotStagingPath); err != nil {
+		// Export each table up to the point its CDC cursor starts from, matching SetupReplication's handoff.
+		checkpointByTable, err := c.ensureTableAdditionCheckpoints(ctx, flowName, cfg, tableMappings)
+		if err != nil {
+			return nil, nil, err
+		}
+		queryMode := cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY
+		err = c.runTableExports(ctx, flowName, tableMappings, func(tm *protos.TableMapping) (string, error) {
+			checkpoint := checkpointByTable[tm.SourceTableIdentifier]
+			if queryMode {
+				return c.bigQueryExportQueryStatement(
+					ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn, runSnapshotStagingPath, checkpoint)
+			}
+			return c.bigQueryExportQueryStatement(
+				ctx, tm.SourceTableIdentifier, "", runSnapshotStagingPath, eventsSnapshotTimeForCheckpoint(checkpoint))
+		})
+		if err != nil {
 			return nil, nil, err
 		}
 	} else {
@@ -773,29 +788,4 @@ func (c *BigQueryConnector) storedCDCCheckpoint(ctx context.Context, flowName st
 		return time.Time{}, err
 	}
 	return model.DecodeQueryCDCCursor(state.CursorText)
-}
-
-// exportTablesUpToCDCCheckpoints exports each table up to the point its CDC cursor starts
-// from, matching SetupReplication's handoff.
-func (c *BigQueryConnector) exportTablesUpToCDCCheckpoints(
-	ctx context.Context,
-	flowName string,
-	cfg *protos.FlowConnectionConfigsCore,
-	// just newly added tables!
-	tableMappings []*protos.TableMapping,
-	stagingPath string,
-) error {
-	checkpointByTable, err := c.ensureTableAdditionCheckpoints(ctx, flowName, cfg, tableMappings)
-	if err != nil {
-		return err
-	}
-	queryMode := cfg.GetBigqueryCdcConfig().GetReplicationMethod() == protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_QUERY
-	return c.runTableExports(ctx, flowName, tableMappings, func(tm *protos.TableMapping) (string, error) {
-		checkpoint := checkpointByTable[tm.SourceTableIdentifier]
-		if queryMode {
-			return c.bigQueryExportQueryStatement(
-				ctx, tm.SourceTableIdentifier, tm.QueryCdcWatermarkColumn, stagingPath, checkpoint)
-		}
-		return c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, "", stagingPath, eventsSnapshotTimeForCheckpoint(checkpoint))
-	})
 }
