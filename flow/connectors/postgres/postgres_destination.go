@@ -628,7 +628,8 @@ func (c *PostgresConnector) RenameTables(
 	req *protos.RenameTablesInput,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
-	// build the original tables' indexes on the _resync tables before taking locks for the swap
+	// transfer soft-deleted rows and build the original tables' indexes on the _resync tables
+	// before taking locks for the swap
 	resyncIndexes := make(map[string][]resyncIndex, len(req.RenameTableOptions))
 	for _, renameRequest := range req.RenameTableOptions {
 		if renameRequest.CurrentName == renameRequest.NewName {
@@ -643,15 +644,62 @@ func (c *PostgresConnector) RenameTables(
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		if exists, err := c.tableExists(ctx, srcTable); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to check if _resync table exists: %w", err)
 		} else if !exists {
 			continue
 		}
 		if exists, err := c.tableExists(ctx, dstTable); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to check if original table exists: %w", err)
 		} else if !exists {
+			c.logger.Info(fmt.Sprintf("table '%s' did not exist, skipped soft delete transfer", dstTable))
 			continue
 		}
+
+		// Carry over rows deleted at the source since the original table was synced, before the
+		// indexes are built: a unique index that the transferred rows conflict with is then skipped
+		// like any other index that cannot be carried over, instead of failing the swap.
+		// This commits before the swap, so it must not run twice on activity retries. The pkey
+		// comparison does not guarantee that (with replica identity full every column is compared,
+		// and NULLs never match), but the snapshot never writes soft-deleted rows, so any such row
+		// in the _resync table means a previous attempt already transferred them in one statement.
+		var softDeletesTransferred bool
+		if req.SoftDeleteColName != "" {
+			if err := c.conn.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE %s)",
+				srcTable.String(), common.QuoteIdentifier(req.SoftDeleteColName)),
+			).Scan(&softDeletesTransferred); err != nil {
+				return nil, fmt.Errorf("unable to check soft-deletes of %s: %w", srcTable, err)
+			}
+		}
+		if req.SoftDeleteColName != "" && !softDeletesTransferred {
+			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
+			columnNames := make([]string, 0, len(tableSchema.Columns))
+			for _, col := range tableSchema.Columns {
+				columnNames = append(columnNames, common.QuoteIdentifier(col.Name))
+			}
+
+			var pkeyColCompare strings.Builder
+			for _, col := range tableSchema.PrimaryKeyColumns {
+				pkeyColCompare.WriteString("original_table.")
+				pkeyColCompare.WriteString(common.QuoteIdentifier(col))
+				pkeyColCompare.WriteString(" = resync_table.")
+				pkeyColCompare.WriteString(common.QuoteIdentifier(col))
+				pkeyColCompare.WriteString(" AND ")
+			}
+			pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
+
+			allCols := strings.Join(columnNames, ",")
+			src, dst := srcTable.String(), dstTable.String()
+			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+			if _, err := c.execWithLogging(ctx,
+				fmt.Sprintf(
+					"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
+						"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
+					src, fmt.Sprintf("%s,%s", allCols, common.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
+					dst, src, pkeyColCompareStr)); err != nil {
+				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+			}
+		}
+
 		indexes, err := c.buildResyncIndexes(ctx, srcTable, dstTable)
 		if err != nil {
 			return nil, fmt.Errorf("unable to build indexes of %s on %s: %w", dstTable, srcTable, err)
@@ -687,46 +735,6 @@ func (c *PostgresConnector) RenameTables(
 			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
 		}
 		dst := dstTable.String()
-
-		// if original table does not exist, skip soft delete transfer
-		originalTableExists, err := c.checkIfTableExistsWithTx(ctx, dstTable.Namespace, dstTable.Table, renameTablesTx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to check if source table exists: %w", err)
-		}
-
-		if originalTableExists {
-			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
-			if req.SoftDeleteColName != "" {
-				columnNames := make([]string, 0, len(tableSchema.Columns))
-				for _, col := range tableSchema.Columns {
-					columnNames = append(columnNames, common.QuoteIdentifier(col.Name))
-				}
-
-				var pkeyColCompare strings.Builder
-				for _, col := range tableSchema.PrimaryKeyColumns {
-					pkeyColCompare.WriteString("original_table.")
-					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
-					pkeyColCompare.WriteString(" = resync_table.")
-					pkeyColCompare.WriteString(common.QuoteIdentifier(col))
-					pkeyColCompare.WriteString(" AND ")
-				}
-				pkeyColCompareStr := strings.TrimSuffix(pkeyColCompare.String(), " AND ")
-
-				allCols := strings.Join(columnNames, ",")
-				c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
-				_, err = c.execWithLoggingTx(ctx,
-					fmt.Sprintf(
-						"INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s original_table "+
-							"WHERE NOT EXISTS (SELECT 1 FROM %s resync_table WHERE %s)",
-						src, fmt.Sprintf("%s,%s", allCols, common.QuoteIdentifier(req.SoftDeleteColName)), allCols, req.SoftDeleteColName,
-						dst, src, pkeyColCompareStr), renameTablesTx)
-				if err != nil {
-					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
-				}
-			}
-		} else {
-			c.logger.Info(fmt.Sprintf("table '%s' did not exist, skipped soft delete transfer", dst))
-		}
 
 		// renaming and dropping such that the _resync table is the new destination
 		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))

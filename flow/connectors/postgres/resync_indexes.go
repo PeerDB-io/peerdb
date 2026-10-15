@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // resyncIndex is an index of the original destination table that is carried over to the
@@ -19,15 +20,13 @@ type resyncIndex struct {
 	name string
 	// tempName is what the index is built as on the _resync table until the swap
 	tempName string
-	// createSQL builds the index on the _resync table before the swap, empty for exclusion
-	// constraints and for a primary key the _resync table already has
+	// createSQL builds the index (or exclusion constraint) on the _resync table before the swap,
+	// empty for a primary key the _resync table already has
 	createSQL string
 	// constraintType is pg_constraint.contype ('p', 'u', 'x') when the index backs a constraint
 	constraintType string
-	// constraintDef is pg_get_constraintdef, used for exclusion constraints
-	constraintDef string
-	deferrable    bool
-	deferred      bool
+	deferrable     bool
+	deferred       bool
 }
 
 // Index definitions of a table, with pg_get_indexdef's "CREATE [UNIQUE] INDEX name ON [ONLY] table "
@@ -55,9 +54,38 @@ JOIN pg_class t ON t.oid = con.conrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = $1 AND t.relname = $2 AND con.contype = 'p'`
 
+// resyncIndexRow is an index of a table as returned by getResyncIndexesSQL
+type resyncIndexRow struct {
+	body           *string
+	name           string
+	constraintType string
+	constraintDef  string
+	oid            int64
+	unique         bool
+	deferrable     bool
+	deferred       bool
+}
+
+func (c *PostgresConnector) getResyncIndexRows(ctx context.Context, table *common.QualifiedTable) ([]resyncIndexRow, error) {
+	rows, err := c.conn.Query(ctx, getResyncIndexesSQL, table.Namespace, table.Table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get indexes of %s: %w", table, err)
+	}
+	indexRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (resyncIndexRow, error) {
+		var r resyncIndexRow
+		err := row.Scan(&r.oid, &r.name, &r.unique, &r.constraintType, &r.constraintDef, &r.deferrable, &r.deferred, &r.body)
+		return r, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read indexes of %s: %w", table, err)
+	}
+	return indexRows, nil
+}
+
 // buildResyncIndexes reads the indexes of the original table and builds them on the _resync
-// table under temporary names. Nothing writes to the _resync table between the snapshot and the
-// swap, so a plain CREATE INDEX is used; IF NOT EXISTS keeps it idempotent across activity retries.
+// table under temporary names. Only the soft-delete transfer writes to the _resync table between
+// the snapshot and the swap, and it runs before this, so a plain CREATE INDEX is used;
+// IF NOT EXISTS keeps it idempotent across activity retries.
 // An index that cannot be built (e.g. it references a column the _resync table does not have)
 // is logged and skipped rather than failing the resync.
 func (c *PostgresConnector) buildResyncIndexes(
@@ -65,36 +93,27 @@ func (c *PostgresConnector) buildResyncIndexes(
 	resyncTable *common.QualifiedTable,
 	originalTable *common.QualifiedTable,
 ) ([]resyncIndex, error) {
-	rows, err := c.conn.Query(ctx, getResyncIndexesSQL, originalTable.Namespace, originalTable.Table)
+	indexRows, err := c.getResyncIndexRows(ctx, originalTable)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get indexes of %s: %w", originalTable, err)
-	}
-	type indexRow struct {
-		body           *string
-		name           string
-		constraintType string
-		constraintDef  string
-		oid            int64
-		unique         bool
-		deferrable     bool
-		deferred       bool
-	}
-	indexRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (indexRow, error) {
-		var r indexRow
-		err := row.Scan(&r.oid, &r.name, &r.unique, &r.constraintType, &r.constraintDef, &r.deferrable, &r.deferred, &r.body)
-		return r, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read indexes of %s: %w", originalTable, err)
+		return nil, err
 	}
 	if len(indexRows) == 0 {
 		return nil, nil
 	}
 
-	var resyncHasPrimaryKey bool
-	if err := c.conn.QueryRow(ctx, "SELECT EXISTS("+getPrimaryKeyNameSQL+")",
-		resyncTable.Namespace, resyncTable.Table).Scan(&resyncHasPrimaryKey); err != nil {
-		return nil, fmt.Errorf("failed to check primary key of %s: %w", resyncTable, err)
+	// definition of the primary key PeerDB created on the _resync table, if any
+	var resyncPrimaryKeyBody *string
+	resyncIndexRows, err := c.getResyncIndexRows(ctx, resyncTable)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range resyncIndexRows {
+		if r.constraintType == "p" {
+			resyncPrimaryKeyBody = r.body
+			if resyncPrimaryKeyBody == nil {
+				resyncPrimaryKeyBody = new(string)
+			}
+		}
 	}
 
 	indexes := make([]resyncIndex, 0, len(indexRows))
@@ -103,30 +122,54 @@ func (c *PostgresConnector) buildResyncIndexes(
 			name:           r.name,
 			tempName:       fmt.Sprintf("_peerdb_resync_%d", r.oid),
 			constraintType: r.constraintType,
-			constraintDef:  r.constraintDef,
 			deferrable:     r.deferrable,
 			deferred:       r.deferred,
 		}
 		logAttrs := []any{slog.String("index", r.name), slog.String("table", originalTable.String())}
 
-		// exclusion constraints cannot be attached with USING INDEX, they are added during the swap
-		if r.constraintType == "x" || (r.constraintType == "p" && resyncHasPrimaryKey) {
-			indexes = append(indexes, idx)
-			continue
-		}
-		if r.body == nil {
-			c.logger.Warn("[postgres] unable to parse index definition, index will not be preserved on resync", logAttrs...)
-			continue
+		if r.constraintType == "p" && resyncPrimaryKeyBody != nil {
+			if r.body != nil && *r.body == *resyncPrimaryKeyBody {
+				// same primary key, the swap only gives it the original name
+				indexes = append(indexes, idx)
+				continue
+			}
+			// a different primary key than the one PeerDB created: keep it as a unique index
+			c.logger.Warn("[postgres] primary key of the _resync table differs from the original one, "+
+				"preserving the original primary key as a unique index", logAttrs...)
+			idx.constraintType = ""
 		}
 
-		unique := ""
-		if r.unique {
-			unique = "UNIQUE "
+		if r.constraintType == "x" {
+			// exclusion constraints cannot be attached with USING INDEX, so the constraint itself is
+			// added under the temporary name and renamed during the swap
+			var exists bool
+			if err := c.conn.QueryRow(ctx,
+				"SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2)",
+				resyncTable.String(), idx.tempName).Scan(&exists); err != nil {
+				return nil, fmt.Errorf("failed to check constraints of %s: %w", resyncTable, err)
+			}
+			if exists {
+				indexes = append(indexes, idx)
+				continue
+			}
+			idx.createSQL = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s",
+				resyncTable.String(), common.QuoteIdentifier(idx.tempName), r.constraintDef)
+		} else {
+			if r.body == nil {
+				c.logger.Warn("[postgres] unable to parse index definition, index will not be preserved on resync", logAttrs...)
+				continue
+			}
+			unique := ""
+			if r.unique {
+				unique = "UNIQUE "
+			}
+			idx.createSQL = fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s %s",
+				unique, common.QuoteIdentifier(idx.tempName), resyncTable.String(), *r.body)
 		}
-		idx.createSQL = fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s %s",
-			unique, common.QuoteIdentifier(idx.tempName), resyncTable.String(), *r.body)
-		c.logger.Info("[postgres] building index on resync table", append(logAttrs, slog.String("query", idx.createSQL))...)
-		if _, err := c.conn.Exec(ctx, idx.createSQL); err != nil {
+
+		// index definitions are not logged, partial index predicates can contain user data
+		c.logger.Info("[postgres] building index on resync table", logAttrs...)
+		if err := c.execWithoutStatementTimeout(ctx, idx.createSQL); err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -137,6 +180,23 @@ func (c *PostgresConnector) buildResyncIndexes(
 		indexes = append(indexes, idx)
 	}
 	return indexes, nil
+}
+
+// execWithoutStatementTimeout runs a statement that can take long on large tables (an index build)
+// so that a statement_timeout configured for the role does not cancel it
+func (c *PostgresConnector) execWithoutStatementTimeout(ctx context.Context, query string) error {
+	tx, err := c.conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer shared.RollbackTx(tx, c.logger)
+	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = 0"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, query); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // restoreResyncIndexes runs inside the swap transaction, after the original table was dropped and
@@ -152,15 +212,28 @@ func (c *PostgresConnector) restoreResyncIndexes(
 	for _, idx := range indexes {
 		tempIndex := common.QualifiedTable{Namespace: table.Namespace, Table: idx.tempName}
 		name := common.QuoteIdentifier(idx.name)
+		renameIndex := fmt.Sprintf("ALTER INDEX %s RENAME TO %s", tempIndex.String(), name)
+		logAttrs := []any{slog.String("index", idx.name), slog.String("table", table.String())}
+
+		deferrable := ""
+		if idx.deferrable {
+			deferrable = " DEFERRABLE"
+			if idx.deferred {
+				deferrable += " INITIALLY DEFERRED"
+			}
+		}
 
 		var query string
 		switch idx.constraintType {
 		case "p":
 			if idx.createSQL == "" {
-				// the _resync table got its own primary key, keep the original name
+				// the _resync table got the same primary key, keep the original name
 				var currentName string
 				if err := tx.QueryRow(ctx, getPrimaryKeyNameSQL, table.Namespace, table.Table).Scan(&currentName); err != nil {
 					return fmt.Errorf("failed to get primary key of %s: %w", table, err)
+				}
+				if idx.deferrable {
+					c.logger.Warn("[postgres] primary key was deferrable, deferrability is not preserved on resync", logAttrs...)
 				}
 				if currentName == idx.name {
 					continue
@@ -168,41 +241,54 @@ func (c *PostgresConnector) restoreResyncIndexes(
 				query = fmt.Sprintf("ALTER TABLE %s RENAME CONSTRAINT %s TO %s",
 					table.String(), common.QuoteIdentifier(currentName), name)
 			} else {
-				query = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY USING INDEX %s",
-					table.String(), name, common.QuoteIdentifier(idx.tempName))
+				query = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY USING INDEX %s%s",
+					table.String(), name, common.QuoteIdentifier(idx.tempName), deferrable)
 			}
 		case "u":
-			query = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s",
-				table.String(), name, common.QuoteIdentifier(idx.tempName))
+			query = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s%s",
+				table.String(), name, common.QuoteIdentifier(idx.tempName), deferrable)
 		case "x":
-			query = fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s", table.String(), name, idx.constraintDef)
+			query = fmt.Sprintf("ALTER TABLE %s RENAME CONSTRAINT %s TO %s",
+				table.String(), common.QuoteIdentifier(idx.tempName), name)
 		default:
-			query = fmt.Sprintf("ALTER INDEX %s RENAME TO %s", tempIndex.String(), name)
-		}
-		if idx.constraintType == "p" || idx.constraintType == "u" {
-			if idx.deferrable {
-				query += " DEFERRABLE"
-				if idx.deferred {
-					query += " INITIALLY DEFERRED"
-				}
-			}
+			query = renameIndex
 		}
 
-		savepoint, err := tx.Begin(ctx)
+		restored, err := c.execInSavepoint(ctx, tx, query)
 		if err != nil {
-			return fmt.Errorf("failed to create savepoint for index %s: %w", idx.name, err)
+			return err
 		}
-		if _, err := c.execWithLoggingTx(ctx, query, savepoint); err != nil {
-			c.logger.Warn("[postgres] failed to restore index after resync",
-				slog.String("index", idx.name), slog.String("table", table.String()), slog.Any("error", err))
-			if err := savepoint.Rollback(ctx); err != nil {
-				return fmt.Errorf("failed to roll back savepoint for index %s: %w", idx.name, err)
+		if !restored && idx.createSQL != "" && (idx.constraintType == "p" || idx.constraintType == "u") {
+			// the constraint could not be attached (e.g. NULLs in a primary key column),
+			// keep the index itself under its original name
+			c.logger.Warn("[postgres] failed to restore constraint after resync, keeping it as an index", logAttrs...)
+			if restored, err = c.execInSavepoint(ctx, tx, renameIndex); err != nil {
+				return err
 			}
-			continue
 		}
-		if err := savepoint.Commit(ctx); err != nil {
-			return fmt.Errorf("failed to release savepoint for index %s: %w", idx.name, err)
+		if !restored {
+			c.logger.Warn("[postgres] failed to restore index after resync", logAttrs...)
 		}
 	}
 	return nil
+}
+
+// execInSavepoint runs query in a savepoint of tx, returning false if the query failed
+// (and was rolled back without aborting tx)
+func (c *PostgresConnector) execInSavepoint(ctx context.Context, tx pgx.Tx, query string) (bool, error) {
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to create savepoint: %w", err)
+	}
+	if _, err := c.execWithLoggingTx(ctx, query, savepoint); err != nil {
+		c.logger.Warn("[postgres] statement failed, rolling back to savepoint", slog.Any("error", err))
+		if err := savepoint.Rollback(ctx); err != nil {
+			return false, fmt.Errorf("failed to roll back savepoint: %w", err)
+		}
+		return false, nil
+	}
+	if err := savepoint.Commit(ctx); err != nil {
+		return false, fmt.Errorf("failed to release savepoint: %w", err)
+	}
+	return true, nil
 }

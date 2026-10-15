@@ -116,6 +116,20 @@ func TestRenameTablesPreservesIndexes(t *testing.T) {
 				&common.QualifiedTable{Namespace: schema, Table: "orders"})
 			require.NoError(t, err)
 
+			// everything except an existing primary key is built before the swap transaction,
+			// including the exclusion constraint, so the swap itself only renames
+			// (with a _resync primary key, PeerDB's orders_resync_pkey stands in for the original one)
+			prebuilt := getResyncIndexDefs(t, connector, schema, "orders_resync")
+			require.Len(t, prebuilt, len(expected))
+			var prebuiltExclusion int
+			for name, def := range prebuilt {
+				if def.contype == "x" {
+					require.True(t, strings.HasPrefix(name, "_peerdb_resync_"), name)
+					prebuiltExclusion++
+				}
+			}
+			require.Equal(t, 1, prebuiltExclusion)
+
 			_, err = connector.RenameTables(t.Context(), &protos.RenameTablesInput{
 				FlowJobName: "test_resync_indexes",
 				RenameTableOptions: []*protos.RenameTableOption{{
@@ -176,4 +190,156 @@ func TestRenameTablesPreservesIndexesWithSoftDelete(t *testing.T) {
 	require.NoError(t, connector.conn.QueryRow(t.Context(),
 		fmt.Sprintf(`SELECT "_PEERDB_IS_DELETED" FROM %s.items WHERE id = 2`, schema)).Scan(&deleted))
 	require.True(t, deleted)
+}
+
+// A soft-deleted row carried over from the original table can conflict with a unique index, e.g. when
+// its value was reused at the source after the delete. The resync must still complete: the
+// conflicting index is skipped, every other index is preserved.
+func TestRenameTablesSoftDeleteUniqueConflict(t *testing.T) {
+	t.Parallel()
+	connector, schema := setupResyncIndexTest(t)
+
+	_, err := connector.conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s.items (id INT PRIMARY KEY, sku TEXT, "_PEERDB_IS_DELETED" BOOL DEFAULT FALSE);
+		CREATE UNIQUE INDEX items_sku_key ON %[1]s.items (sku);
+		CREATE INDEX items_live ON %[1]s.items (id) WHERE NOT "_PEERDB_IS_DELETED";
+		INSERT INTO %[1]s.items VALUES (1, 'a', false), (2, 'b', false);
+		CREATE TABLE %[1]s.items_resync (id INT PRIMARY KEY, sku TEXT, "_PEERDB_IS_DELETED" BOOL DEFAULT FALSE);
+		INSERT INTO %[1]s.items_resync VALUES (1, 'a', false), (3, 'b', false);
+	`, schema))
+	require.NoError(t, err)
+	expected := getResyncIndexDefs(t, connector, schema, "items")
+	delete(expected, "items_sku_key")
+
+	resyncName := schema + ".items_resync"
+	_, err = connector.RenameTables(t.Context(), &protos.RenameTablesInput{
+		FlowJobName:       "test_resync_indexes_soft_delete_conflict",
+		SoftDeleteColName: `_PEERDB_IS_DELETED`,
+		RenameTableOptions: []*protos.RenameTableOption{{
+			CurrentName: resyncName,
+			NewName:     schema + ".items",
+		}},
+	}, map[string]*protos.TableSchema{resyncName: {
+		PrimaryKeyColumns: []string{"id"},
+		Columns:           []*protos.FieldDescription{{Name: "id"}, {Name: "sku"}},
+	}})
+	require.NoError(t, err)
+
+	require.Equal(t, expected, getResyncIndexDefs(t, connector, schema, "items"))
+	var deletedRows int
+	require.NoError(t, connector.conn.QueryRow(t.Context(),
+		fmt.Sprintf(`SELECT count(*) FROM %s.items WHERE id = 2 AND "_PEERDB_IS_DELETED"`, schema)).Scan(&deletedRows))
+	require.Equal(t, 1, deletedRows)
+}
+
+// The soft-delete transfer commits before the swap. With replica identity full every column is
+// compared and NULLs never match, so a retry after a failed swap must not transfer the rows again.
+func TestRenameTablesSoftDeleteTransferRetry(t *testing.T) {
+	t.Parallel()
+	connector, schema := setupResyncIndexTest(t)
+
+	_, err := connector.conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s.items (id INT, code TEXT, note TEXT, "_PEERDB_IS_DELETED" BOOL DEFAULT FALSE);
+		CREATE UNIQUE INDEX items_code_key ON %[1]s.items (code);
+		INSERT INTO %[1]s.items VALUES (1, 'a', 'x', false), (2, 'b', NULL, false);
+		CREATE TABLE %[1]s.items_resync (id INT, code TEXT, note TEXT, "_PEERDB_IS_DELETED" BOOL DEFAULT FALSE);
+		INSERT INTO %[1]s.items_resync VALUES (1, 'a', 'x', false);
+		CREATE TABLE %[1]s.other_resync (id INT);
+		CREATE VIEW %[1]s.other AS SELECT 1 AS id;
+	`, schema))
+	require.NoError(t, err)
+	expected := getResyncIndexDefs(t, connector, schema, "items")
+
+	itemsName := schema + ".items_resync"
+	itemsOption := &protos.RenameTableOption{CurrentName: itemsName, NewName: schema + ".items"}
+	schemas := map[string]*protos.TableSchema{
+		itemsName: {
+			PrimaryKeyColumns:     []string{"id", "code", "note"},
+			IsReplicaIdentityFull: true,
+			Columns:               []*protos.FieldDescription{{Name: "id"}, {Name: "code"}, {Name: "note"}},
+		},
+		schema + ".other_resync": {Columns: []*protos.FieldDescription{{Name: "id"}}},
+	}
+
+	// first attempt: the soft-delete transfer and index builds commit, then the swap fails
+	_, err = connector.RenameTables(t.Context(), &protos.RenameTablesInput{
+		FlowJobName:       "test_resync_soft_delete_retry",
+		SoftDeleteColName: `_PEERDB_IS_DELETED`,
+		RenameTableOptions: []*protos.RenameTableOption{
+			itemsOption,
+			{CurrentName: schema + ".other_resync", NewName: schema + ".other"},
+		},
+	}, schemas)
+	require.Error(t, err)
+
+	// retry
+	_, err = connector.RenameTables(t.Context(), &protos.RenameTablesInput{
+		FlowJobName:        "test_resync_soft_delete_retry",
+		SoftDeleteColName:  `_PEERDB_IS_DELETED`,
+		RenameTableOptions: []*protos.RenameTableOption{itemsOption},
+	}, schemas)
+	require.NoError(t, err)
+
+	require.Equal(t, expected, getResyncIndexDefs(t, connector, schema, "items"))
+	var deletedRows int
+	require.NoError(t, connector.conn.QueryRow(t.Context(),
+		fmt.Sprintf(`SELECT count(*) FROM %s.items WHERE id = 2 AND "_PEERDB_IS_DELETED"`, schema)).Scan(&deletedRows))
+	require.Equal(t, 1, deletedRows)
+}
+
+func TestRenameTablesPrimaryKeyCases(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// DDL of the original and _resync tables, and rows of the _resync table
+		original, resync string
+		// expected indexes after the swap, keyed by name
+		expected map[string]resyncIndexDef
+	}{
+		{
+			// a deferrable primary key keeps its name, deferrability cannot be restored on an existing one
+			name:     "deferrable",
+			original: "id INT, CONSTRAINT items_pk PRIMARY KEY (id) DEFERRABLE",
+			resync:   "id INT PRIMARY KEY); INSERT INTO %[1]s.items_resync VALUES (1",
+			expected: map[string]resyncIndexDef{
+				"items_pk": {contype: "p", def: "CREATE UNIQUE INDEX ON TABLE USING btree (id)"},
+			},
+		},
+		{
+			// the primary key cannot be attached because of NULLs, the index is kept under its name
+			name:     "attach_fails",
+			original: "id INT, CONSTRAINT items_pk PRIMARY KEY (id)",
+			resync:   "id INT); INSERT INTO %[1]s.items_resync VALUES (NULL",
+			expected: map[string]resyncIndexDef{
+				"items_pk": {contype: "", def: "CREATE UNIQUE INDEX ON TABLE USING btree (id)"},
+			},
+		},
+		{
+			// PeerDB created a different primary key, the original one is kept as a unique index
+			name:     "different",
+			original: "id INT, code TEXT, CONSTRAINT items_pk PRIMARY KEY (id, code)",
+			resync:   "id INT PRIMARY KEY, code TEXT); INSERT INTO %[1]s.items_resync VALUES (1, 'a'",
+			expected: map[string]resyncIndexDef{
+				"items_resync_pkey": {contype: "p", def: "CREATE UNIQUE INDEX ON TABLE USING btree (id)"},
+				"items_pk":          {contype: "", def: "CREATE UNIQUE INDEX ON TABLE USING btree (id, code)"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			connector, schema := setupResyncIndexTest(t)
+			_, err := connector.conn.Exec(t.Context(), fmt.Sprintf(
+				"CREATE TABLE %[1]s.items ("+tc.original+"); CREATE TABLE %[1]s.items_resync ("+tc.resync+")", schema))
+			require.NoError(t, err)
+
+			_, err = connector.RenameTables(t.Context(), &protos.RenameTablesInput{
+				FlowJobName: "test_resync_pkey_" + tc.name,
+				RenameTableOptions: []*protos.RenameTableOption{{
+					CurrentName: schema + ".items_resync",
+					NewName:     schema + ".items",
+				}},
+			}, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, getResyncIndexDefs(t, connector, schema, "items"))
+		})
+	}
 }

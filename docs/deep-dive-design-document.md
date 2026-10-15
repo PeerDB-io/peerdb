@@ -662,7 +662,7 @@ Resync recreates destination tables while preserving the mirror:
 
 1. Alter table names (append `_resync` suffix, except ClickHouse)
 2. Re-run SetupFlow + SnapshotFlow with resync tables
-3. Rename tables back (swap `_resync` → original name). On Postgres, the original table's indexes (and the primary key, unique and exclusion constraints they back) are first built on the `_resync` table under temporary names, then restored under their original names inside the swap transaction
+3. Rename tables back (swap `_resync` → original name). On Postgres, soft-deleted rows are first transferred to the `_resync` table and the original table's indexes (and the primary key, unique and exclusion constraints they back) are built on it under temporary names; the swap transaction then only restores their original names
 4. Resume main CDC loop
 
 ### 6.5 Config Sync to Catalog
