@@ -628,6 +628,37 @@ func (c *PostgresConnector) RenameTables(
 	req *protos.RenameTablesInput,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
+	// build the original tables' indexes on the _resync tables before taking locks for the swap
+	resyncIndexes := make(map[string][]resyncIndex, len(req.RenameTableOptions))
+	for _, renameRequest := range req.RenameTableOptions {
+		if renameRequest.CurrentName == renameRequest.NewName {
+			continue
+		}
+		srcTable, err := common.ParseTableIdentifier(renameRequest.CurrentName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse source %s: %w", renameRequest.CurrentName, err)
+		}
+		dstTable, err := common.ParseTableIdentifier(renameRequest.NewName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse destination %s: %w", renameRequest.NewName, err)
+		}
+		if exists, err := c.tableExists(ctx, srcTable); err != nil {
+			return nil, err
+		} else if !exists {
+			continue
+		}
+		if exists, err := c.tableExists(ctx, dstTable); err != nil {
+			return nil, err
+		} else if !exists {
+			continue
+		}
+		indexes, err := c.buildResyncIndexes(ctx, srcTable, dstTable)
+		if err != nil {
+			return nil, fmt.Errorf("unable to build indexes of %s on %s: %w", dstTable, srcTable, err)
+		}
+		resyncIndexes[renameRequest.CurrentName] = indexes
+	}
+
 	renameTablesTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
@@ -711,6 +742,10 @@ func (c *PostgresConnector) RenameTables(
 			renameTablesTx,
 		); err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
+		}
+
+		if err := c.restoreResyncIndexes(ctx, renameTablesTx, dstTable, resyncIndexes[renameRequest.CurrentName]); err != nil {
+			return nil, fmt.Errorf("unable to restore indexes of %s: %w", dst, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
