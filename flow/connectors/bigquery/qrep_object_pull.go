@@ -308,6 +308,7 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 func (c *BigQueryConnector) ExportTxSnapshot(
 	ctx context.Context,
 	flowName string,
+	// just newly added tables!
 	tableMappings []*protos.TableMapping,
 	_ map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
@@ -775,6 +776,7 @@ func (c *BigQueryConnector) exportTablesUpToCDCCheckpoints(
 	ctx context.Context,
 	flowName string,
 	cfg *protos.FlowConnectionConfigsCore,
+	// just newly added tables!
 	tableMappings []*protos.TableMapping,
 	stagingPath string,
 ) error {

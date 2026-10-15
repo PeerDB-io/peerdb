@@ -1905,7 +1905,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 }
 
 // AddTablesToPublication sets up replication of tables added to a running mirror on
-// any source that needs it, not only Postgres. It keeps its original name because
+// any source that needs it. It keeps its original name because
 // that is the activity type recorded in the history of running workflows.
 func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 	additionalTableMappings []*protos.TableMapping,

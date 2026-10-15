@@ -109,7 +109,6 @@ func (a *SnapshotActivity) MaintainTx(
 	flowName string,
 	peer string,
 	env map[string]string,
-	// last so activities scheduled before it was added still decode, with it unset
 	tableMappings []*protos.TableMapping,
 ) error {
 	shutdown := common.HeartbeatRoutine(ctx, func() string {
