@@ -4947,7 +4947,7 @@ func (x *SetupFlowOutput) GetSrcTableIdNameMapping() map[uint32]string {
 	return nil
 }
 
-type AddTablesToPublicationInput struct {
+type AddTablesToReplicationInput struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	FlowJobName      string                 `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
 	PublicationName  string                 `protobuf:"bytes,2,opt,name=publication_name,json=publicationName,proto3" json:"publication_name,omitempty"`
@@ -4956,20 +4956,20 @@ type AddTablesToPublicationInput struct {
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *AddTablesToPublicationInput) Reset() {
-	*x = AddTablesToPublicationInput{}
+func (x *AddTablesToReplicationInput) Reset() {
+	*x = AddTablesToReplicationInput{}
 	mi := &file_flow_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AddTablesToPublicationInput) String() string {
+func (x *AddTablesToReplicationInput) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AddTablesToPublicationInput) ProtoMessage() {}
+func (*AddTablesToReplicationInput) ProtoMessage() {}
 
-func (x *AddTablesToPublicationInput) ProtoReflect() protoreflect.Message {
+func (x *AddTablesToReplicationInput) ProtoReflect() protoreflect.Message {
 	mi := &file_flow_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4981,26 +4981,26 @@ func (x *AddTablesToPublicationInput) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AddTablesToPublicationInput.ProtoReflect.Descriptor instead.
-func (*AddTablesToPublicationInput) Descriptor() ([]byte, []int) {
+// Deprecated: Use AddTablesToReplicationInput.ProtoReflect.Descriptor instead.
+func (*AddTablesToReplicationInput) Descriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{56}
 }
 
-func (x *AddTablesToPublicationInput) GetFlowJobName() string {
+func (x *AddTablesToReplicationInput) GetFlowJobName() string {
 	if x != nil {
 		return x.FlowJobName
 	}
 	return ""
 }
 
-func (x *AddTablesToPublicationInput) GetPublicationName() string {
+func (x *AddTablesToReplicationInput) GetPublicationName() string {
 	if x != nil {
 		return x.PublicationName
 	}
 	return ""
 }
 
-func (x *AddTablesToPublicationInput) GetAdditionalTables() []*TableMapping {
+func (x *AddTablesToReplicationInput) GetAdditionalTables() []*TableMapping {
 	if x != nil {
 		return x.AdditionalTables
 	}
@@ -6485,7 +6485,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x1aSrcTableIdNameMappingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb4\x01\n" +
-	"\x1bAddTablesToPublicationInput\x12\"\n" +
+	"\x1bAddTablesToReplicationInput\x12\"\n" +
 	"\rflow_job_name\x18\x01 \x01(\tR\vflowJobName\x12)\n" +
 	"\x10publication_name\x18\x02 \x01(\tR\x0fpublicationName\x12F\n" +
 	"\x11additional_tables\x18\x03 \x03(\v2\x19.peerdb_flow.TableMappingR\x10additionalTables\"\xb6\x01\n" +
@@ -6722,7 +6722,7 @@ var file_flow_proto_goTypes = []any{
 	(*QRepFlowConfigUpdate)(nil),                  // 63: peerdb_flow.QRepFlowConfigUpdate
 	(*FlowConfigUpdate)(nil),                      // 64: peerdb_flow.FlowConfigUpdate
 	(*SetupFlowOutput)(nil),                       // 65: peerdb_flow.SetupFlowOutput
-	(*AddTablesToPublicationInput)(nil),           // 66: peerdb_flow.AddTablesToPublicationInput
+	(*AddTablesToReplicationInput)(nil),           // 66: peerdb_flow.AddTablesToReplicationInput
 	(*RemoveTablesFromPublicationInput)(nil),      // 67: peerdb_flow.RemoveTablesFromPublicationInput
 	(*IsQRepPartitionSyncedInput)(nil),            // 68: peerdb_flow.IsQRepPartitionSyncedInput
 	(*ExportTxSnapshotOutput)(nil),                // 69: peerdb_flow.ExportTxSnapshotOutput
@@ -6834,7 +6834,7 @@ var file_flow_proto_depIdxs = []int32{
 	62,  // 64: peerdb_flow.FlowConfigUpdate.cdc_flow_config_update:type_name -> peerdb_flow.CDCFlowConfigUpdate
 	63,  // 65: peerdb_flow.FlowConfigUpdate.qrep_flow_config_update:type_name -> peerdb_flow.QRepFlowConfigUpdate
 	100, // 66: peerdb_flow.SetupFlowOutput.src_table_id_name_mapping:type_name -> peerdb_flow.SetupFlowOutput.SrcTableIdNameMappingEntry
-	13,  // 67: peerdb_flow.AddTablesToPublicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
+	13,  // 67: peerdb_flow.AddTablesToReplicationInput.additional_tables:type_name -> peerdb_flow.TableMapping
 	13,  // 68: peerdb_flow.RemoveTablesFromPublicationInput.tables_to_remove:type_name -> peerdb_flow.TableMapping
 	105, // 69: peerdb_flow.MaintenanceMirror.mirror_created_at:type_name -> google.protobuf.Timestamp
 	105, // 70: peerdb_flow.MaintenanceMirror.mirror_updated_at:type_name -> google.protobuf.Timestamp
