@@ -389,6 +389,10 @@ func SnapshotFlowWorkflow(
 			config.FlowJobName,
 			config.SourceName,
 			config.Env,
+			// this flow's own tables, not the mirror's: a table addition runs this workflow as a
+			// child scoped to the tables being added, and the catalog is only updated with them
+			// once the addition completes
+			config.TableMappings,
 		)
 
 		fExportSnapshot := workflow.ExecuteActivity(

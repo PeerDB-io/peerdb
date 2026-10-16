@@ -59,6 +59,17 @@ message TableMapping {
 
   // Structured ingestion settings of the table, if structured ingestion is used.
   StructuredIngestionTableConfig structured_ingestion_config = 12;
+
+  // MongoDB specific settings of the table, only meaningful when the source is MongoDB.
+  MongoTableConfig mongo_config = 13;
+}
+
+message MongoTableConfig {
+  // If true, delete events carry the document as it stood immediately before the delete
+  // (the change stream's `fullDocumentBeforeChange`) instead of only its `_id`, so the
+  // destination row of a delete keeps the document's values rather than defaults.
+  // Requires `changeStreamPreAndPostImages` to be enabled on the source collection.
+  bool delete_preimage = 1;
 }
 
 message StructuredIngestionTableConfig {
@@ -637,7 +648,7 @@ message SetupFlowOutput {
   map<uint32, string> src_table_id_name_mapping = 1;
 }
 
-message AddTablesToPublicationInput {
+message AddTablesToReplicationInput {
   string flow_job_name = 1;
   string publication_name = 2;
   repeated TableMapping additional_tables = 3;
