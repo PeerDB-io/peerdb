@@ -1604,6 +1604,125 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_BigQuery_CDC_Table_Addition_Mid_CDC verifies that an added table gets
+// both its initial snapshot and a cursor from which query-based CDC can resume.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	existingSrc := e2e.AddSuffix(s, "cdc_addition_existing")
+	addedSrc := e2e.AddSuffix(s, "cdc_addition_added")
+	existingDst := existingSrc + "_dst"
+	addedDst := addedSrc + "_dst"
+	existingFQN := createBigQueryCdcSourceTable(ctx, t, source, existingSrc, false)
+	addedFQN := createBigQueryCdcSourceTable(ctx, t, source, addedSrc, false)
+	addedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, addedSrc)
+
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 1, Val: "existing-initial"}})
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-pre-snapshot"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, bqCdcFlowParams{
+		eventsFunction:    appends,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table initial snapshot landed", existingSrc, existingDst, "id,val")
+
+	pool, err := e2e.CatalogTestAccessPool()
+	require.NoError(t, err)
+	e2e.SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	e2e.SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSourceID,
+			DestinationTableIdentifier: s.DestinationTable(addedDst),
+			BigqueryCdcEventsFunction:  appends,
+		}},
+	})
+	e2e.EnvWaitFor(t, env, 5*time.Minute, "resumed workflow after table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table initial snapshot landed", addedSrc, addedDst, "id,val")
+	checkpointAfterAddition := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID)
+	require.False(t, checkpointAfterAddition.IsZero())
+
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 2, Val: "added-cdc-1"}})
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 2, Val: "existing-cdc-1"}})
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table CDC wave landed", addedSrc, addedDst, "id,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table CDC continues after addition", existingSrc, existingDst, "id,val")
+	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID).After(checkpointAfterAddition))
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Table_Addition_Skip_Initial_Snapshot verifies that a table added
+// without an initial load still gets a CDC cursor, so its changes are replicated.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Skip_Initial_Snapshot() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	existingSrc := e2e.AddSuffix(s, "cdc_addition_noload_existing")
+	addedSrc := e2e.AddSuffix(s, "cdc_addition_noload_added")
+	existingDst := existingSrc + "_dst"
+	addedDst := addedSrc + "_dst"
+	existingFQN := createBigQueryCdcSourceTable(ctx, t, source, existingSrc, false)
+	addedFQN := createBigQueryCdcSourceTable(ctx, t, source, addedSrc, false)
+	addedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, addedSrc)
+
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 1, Val: "existing-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, bqCdcFlowParams{
+		eventsFunction:    appends,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table initial snapshot landed", existingSrc, existingDst, "id,val")
+
+	pool, err := e2e.CatalogTestAccessPool()
+	require.NoError(t, err)
+	e2e.SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	e2e.SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSourceID,
+			DestinationTableIdentifier: s.DestinationTable(addedDst),
+			BigqueryCdcEventsFunction:  appends,
+		}},
+		SkipInitialSnapshotForTableAdditions: true,
+	})
+	e2e.EnvWaitFor(t, env, 5*time.Minute, "resumed workflow after table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	checkpointAfterAddition := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID)
+	require.False(t, checkpointAfterAddition.IsZero())
+
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-cdc-1"}})
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 2, Val: "existing-cdc-1"}})
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table CDC wave landed", addedSrc, addedDst, "id,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table CDC continues after addition", existingSrc, existingDst, "id,val")
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
 // Test_BigQuery_CDC_Replication_State_Handler checks that the
 // GetQueryCDCReplicationState API (flow/cmd/mirror_status.go) reports the same
 // per-table sync/normalize progress as the underlying

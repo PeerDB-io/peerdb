@@ -721,6 +721,7 @@ func (c *PostgresConnector) EnsurePullability(
 func (c *PostgresConnector) ExportTxSnapshot(
 	ctx context.Context,
 	_ string,
+	_ []*protos.TableMapping,
 	env map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
@@ -1072,7 +1073,8 @@ func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, u
 	}, nil
 }
 
-func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
+// AddTablesToReplication adds the tables to the mirror's publication, if PeerDB manages it.
+func (c *PostgresConnector) AddTablesToReplication(ctx context.Context, req *protos.AddTablesToReplicationInput) error {
 	if req == nil || len(req.AdditionalTables) == 0 {
 		return nil
 	}

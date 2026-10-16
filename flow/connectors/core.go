@@ -101,10 +101,14 @@ type CDCPullConnectorCore interface {
 		*protos.EnsurePullabilityBatchOutput, error)
 
 	// For InitialSnapshotOnly correctness without replication slot
-	// `any` is for returning transaction if necessary
+	// `any` is for returning transaction if necessary.
+	// tableMappings is the snapshotting flow's own table set, which is not always the
+	// mirror's: a table addition runs this as a child flow scoped to just the tables being
+	// added, and the catalog still holds the mirror's pre-addition config while it runs.
 	ExportTxSnapshot(
 		ctx context.Context,
 		flowName string,
+		tableMappings []*protos.TableMapping,
 		env map[string]string,
 	) (*protos.ExportTxSnapshotOutput, any, error)
 
@@ -122,6 +126,18 @@ type CDCPullConnectorCore interface {
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
+}
+
+// TableAdditionSourceConnector is implemented by sources that need per-table setup
+// before tables added to a running mirror can be replicated. Sources whose replication
+// position already covers every table (e.g. MySQL binlog, MongoDB change streams) don't.
+type TableAdditionSourceConnector interface {
+	Connector
+
+	// AddTablesToReplication runs before the added tables' initial snapshot, if any, and
+	// must be idempotent. Starting replication before the snapshot may re-read rows
+	// changed while it runs, which the destination's deduplication absorbs.
+	AddTablesToReplication(ctx context.Context, req *protos.AddTablesToReplicationInput) error
 }
 
 type CDCPullConnector interface {
@@ -763,6 +779,9 @@ var (
 	_ CDCPullConnector = &connmongo.MongoConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
+
+	_ TableAdditionSourceConnector = &connpostgres.PostgresConnector{}
+	_ TableAdditionSourceConnector = &connbigquery.BigQueryConnector{}
 
 	_ CDCSyncConnector = &connpostgres.PostgresConnector{}
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
