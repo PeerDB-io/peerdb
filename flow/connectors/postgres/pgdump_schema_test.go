@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -652,4 +653,101 @@ func TestIncompatibleLineRegex(t *testing.T) {
 			t.Errorf("incompatibleLineRE.Match(%q) = %v, want %v", tt.line, got, tt.match)
 		}
 	}
+}
+
+// What runPipeline tells its caller when a child dies: a src it killed on purpose, a cancelled
+// context, and both sides exiting cleanly. Red before the fix, green after.
+
+// A src runPipeline killed on purpose - the destination is already gone - is not a failure.
+// `true` exits without reading, and src writes then sleeps, so it is alive when dst goes.
+func TestKilledSrcIsNotReportedAsFailure(t *testing.T) {
+	ctx := t.Context()
+
+	src := exec.CommandContext(ctx, "sh", "-c", "printf 'SELECT 1;\\n'; sleep 5")
+	dst := exec.CommandContext(ctx, "true") // exits immediately, reads nothing
+
+	err := runPipeline(ctx, src, dst, "src", "dst", filterIncompatibleLines)
+	if err != nil {
+		t.Fatalf("a src the pipeline killed itself must not be reported as a failure, got: %v", err)
+	}
+}
+
+// A cancelled context is the caller's doing, not a peer's failure.
+func TestCancelledContextIsReportedAsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	src := exec.CommandContext(ctx, "sh", "-c", "sleep 5; printf 'SELECT 1;\\n'")
+	dst := exec.CommandContext(ctx, "cat")
+
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+
+	err := runPipeline(ctx, src, dst, "src", "dst", filterIncompatibleLines)
+	if err == nil {
+		t.Fatal("expected an error from the cancelled pipeline")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled context must be reported as cancellation, got: %v", err)
+	}
+}
+
+// Both sides exit 0: nothing failed, so nothing may be reported.
+func TestBothExitedIsNotAFailure(t *testing.T) {
+	ctx := t.Context()
+	src := exec.CommandContext(ctx, "true")
+	dst := exec.CommandContext(ctx, "true")
+	if err := runPipeline(ctx, src, dst, "src", "dst", filterIncompatibleLines); err != nil {
+		t.Fatalf("both sides exited 0; got: %v", err)
+	}
+}
+
+// A cancellation must not mask a failure the process chose: the exit code wins.
+func TestCancellationDoesNotMaskAFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	src := exec.CommandContext(ctx, "sleep", "30")
+	// exits with a code, then the context is cancelled while runPipeline is still waiting
+	dst := exec.CommandContext(ctx, "sh", "-c", "sleep 0.1; exit 3")
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+
+	err := runPipeline(ctx, src, dst, "src", "dst", holdOpen)
+	if err == nil || !strings.Contains(err.Error(), "dst failed") {
+		t.Fatalf("want dst's exit code reported, got: %v", err)
+	}
+}
+
+// A cancellation arriving after both sides finished cleanly is not a failure.
+func TestLateCancellationIsNotAFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	src := exec.CommandContext(ctx, "true")
+	dst := exec.CommandContext(ctx, "true")
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+
+	if err := runPipeline(ctx, src, dst, "src", "dst", holdOpen); err != nil {
+		t.Fatalf("both sides exited 0; a late cancellation is not a failure: %v", err)
+	}
+}
+
+// A filter error that is not an EPIPE is a failure even when the pipeline killed a side.
+func TestFilterErrorIsReportedWhenNotEPIPE(t *testing.T) {
+	ctx := t.Context()
+	src := exec.CommandContext(ctx, "sleep", "5")
+	dst := exec.CommandContext(ctx, "true") // exits without reading, so src is killed
+
+	brokenErr := errors.New("filter: broken")
+	broken := func(context.Context, io.Reader, io.Writer) error { return brokenErr }
+
+	err := runPipeline(ctx, src, dst, "src", "dst", broken)
+	if !errors.Is(err, brokenErr) {
+		t.Fatalf("a non-EPIPE filter error must be reported, got: %v", err)
+	}
+}
+
+// holdOpen keeps runPipeline in its final wait, so a cancellation can land before it returns.
+func holdOpen(_ context.Context, _ io.Reader, _ io.Writer) error {
+	time.Sleep(300 * time.Millisecond)
+	return nil
 }
