@@ -2198,6 +2198,10 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
+func (a *FlowableActivity) PeerDBSnapshotMaxParallelWorkers(ctx context.Context, env map[string]string) (int32, error) {
+	return internal.PeerDBSnapshotMaxParallelWorkers(ctx, env)
+}
+
 func (a *FlowableActivity) PeerDBClickHouseInitialLoadAllowNonEmptyTables(
 	ctx context.Context, env map[string]string,
 ) (bool, error) {

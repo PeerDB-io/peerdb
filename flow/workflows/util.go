@@ -72,6 +72,20 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 	return fullRefreshEnabled
 }
 
+func getSnapshotMaxParallelWorkers(wCtx workflow.Context, logger log.Logger, env map[string]string) int32 {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var workers int32
+	future := workflow.ExecuteActivity(checkCtx, flowable.PeerDBSnapshotMaxParallelWorkers, env)
+	if err := future.Get(checkCtx, &workers); err != nil {
+		logger.Warn("Failed to check snapshot max parallel workers override", slog.Any("error", err))
+		return 0
+	}
+	return workers
+}
+
 func getClickHouseInitialLoadAllowNonEmptyTables(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
 	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,

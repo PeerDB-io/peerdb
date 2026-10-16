@@ -602,6 +602,15 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
+	// Custom patch: dynconf override of snapshot/initial-load clone parallelism,
+	// read on flow-worker so the snapshot worker is untouched. 0 keeps the
+	// mirror-configured value.
+	if strings.HasPrefix(config.FlowJobName, "clone_") {
+		if override := getSnapshotMaxParallelWorkers(ctx, q.logger, config.Env); override > 0 {
+			maxParallelWorkers = int(override)
+		}
+	}
+
 	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
 		return state, fmt.Errorf("failed to setup watermark table: %w", err)
 	}

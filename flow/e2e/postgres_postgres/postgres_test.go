@@ -14,6 +14,7 @@ import (
 
 	e2e "github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -1051,6 +1052,67 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 	for _, tm := range config.TableMappings {
 		require.NoError(s.t, s.comparePGTables(tm.SourceTableIdentifier, tm.DestinationTableIdentifier, "id,address,asset_id"))
 	}
+}
+
+// Temporary functional check for the hardcoded "force 8 snapshot workers" patch in
+// cloneTable. The mirror is configured with SnapshotMaxParallelWorkers=4, so if the
+// patch is in effect the snapshot-worker should log "num batches":8 (not 4). We force
+// >8 CTID-block partitions via a low SnapshotNumRowsPerPartition on a multi-page table.
+func (s PeerFlowE2ETestSuitePG) Test_Patch_Force8_Parallel_Workers() {
+	srcTable := "test_force8_workers"
+	dstTable := srcTable + "_dst"
+	srcTableName := s.attachSchemaSuffix(srcTable)
+	dstTableName := s.attachSchemaSuffix(dstTable)
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id INT PRIMARY KEY,
+			payload TEXT NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	// ~3000 rows of ~400-byte inline payloads => many heap pages so CTID block
+	// partitioning can realize well over 8 partitions.
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s (id, payload)
+		SELECT g, repeat('x', 400) FROM generate_series(1, 3000) g;
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	// Drive the clone parallelism dynamically via dynconf (read on flow-worker).
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	eight := "8"
+	require.NoError(s.t, internal.UpdateDynamicSetting(s.t.Context(), catalogPool, "PEERDB_SNAPSHOT_MAX_PARALLEL_WORKERS", &eight))
+	s.t.Cleanup(func() {
+		zero := "0"
+		_ = internal.UpdateDynamicSetting(s.t.Context(), catalogPool, "PEERDB_SNAPSHOT_MAX_PARALLEL_WORKERS", &zero)
+	})
+
+	config := &protos.FlowConnectionConfigs{
+		DoInitialSnapshot:   true,
+		InitialSnapshotOnly: true,
+		FlowJobName:         s.attachSuffix("test_force8_workers"),
+		DestinationName:     s.Peer().Name,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableName,
+			DestinationTableIdentifier: dstTableName,
+		}},
+		SourceName:                  e2e.GeneratePostgresPeer(s.t).Name,
+		System:                      protos.TypeSystem_PG,
+		SnapshotMaxParallelWorkers:  4,
+		SnapshotNumTablesInParallel: 1,
+		SnapshotNumRowsPerPartition: 100,
+	}
+
+	s.t.Logf("force8 flow job name: %s", config.FlowJobName)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,payload"))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {

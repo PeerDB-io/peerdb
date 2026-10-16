@@ -123,6 +123,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_SNAPSHOT_MAX_PARALLEL_WORKERS",
+		Description:      "Override max parallel workers for snapshot/initial-load table clones; 0 uses the mirror-configured value",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
 		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
 		DefaultValue: "false",
@@ -908,6 +916,10 @@ func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string
 
 func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
 	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
+}
+
+func PeerDBSnapshotMaxParallelWorkers(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_SNAPSHOT_MAX_PARALLEL_WORKERS")
 }
 
 func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
