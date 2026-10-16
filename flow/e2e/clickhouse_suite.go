@@ -3870,6 +3870,12 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`CREATE TABLE %s_child1 (email TEXT, country_code TEXT) INHERITS (%s)`, srcFullName, srcFullName)))
 
+	// primary keys are not inherited; children need their own to be updated once published
+	for _, child := range []string{"child0", "child1"} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`ALTER TABLE %s_%s ADD PRIMARY KEY (id)`, srcFullName, child)))
+	}
+
 	rowsPerTable := 5
 	totalRows := 0
 	for j := range rowsPerTable {
@@ -3908,6 +3914,32 @@ func (s ClickHouseSuite) Test_CTID_Inherited_Table_Extra_Columns() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s_child0 (name, age) VALUES ('cdc_extra_col', 99)`, srcFullName)))
 	EnvWaitForCount(env, s, "wait on cdc after inherited extra cols snapshot", dstTableName, "id", totalRows+1)
+
+	// the children have different column counts; interleave them so each is decoded after the other's
+	// RelationMessage, and compare values rather than counts
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s_child1 (name, email, country_code) VALUES ('cdc_child1', 'cdc@test.com', 'FR')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s_child0 (name, age) VALUES ('cdc_child0_again', 42)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s_child1 SET name = 'cdc_child1_upd' WHERE name = 'cdc_child1'`, srcFullName)))
+	EnvWaitForEqualTablesWithNames(env, s, "wait on interleaved cdc across children", srcTableName, dstTableName, "id,name")
+	// decoded with child1's layout, child0's age would land in child1's email column
+	EnvWaitFor(s.t, env, time.Minute, "child0 row decoded with its own layout", func() bool {
+		rows, err := s.GetRows(dstTableName, "name,email")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		for _, row := range rows.Records {
+			if row[0].Value() == "cdc_child0_again" {
+				// empty or NULL depending on nullable mode, never child0's age
+				email := row[1].Value()
+				return email == nil || email == ""
+			}
+		}
+		return false
+	})
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
