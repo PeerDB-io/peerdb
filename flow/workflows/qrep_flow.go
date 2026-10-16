@@ -604,8 +604,11 @@ func QRepFlowWorkflow(
 
 	// Custom patch: dynconf override of snapshot/initial-load clone parallelism,
 	// read on flow-worker so the snapshot worker is untouched. 0 keeps the
-	// mirror-configured value.
-	if strings.HasPrefix(config.FlowJobName, "clone_") {
+	// mirror-configured value. GetVersion guards the extra activity command so
+	// workflows started before this change replay deterministically (old history
+	// has no version marker, so GetVersion returns DefaultVersion and skips it).
+	if workflow.GetVersion(ctx, "snapshot-max-parallel-workers-override", workflow.DefaultVersion, 1) == 1 &&
+		strings.HasPrefix(config.FlowJobName, "clone_") {
 		if override := getSnapshotMaxParallelWorkers(ctx, q.logger, config.Env); override > 0 {
 			maxParallelWorkers = int(override)
 		}
