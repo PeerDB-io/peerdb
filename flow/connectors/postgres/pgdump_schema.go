@@ -199,22 +199,24 @@ func runPipeline(
 	go func() { srcDone <- srcCmd.Wait() }()
 	go func() { dstDone <- dstCmd.Wait() }()
 
+	// Wait goroutines write ProcessState; take each exit from its own channel instead.
 	var (
 		srcErr, dstErr       error
 		srcKilled, dstKilled bool
+		srcExited, dstExited bool
 	)
 	for range 2 {
 		select {
 		case err := <-srcDone:
-			srcErr = err
-			if err != nil && dstCmd.ProcessState == nil {
+			srcErr, srcExited = err, true
+			if err != nil && !dstExited {
 				if killErr := dstCmd.Process.Kill(); killErr == nil {
 					dstKilled = true
 				}
 			}
 		case err := <-dstDone:
-			dstErr = err
-			if srcCmd.ProcessState == nil {
+			dstErr, dstExited = err, true
+			if !srcExited {
 				// dst exited (success or failure) while src is still running;
 				// kill src so it doesn't block on a pipe with no reader.
 				if killErr := srcCmd.Process.Kill(); killErr == nil {
