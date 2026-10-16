@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"syscall"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -229,24 +231,61 @@ func runPipeline(
 		filterErr = <-filterDone
 	}
 
-	// Report the original cause, not the side we killed in response.
-	if dstErr != nil && !dstKilled {
+	srcKilledByUs, dstKilledByUs := killedByUs(srcErr, srcKilled), killedByUs(dstErr, dstKilled)
+
+	// An exit code is one the process chose, so it is the cause: report it before the context.
+	if dstErr != nil && !signaled(dstErr) {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", dstName, dstErr, dstStderr.String())
 	}
-	if srcErr != nil && !srcKilled {
+	if srcErr != nil && !signaled(srcErr) {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", srcName, srcErr, srcStderr.String())
 	}
-	if filterErr != nil {
+
+	// A cancellation explains the signal deaths it caused, and nothing else.
+	if ctxErr := ctx.Err(); ctxErr != nil &&
+		((signaled(srcErr) && !srcKilledByUs) || (signaled(dstErr) && !dstKilledByUs)) {
+		return fmt.Errorf("pipeline cancelled: %w", ctxErr)
+	}
+
+	// A filter EPIPE means the destination stopped reading. Other filter errors remain failures
+	// even if closing the pipe led us to kill a process.
+	ignoreFilterErr := errors.Is(filterErr, syscall.EPIPE) && (srcKilledByUs || dstKilledByUs)
+	if filterErr != nil && !ignoreFilterErr {
 		return fmt.Errorf("filter failed: %w", filterErr)
 	}
-	// Fallback: both sides killed (e.g. ctx cancel) — surface whichever error we have.
-	if srcErr != nil {
+
+	// Signal deaths this function did not send.
+	if srcErr != nil && !srcKilledByUs {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", srcName, srcErr, srcStderr.String())
 	}
-	if dstErr != nil {
+	if dstErr != nil && !dstKilledByUs {
 		return fmt.Errorf("%s failed: %w\nstderr:\n%s", dstName, dstErr, dstStderr.String())
 	}
 	return nil
+}
+
+func waitStatus(err error) (syscall.WaitStatus, bool) {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, false
+	}
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ws, ok
+}
+
+func signaled(err error) bool {
+	ws, ok := waitStatus(err)
+	return ok && ws.Signaled()
+}
+
+// killedByUs reports whether err is this function's own kill, which can only be SIGKILL. The flag
+// alone is not enough: Kill() on a process that has already exited still succeeds.
+func killedByUs(err error, killed bool) bool {
+	if !killed {
+		return false
+	}
+	ws, ok := waitStatus(err)
+	return ok && ws.Signaled() && ws.Signal() == syscall.SIGKILL
 }
 
 // pgAddr is how a raw libpq invocation (pg_dump/psql) should address one peer.
