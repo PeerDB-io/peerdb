@@ -839,6 +839,40 @@ func (c *PostgresConnector) SetupReplication(
 		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
 }
 
+// ValidateTableAdditions checks tables about to be added to a running mirror, before the publication changes. Table
+// additions skip mirror validation, which performs these checks for a new mirror.
+func (c *PostgresConnector) ValidateTableAdditions(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore, additionalTables []*protos.TableMapping,
+) error {
+	added, err := parseSourceTables(additionalTables)
+	if err != nil {
+		return err
+	}
+	return c.checkReservedSourceSchemaColumn(ctx, cfg.Env, added)
+}
+
+func parseSourceTables(mappings []*protos.TableMapping) ([]*common.QualifiedTable, error) {
+	tables := make([]*common.QualifiedTable, 0, len(mappings))
+	for _, tm := range mappings {
+		parsed, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source table identifier %s: %w", tm.SourceTableIdentifier, err)
+		}
+		tables = append(tables, parsed)
+	}
+	return tables, nil
+}
+
+func splitQualifiedTables(tables []*common.QualifiedTable) ([]string, []string) {
+	schemas := make([]string, 0, len(tables))
+	names := make([]string, 0, len(tables))
+	for _, table := range tables {
+		schemas = append(schemas, table.Namespace)
+		names = append(names, table.Table)
+	}
+	return schemas, names
+}
+
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
 	slotName := GetDefaultSlotName(jobName)
 	if _, err := c.conn.Exec(

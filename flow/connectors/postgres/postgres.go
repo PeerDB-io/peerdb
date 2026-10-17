@@ -45,6 +45,7 @@ type PostgresConnector struct {
 	Config                 *protos.PostgresConfig
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
+	warnedRelations        map[string]struct{} // flow warnings recorded once per connector, which outlives pulls
 	typeMap                *pgtype.Map
 	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
@@ -198,6 +199,7 @@ func newPostgresConnector(
 		customTypeMapping:      nil,
 		hushWarnOID:            make(map[uint32]struct{}),
 		relationMessageMapping: make(model.RelationMessageMapping),
+		warnedRelations:        make(map[string]struct{}),
 		connStr:                connectionString,
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},

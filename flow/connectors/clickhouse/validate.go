@@ -48,6 +48,24 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 	}
 
+	// checked before the resync early return: a column renamed to the source schema column would silently
+	// become provenance
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
+	if err != nil {
+		return err
+	}
+	if sourceSchemaAsDestinationColumn {
+		for _, tableMapping := range cfg.TableMappings {
+			for _, col := range tableMapping.Columns {
+				if col.DestinationName == sourceSchemaColName {
+					return fmt.Errorf("column %s of %s cannot be renamed to %s, which is reserved while "+
+						"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN is enabled",
+						col.SourceName, tableMapping.SourceTableIdentifier, sourceSchemaColName)
+				}
+			}
+		}
+	}
+
 	destinationTables := make([]string, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		destinationTable := tableMapping.DestinationTableIdentifier
@@ -88,10 +106,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	// they'll always get swapped out with the _resync tables which we CREATE OR REPLACE
 	// also in case of this setting; multiple source tables can be mapped to the same destination table
 	// so ignore the check in this case as well
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
-	if err != nil {
-		return err
-	}
 
 	initialLoadAllowNonEmptyTables, err := internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, cfg.Env)
 	if err != nil {
