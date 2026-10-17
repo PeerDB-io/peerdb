@@ -168,6 +168,10 @@ A tuple whose column count differs from its RelationMessage is rejected. Earlier
 decoded a child's tuples with a sibling's column order. Upgrading fixes new changes but does not repair rows
 already written. If a mirror has children with different column orders, resync the affected tables.
 
+**Child-only columns.** A child with columns its parent lacks reports them as added columns of the parent's
+destination table. The initial snapshot selects the parent's columns, so child-only columns are only populated by
+CDC.
+
 ### 1.7 LSN Checkpoint Management
 
 **Storage**: Catalog (default) or destination peer (Postgres→Postgres optimization)
