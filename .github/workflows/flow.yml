@@ -125,7 +125,8 @@ jobs:
 
   flow_test:
     name: ${{ matrix.target.label }}
-    needs: [gate]
+    # Validate the common code before allocating runners for every permutation.
+    needs: [gate, unit_tests, test_selection_coverage]
     strategy:
       fail-fast: false
       matrix:

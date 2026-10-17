@@ -385,6 +385,9 @@ jobs:
       # reload the individual resource with `tilt trigger` and wait again, up to
       # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
       - name: Bring up core PeerDB services (with recovery)
+        # Bound startup separately so stalled dependencies cannot consume the
+        # entire job budget, and leave time for diagnostics and artifact upload.
+        timeout-minutes: 15
         run: |
           set -uo pipefail
 
@@ -452,16 +455,15 @@ jobs:
             return 1
           }
 
-          rc=0
           for res in $MAIN_SERVICES; do
-            wait_or_recover "$res" || rc=1
+            # All of these services are required. In particular, the API and
+            # workers cannot start after flow-migrate has failed.
+            if ! wait_or_recover "$res"; then
+              echo "::error::Required core service $res could not be recovered; stopping startup."
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
+              exit 1
+            fi
           done
-
-          if [ "$rc" -ne 0 ]; then
-            echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-startup.log" || true
-            exit 1
-          fi
           echo "Core PeerDB services are up."
 
       - name: Stop capturing Tilt startup logs
