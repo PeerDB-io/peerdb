@@ -41,8 +41,14 @@ func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, colu
 		pgType = column.Type
 		// Add schema qualification for user-defined types
 		if column.TypeSchemaName != "" {
+			typeSchemaName := column.TypeSchemaName
+			// Source deployments (e.g. Supabase) keep extension types in an "extensions" schema that
+			// may not exist on the destination; remap them to "public" so the normalize SQL resolves.
+			if typeSchemaName == "extensions" {
+				typeSchemaName = "public"
+			}
 			schemaQualifiedPgType := common.QualifiedTable{
-				Namespace: column.TypeSchemaName,
+				Namespace: typeSchemaName,
 				Table:     pgType,
 			}
 			return schemaQualifiedPgType.String()
