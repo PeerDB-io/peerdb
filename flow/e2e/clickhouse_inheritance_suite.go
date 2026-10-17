@@ -204,6 +204,59 @@ func (s ClickHouseSuite) Test_Inheritance_Divergent_Child_Layouts() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Inheritance_Child_Of_Two_Mirrored_Parents() {
+	s.inhRequirePostgres()
+
+	parent1Name, parent2Name := "inh_multi_p1", "inh_multi_p2"
+	parent1, parent2 := s.attachSchemaSuffix(parent1Name), s.attachSchemaSuffix(parent2Name)
+	dst1, dst2 := "inh_multi_p1_dst", "inh_multi_p2_dst"
+	flowJobName := s.attachSuffix("inh_multi")
+	schemaM := s.inhTenantSchema("mm")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, parent1)
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, parent2)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (1, 'p1')`, parent1)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (2, 'p2')`, parent2)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent1: dst1, parent2: dst2},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial p1", parent1Name, dst1, "id,name")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial p2", parent2Name, dst2, "id,name")
+
+	// created after start, so the first rows go through runtime discovery; inhseqno 1 is parent1
+	s.inhExec(`CREATE TABLE %s.inh_multi_child (id BIGINT PRIMARY KEY, name TEXT) INHERITS (%s, %s)`,
+		schemaM, parent1, parent2)
+	s.inhExec(`ALTER PUBLICATION %s ADD TABLE %s.inh_multi_child`, connpostgres.GetDefaultPublicationName(flowJobName), schemaM)
+	s.inhExec(`INSERT INTO %s.inh_multi_child (id, name) VALUES (10, 'm10')`, schemaM)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (3, 'p1-3')`, parent1)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (4, 'p2-4')`, parent2)
+
+	// parent1's source rows include the child's, parent2's destination must only hold parent2's own rows
+	EnvWaitForEqualTablesWithNames(env, s, "child routed to first parent", parent1Name, dst1, "id,name")
+	EnvWaitForEqualTablesWithNames_Only(env, s, "child not routed to second parent", parent2Name, dst2, "id,name")
+
+	// after a restart the child comes from the startup map instead, and must still go to parent1
+	s.inhRestartReplication(env, flowJobName)
+	s.inhExec(`INSERT INTO %s.inh_multi_child (id, name) VALUES (11, 'm11')`, schemaM)
+	s.inhExec(`UPDATE %s.inh_multi_child SET name = 'm10-upd' WHERE id = 10`, schemaM)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (5, 'p2-5')`, parent2)
+
+	EnvWaitForEqualTablesWithNames(env, s, "child still routed to first parent", parent1Name, dst1, "id,name")
+	EnvWaitForEqualTablesWithNames_Only(env, s, "child still not routed to second parent", parent2Name, dst2, "id,name")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) inhPartitionDivergentLayout(pubViaRoot bool) {
 	s.inhRequirePostgres()
 

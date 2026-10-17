@@ -57,7 +57,9 @@ type PostgresCDCSource struct {
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 	idToRelKindMap            map[uint32]byte
-	publishViaPartitionRoot   bool
+	// relids of the tables in the mirror, the only candidates a child can be remapped to
+	mirroredRelIDs          []uint32
+	publishViaPartitionRoot bool
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
@@ -133,9 +135,9 @@ func (c *PostgresConnector) queryPostgresClockOffset(ctx context.Context) (time.
 
 // Create a new PostgresCDCSource
 func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
+	mirroredRelIDs := slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping))
 	childToParentRelIDMap, idToRelKindMap, err := getChildToParentRelIDMap(ctx,
-		c.conn, slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping)),
-		cdcConfig.HandleInheritanceForNonPartitionedTables)
+		c.conn, mirroredRelIDs, cdcConfig.HandleInheritanceForNonPartitionedTables)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
@@ -174,6 +176,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		commitLock:                               nil,
 		childToParentRelIDMapping:                childToParentRelIDMap,
 		idToRelKindMap:                           idToRelKindMap,
+		mirroredRelIDs:                           mirroredRelIDs,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
 		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
@@ -204,23 +207,42 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 	return schemaTable.Namespace, nil
 }
 
+// inheritanceParentRelkinds lists the relkinds a parent may have for its children to be remapped onto it:
+// partitioned tables always, plain tables only when inheritance handling is enabled.
+func inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables bool) string {
+	if handleInheritanceForNonPartitionedTables {
+		return "'p', 'r'"
+	}
+	return "'p'"
+}
+
+// childToParentRelIDMapQuery and inheritedParentQuery must agree on which parent a child is remapped to:
+// candidates are the mirrored tables ($1 / $2) with a qualifying relkind, and the one with the lowest
+// inhseqno wins. The startup map and runtime discovery would otherwise route a child of several mirrored
+// parents differently across pulls.
+func childToParentRelIDMapQuery(handleInheritanceForNonPartitionedTables bool) string {
+	return fmt.Sprintf(`
+		SELECT DISTINCT ON (i.inhrelid) i.inhparent AS parentrelid, i.inhrelid AS childrelid, parent.relkind
+		FROM pg_inherits i
+		JOIN pg_class parent ON i.inhparent = parent.oid
+		WHERE parent.relkind IN (%s) AND i.inhparent = ANY($1)
+		ORDER BY i.inhrelid, i.inhseqno`, inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables))
+}
+
+func inheritedParentQuery(handleInheritanceForNonPartitionedTables bool) string {
+	return fmt.Sprintf(`
+		SELECT i.inhparent, parent.relkind
+		FROM pg_inherits i
+		JOIN pg_class parent ON i.inhparent = parent.oid
+		WHERE i.inhrelid = $1 AND parent.relkind IN (%s) AND i.inhparent = ANY($2)
+		ORDER BY i.inhseqno
+		LIMIT 1`, inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables))
+}
+
 func getChildToParentRelIDMap(ctx context.Context,
 	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
 ) (map[uint32]uint32, map[uint32]byte, error) {
-	relkinds := "'p'"
-	if handleInheritanceForNonPartitionedTables {
-		relkinds = "'p', 'r'"
-	}
-
-	query := fmt.Sprintf(`
-		SELECT parent.oid AS parentrelid, child.oid AS childrelid, parent.relkind
-		FROM pg_inherits
-		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
-		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind IN (%s) AND parent.oid=ANY($1);
-	`, relkinds)
-
-	rows, err := conn.Query(ctx, query, parentTableOIDs)
+	rows, err := conn.Query(ctx, childToParentRelIDMapQuery(handleInheritanceForNonPartitionedTables), parentTableOIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
@@ -1676,26 +1698,26 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
 ) (uint32, byte, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
-	relkinds := "'p'"
-	if p.handleInheritanceForNonPartitionedTables {
-		relkinds = "'p', 'r'"
-	}
 
+	// Relations with no mirrored parent are looked up again on each of their RelationMessages (before their
+	// first change in a session, and after DDL or cache invalidation), as before. Caching the miss across
+	// sessions could hide a later ALTER TABLE ... INHERIT.
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
+		var parentRelKind byte
 		if err := p.conn.QueryRow(
 			ctx,
-			fmt.Sprintf(`SELECT inhparent FROM pg_inherits
-			JOIN pg_class c ON pg_inherits.inhparent=c.oid
-			WHERE inhrelid=$1 AND c.relkind IN (%s)`, relkinds),
-			relID,
-		).Scan(&parentRelID); err != nil {
+			inheritedParentQuery(p.handleInheritanceForNonPartitionedTables),
+			relID, p.mirroredRelIDs,
+		).Scan(&parentRelID, &parentRelKind); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return relID, 0, nil
 			}
 			return 0, 0, fmt.Errorf("failed to query pg_inherits: %w", err)
 		}
 		p.childToParentRelIDMapping[relID] = parentRelID
+		// the parent may have had no children when the startup map was built
+		p.idToRelKindMap[parentRelID] = parentRelKind
 		p.hushWarnUnknownTableDetected[relID] = struct{}{}
 		p.logger.Info("Detected new child table in CDC stream, remapping to parent table",
 			slog.Uint64("childRelID", uint64(relID)),

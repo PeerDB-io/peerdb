@@ -152,8 +152,11 @@ relation IDs from the mirrored parent:
 childToParentRelIDMapping map[uint32]uint32  // child relid → parent relid
 ```
 
-`checkIfUnknownTableInherits()` translates child→parent when an unknown relation ID appears, ensuring child events
-are attributed to the parent's table mapping.
+`getChildToParentRelIDMap()` builds the map when a pull starts and `checkIfUnknownTableInherits()` extends it
+when an unknown relation ID appears, ensuring child events are attributed to the parent's table mapping. Both
+use the same rule: the candidates are mirrored tables with a qualifying relkind, and the one with the lowest
+`pg_inherits.inhseqno` wins, so a child of several mirrored tables always goes to the same one. Only direct
+children are remapped; deeper descendants are not replicated by CDC although the initial snapshot includes them.
 
 **Column layouts are per relation.** A child's tuples follow the child's own column order, which can differ from
 the parent's and from its siblings (`ALTER TABLE ... INHERIT` only requires matching names and types, and a
