@@ -1926,6 +1926,12 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	defer srcClose(ctx)
 
+	if validator, ok := srcConn.(connectors.TableAdditionValidationConnector); ok {
+		if err := validator.ValidateTableAdditions(ctx, cfg, additionalTableMappings); err != nil {
+			return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to validate added tables: %w", err))
+		}
+	}
+
 	if err := srcConn.AddTablesToReplication(ctx, &protos.AddTablesToReplicationInput{
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
