@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -364,11 +365,22 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	selectedColumns := "*"
-	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
+	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 || sourceSchemaAsDestinationColumn {
+		excluded := config.Exclude
+		if sourceSchemaAsDestinationColumn {
+			// a source column with the reserved name would collide with the column the setting adds; validation
+			// rejects it, but it can appear after validation ran
+			excluded = append(slices.Clone(config.Exclude), internal.SourceSchemaColumnName)
+		}
 		// derive columns from the source directly; the catalog schema may be absent
 		// (e.g. resync/table-addition renames the destination) and isn't needed here
-		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, config.Exclude)
+		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, excluded)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to get selected columns: %w", err)
 		}

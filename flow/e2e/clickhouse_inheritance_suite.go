@@ -9,6 +9,7 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
@@ -75,8 +76,6 @@ func (s ClickHouseSuite) inhRestartReplication(env WorkflowRun, flowJobName stri
 
 // inhWaitForColumn waits until every non-deleted destination row has the expected value of column,
 // keyed by id; ids missing from expected must be NULL
-//
-//nolint:unparam // a helper for column checks on any destination table
 func (s ClickHouseSuite) inhWaitForColumn(env WorkflowRun, dstTable string, column string, expected map[int64]string) {
 	s.t.Helper()
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting on "+column, func() bool {
@@ -267,4 +266,63 @@ func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Via_Root() {
 
 func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Leaf() {
 	s.inhPartitionDivergentLayout(false)
+}
+
+func (s ClickHouseSuite) Test_Inheritance_Reserved_Source_Schema_Column_Added_Later() {
+	s.inhRequirePostgres()
+
+	srcTableName := "inh_reserved"
+	parent := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "inh_reserved_dst"
+	flowJobName := s.attachSuffix("inh_reserved")
+	tenant := s.inhTenantSchema("rs")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, parent)
+	s.inhExec(`CREATE TABLE %s.%s () INHERITS (%s)`, tenant, srcTableName, parent)
+	s.inhExec(`ALTER TABLE %s.%s ADD PRIMARY KEY (id)`, tenant, srcTableName)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (1, 'p1')`, parent)
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (2, 't2')`, tenant, srcTableName)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,name")
+
+	// the tenant table gains a column with the reserved name after the mirror started
+	s.inhExec(`ALTER TABLE %s.%s ADD COLUMN _peerdb_source_schema TEXT`, tenant, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, _peerdb_source_schema) VALUES (3, 't3', 'spoofed')`, tenant, srcTableName)
+	s.inhExec(`UPDATE %s.%s SET name = 't2-upd', _peerdb_source_schema = 'spoofed' WHERE id = 2`, tenant, srcTableName)
+
+	// the mirror keeps running and the stamp stays authoritative
+	EnvWaitForEqualTablesWithNames(env, s, "cdc after reserved column", srcTableName, dstTableName, "id,name")
+	parentSchema := "e2e_test_" + s.suffix
+	s.inhWaitForColumn(env, dstTableName, "_peerdb_source_schema",
+		map[int64]string{1: parentSchema, 2: parentSchema, 3: parentSchema})
+
+	EnvWaitFor(s.t, env, time.Minute, "reserved column warning recorded", func() bool {
+		count, err := GetLogCount(s.t.Context(), s.Catalog(), flowJobName, "warn", "is reserved while")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		// deduplicated per connector, so a retried activity or restarted sync can record it again
+		return count >= 1
+	})
+	catalogSchemas, err := internal.LoadTableSchemasFromCatalog(s.t.Context(), s.Catalog(), flowJobName, []string{dstTableName})
+	require.NoError(s.t, err)
+	for _, column := range catalogSchemas[dstTableName].Columns {
+		require.NotEqual(s.t, "_peerdb_source_schema", column.Name, "the reserved column must not become a schema column")
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

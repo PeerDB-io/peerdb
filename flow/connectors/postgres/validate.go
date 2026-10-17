@@ -258,6 +258,9 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
+	if err := c.checkReservedSourceSchemaColumn(ctx, cfg.Env, sourceTables); err != nil {
+		return err
+	}
 
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
