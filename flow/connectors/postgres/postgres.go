@@ -131,6 +131,10 @@ func newPostgresConnector(
 	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
 	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
+	// Force shortest round-trippable float output so text COPY doesn't collapse
+	// distinct float4/float8 values (source default may be 0, which prints only 15
+	// significant digits and silently loses precision / causes unique violations).
+	connConfig.Config.RuntimeParams["extra_float_digits"] = "3"
 	// Required for QueryExecModeSimpleProtocol, which is set in some places while querying;
 	// pgx refuses simple protocol when the server reports standard_conforming_strings=off.
 	connConfig.Config.RuntimeParams["standard_conforming_strings"] = "on"
