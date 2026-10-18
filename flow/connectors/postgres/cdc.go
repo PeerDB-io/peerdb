@@ -603,6 +603,9 @@ func PullCdcRecords[Items model.Items](
 	var totalRecords int64
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	var receiveTime, processTime, addRecordTime atomic.Int64
+	var unchangedToastBackfilled, unchangedToastNotBackfilled atomic.Int64
+	backfilledTrue := metric.WithAttributeSet(attribute.NewSet(attribute.Bool("backfilled", true)))
+	backfilledFalse := metric.WithAttributeSet(attribute.NewSet(attribute.Bool("backfilled", false)))
 	var processStart time.Time
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
@@ -652,6 +655,8 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, unchangedToastBackfilled.Swap(0), backfilledTrue)
+		p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, unchangedToastNotBackfilled.Swap(0), backfilledFalse)
 	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
@@ -659,6 +664,8 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
 		p.otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
 		p.otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, unchangedToastBackfilled.Swap(0), backfilledTrue)
+		p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, unchangedToastNotBackfilled.Swap(0), backfilledFalse)
 
 		if lastXLogDataServerWALEnd.Load() > 0 {
 			p.otelManager.Metrics.ServerWalEndLagGauge.Record(ctx,
@@ -876,7 +883,7 @@ func PullCdcRecords[Items model.Items](
 				logger.Debug("XLogData",
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, postgresClockOffset,
-					processor, warnedReplIdentTables)
+					processor, warnedReplIdentTables, logger)
 				if err != nil {
 					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
@@ -920,14 +927,10 @@ func PullCdcRecords[Items model.Items](
 									for _, col := range updatedCols {
 										delete(r.UnchangedToastColumns, col)
 									}
-									p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
-										metric.WithAttributeSet(attribute.NewSet(
-											attribute.Bool("backfilled", true))))
+									unchangedToastBackfilled.Add(int64(len(updatedCols)))
 								}
 							}
-							p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(r.UnchangedToastColumns)),
-								metric.WithAttributeSet(attribute.NewSet(
-									attribute.Bool("backfilled", false))))
+							unchangedToastNotBackfilled.Add(int64(len(r.UnchangedToastColumns)))
 
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 								return err
@@ -1063,8 +1066,8 @@ func processMessage[Items model.Items](
 	postgresClockOffset time.Duration,
 	processor replProcessor[Items],
 	warnedReplIdentTables map[string]struct{},
+	logger log.Logger,
 ) (model.Record[Items], error) {
-	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		var msgType string
