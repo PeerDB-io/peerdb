@@ -54,6 +54,7 @@ func newInheritanceTestCDCSource(t *testing.T) *PostgresCDCSource {
 		relationMessageMapping:       model.RelationMessageMapping{},
 		childToParentRelIDMapping:    map[uint32]uint32{inhChildARelID: inhParentRelID, inhChildBRelID: inhParentRelID},
 		idToRelKindMap:               map[uint32]byte{inhParentRelID: 'r'},
+		mirroredRelIDs:               []uint32{inhParentRelID},
 		hushWarnUnknownTableDetected: map[uint32]struct{}{},
 	}
 }
