@@ -1065,7 +1065,8 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	require.Equal(t, "0.12345678901234567890123456789012345678", bigNumeric.String())
 	require.Equal(t, "1-2 3 4:5:6", row[1].Value())
 	require.Equal(t, "[2024-01-01, 2024-02-01)", row[2].Value())
-	require.JSONEq(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value().(string))
+	// Exact match: STRUCT JSON must keep schema field order, not sort keys.
+	require.Equal(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value())
 	require.Equal(t, []string{"aGk=", "Ynll"}, row[4].Value())
 	arrayTime, ok := row[5].Value().([]time.Time)
 	require.True(t, ok, "array_time should land as an array of time-of-day values, got %T", row[5].Value())
@@ -1075,7 +1076,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	arrayRecord, ok := row[7].Value().([]string)
 	require.True(t, ok)
 	require.Len(t, arrayRecord, 1)
-	require.JSONEq(t, `{"item_count":9,"item_name":"item"}`, arrayRecord[0])
+	require.Equal(t, `{"item_name":"item","item_count":9}`, arrayRecord[0])
 
 	env.Cancel(ctx)
 	e2e.RequireEnvCanceled(t, env)
