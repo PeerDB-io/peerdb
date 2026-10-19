@@ -505,7 +505,7 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 			int64(1), []bigquery.Value{"z", "y"},
 		}, field)
 		require.NoError(t, err)
-		assert.Equal(t, `{"b":1,"a":{"z":"z","y":"y"}}`, v.Value().(string))
+		assert.Equal(t, `{"b":1,"a":{"z":"z","y":"y"}}`, v.Value().(string)) //nolint:testifylint // exact match: JSONEq ignores key order
 	})
 
 	t.Run("record JSON names unnamed fields instead of dropping them", func(t *testing.T) {
@@ -519,7 +519,7 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 		f := BigQueryFieldToQField(field)
 		v, err := qvalueFromBigQueryValue(f, []bigquery.Value{int64(1), "a"}, field)
 		require.NoError(t, err)
-		assert.Equal(t, `{"_field_1":1,"_field_2":"a"}`, v.Value().(string))
+		assert.Equal(t, `{"_field_1":1,"_field_2":"a"}`, v.Value().(string)) //nolint:testifylint // exact match: JSONEq ignores key order
 	})
 
 	t.Run("record JSON recursively preserves BigQuery logical types", func(t *testing.T) {
