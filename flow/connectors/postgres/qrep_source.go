@@ -365,12 +365,15 @@ func corePullQRepRecords(
 	}
 
 	selectedColumns := "*"
-	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
+	if len(config.SelectedColumns) != 0 || len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		// derive columns from the source directly; the catalog schema may be absent
 		// (e.g. resync/table-addition renames the destination) and isn't needed here
 		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, config.Exclude)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to get selected columns: %w", err)
+		}
+		if len(config.SelectedColumns) != 0 {
+			columns = c.keepSnapshotColumns(config.SelectedColumns, columns, parsedSrcTable)
 		}
 		if len(columns) == 0 {
 			return 0, 0, fmt.Errorf("table %s doesn't have queriable columns", parsedSrcTable)
@@ -472,6 +475,35 @@ func corePullQRepRecords(
 		slog.Int64("records", numRecords),
 		slog.Int64("bytes", numBytes))
 	return numRecords, numBytes, nil
+}
+
+// keepSnapshotColumns returns, in their order, the columns selected for a snapshot that the source table has.
+// Columns added to the source table since are left out, the destination may not have them. Selected columns
+// the source table doesn't have are skipped, as selecting them would fail every retry: they were dropped or
+// renamed since, or belong to another source table sharing the destination table.
+func (c *PostgresConnector) keepSnapshotColumns(
+	snapshotColumns []string,
+	columns []string,
+	table *common.QualifiedTable,
+) []string {
+	present := make(map[string]struct{}, len(columns))
+	for _, col := range columns {
+		present[col] = struct{}{}
+	}
+	kept := make([]string, 0, len(snapshotColumns))
+	var skipped []string
+	for _, col := range snapshotColumns {
+		if _, ok := present[col]; ok {
+			kept = append(kept, col)
+		} else {
+			skipped = append(skipped, col)
+		}
+	}
+	if len(skipped) > 0 {
+		c.logger.Info("snapshot skips columns of destination table schema that source table doesn't have",
+			slog.String("table", table.String()), slog.Any("columns", skipped))
+	}
+	return kept
 }
 
 // pullChildTableRanges executes one query per ChildTableRange entry,

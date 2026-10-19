@@ -4,16 +4,20 @@ package postgres_postgres
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	e2e "github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -1729,5 +1733,134 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_PG_Target_Foreign_Keys() {
 	})
 
 	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// A migration adds a column and fills it after SetupFlow read the source schema, but before the replication
+// slot is created: its values are only in the snapshot, CDC doesn't replay them.
+func (s PeerFlowE2ETestSuitePG) Test_Snapshot_Column_Added_Before_Slot() {
+	ctx := s.t.Context()
+	srcTableName := s.attachSchemaSuffix("test_snap_added_col")
+	dstTableName := s.attachSchemaSuffix("test_snap_added_col_dst")
+	flowJobName := s.attachSuffix("test_snap_added_col")
+
+	_, err := s.Conn().Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s (id INT PRIMARY KEY, val TEXT NOT NULL, secret TEXT);
+		INSERT INTO %[1]s SELECT i, 'val_' || i, 'secret_' || i FROM generate_series(1, 10) i`, srcTableName))
+	require.NoError(s.t, err)
+
+	// the migration's transaction has an XID before the mirror starts,
+	// so the replication slot can only be created once it commits
+	migrationConn, err := pgx.ConnectConfig(ctx, s.Conn().Config())
+	require.NoError(s.t, err)
+	defer migrationConn.Close(ctx)
+	migrationTx, err := migrationConn.Begin(ctx)
+	require.NoError(s.t, err)
+	defer func() { _ = migrationTx.Rollback(ctx) }()
+	_, err = migrationTx.Exec(ctx, "SELECT txid_current()")
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: flowJobName,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableName,
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"secret"},
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	fail := func(format string, args ...any) {
+		s.t.Helper()
+		env.Cancel(ctx)
+		s.t.Fatalf(format, args...)
+	}
+
+	// SetupFlow is done once the walsender creating this mirror's slot waits on a transaction
+	slotName := connpostgres.GetDefaultSlotName(flowJobName)
+	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "slot creation to wait on the migration", func() bool {
+		var waiting bool
+		if err := s.Conn().QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+			WHERE backend_type = 'walsender' AND wait_event = 'transactionid' AND position($1 in query) > 0)`,
+			slotName).Scan(&waiting); err != nil {
+			s.t.Log(err)
+		}
+		return waiting
+	})
+
+	_, err = migrationTx.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN last_updated_by TEXT", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = migrationTx.Exec(ctx, fmt.Sprintf("UPDATE %s SET last_updated_by = 'migration_' || id", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvNoError(s.t, env, migrationTx.Commit(ctx))
+
+	catalog, err := e2e.CatalogTestAccessPool()
+	e2e.EnvNoError(s.t, env, err)
+
+	// not EnvWaitFor, to report why the snapshot is stuck: without reconciling schemas,
+	// the snapshot copies last_updated_by into a destination table that lacks it
+	deadline := time.Now().Add(3 * time.Minute)
+	for {
+		err := s.comparePGTables(srcTableName, dstTableName, "id,val,last_updated_by")
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			var lastFlowError string
+			if err := catalog.QueryRow(ctx, `SELECT error_message FROM peerdb_stats.flow_errors
+				WHERE position($1 in flow_name) > 0 ORDER BY id DESC LIMIT 1`, flowJobName).Scan(&lastFlowError); err != nil {
+				lastFlowError = err.Error()
+			}
+			fail("snapshot did not copy the column added before slot creation: %v\nlast flow error: %s", err, lastFlowError)
+		}
+		time.Sleep(time.Second)
+	}
+
+	var hasExcludedColumn bool
+	e2e.EnvNoError(s.t, env, s.Conn().QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		WHERE table_schema = $1 AND table_name = 'test_snap_added_col_dst' AND column_name = 'secret')`,
+		"e2e_test_"+s.suffix).Scan(&hasExcludedColumn))
+	if hasExcludedColumn {
+		fail("excluded column secret is in the destination table")
+	}
+
+	// no change to the table has been decoded yet, so the snapshot put the column in the catalog
+	tableSchema, err := internal.LoadTableSchemaFromCatalog(ctx, shared.CatalogPool{Pool: catalog}, flowJobName, dstTableName)
+	e2e.EnvNoError(s.t, env, err)
+	catalogColumns := make([]string, 0, len(tableSchema.Columns))
+	for _, col := range tableSchema.Columns {
+		catalogColumns = append(catalogColumns, col.Name)
+	}
+	if !slices.Equal([]string{"id", "val", "last_updated_by"}, catalogColumns) {
+		fail("unexpected catalog columns after snapshot: %v", catalogColumns)
+	}
+
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s VALUES (11, 'val_11', 'secret_11', 'cdc_insert');
+		UPDATE %[1]s SET val = 'val_2_updated', last_updated_by = 'cdc_update' WHERE id = 2`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "cdc after snapshot", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,val,last_updated_by") == nil
+	})
+
+	// copied by the snapshot, never changed since
+	var lastUpdatedBy string
+	e2e.EnvNoError(s.t, env, s.Conn().QueryRow(ctx,
+		fmt.Sprintf("SELECT last_updated_by FROM %s WHERE id = 1", dstTableName)).Scan(&lastUpdatedBy))
+	if lastUpdatedBy != "migration_1" {
+		fail("row only the snapshot copied has last_updated_by %q, expected migration_1", lastUpdatedBy)
+	}
+
+	env.Cancel(ctx)
 	e2e.RequireEnvCanceled(s.t, env)
 }
