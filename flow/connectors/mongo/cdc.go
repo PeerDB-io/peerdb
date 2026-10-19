@@ -67,6 +67,12 @@ type ChangeEvent struct {
 
 const mongoClockOffsetTTL = time.Hour
 
+// noEventTimeout bounds the wait for the first event of a batch. On a sharded cluster, a stream whose
+// collections get no events after a reshard must scan the copied collection on every shard before any
+// shard replies, which can take hours. Expiring first cancels that scan and the reopen resumes from the
+// same token, so the mirror never progresses.
+const noEventTimeout = 48 * time.Hour
+
 // getMongoClockOffset returns the cached difference between the source server
 // clock and this process's clock.
 func (c *MongoConnector) getMongoClockOffset(ctx context.Context) (time.Duration, error) {
@@ -564,9 +570,9 @@ func (c *MongoConnector) PullRecords(
 		},
 	}
 	workerPool.Init(ctx)
-	// before the first record arrives, we wait for up to an hour before resetting context timeout
+	// before the first record arrives, we wait for up to noEventTimeout before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, noEventTimeout)
 
 	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
 		read := deltaBytesProcessed.Swap(0)
@@ -635,7 +641,7 @@ func (c *MongoConnector) PullRecords(
 
 		// reset context timeout
 		cancelTimeout()
-		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, noEventTimeout)
 
 		// reset worker pool. Wait() has already been called on this workerPool.
 		workerPool.Init(ctx)
