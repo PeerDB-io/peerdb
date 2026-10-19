@@ -1210,6 +1210,13 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 				Code:   exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(),
 			},
 		},
+		exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch: {
+			errorClass: ErrorUnsupportedSchemaChange,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch.String(),
+			},
+		},
 	} {
 		t.Run(code.String(), func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
@@ -1231,6 +1238,21 @@ func TestTemporalKnownIrrecoverableErrorTypesHaveCorrectClassification(t *testin
 			assert.NotEqual(t, ErrorSourceTemporal, errInfo.Source)
 		})
 	}
+}
+
+func TestPostgresSnapshotSchemaMismatchWithCause(t *testing.T) {
+	t.Parallel()
+	err := shared.WrapError("failed to sync records", fmt.Errorf("failed to copy records into destination table: %w",
+		temporal.NewNonRetryableApplicationError("snapshot columns do not match destination table",
+			exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch.String(),
+			&pgconn.PgError{Code: pgerrcode.UndefinedColumn})))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorUnsupportedSchemaChange, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch.String(),
+	}, errInfo)
 }
 
 func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {

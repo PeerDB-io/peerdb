@@ -26,19 +26,21 @@ type PgCopyShared struct {
 
 type PgCopyWriter struct {
 	*io.PipeWriter
+	reader *io.PipeReader
 	schema *PgCopyShared
 }
 
 type PgCopyReader struct {
 	*io.PipeReader
-	schema *PgCopyShared
+	schema     *PgCopyShared
+	isSnapshot bool
 }
 
 func NewPgCopyPipe() (PgCopyReader, PgCopyWriter) {
 	read, write := io.Pipe()
 	schema := PgCopyShared{schemaLatch: concurrency.NewLatch[[]string]()}
 	return PgCopyReader{PipeReader: read, schema: &schema},
-		PgCopyWriter{PipeWriter: write, schema: &schema}
+		PgCopyWriter{PipeWriter: write, reader: read, schema: &schema}
 }
 
 func (p PgCopyWriter) SetSchema(schema []string) {
@@ -46,7 +48,9 @@ func (p PgCopyWriter) SetSchema(schema []string) {
 }
 
 func (p PgCopyWriter) HandleQRepSyncError(err error) {
-	p.Close(err)
+	// Closing the reader makes the source COPY return the destination error.
+	// Closing the writer instead replaces it with io.ErrClosedPipe.
+	p.reader.CloseWithError(err)
 }
 
 func (p PgCopyWriter) ExecuteQueryWithTx(
@@ -137,5 +141,12 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 		p.PipeReader,
 		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(quotedCols, ",")),
 	)
+	if p.isSnapshot && shared.IsSQLStateError(err, pgerrcode.UndefinedColumn) {
+		return 0, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("snapshot columns do not match destination table %s: "+
+				"align the source and destination schemas, then restart the initial load; "+
+				"avoid schema changes during the initial load", table.Sanitize()),
+			exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch.String(), err)
+	}
 	return ct.RowsAffected(), err
 }

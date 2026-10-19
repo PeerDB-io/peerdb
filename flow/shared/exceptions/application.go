@@ -17,6 +17,7 @@ var (
 	ApplicationErrorTypeIrrecoverableCouldNotImportSnapshot = NewIrrecoverableApplicationErrorType("irrecoverable_could_not_import_snapshot")
 	ApplicationErrorTypeIrrecoverableExistingSlot           = NewIrrecoverableApplicationErrorType("irrecoverable_existing_slot")
 	ApplicationErrorTypeIrrecoverableMissingTables          = NewIrrecoverableApplicationErrorType("irrecoverable_missing_tables")
+	ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch = NewIrrecoverableApplicationErrorType("irrecoverable_snapshot_schema_mismatch")
 )
 
 func (a ApplicationErrorType) String() string {

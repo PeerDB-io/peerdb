@@ -42,6 +42,7 @@ func (c *PostgresConnector) SyncPgQRepRecords(
 	partition *protos.QRepPartition,
 	pipe PgCopyReader,
 ) (int64, shared.QRepWarnings, error) {
+	pipe.isSnapshot = config.SnapshotName != ""
 	return syncQRepRecords(c, ctx, config, partition, pipe)
 }
 

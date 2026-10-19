@@ -613,6 +613,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: pgErrSource,
 				Code:   temporalErr.Type(),
 			}
+		case exceptions.ApplicationErrorTypeIrrecoverableSnapshotSchemaMismatch:
+			return ErrorUnsupportedSchemaChange, ErrorInfo{
+				Source: pgErrSource,
+				Code:   temporalErr.Type(),
+			}
 		}
 		// Just in case we forget to classify some irrecoverable errors
 		if _, irrecoverable := exceptions.IrrecoverableApplicationErrorTypesMap[temporalErr.Type()]; irrecoverable {
