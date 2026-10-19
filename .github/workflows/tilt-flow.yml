@@ -387,7 +387,7 @@ jobs:
       - name: Bring up core PeerDB services (with recovery)
         # Bound startup separately so stalled dependencies cannot consume the
         # entire job budget, and leave time for diagnostics and artifact upload.
-        timeout-minutes: 15
+        timeout-minutes: 5
         run: |
           set -uo pipefail
 
