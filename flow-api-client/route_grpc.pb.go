@@ -52,6 +52,7 @@ const (
 	FlowService_GetCDCBatches_FullMethodName               = "/peerdb_route.FlowService/GetCDCBatches"
 	FlowService_CDCBatches_FullMethodName                  = "/peerdb_route.FlowService/CDCBatches"
 	FlowService_CDCGraph_FullMethodName                    = "/peerdb_route.FlowService/CDCGraph"
+	FlowService_CDCLagGraph_FullMethodName                 = "/peerdb_route.FlowService/CDCLagGraph"
 	FlowService_InitialLoadSummary_FullMethodName          = "/peerdb_route.FlowService/InitialLoadSummary"
 	FlowService_GetPeerInfo_FullMethodName                 = "/peerdb_route.FlowService/GetPeerInfo"
 	FlowService_GetPeerType_FullMethodName                 = "/peerdb_route.FlowService/GetPeerType"
@@ -106,6 +107,7 @@ type FlowServiceClient interface {
 	GetCDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
 	CDCBatches(ctx context.Context, in *GetCDCBatchesRequest, opts ...grpc.CallOption) (*GetCDCBatchesResponse, error)
 	CDCGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*GraphResponse, error)
+	CDCLagGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*LagGraphResponse, error)
 	InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerInfoResponse, error)
 	GetPeerType(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerTypeResponse, error)
@@ -461,6 +463,16 @@ func (c *flowServiceClient) CDCGraph(ctx context.Context, in *GraphRequest, opts
 	return out, nil
 }
 
+func (c *flowServiceClient) CDCLagGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*LagGraphResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LagGraphResponse)
+	err := c.cc.Invoke(ctx, FlowService_CDCLagGraph_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InitialLoadSummaryResponse)
@@ -648,6 +660,7 @@ type FlowServiceServer interface {
 	GetCDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
 	CDCBatches(context.Context, *GetCDCBatchesRequest) (*GetCDCBatchesResponse, error)
 	CDCGraph(context.Context, *GraphRequest) (*GraphResponse, error)
+	CDCLagGraph(context.Context, *GraphRequest) (*LagGraphResponse, error)
 	InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error)
 	GetPeerType(context.Context, *PeerInfoRequest) (*PeerTypeResponse, error)
@@ -771,6 +784,9 @@ func (UnimplementedFlowServiceServer) CDCBatches(context.Context, *GetCDCBatches
 }
 func (UnimplementedFlowServiceServer) CDCGraph(context.Context, *GraphRequest) (*GraphResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CDCGraph not implemented")
+}
+func (UnimplementedFlowServiceServer) CDCLagGraph(context.Context, *GraphRequest) (*LagGraphResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CDCLagGraph not implemented")
 }
 func (UnimplementedFlowServiceServer) InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitialLoadSummary not implemented")
@@ -1432,6 +1448,24 @@ func _FlowService_CDCGraph_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_CDCLagGraph_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GraphRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CDCLagGraph(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CDCLagGraph_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CDCLagGraph(ctx, req.(*GraphRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_InitialLoadSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InitialLoadSummaryRequest)
 	if err := dec(in); err != nil {
@@ -1840,6 +1874,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CDCGraph",
 			Handler:    _FlowService_CDCGraph_Handler,
+		},
+		{
+			MethodName: "CDCLagGraph",
+			Handler:    _FlowService_CDCLagGraph_Handler,
 		},
 		{
 			MethodName: "InitialLoadSummary",
