@@ -398,6 +398,25 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	return batch, rows.Err()
 }
 
+// GetColumnType returns the ClickHouse type of a column on a destination table as reported by system.columns.
+func (s ClickHouseSuite) GetColumnType(table string, column string) (string, error) {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return "", err
+	}
+	defer ch.Close()
+
+	var columnType string
+	err = ch.QueryRow(s.t.Context(),
+		"SELECT type FROM system.columns WHERE database = $1 AND table = $2 AND name = $3",
+		s.connector.Config.Database, table, column,
+	).Scan(&columnType)
+	if err != nil {
+		return "", fmt.Errorf("failed to look up type of %s.%s: %w", table, column, err)
+	}
+	return columnType, nil
+}
+
 // CountNonDeletedRows returns the number of rows in table where _peerdb_is_deleted = 0.
 // Unlike GetRows it does not use FINAL, so it works for engines that reject FINAL (e.g. MergeTree).
 func (s ClickHouseSuite) CountNonDeletedRows(table string) (int, error) {
