@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -22,9 +23,11 @@ type CDCStream[T Items] struct {
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
-	lastCheckpointID  int64
-	lastCheckpointSet bool
-	firstRowSet       bool
+	lastCheckpointID int64
+	// set by sources that buffer rows before AddRecord, see MarkFirstRowReceived
+	firstRowReadAtNano atomic.Int64
+	lastCheckpointSet  bool
+	firstRowSet        bool
 }
 
 type CdcCheckpoint struct {
@@ -63,7 +66,11 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
 			r.firstRowSet = true
-			r.firstRowReceivedAt = time.Now().UTC()
+			if readAtNano := r.firstRowReadAtNano.Load(); readAtNano != 0 {
+				r.firstRowReceivedAt = time.Unix(0, readAtNano).UTC()
+			} else {
+				r.firstRowReceivedAt = time.Now().UTC()
+			}
 			r.firstRowCommitTime = record.GetCommitTime().UTC()
 			r.markEmptySignalReady()
 		}
@@ -91,6 +98,13 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// MarkFirstRowReceived records when the first row was read from the source. Sources that buffer
+// rows before calling AddRecord (e.g. MongoDB's parallel decode) call it at read time, so destination
+// lag doesn't miss time spent in the buffer. Only the first call takes effect.
+func (r *CDCStream[T]) MarkFirstRowReceived(t time.Time) {
+	r.firstRowReadAtNano.CompareAndSwap(0, t.UnixNano())
 }
 
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
