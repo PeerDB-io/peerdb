@@ -69,10 +69,12 @@ const (
 	mongoClockOffsetTTL = time.Hour
 
 	// defaultNoEventTimeout determines how long a batch waits for its first event before it persists
-	// the post-batch resume token and reopens a new change stream. Under rare scenarios, such
-	// as the resharding of an unrelated collection in a sharded cluster, can take much longer
-	// due to large volume of writes that needs to be scanned through, before a single server
-	// reply. So we double the timeout and retry (up to maxNoEventTimeout) in this scenario.
+	// the post-batch resume token and reopens a new change stream. In rare cases, such as the
+	// resharding of another collection in a sharded cluster, the first server reply can take
+	// much longer because the server must scan a large volume of unrelated reshard entries. To avoid
+	// getting stuck retrying the same offset, the timeout grows exponentially (1h, 2h, 4h, ...) up to
+	// maxNoEventTimeout; and once the resume token moves past the previously recorded offset, the
+	// timeout resets to defaultNoEventTimeout.
 	defaultNoEventTimeout = time.Hour
 	maxNoEventTimeout     = 48 * time.Hour
 )
