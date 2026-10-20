@@ -65,7 +65,19 @@ type ChangeEvent struct {
 	ClusterTime              bson.Timestamp `bson:"clusterTime"`
 }
 
-const mongoClockOffsetTTL = time.Hour
+const (
+	mongoClockOffsetTTL = time.Hour
+
+	// defaultNoEventTimeout determines how long a batch waits for its first event before it persists
+	// the post-batch resume token and reopens a new change stream. In rare cases, such as the
+	// resharding of another collection in a sharded cluster, the first server reply can take
+	// much longer because the server must scan a large volume of unrelated reshard entries. To avoid
+	// getting stuck retrying the same offset, the timeout grows exponentially (1h, 2h, 4h, ...) up to
+	// maxNoEventTimeout; and once the resume token moves past the previously recorded offset, the
+	// timeout resets to defaultNoEventTimeout.
+	defaultNoEventTimeout = time.Hour
+	maxNoEventTimeout     = 48 * time.Hour
+)
 
 // getMongoClockOffset returns the cached difference between the source server
 // clock and this process's clock.
@@ -564,9 +576,10 @@ func (c *MongoConnector) PullRecords(
 		},
 	}
 	workerPool.Init(ctx)
-	// before the first record arrives, we wait for up to an hour before resetting context timeout
+	// before the first record arrives, we wait for up to noEventTimeout before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	noEventTimeout := defaultNoEventTimeout
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, noEventTimeout)
 
 	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
 		read := deltaBytesProcessed.Swap(0)
@@ -597,14 +610,15 @@ func (c *MongoConnector) PullRecords(
 		req.RecordStream.UpdateLatestCheckpointText(text)
 		return text
 	}
-	checkpointToCatalog := func() {
+	checkpointToCatalog := func() string {
 		text := checkpoint()
 		if text == "" {
-			return
+			return ""
 		}
 		if err := c.metadataStore.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: text}); err != nil {
 			c.logger.Error("failed to persist resume token", slog.String("resumeToken", text), slog.Any("error", err))
 		}
+		return text
 	}
 
 	incrementRecordCount := func() {
@@ -638,7 +652,7 @@ func (c *MongoConnector) PullRecords(
 
 		// reset context timeout
 		cancelTimeout()
-		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, noEventTimeout)
 
 		// reset worker pool. Wait() has already been called on this workerPool.
 		workerPool.Init(ctx)
@@ -696,7 +710,15 @@ func (c *MongoConnector) PullRecords(
 				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
 				// it's safe to persist to catalog since no records were handed off to the sync workflow,
 				// so there's no in-flight data we could skip past by advancing the offset.
-				checkpointToCatalog()
+				checkpointText := checkpointToCatalog()
+				if checkpointText == req.LastOffset.Text {
+					noEventTimeout = min(2*noEventTimeout, maxNoEventTimeout)
+					c.logger.Warn("[mongo] no server reply within the no-event timeout",
+						slog.Duration("noEventTimeout", noEventTimeout),
+						slog.Duration("elapsed", time.Since(pullStart)))
+				} else {
+					noEventTimeout = defaultNoEventTimeout
+				}
 				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
 				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)

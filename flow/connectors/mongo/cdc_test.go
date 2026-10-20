@@ -48,6 +48,9 @@ const (
 	// retryChangeStream returns false on Next() with the server's RetryChangeStream (234)
 	// error, which asks the client to reopen the stream from its resume token.
 	retryChangeStream
+	// idleNoReply returns false on Next() with context.DeadlineExceeded but leaves the resume
+	// token where it was, like a stream whose server never replied before the timeout.
+	idleNoReply
 )
 
 type mockChangeStream struct {
@@ -94,10 +97,12 @@ func (cs *mockChangeStream) Next(ctx context.Context) bool {
 
 	ts := time.Now()
 	cs.emittedTimes = append(cs.emittedTimes, ts)
-	cs.resumeToken = toResumeToken(ts)
 
 	label := cs.iterations[cs.idx]
 	cs.idx++
+	if label != idleNoReply {
+		cs.resumeToken = toResumeToken(ts)
+	}
 
 	switch label {
 	case insert:
@@ -121,7 +126,7 @@ func (cs *mockChangeStream) Next(ctx context.Context) bool {
 		cs.rawEvents = cs.rawEvents[1:]
 		cs.err = nil
 		return true
-	case idle:
+	case idle, idleNoReply:
 		cs.err = context.DeadlineExceeded
 		return false
 	case fatal:
@@ -183,7 +188,7 @@ func (cs *mockChangeStream) replicableThrough(idx int) []string {
 			inserts++
 		case nullIdInsert:
 			ids = append(ids, "ev-undecodable")
-		case idle, unsupportedOp, fatal, retryChangeStream:
+		case idle, idleNoReply, unsupportedOp, fatal, retryChangeStream:
 		}
 	}
 	return ids
