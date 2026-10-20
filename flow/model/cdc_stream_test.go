@@ -59,3 +59,17 @@ func TestCDCStreamFirstRowSet(t *testing.T) {
 	stream.Close()
 	require.False(t, stream.WaitAndCheckEmpty())
 }
+
+func TestCDCStreamMarkFirstRowReceived(t *testing.T) {
+	t.Parallel()
+
+	stream := NewCDCStream[RecordItems](10)
+	readAt := time.Now().Add(-time.Minute)
+	stream.MarkFirstRowReceived(readAt)
+	stream.MarkFirstRowReceived(time.Now())
+
+	require.NoError(t, stream.AddRecord(t.Context(), &InsertRecord[RecordItems]{}))
+	receivedAt, _, firstRowSet := stream.FirstRowTimes()
+	require.True(t, firstRowSet)
+	require.True(t, readAt.Equal(receivedAt))
+}

@@ -610,6 +610,9 @@ func (c *MongoConnector) PullRecords(
 	incrementRecordCount := func() {
 		recordCount += 1
 		if recordCount == 1 {
+			// rows sit in workerPool until a chunk fills or the batch ends, so AddRecord is too late to
+			// mark when the first row was received
+			req.RecordStream.MarkFirstRowReceived(time.Now())
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
 		}
 		if recordCount%50000 == 0 {
