@@ -610,7 +610,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 			"unmarshal/marshal roundtrip. Faster as it avoids wasted CPU cycles on a full JSON " +
 			"marshal/unmarshal, and it still converts out-of-float64-range numbers to strings like the " +
 			"classic path.",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
