@@ -3,6 +3,7 @@ import { fetcher } from '@/app/utils/swr';
 import { CDCTableTotalCountsResponse } from '@/grpc_generated/route';
 import useSWR from 'swr';
 import CdcGraph from './cdcGraph';
+import LagGraph from './lagGraph';
 import RowsDisplay from './rowsDisplay';
 import { SyncStatusTable } from './syncStatusTable';
 import TableStats from './tableStats';
@@ -29,8 +30,20 @@ export default function SyncStatus({ flowJobName }: SyncStatusProps) {
     tableStats?.tablesData && (
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
-        <div style={{ marginBlock: '2.5rem' }}>
-          <CdcGraph mirrorName={flowJobName} />
+        <div
+          style={{
+            marginBlock: '2.5rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))',
+            gap: '2rem',
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <CdcGraph mirrorName={flowJobName} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <LagGraph mirrorName={flowJobName} />
+          </div>
         </div>
         <SyncStatusTable mirrorName={flowJobName} />
         <TableStats tableSyncs={tableStats.tablesData} />
