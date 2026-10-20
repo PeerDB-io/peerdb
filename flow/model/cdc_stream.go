@@ -15,7 +15,6 @@ type CDCStream[T Items] struct {
 	emptySignal chan struct{}
 	records     chan Record[T]
 
-	firstRowReceivedAt time.Time
 	firstRowCommitTime time.Time
 
 	// lastCheckpointText is used for mysql GTID and MongoDB ResumeToken
@@ -24,10 +23,10 @@ type CDCStream[T Items] struct {
 	SchemaDeltas []*protos.TableSchemaDelta
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID int64
-	// set by sources that buffer rows before AddRecord, see MarkFirstRowReceived
-	firstRowReadAtNano atomic.Int64
-	lastCheckpointSet  bool
-	firstRowSet        bool
+	// atomic since sources that buffer rows may set it from their read goroutine, see MarkFirstRowReceived
+	firstRowReceivedAtNano atomic.Int64
+	lastCheckpointSet      bool
+	firstRowSet            bool
 }
 
 type CdcCheckpoint struct {
@@ -66,11 +65,7 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
 			r.firstRowSet = true
-			if readAtNano := r.firstRowReadAtNano.Load(); readAtNano != 0 {
-				r.firstRowReceivedAt = time.Unix(0, readAtNano).UTC()
-			} else {
-				r.firstRowReceivedAt = time.Now().UTC()
-			}
+			r.MarkFirstRowReceived(time.Now()) // no-op if the source already marked it at read time
 			r.firstRowCommitTime = record.GetCommitTime().UTC()
 			r.markEmptySignalReady()
 		}
@@ -104,7 +99,7 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 // rows before calling AddRecord (e.g. MongoDB's parallel decode) call it at read time, so destination
 // lag doesn't miss time spent in the buffer. Only the first call takes effect.
 func (r *CDCStream[T]) MarkFirstRowReceived(t time.Time) {
-	r.firstRowReadAtNano.CompareAndSwap(0, t.UnixNano())
+	r.firstRowReceivedAtNano.CompareAndSwap(0, t.UnixNano())
 }
 
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
@@ -142,7 +137,7 @@ func (r *CDCStream[T]) NeedsNormalize() bool {
 // FirstRowTimes returns the received/commit timestamps of the batch's first row event.
 // ok is false if the batch had no row events (e.g. schema-delta-only batch).
 func (r *CDCStream[T]) FirstRowTimes() (time.Time, time.Time, bool) {
-	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
+	return time.Unix(0, r.firstRowReceivedAtNano.Load()).UTC(), r.firstRowCommitTime, r.firstRowSet
 }
 
 func (r *CDCStream[T]) markEmptySignalReady() {
