@@ -3,7 +3,7 @@
 **Status**: Living Document
 **Audience**: Engineers wanting code-level understanding of specific subsystems
 **Companion to**: [PeerDB Architecture](./peerdb-architecture.md)
-**Last Updated**: 2026-03-16
+**Last Updated**: 2026-10-20
 
 > This document goes beyond the architecture document to provide implementation-level detail, design tradeoffs, known limitations (TODOs), and code pointers for each major subsystem.
 
@@ -293,7 +293,7 @@ type MySqlConnector struct {
 
 ## 3. MongoDB CDC — Change Streams Deep Dive
 
-**Key files**: `flow/connectors/mongo/cdc.go`, `flow/connectors/mongo/codec.go`
+**Key files**: `flow/connectors/mongo/cdc.go`
 
 ### 3.1 Architecture
 
@@ -369,12 +369,9 @@ When using `UpdateLookup`, the `fullDocument` field may be missing (`cdc.go`):
 2. Document deleted or collection dropped between the update event and the lookup
 3. Update changes the shard key, causing the document to move between shards
 
-### 3.6 QRep Partition Boundary Duplication
+### 3.6 QRep Partitioning
 
-**Known limitation** (`mongo/qrep.go`):
-> with $bucketAuto, buckets except the last bucket treat their max value as exclusive. we can't tell what bucket is the 'last' bucket without additional tracking, so we accept boundary records being inserted twice
-
-This means QRep with MongoDB may produce duplicate records at partition boundaries. Destinations with upsert/merge handle this correctly, but append-only destinations may see duplicates.
+Snapshot partitions are ranges over `_id`, computed from the collection's min and max by key type (`mongo/qrep_partition.go`). Ranges are contiguous and non-overlapping, so boundary documents are read exactly once; see `qrep_partition_test.go` (`assertContiguous`, `TestToRangeFilter`). This replaced `$bucketAuto`, which read boundary documents twice.
 
 ---
 
@@ -718,16 +715,17 @@ flowchart LR
     NORM -.->|"backpressure"| DST
 ```
 
-### 7.2 The `syncCore` Generic Function
+### 7.2 The `pullAndSyncCore` Generic Function
 
 The core of the activity pipeline is generic over connector and item types:
 
 ```go
-func syncCore[
+func pullAndSyncCore[
     TPull connectors.CDCPullConnectorCore,
     TSync connectors.CDCSyncConnectorCore,
     Items model.Items,
-](ctx, activity, config, options, srcConn, ...) (*model.SyncResponse, error)
+](ctx, a, config, options, srcConn, normRequests, normResponses, normBufferSize, idleTimeout,
+  syncingBatchID, syncState, adaptStream, pull, sync) (*model.SyncResponse, error)
 ```
 
 **Checkpoint loading optimization**: For Postgres→Postgres, the last offset is read from the destination (avoids catalog lookup delay):
@@ -787,9 +785,6 @@ Uses a read-modify-write pattern (`flowable_core.go`):
 2. Deep copy to avoid mutation
 3. Deduplicate column additions (prevent applying same delta twice)
 4. Write back with transactional guarantee
-
-**TODO** (`internal/postgres.go`):
-> TODO: use ReadModifyWriteTableSchemasToCatalog to guarantee transactionality
 
 ---
 
@@ -941,6 +936,7 @@ This means table creation + schema setup is atomic — if any step fails, nothin
 | `flow/connectors/postgres/postgres.go` | Core Postgres connector |
 | `flow/connectors/mysql/cdc.go` | MySQL binlog replication |
 | `flow/connectors/mongo/cdc.go` | MongoDB change streams |
+| `flow/connectors/cockroachdb/cdc.go` | CockroachDB changefeed consumption |
 | `flow/workflows/cdc_flow.go` | CDC workflow orchestration |
 | `flow/workflows/qrep_flow.go` | QRep workflow |
 | `flow/workflows/snapshot_flow.go` | Snapshot orchestration |
