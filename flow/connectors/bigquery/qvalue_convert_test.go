@@ -489,6 +489,39 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 		assert.JSONEq(t, `{"name":"alice","created":"2024-01-02","metadata":{"active":true}}`, v.Value().(string))
 	})
 
+	t.Run("record JSON keeps schema field order", func(t *testing.T) {
+		field := &bigquery.FieldSchema{
+			Name: "record_col", Type: bigquery.RecordFieldType,
+			Schema: bigquery.Schema{
+				{Name: "b", Type: bigquery.IntegerFieldType},
+				{Name: "a", Type: bigquery.RecordFieldType, Schema: bigquery.Schema{
+					{Name: "z", Type: bigquery.StringFieldType},
+					{Name: "y", Type: bigquery.StringFieldType},
+				}},
+			},
+		}
+		f := BigQueryFieldToQField(field)
+		v, err := qvalueFromBigQueryValue(f, []bigquery.Value{
+			int64(1), []bigquery.Value{"z", "y"},
+		}, field)
+		require.NoError(t, err)
+		assert.Equal(t, `{"b":1,"a":{"z":"z","y":"y"}}`, v.Value().(string)) //nolint:testifylint // exact match: JSONEq ignores key order
+	})
+
+	t.Run("record JSON names unnamed fields instead of dropping them", func(t *testing.T) {
+		field := &bigquery.FieldSchema{
+			Name: "record_col", Type: bigquery.RecordFieldType,
+			Schema: bigquery.Schema{
+				{Type: bigquery.IntegerFieldType},
+				{Type: bigquery.StringFieldType},
+			},
+		}
+		f := BigQueryFieldToQField(field)
+		v, err := qvalueFromBigQueryValue(f, []bigquery.Value{int64(1), "a"}, field)
+		require.NoError(t, err)
+		assert.Equal(t, `{"_field_1":1,"_field_2":"a"}`, v.Value().(string)) //nolint:testifylint // exact match: JSONEq ignores key order
+	})
+
 	t.Run("record JSON recursively preserves BigQuery logical types", func(t *testing.T) {
 		field := &bigquery.FieldSchema{
 			Name: "record_col", Type: bigquery.RecordFieldType,

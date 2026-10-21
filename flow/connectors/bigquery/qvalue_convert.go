@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -500,19 +501,37 @@ func bigQueryRecordJSONString(schema bigquery.Schema, values []bigquery.Value) (
 	if len(schema) != len(values) {
 		return "", fmt.Errorf("record schema has %d fields but value has %d elements", len(schema), len(values))
 	}
-	record := make(map[string]any, len(schema))
+	// Build the object by hand: a map would sort keys alphabetically and
+	// collapse unnamed fields into a single "" key.
+	var buf strings.Builder
+	buf.WriteByte('{')
 	for i, field := range schema {
+		name := field.Name
+		if name == "" {
+			// Same naming BigQuery uses for anonymous fields in TO_JSON_STRING.
+			name = fmt.Sprintf("_field_%d", i+1)
+		}
 		value, err := bigQueryValueForJSON(field, values[i])
 		if err != nil {
-			return "", fmt.Errorf("field %s: %w", field.Name, err)
+			return "", fmt.Errorf("field %s: %w", name, err)
 		}
-		record[field.Name] = value
+		encodedName, err := json.Marshal(name)
+		if err != nil {
+			return "", err
+		}
+		encodedValue, err := json.Marshal(value)
+		if err != nil {
+			return "", fmt.Errorf("field %s: %w", name, err)
+		}
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.Write(encodedName)
+		buf.WriteByte(':')
+		buf.Write(encodedValue)
 	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
+	buf.WriteByte('}')
+	return buf.String(), nil
 }
 
 func bigQueryValueForJSON(field *bigquery.FieldSchema, value bigquery.Value) (any, error) {
