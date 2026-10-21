@@ -131,24 +131,24 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - {job: postgres_clickhouse,    version: '16',       ch: lts,    label: postgres-16_ch-lts}
-          - {job: postgres_clickhouse,    version: '17',       ch: stable, label: postgres-17_ch-stable}
-          - {job: postgres_clickhouse,    version: '18',       ch: latest, label: postgres-18_ch-latest}
-          - {job: postgres_other,         version: '16',       label: postgres-16_other}
-          - {job: postgres_other,         version: '17',       label: postgres-17_other}
-          - {job: postgres_other,         version: '18',       label: postgres-18_other}
-          - {job: mysql_clickhouse,       version: mysql-gtid, ch: lts,    label: mysql-gtid_ch-lts}
-          - {job: mysql_clickhouse,       version: mysql-pos,  ch: stable, label: mysql-pos_ch-stable}
-          - {job: mysql_clickhouse,       version: mysql-gtid, ch: latest, label: mysql-gtid_ch-latest}
-          - {job: mysql_clickhouse,       version: maria-11,   ch: lts,    label: maria-11_ch-lts}
-          - {job: mysql_clickhouse,       version: maria-12,   ch: stable, label: maria-12_ch-stable}
-          - {job: mysql_clickhouse,       version: maria-13,   ch: latest, label: maria-13_ch-latest}
-          - {job: mongo_clickhouse,       version: '6.0',      ch: lts,    label: mongo-6.0_ch-lts}
-          - {job: mongo_clickhouse,       version: '7.0',      ch: stable, label: mongo-7.0_ch-stable}
-          - {job: mongo_clickhouse,       version: '8.0',      ch: latest, label: mongo-8.0_ch-latest}
-          - {job: cockroachdb_clickhouse, version: v24,        ch: lts,    label: cockroachdb-v24_ch-lts}
-          - {job: cockroachdb_clickhouse, version: v25,        ch: stable, label: cockroachdb-v25_ch-stable}
-          - {job: cockroachdb_clickhouse, version: v26,        ch: latest, label: cockroachdb-v26_ch-latest}
+          - {job: postgres_clickhouse,    version: '16',          ch: lts,    label: postgres-16_ch-lts}
+          - {job: postgres_clickhouse,    version: '17',          ch: stable, label: postgres-17_ch-stable}
+          - {job: postgres_clickhouse,    version: '18',          ch: latest, label: postgres-18_ch-latest}
+          - {job: postgres_other,         version: '16',          label: postgres-16_other}
+          - {job: postgres_other,         version: '17',          label: postgres-17_other}
+          - {job: postgres_other,         version: '18',          label: postgres-18_other}
+          - {job: mysql_clickhouse,       version: mysql-gtid,    ch: lts,    label: mysql-gtid_ch-lts}
+          - {job: mysql_clickhouse,       version: mysql-pos,     ch: stable, label: mysql-pos_ch-stable}
+          - {job: mysql_clickhouse,       version: mysql-gtid,    ch: latest, label: mysql-gtid_ch-latest}
+          - {job: mysql_clickhouse,       version: maria-11,      ch: lts,    label: maria-11_ch-lts}
+          - {job: mysql_clickhouse,       version: maria-12,      ch: stable, label: maria-12_ch-stable}
+          - {job: mysql_clickhouse,       version: maria-13,      ch: latest, label: maria-13_ch-latest}
+          - {job: mongo_clickhouse,       version: '6.0',         ch: lts,    label: mongo-6_ch-lts}
+          - {job: mongo_clickhouse,       version: '7.0',         ch: stable, label: mongo-7_ch-stable}
+          - {job: mongo_clickhouse,       version: '8.2.12',      ch: latest, label: mongo-8_ch-latest}
+          - {job: cockroachdb_clickhouse, version: v24,           ch: lts,    label: cockroachdb-v24_ch-lts}
+          - {job: cockroachdb_clickhouse, version: v25,           ch: stable, label: cockroachdb-v25_ch-stable}
+          - {job: cockroachdb_clickhouse, version: v26,           ch: latest, label: cockroachdb-v26_ch-latest}
           - {job: bigquery_clickhouse,    ch: lts,    label: bigquery_ch-lts}
           - {job: bigquery_clickhouse,    ch: stable, label: bigquery_ch-stable}
           - {job: bigquery_clickhouse,    ch: latest, label: bigquery_ch-latest}
