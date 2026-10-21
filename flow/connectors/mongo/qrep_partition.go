@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"slices"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -298,6 +299,61 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		ranges[i] = [2]string{starts[i], end}
 	}
 	return ranges
+}
+
+// computeObjectIDBoundaries turns a sample of ObjectID _ids plus the real min/max
+// into a contiguous set of closed ranges. Interior boundaries are quantiles of the
+// (deduplicated) sample, so ranges hold roughly equal shares of the documents however
+// the _ids are spread over the keyspace; the first range starts at the real min and
+// the last ends at the real max. Each range ends one before the next range starts,
+// matching the inclusive bounds of ObjectID partitions.
+//
+// It is pure (no I/O) to keep the boundary math unit-testable. Returns fewer ranges
+// than numPartitions when the sample yields too few distinct interior boundaries.
+func computeObjectIDBoundaries(
+	minID bson.ObjectID,
+	maxID bson.ObjectID,
+	samples []bson.ObjectID,
+	numPartitions int64,
+) ([][2]bson.ObjectID, error) {
+	// Keep unique sampled _ids strictly inside (min, max). Samples can fall outside
+	// when documents are inserted after the bounds were read.
+	interior := make([]bson.ObjectID, 0, len(samples))
+	for _, s := range samples {
+		if compareObjectIDs(s, minID) > 0 && compareObjectIDs(s, maxID) < 0 {
+			interior = append(interior, s)
+		}
+	}
+	slices.SortFunc(interior, compareObjectIDs)
+	interior = slices.Compact(interior)
+
+	// Pick up to numPartitions-1 evenly spaced interior boundaries (quantiles).
+	desiredBoundaries := numPartitions - 1
+	picked := interior
+	if int64(len(interior)) > desiredBoundaries {
+		picked = make([]bson.ObjectID, 0, desiredBoundaries)
+		for i := int64(1); i <= desiredBoundaries; i++ {
+			picked = append(picked, interior[i*int64(len(interior))/numPartitions])
+		}
+	}
+
+	// Build ranges: [min, p0-1], [p0, p1-1], ..., [pLast, max].
+	ranges := make([][2]bson.ObjectID, 0, len(picked)+1)
+	start := minID
+	for _, boundary := range picked {
+		end, err := bigIntToObjectID(new(big.Int).Sub(new(big.Int).SetBytes(boundary[:]), big.NewInt(1)))
+		if err != nil {
+			return nil, err
+		}
+		ranges = append(ranges, [2]bson.ObjectID{start, end})
+		start = boundary
+	}
+	return append(ranges, [2]bson.ObjectID{start, maxID}), nil
+}
+
+// compareObjectIDs orders ObjectIDs the way MongoDB does: bytewise.
+func compareObjectIDs(a, b bson.ObjectID) int {
+	return bytes.Compare(a[:], b[:])
 }
 
 // bigIntToObjectID converts a big.Int back to a 12-byte ObjectID.
