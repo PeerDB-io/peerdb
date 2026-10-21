@@ -1261,6 +1261,10 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	srcTable := "test_simple_partitioned"
 	dstTable := "test_simple_dst_partitioned"
 
+	const numRows = 1000
+	const numPartitions = 100
+	const rowsPerPartition = numRows / numPartitions
+
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
@@ -1268,37 +1272,55 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.SnapshotNumRowsPerPartition = rowsPerPartition
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
+	// Extreme outliers around a dense timestamp cluster make uniform ObjectID
+	// keyspace ranges put nearly all rows in one partition.
+	maxID, err := bson.ObjectIDFromHex("ffffffffffffffffffffffff")
+	require.NoError(t, err)
 	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	docs := make([]any, 1000)
-	for i := range 1000 {
+	docs := make([]any, numRows)
+	for i := range numRows {
 		oid := bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))
+		switch i {
+		case 0:
+			oid = bson.ObjectID{}
+		case numRows - 1:
+			oid = maxID
+		}
 		docs[i] = bson.D{
 			{Key: "_id", Value: oid},
 			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
 		}
 	}
-	_, err := collection.InsertMany(t.Context(), docs)
+	_, err = collection.InsertMany(t.Context(), docs)
 	require.NoError(t, err)
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	require.NoError(t, err)
-	var partitionCount int
+	var partitionCount, totalRows, minPartitionRows, maxPartitionRows int64
 	require.NoError(t, catalogPool.QueryRow(t.Context(),
-		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
-		flowConnConfig.FlowJobName).Scan(&partitionCount))
-	require.Equal(t, 100, partitionCount, "expected 100 partitions for 1000 rows with 10 rows per partition")
+		`SELECT COUNT(*), SUM(rows_in_partition), MIN(rows_in_partition), MAX(rows_in_partition)
+		 FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount, &totalRows, &minPartitionRows, &maxPartitionRows))
+	require.EqualValues(t, numPartitions, partitionCount)
+	// Destination equality above catches missing rows; the sum also catches
+	// overlapping partitions whose duplicate rows ClickHouse FINAL would hide.
+	require.EqualValues(t, numRows, totalRows)
+	require.Positive(t, minPartitionRows, "sampled partitions should not be empty")
+	// The sample size exceeds this fixture's row count, so every ID is sampled.
+	// Allow quantile rounding while rejecting the highly skewed keyspace split.
+	require.LessOrEqual(t, maxPartitionRows, int64(2*rowsPerPartition))
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	cdcBaseTime := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	cdcDocs := make([]any, 10)
 	for i := range 10 {
