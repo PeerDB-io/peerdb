@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -186,23 +187,30 @@ func logActivity(ctx context.Context, action string, additionalAttrs ...any) {
 	slog.InfoContext(ctx, "[flow activity] "+action, attrs...)
 }
 
+//nolint:govet // field order is intentional for readability
 type FlowConfigForLogging struct {
-	FlowName                    string `json:"flow_name"`
-	PipeId                      string `json:"pipe_id"`
-	PipeName                    string `json:"pipe_name"`
-	SourcePeerName              string `json:"source_peer_name"`
-	PublicationName             string `json:"pg_publication_name"`          // postgres
-	ReplicationSlotName         string `json:"pg_replication_slot_name"`     // postgres
-	ReplicationMechanismInUse   string `json:"replication_mechanism_in_use"` // mysql
-	IdleTimeoutSeconds          uint64 `json:"sync_interval"`
-	NumTables                   int    `json:"num_tables"`
-	MaxBatchSize                uint32 `json:"max_batch_size"`
-	SnapshotNumRowsPerPartition uint32 `json:"snapshot_num_rows_per_partition"`
-	SnapshotMaxParallelWorkers  uint32 `json:"snapshot_max_parallel_workers"`
-	SnapshotNumTablesInParallel uint32 `json:"snapshot_num_tables_in_parallel"`
-	CdcOnly                     bool   `json:"cdc_only"`
-	SnapshotOnly                bool   `json:"snapshot_only"`
-	Resync                      bool   `json:"is_resync"`
+	FlowName                      string `json:"flow_name"`
+	PipeId                        string `json:"pipe_id"`
+	PipeName                      string `json:"pipe_name"`
+	SourcePeerName                string `json:"source_peer_name"`
+	PublicationName               string `json:"pg_publication_name"`          // postgres
+	ReplicationSlotName           string `json:"pg_replication_slot_name"`     // postgres
+	FailoverSlotsEnabled          *bool  `json:"pg_failover_slots_enabled"`    // postgres
+	ReplicationMechanismInUse     string `json:"replication_mechanism_in_use"` // mysql
+	BigqueryReplicationMethod     string `json:"bq_replication_method"`        // bigquery
+	QueryCdcPullSyncParallelism   int32  `json:"query_cdc_pull_sync_parallelism"`
+	QueryCdcSafetyLagSeconds      int32  `json:"query_cdc_safety_lag_seconds"`
+	QueryCdcMaxQueryWindowSeconds int32  `json:"query_cdc_max_query_window_seconds"`
+	QueryCdcSyncCron              string `json:"query_cdc_sync_cron"`
+	IdleTimeoutSeconds            uint64 `json:"sync_interval"`
+	NumTables                     int    `json:"num_tables"`
+	MaxBatchSize                  uint32 `json:"max_batch_size"`
+	SnapshotNumRowsPerPartition   uint32 `json:"snapshot_num_rows_per_partition"`
+	SnapshotMaxParallelWorkers    uint32 `json:"snapshot_max_parallel_workers"`
+	SnapshotNumTablesInParallel   uint32 `json:"snapshot_num_tables_in_parallel"`
+	CdcOnly                       bool   `json:"cdc_only"`
+	SnapshotOnly                  bool   `json:"snapshot_only"`
+	Resync                        bool   `json:"is_resync"`
 }
 
 type tableMappingForLogging struct {
@@ -219,26 +227,36 @@ type tableMappingForLogging struct {
 }
 
 type FlowConfigLogEntry struct {
+	Env           map[string]string
 	TableMappings []tableMappingForLogging
 	FlowConfig    FlowConfigForLogging
 }
 
 //nolint:govet // field order is intentional for readability
 type sourcePeerInfoForLogging struct {
-	PeerName             string `json:"peer_name"`
-	PeerType             string `json:"peer_type"`
-	Host                 string `json:"host"`
-	DatabaseVersion      string `json:"database_version"`
-	DatabaseVariant      string `json:"database_variant"`
-	DisableTLS           bool   `json:"disable_tls"`
-	TLSHost              string `json:"tls_host"`
-	DatabaseName         string `json:"database_name"`
-	SshHost              string `json:"ssh_host"`
-	AuthType             string `json:"auth_type"`
-	Flavor               string `json:"flavor"`                // mysql
-	Compression          uint32 `json:"compression"`           // mysql
-	ReplicationMechanism string `json:"replication_mechanism"` // mysql
-	ReadPreference       string `json:"read_preference"`       // mongo
+	PeerName             string  `json:"peer_name"`
+	PeerType             string  `json:"peer_type"`
+	Host                 string  `json:"host"`
+	Port                 uint32  `json:"port"`
+	DatabaseVersion      string  `json:"database_version"`
+	DatabaseVariant      string  `json:"database_variant"`
+	DisableTLS           bool    `json:"disable_tls"`
+	SkipCertVerification bool    `json:"skip_cert_verification"`
+	CustomRootCA         bool    `json:"custom_root_ca"`
+	ClientTLS            bool    `json:"client_tls"`
+	TLSHost              string  `json:"tls_host"`
+	DatabaseName         string  `json:"database_name"`
+	SshHost              string  `json:"ssh_host"`
+	AuthType             string  `json:"auth_type"`
+	AwsAuthType          string  `json:"aws_auth_type"`
+	AwsRegion            string  `json:"aws_region"`
+	Flavor               string  `json:"flavor"`                // mysql
+	Compression          uint32  `json:"compression"`           // mysql
+	ReplicationMechanism string  `json:"replication_mechanism"` // mysql
+	ServerId             *uint32 `json:"server_id"`             // mysql
+	ReadPreference       string  `json:"read_preference"`       // mongo
+	ProjectId            string  `json:"project_id"`            // bigquery
+	DatasetId            string  `json:"dataset_id"`            // bigquery
 }
 
 func GetFlowConfigLogEntries(
@@ -349,6 +367,13 @@ func GetFlowConfigLogEntries(
 			PipeId:                      entry.tags[common.PipeIdTag],
 			PipeName:                    entry.tags[common.PipeNameTag],
 		}
+		if bqCdc := cfg.GetBigqueryCdcConfig(); bqCdc != nil {
+			fc.BigqueryReplicationMethod = bqCdc.ReplicationMethod.String()
+			fc.QueryCdcPullSyncParallelism = bqCdc.QueryCdc.GetPullSyncParallelism()
+			fc.QueryCdcSafetyLagSeconds = bqCdc.QueryCdc.GetSafetyLagSeconds()
+			fc.QueryCdcMaxQueryWindowSeconds = bqCdc.QueryCdc.GetMaxQueryWindowSeconds()
+			fc.QueryCdcSyncCron = bqCdc.QueryCdc.GetSyncCron()
+		}
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]
 		tableMappings := make([]tableMappingForLogging, 0, len(cfg.TableMappings))
@@ -371,6 +396,7 @@ func GetFlowConfigLogEntries(
 			})
 		}
 		flowConfigs = append(flowConfigs, FlowConfigLogEntry{
+			Env:           cfg.Env,
 			FlowConfig:    fc,
 			TableMappings: tableMappings,
 		})
@@ -401,35 +427,75 @@ func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant
 		DatabaseVersion: version,
 		DatabaseVariant: variant,
 	}
+	setAwsAuth := func(awsAuth *protos.AwsAuthenticationConfig) {
+		if awsAuth != nil {
+			info.AwsAuthType = awsAuth.AuthType.String()
+			info.AwsRegion = awsAuth.Region
+		}
+	}
 	switch config := peer.Config.(type) {
 	case *protos.Peer_PostgresConfig:
 		info.Host = config.PostgresConfig.Host
+		info.Port = config.PostgresConfig.Port
 		info.DisableTLS = !internal.PGMustUseTlsConnection(config.PostgresConfig)
+		info.SkipCertVerification = config.PostgresConfig.SkipCertVerification
+		info.CustomRootCA = config.PostgresConfig.RootCa != nil
+		info.ClientTLS = config.PostgresConfig.ClientTls != nil
 		info.TLSHost = config.PostgresConfig.TlsHost
 		info.SshHost = config.PostgresConfig.SshConfig.GetHost()
 		info.DatabaseName = config.PostgresConfig.Database
 		info.AuthType = config.PostgresConfig.AuthType.String()
+		setAwsAuth(config.PostgresConfig.AwsAuth)
+	case *protos.Peer_CockroachdbConfig:
+		info.Host = config.CockroachdbConfig.Host
+		info.Port = config.CockroachdbConfig.Port
+		info.DisableTLS = config.CockroachdbConfig.DisableTls
+		info.SkipCertVerification = config.CockroachdbConfig.SkipCertVerification
+		info.CustomRootCA = config.CockroachdbConfig.RootCa != nil
+		info.ClientTLS = config.CockroachdbConfig.ClientTls != nil
+		info.TLSHost = config.CockroachdbConfig.TlsHost
+		info.SshHost = config.CockroachdbConfig.SshConfig.GetHost()
+		info.DatabaseName = config.CockroachdbConfig.Database
 	case *protos.Peer_MysqlConfig:
 		info.Host = config.MysqlConfig.Host
+		info.Port = config.MysqlConfig.Port
 		info.DisableTLS = config.MysqlConfig.DisableTls
+		info.SkipCertVerification = config.MysqlConfig.SkipCertVerification
+		info.CustomRootCA = config.MysqlConfig.RootCa != nil
 		info.TLSHost = config.MysqlConfig.TlsHost
 		info.SshHost = config.MysqlConfig.SshConfig.GetHost()
 		info.DatabaseName = config.MysqlConfig.Database
 		info.AuthType = config.MysqlConfig.AuthType.String()
+		setAwsAuth(config.MysqlConfig.AwsAuth)
 		info.Flavor = config.MysqlConfig.Flavor.String()
 		info.ReplicationMechanism = config.MysqlConfig.ReplicationMechanism.String()
 		info.Compression = config.MysqlConfig.Compression
+		info.ServerId = config.MysqlConfig.ServerId
 	case *protos.Peer_MongoConfig:
-		info.Host = config.MongoConfig.Uri
+		info.Host = redactURIUserInfo(config.MongoConfig.Uri)
 		info.DisableTLS = config.MongoConfig.DisableTls
+		info.SkipCertVerification = config.MongoConfig.SkipCertVerification
+		info.CustomRootCA = config.MongoConfig.RootCa != nil
 		info.TLSHost = config.MongoConfig.TlsHost
 		info.SshHost = config.MongoConfig.SshConfig.GetHost()
 		info.ReadPreference = config.MongoConfig.ReadPreference.String()
 		info.AuthType = config.MongoConfig.AuthType.String()
+		setAwsAuth(config.MongoConfig.AwsAuth)
 	case *protos.Peer_BigqueryConfig:
 		info.AuthType = config.BigqueryConfig.AuthType
+		info.ProjectId = config.BigqueryConfig.ProjectId
+		info.DatasetId = config.BigqueryConfig.DatasetId
 	}
 	logAsJSON(logger, "[peer info]", info, slog.String("peerName", peer.Name))
+}
+
+func redactURIUserInfo(uri string) string {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	parsed.User = nil
+	return parsed.String()
 }
 
 func logAsJSON(logger log.Logger, msg string, data any, attrs ...any) {
