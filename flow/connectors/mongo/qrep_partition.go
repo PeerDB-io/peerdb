@@ -1,6 +1,7 @@
 package connmongo
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -17,11 +18,11 @@ import (
 )
 
 const (
-	// stringSampleOversample draws more samples than partitions so quantile
+	// partitionSampleOversample draws more samples than partitions so quantile
 	// boundaries are well distributed even with clustered keys.
-	stringSampleOversample = 20
-	// stringSampleMaxSize caps sampling cost on very large collections.
-	stringSampleMaxSize = 100000
+	partitionSampleOversample = 20
+	// partitionSampleMaxSize caps sampling cost on very large collections.
+	partitionSampleMaxSize = 100000
 )
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
@@ -164,9 +165,15 @@ func (c *MongoConnector) stringPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	samples, err := c.sampleStringIDs(ctx, collection, numPartitions)
+	rawSamples, err := c.sampleIDs(ctx, collection, numPartitions)
 	if err != nil {
 		return nil, err
+	}
+	samples := make([]string, 0, len(rawSamples))
+	for _, rv := range rawSamples {
+		if rv.Type == bson.TypeString {
+			samples = append(samples, rv.StringValue())
+		}
 	}
 
 	ranges := computeStringBoundaries(minVal, maxVal, samples, numPartitions)
@@ -187,18 +194,19 @@ func (c *MongoConnector) stringPartitions(
 	return partitions, nil
 }
 
-// sampleStringIDs draws a random sample of string _id values. $sample with a size
+// sampleIDs draws a random sample of _id values, sorted by _id. $sample with a size
 // below ~5% of the collection uses WiredTiger's random cursor, so this is cheap even
 // on large collections; it honours the configured read preference (run on a
-// secondary to avoid loading the primary).
-func (c *MongoConnector) sampleStringIDs(
+// secondary to avoid loading the primary). Callers keep the _id types they can
+// partition on.
+func (c *MongoConnector) sampleIDs(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
-) ([]string, error) {
-	sampleSize := numPartitions * stringSampleOversample
-	if sampleSize > stringSampleMaxSize {
-		sampleSize = stringSampleMaxSize
+) ([]bson.RawValue, error) {
+	sampleSize := numPartitions * partitionSampleOversample
+	if sampleSize > partitionSampleMaxSize {
+		sampleSize = partitionSampleMaxSize
 	}
 
 	aggCmd := bson.D{
@@ -218,12 +226,12 @@ func (c *MongoConnector) sampleStringIDs(
 	}
 	defer cursor.Close(ctx)
 
-	samples := make([]string, 0, sampleSize)
+	samples := make([]bson.RawValue, 0, sampleSize)
 	for cursor.Next(ctx) {
 		rv := cursor.Current.Lookup(DefaultDocumentKeyColumnName)
-		if rv.Type == bson.TypeString {
-			samples = append(samples, rv.StringValue())
-		}
+		// cursor.Current is only valid until the next call to Next
+		rv.Value = bytes.Clone(rv.Value)
+		samples = append(samples, rv)
 	}
 	if err := cursor.Err(); err != nil {
 		return nil, fmt.Errorf("cursor error while sampling _id values: %w", err)
