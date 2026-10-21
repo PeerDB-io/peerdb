@@ -1255,6 +1255,132 @@ func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
 	require.NoError(t, err)
 }
 
+// Test_Delete_Preimage_Validation_Table_Addition checks that adding a collection with delete pre-images to an
+// existing mirror is rejected while the collection does not have changeStreamPreAndPostImages enabled, and
+// that once it is enabled the added collection's deleted row keeps the document's values.
+func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation_Table_Addition() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_preimage_table_addition"
+	dstTable := "test_preimage_table_addition_dst"
+	addedSrcTable := "test_preimage_table_addition_added"
+	addedDstTable := "test_preimage_table_addition_added_dst"
+
+	apiClient, err := e2e.NewApiClient()
+	require.NoError(t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	for _, table := range []string{srcTable, addedSrcTable} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), table))
+	}
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	const documentID = "preimage-doc"
+	// the `name` in `doc` of the latest version of the document's row, and whether that row is a delete;
+	// ok is false when there is no row yet
+	readRow := func() (string, bool, bool) {
+		var name string
+		var deleted uint8
+		if err := ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT JSONExtractString(toString(doc), 'name'), _peerdb_is_deleted FROM "%s"."%s" FINAL
+			WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, addedDstTable, documentID),
+		).Scan(&name, &deleted); err != nil {
+			t.Log(err)
+			return "", false, false
+		}
+		return name, deleted != 0, true
+	}
+
+	// Create the mirror through the API, as only API edits are validated
+	_, err = apiClient.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
+	tc := e2e.NewTemporalClient(t)
+	env, err := e2e.GetPeerflow(t.Context(), s.GenericSuite.(e2e.ClickHouseSuite).Catalog(), tc, flowConnConfig.FlowJobName)
+	require.NoError(t, err)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Pause the mirror to add the collection
+	_, err = apiClient.FlowStateChange(t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(t, err)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	addedTableMappings := e2e.TableMappings(s, addedSrcTable, addedDstTable)
+	addedTableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+	addTableRequest := &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{AdditionalTables: addedTableMappings},
+			},
+		},
+	}
+
+	// Add the collection while it does not have pre-and-post-images enabled, which must be rejected
+	_, err = apiClient.FlowStateChange(t.Context(), addTableRequest)
+	require.Error(t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(t, grpcStatus.Message(), "changeStreamPreAndPostImages")
+	require.Contains(t, grpcStatus.Message(), srcDatabase+"."+addedSrcTable)
+	require.Equal(t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(t))
+
+	// Enable pre-and-post-images in the added collection and add it again
+	require.NoError(t, adminClient.Database(srcDatabase).RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: addedSrcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: true}}},
+	}).Err())
+	_, err = apiClient.FlowStateChange(t.Context(), addTableRequest)
+	require.NoError(t, err)
+
+	// Load a sample document into the added collection
+	insertRes, err := adminClient.Database(srcDatabase).Collection(addedSrcTable).InsertOne(t.Context(), bson.D{
+		{Key: "_id", Value: documentID},
+		{Key: "name", Value: "Alice"},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitFor(t, env, 4*time.Minute, "insert event into the added collection", func() bool {
+		name, deleted, ok := readRow()
+		return ok && !deleted && name == "Alice"
+	})
+
+	// Delete the sample document to generate a delete event carrying the pre-image
+	deleteRes, err := adminClient.Database(srcDatabase).Collection(addedSrcTable).DeleteOne(t.Context(),
+		bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event carrying the pre-image", func() bool {
+		name, deleted, ok := readRow()
+		return ok && deleted && name == "Alice"
+	})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Uniform() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
