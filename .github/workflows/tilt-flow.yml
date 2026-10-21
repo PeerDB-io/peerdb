@@ -311,13 +311,15 @@ jobs:
           ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
+          # `tilt wait` fails immediately on a missing resource, so wait for the
+          # (Tiltfile) resource itself rather than just a reachable API.
           for i in $(seq 1 60); do
-            if tilt --port "$TILT_PORT" get uiresource >/dev/null 2>&1; then
+            if tilt --port "$TILT_PORT" get uiresource "(Tiltfile)" >/dev/null 2>&1; then
               echo "Tilt API is reachable."
               break
             fi
             if [ "$i" -eq 60 ]; then
-              echo "::error::Tilt API did not become reachable."
+              echo "::error::Tilt API did not become reachable or the Tiltfile resource was not registered."
               cat "$RUNNER_TEMP/tilt-startup.log" || true
               exit 1
             fi
