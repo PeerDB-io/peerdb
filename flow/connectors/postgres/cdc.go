@@ -33,6 +33,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
@@ -73,6 +74,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+	wrapNonObjectJSON                        bool
 	warnedTypeChanges                        sync.Map
 }
 
@@ -91,6 +93,7 @@ type PostgresCDCConfig struct {
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
+	WrapNonObjectJSON                        bool
 }
 
 const clockOffsetTTL = time.Hour
@@ -189,6 +192,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
+		wrapNonObjectJSON:                        cdcConfig.WrapNonObjectJSON,
 	}, nil
 }
 
@@ -446,7 +450,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				}
 			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-				parsedData, customTypeMapping, p.internalVersion)
+				parsedData, customTypeMapping, p.internalVersion, p.wrapNonObjectJSON)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
@@ -486,7 +490,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 			parsedData = arr
 		}
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			parsedData, customTypeMapping, p.internalVersion)
+			parsedData, customTypeMapping, p.internalVersion, p.wrapNonObjectJSON)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -515,10 +519,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, err
 		}
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			parsedData, customTypeMapping, p.internalVersion)
+			parsedData, customTypeMapping, p.internalVersion, p.wrapNonObjectJSON)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			string(data), customTypeMapping, p.internalVersion)
+			string(data), customTypeMapping, p.internalVersion, p.wrapNonObjectJSON)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
@@ -1451,17 +1455,17 @@ func processRelationMessage[Items model.Items](
 		// not present in previous relation message, but in current one, so added.
 		if isAddedColumnAndNotExcluded(column.Name) {
 			catalogInfo := addedColumnCatalogInfo[column.Name]
+			qkind := types.QValueKind(currRelMap[column.Name])
+			missingValue := catalogInfo.missingValueFor(qkind)
 			sourceMissingValue := ""
-			if catalogInfo.missingValue != nil {
-				sourceMissingValue = *catalogInfo.missingValue
+			if missingValue != nil {
+				sourceMissingValue = *missingValue
 			}
 			var defaultExpr *string
 			// destinations on the PG type system splice the column type in verbatim, so a literal
 			// rendered for a QValueKind would not fit their DDL
-			if catalogInfo.missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				if literal, ok := defaultExprFromPostgresMissingValue(
-					*catalogInfo.missingValue, types.QValueKind(currRelMap[column.Name]),
-				); ok {
+			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
+				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, p.wrapNonObjectJSON); ok {
 					defaultExpr = &literal
 				}
 			}
@@ -1534,6 +1538,18 @@ type addedColumnCatalogInfo struct {
 	missingValue *string
 	hasMissing   bool
 	notNull      bool
+	// missingJSON is the same value as JSON text, which keeps a top-level JSON string quoted and a JSON
+	// null distinct from SQL NULL; only meaningful for json/jsonb columns.
+	missingJSON *string
+}
+
+// missingValueFor returns the stored missing value in the form defaultExprFromPostgresMissingValue
+// expects for a column of kind qkind.
+func (info addedColumnCatalogInfo) missingValueFor(qkind types.QValueKind) *string {
+	if qkind == types.QValueKindJSON || qkind == types.QValueKindJSONB {
+		return info.missingJSON
+	}
+	return info.missingValue
 }
 
 // fetchAddedColumnCatalogInfo reads nullability and the value PostgreSQL uses for rows that predate
@@ -1549,9 +1565,11 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	// attmissingval holds the original default value materialized when the column was added, rather
 	// than its current default. It is an anyarray with one element; converting through JSON extracts
 	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
-	// string while returning SQL NULL for a missing value of NULL.
+	// string while returning SQL NULL for a missing value of NULL. -> keeps the element as JSON text,
+	// which is what a json/jsonb column needs.
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
-		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END
+		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END,
+		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END
 		FROM pg_catalog.pg_attribute a
 		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
 		relID, columnNames)
@@ -1563,12 +1581,16 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	var name string
 	var notNull bool
 	var hasMissing bool
-	var missingValue pgtype.Text
-	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue}, func() error {
+	var missingValue, missingJSON pgtype.Text
+	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue, &missingJSON}, func() error {
 		info := addedColumnCatalogInfo{hasMissing: hasMissing, notNull: notNull}
 		if missingValue.Valid {
 			value := missingValue.String
 			info.missingValue = &value
+		}
+		if missingJSON.Valid {
+			value := missingJSON.String
+			info.missingJSON = &value
 		}
 		catalogInfo[name] = info
 		return nil
@@ -1584,7 +1606,7 @@ var pgNumericLiteralRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+
 // defaultExprFromPostgresMissingValue renders the value PostgreSQL stored in attmissingval as a SQL
 // literal that destinations can splice into DDL verbatim. Only types whose text form carries over are
 // translated; everything else is declined, leaving the destination column without a default.
-func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (string, bool) {
+func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, wrapNonObjectJSON bool) (string, bool) {
 	switch qkind {
 	case types.QValueKindBoolean:
 		if value != "true" && value != "false" {
@@ -1627,9 +1649,14 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (
 		}
 		return quoteDefaultLiteral(value), true
 
+	case types.QValueKindJSON, types.QValueKindJSONB:
+		if wrapNonObjectJSON {
+			value = qvalue.WrapNonObjectJSON(value)
+		}
+		return quoteDefaultLiteral(value), true
+
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
-		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindINET,
-		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
+		types.QValueKindINET, types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
 		return quoteDefaultLiteral(value), true
 
 	default:

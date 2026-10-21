@@ -134,12 +134,12 @@ func qValueKindToPostgresType(colTypeStr string) string {
 	}
 }
 
-func parseJSON(value any, isArray bool) (types.QValue, error) {
+func parseJSON(value any) (string, error) {
 	jsonVal, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
 	}
-	return types.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
+	return string(jsonVal), nil
 }
 
 func parseUUID(value any) (uuid.UUID, error) {
@@ -382,6 +382,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	value any,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	version uint32,
+	wrapNonObjectJSON bool,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
 	if value == nil {
@@ -487,14 +488,19 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil
 	case types.QValueKindJSON, types.QValueKindJSONB:
+		var doc string
 		if preMarshalled, ok := value.(preMarshalledJson); ok {
-			return types.QValueJSON{Val: string(preMarshalled), IsArray: false}, nil
+			doc = string(preMarshalled)
+		} else {
+			var err error
+			if doc, err = parseJSON(value); err != nil {
+				return nil, err
+			}
 		}
-		parsed, err := parseJSON(value, false)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse JSON: %w", err)
+		if wrapNonObjectJSON {
+			doc = qvalue.WrapNonObjectJSON(doc)
 		}
-		return parsed, nil
+		return types.QValueJSON{Val: doc, IsArray: false}, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		if valArr, ok := value.([]preMarshalledJson); ok {
 			// value is an array of pre-marshalled JSON documents; incrementally marshal
@@ -517,11 +523,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			builder.WriteByte(']')
 			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil
 		}
-		parsed, err := parseJSON(value, true)
+		doc, err := parseJSON(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
 		}
-		return parsed, nil
+		return types.QValueJSON{Val: doc, IsArray: true}, nil
 	case types.QValueKindInt16:
 		intVal := value.(int16)
 		return types.QValueInt16{Val: intVal}, nil

@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -184,4 +186,41 @@ func TestProcessGeometryData(t *testing.T) {
 	qv, err = processGeometryData(point)
 	require.NoError(t, err)
 	require.Equal(t, "POINT (1 2)", qv.Val)
+}
+
+// TestQValueFromMysql_WrapNonObjectJSON covers the three JSON conversion spots: the snapshot
+// FieldValue path and the binlog row-event path for []byte and string payloads.
+func TestQValueFromMysql_WrapNonObjectJSON(t *testing.T) {
+	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_JSON}}
+	logger := log.NewStructuredLogger(nil)
+	var coercionReported bool
+
+	for _, tc := range []struct {
+		in          string
+		wantWrapped string
+	}{
+		{`{"a": 1}`, `{"a":1}`},
+		{`"dark"`, `{"_value":"dark"}`},
+		{`[1, 2]`, `{"_value":[1,2]}`},
+		{`null`, `{"_value":null}`},
+	} {
+		for _, wrap := range []bool{false, true} {
+			want := compactMySQLJSON([]byte(tc.in))
+			if wrap {
+				want = tc.wantWrapped
+			}
+
+			fv := mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte(tc.in))
+			got, err := QValueFromMysqlFieldValue(types.QValueKindJSON, mysql.MYSQL_TYPE_JSON, fv, wrap)
+			require.NoError(t, err)
+			require.Equal(t, want, got.(types.QValueJSON).Val, "snapshot in=%q wrap=%v", tc.in, wrap)
+
+			// the row-event path passes the server text through unchanged, so compare semantically
+			for _, val := range []any{[]byte(tc.in), tc.in} {
+				got, err := QValueFromMysqlRowEvent(ev, 0, nil, nil, types.QValueKindJSON, val, nil, logger, &coercionReported, wrap)
+				require.NoError(t, err)
+				require.JSONEq(t, want, got.(types.QValueJSON).Val, "cdc in=%q (%T) wrap=%v", tc.in, val, wrap)
+			}
+		}
+	}
 }

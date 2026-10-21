@@ -44,10 +44,11 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name  string
-		value string
-		qkind types.QValueKind
-		want  string
+		name              string
+		value             string
+		qkind             types.QValueKind
+		want              string
+		wrapNonObjectJSON bool
 	}{
 		{name: "int", value: "5", qkind: types.QValueKindInt32, want: "5"},
 		{name: "int negative", value: "-1", qkind: types.QValueKindInt32, want: "-1"},
@@ -83,6 +84,24 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			want: "'00000000-0000-0000-0000-000000000001'",
 		},
 		{name: "jsonb", value: `{"a": 1}`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
+		{name: "jsonb scalar", value: `"dark"`, qkind: types.QValueKindJSONB, want: `'"dark"'`},
+		// native JSON on: non-objects are wrapped, objects are not
+		{
+			name: "jsonb object wrapped", value: `{"a": 1}`, qkind: types.QValueKindJSONB,
+			wrapNonObjectJSON: true, want: `'{"a": 1}'`,
+		},
+		{
+			name: "jsonb scalar wrapped", value: `"dark"`, qkind: types.QValueKindJSONB,
+			wrapNonObjectJSON: true, want: `'{"_value":"dark"}'`,
+		},
+		{
+			name: "json array wrapped", value: `[1, 2]`, qkind: types.QValueKindJSON,
+			wrapNonObjectJSON: true, want: `'{"_value":[1, 2]}'`,
+		},
+		{
+			name: "text not wrapped", value: `"dark"`, qkind: types.QValueKindString,
+			wrapNonObjectJSON: true, want: `'"dark"'`,
+		},
 		{
 			name: "hstore canonicalized", value: `{"z": "<&>", "a": null}`,
 			qkind: types.QValueKindHStore, want: `'{"a":null,"z":"\\u003c\\u0026\\u003e"}'`,
@@ -120,7 +139,7 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind)
+			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind, tc.wrapNonObjectJSON)
 			require.Equal(t, tc.want != "", ok)
 			require.Equal(t, tc.want, literal)
 		})

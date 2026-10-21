@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -307,13 +308,18 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	if err != nil {
 		return 0, 0, err
 	}
+	wrapNonObjectJSON, err := qvalue.ShouldWrapNonObjectJSON(ctx, qe.env, qe.version)
+	if err != nil {
+		qe.logger.Error("[pg_query_executor] failed to get setting for wrapNonObjectJSON", slog.Any("error", err))
+		return 0, 0, fmt.Errorf("failed to get setting for wrapNonObjectJSON: %w", err)
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, fastProcessJsonColumns)
+		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, fastProcessJsonColumns, wrapNonObjectJSON)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -512,6 +518,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
 	fastProcessJsonColumns bool,
+	wrapNonObjectJSON bool,
 ) ([]types.QValue, error) {
 	rawValues := row.RawValues()
 	values := make([]any, len(fds))
@@ -616,6 +623,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
+			wrapNonObjectJSON,
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
