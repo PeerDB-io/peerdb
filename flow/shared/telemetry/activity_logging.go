@@ -374,6 +374,9 @@ func GetFlowConfigLogEntries(
 			fc.QueryCdcMaxQueryWindowSeconds = bqCdc.QueryCdc.GetMaxQueryWindowSeconds()
 			fc.QueryCdcSyncCron = bqCdc.QueryCdc.GetSyncCron()
 		}
+		if fc.QueryCdcPullSyncParallelism == 0 {
+			fc.QueryCdcPullSyncParallelism = cfg.QueryCdcPullSyncParallelism //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
+		}
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]
 		tableMappings := make([]tableMappingForLogging, 0, len(cfg.TableMappings))
