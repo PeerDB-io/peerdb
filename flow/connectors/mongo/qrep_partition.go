@@ -28,7 +28,8 @@ const (
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
 // default _id index) and dispatches to a type-specific partitioner:
-//   - ObjectID  -> uniform division of the 12-byte ObjectID keyspace
+//   - ObjectID  -> uniform division of the 12-byte ObjectID keyspace, or
+//     sampling-based quantile boundaries when sampleObjectIDs is set
 //   - Int32/64  -> uniform division of the numeric range
 //   - String    -> sampling-based quantile boundaries
 //
@@ -37,6 +38,7 @@ func (c *MongoConnector) buildPartitions(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
+	sampleObjectIDs bool,
 ) ([]*protos.QRepPartition, error) {
 	minRaw, err := findBoundaryID(ctx, collection, Lower, c.config.ReadPreference)
 	if err != nil {
@@ -57,6 +59,9 @@ func (c *MongoConnector) buildPartitions(
 
 	switch {
 	case minRaw.Type == bson.TypeObjectID && maxRaw.Type == bson.TypeObjectID:
+		if sampleObjectIDs {
+			return c.sampledObjectIDPartitions(ctx, collection, minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
+		}
 		return c.objectIDPartitions(minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
 	case isNumericIDType(minRaw.Type) && isNumericIDType(maxRaw.Type):
 		minVal, _ := rawValueToInt64(minRaw)
@@ -124,6 +129,70 @@ func (c *MongoConnector) objectIDPartitions(
 		})
 	}
 
+	return partitions, nil
+}
+
+// sampledObjectIDPartitions builds partitions for an ObjectID _id collection from
+// quantile boundaries of a sample, for collections whose _ids are not spread evenly
+// over the keyspace (e.g. a few outlying timestamps far from the rest). If sampling
+// fails, for example on MongoDB versions where $sample can error on large samples,
+// or yields too few boundaries, it falls back to the uniform ObjectID division.
+func (c *MongoConnector) sampledObjectIDPartitions(
+	ctx context.Context,
+	collection *mongo.Collection,
+	minID bson.ObjectID,
+	maxID bson.ObjectID,
+	numPartitions int64,
+) ([]*protos.QRepPartition, error) {
+	if compareObjectIDs(minID, maxID) >= 0 {
+		c.logger.Info("[mongo] min/max ObjectID range is non-positive, falling back to full table partition")
+		return utils.FullTablePartition(), nil
+	}
+
+	rawSamples, err := c.sampleIDs(ctx, collection, numPartitions)
+	if err != nil {
+		c.logger.Warn("[mongo] failed to sample ObjectID _ids, falling back to min/max ObjectID partitioning",
+			slog.Any("error", err))
+		return c.objectIDPartitions(minID, maxID, numPartitions)
+	}
+	samples := make([]bson.ObjectID, 0, len(rawSamples))
+	for _, rv := range rawSamples {
+		if rv.Type == bson.TypeObjectID {
+			samples = append(samples, rv.ObjectID())
+		}
+	}
+
+	ranges, err := computeObjectIDBoundaries(minID, maxID, samples, numPartitions)
+	if err != nil {
+		return nil, err
+	}
+	if len(ranges) < 2 {
+		c.logger.Info("[mongo] insufficient ObjectID boundaries from sampling, falling back to min/max ObjectID partitioning",
+			slog.Int("sampleCount", len(samples)))
+		return c.objectIDPartitions(minID, maxID, numPartitions)
+	}
+
+	c.logger.Info("[mongo] using sampled ObjectID partitioning",
+		slog.String("minID", minID.Hex()),
+		slog.String("maxID", maxID.Hex()),
+		slog.Int("numPartitions", len(ranges)),
+		slog.Int("sampleCount", len(samples)))
+
+	partitions := make([]*protos.QRepPartition, 0, len(ranges))
+	for _, rng := range ranges {
+		partitions = append(partitions, &protos.QRepPartition{
+			PartitionId: uuid.NewString(),
+			Range: &protos.PartitionRange{
+				Range: &protos.PartitionRange_ObjectIdRange{
+					ObjectIdRange: &protos.ObjectIdPartitionRange{
+						Start: rng[0].Hex(),
+						End:   rng[1].Hex(),
+					},
+				},
+			},
+			FullTablePartition: false,
+		})
+	}
 	return partitions, nil
 }
 

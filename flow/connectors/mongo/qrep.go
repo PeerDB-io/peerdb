@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -65,7 +67,13 @@ func (c *MongoConnector) GetQRepPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
+	sampledTables, err := internal.PeerDBMongoDBSampledObjectIDPartitioningTables(ctx, config.Env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sampled ObjectID partitioning tables: %w", err)
+	}
+
+	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions,
+		slices.Contains(sampledTables, config.WatermarkTable))
 }
 
 func (c *MongoConnector) GetDefaultPartitionKeyForTables(
