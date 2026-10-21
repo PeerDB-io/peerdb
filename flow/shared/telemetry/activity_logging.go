@@ -375,7 +375,7 @@ func GetFlowConfigLogEntries(
 			fc.QueryCdcSyncCron = bqCdc.QueryCdc.GetSyncCron()
 		}
 		if fc.QueryCdcPullSyncParallelism == 0 {
-			fc.QueryCdcPullSyncParallelism = cfg.QueryCdcPullSyncParallelism //nolint:staticcheck // Preserve configs written before QueryCdcConfig.
+			fc.QueryCdcPullSyncParallelism = cfg.QueryCdcPullSyncParallelism //nolint:staticcheck // pre-QueryCdcConfig mirrors
 		}
 		flowReplicaIdentity := replicaIdentityByFlow[cfg.FlowJobName]
 		flowCounts := countsByFlow[cfg.FlowJobName]
