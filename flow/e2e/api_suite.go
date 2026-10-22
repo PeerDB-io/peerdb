@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	clickhouse_driver "github.com/ClickHouse/clickhouse-go/v2"
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
@@ -1888,40 +1889,15 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
-func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
-	if _, ok := s.source.(*PostgresSource); !ok {
-		s.t.Skip("table-level ordering-key resync test uses a Postgres source")
-	}
-
+// startTableResyncMirror creates a ClickHouse mirror through the API and waits for it to reach CDC.
+func (s APITestSuite) startTableResyncMirror(
+	flowJobName string, tableMappings []*protos.TableMapping,
+) (WorkflowRun, *protos.FlowConnectionConfigs) {
 	ctx := s.t.Context()
-	resyncSource := AttachSchema(s, "table_resync_orders")
-	retainedSource := AttachSchema(s, "table_resync_customers")
-	resyncDestination := AddSuffix(s, "table_resync_orders")
-	retainedDestination := AddSuffix(s, "table_resync_customers")
-
-	for _, table := range []string{resyncSource, retainedSource} {
-		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
-			"CREATE TABLE %s(id int primary key, customer_id int not null, val text)", table)))
-		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
-			"INSERT INTO %s(id, customer_id, val) VALUES (1, 10, 'initial')", table)))
-	}
-
-	oldOrdering := []*protos.ColumnSetting{{SourceName: "id", Ordering: 1}}
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "table_level_resync_" + s.suffix,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      resyncSource,
-				DestinationTableIdentifier: resyncDestination,
-				Columns:                    oldOrdering,
-			},
-			{
-				SourceTableIdentifier:      retainedSource,
-				DestinationTableIdentifier: retainedDestination,
-				Columns:                    oldOrdering,
-			},
-		},
-		Destination: s.ch.Peer().Name,
+		FlowJobName:   flowJobName,
+		TableMappings: tableMappings,
+		Destination:   s.ch.Peer().Name,
 	}
 	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConfig.DoInitialSnapshot = true
@@ -1937,60 +1913,144 @@ func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	EnvWaitForEqualTablesWithNames(env, s.ch, "initial selected table", "table_resync_orders",
-		resyncDestination, "id,customer_id,val")
-	EnvWaitForEqualTablesWithNames(env, s.ch, "initial retained table", "table_resync_customers",
-		retainedDestination, "id,customer_id,val")
+	return env, flowConfig
+}
 
-	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
-	require.NoError(s.t, err)
-	defer ch.Close()
-
-	tableMetadata := func(table string) (string, string) {
-		var uuid, sortingKey string
-		require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
-			"SELECT toString(uuid), sorting_key FROM system.tables WHERE database=%s AND name=%s",
-			clickhouse.QuoteLiteral(s.ch.connector.Config.Database),
-			clickhouse.QuoteLiteral(table),
-		)).Scan(&uuid, &sortingKey))
-		return uuid, sortingKey
-	}
-	normalizeKey := func(key string) string {
-		return strings.NewReplacer("(", "", ")", "", "`", "", " ", "").Replace(key)
-	}
-	resyncUUIDBefore, resyncKeyBefore := tableMetadata(resyncDestination)
-	retainedUUIDBefore, retainedKeyBefore := tableMetadata(retainedDestination)
-	require.Equal(s.t, "id", normalizeKey(resyncKeyBefore))
-	require.Equal(s.t, "id", normalizeKey(retainedKeyBefore))
-
-	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConfig.FlowJobName,
+func (s APITestSuite) pauseMirror(env WorkflowRun, flowJobName string) {
+	_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
+}
+
+func (s APITestSuite) requestTableResync(flowJobName string, resyncTables ...*protos.TableMapping) error {
+	_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: resyncTables},
+			},
+		},
+	})
+	return err
+}
+
+// resyncTablesAndWait resyncs the given tables of a paused mirror and waits for CDC to resume.
+func (s APITestSuite) resyncTablesAndWait(env WorkflowRun, flowJobName string, resyncTables ...*protos.TableMapping) {
+	require.NoError(s.t, s.requestTableResync(flowJobName, resyncTables...))
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+}
+
+type chTableInfo struct {
+	// column name to ClickHouse type
+	columns      map[string]string
+	uuid         string
+	sortingKey   string
+	partitionKey string
+}
+
+func (s APITestSuite) getCHTableInfo(ch clickhouse_driver.Conn, table string) chTableInfo {
+	ctx := s.t.Context()
+	database := clickhouse.QuoteLiteral(s.ch.connector.Config.Database)
+	normalizeKey := strings.NewReplacer("(", "", ")", "", "`", "", " ", "").Replace
+
+	var info chTableInfo
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+		"SELECT toString(uuid), sorting_key, partition_key FROM system.tables WHERE database=%s AND name=%s",
+		database, clickhouse.QuoteLiteral(table),
+	)).Scan(&info.uuid, &info.sortingKey, &info.partitionKey))
+	info.sortingKey = normalizeKey(info.sortingKey)
+	info.partitionKey = normalizeKey(info.partitionKey)
+
+	rows, err := ch.Query(ctx, fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database=%s AND table=%s",
+		database, clickhouse.QuoteLiteral(table),
+	))
+	require.NoError(s.t, err)
+	defer rows.Close()
+	info.columns = make(map[string]string)
+	for rows.Next() {
+		var name, colType string
+		require.NoError(s.t, rows.Scan(&name, &colType))
+		info.columns[name] = colType
+	}
+	require.NoError(s.t, rows.Err())
+	return info
+}
+
+func (s APITestSuite) requireCatalogTableMapping(flowJobName string, expected *protos.TableMapping) {
+	catalogConfig, err := s.loadConfigFromCatalog(s.t.Context(), flowJobName)
+	require.NoError(s.t, err)
+	idx := slices.IndexFunc(catalogConfig.TableMappings, func(tm *protos.TableMapping) bool {
+		return tm.SourceTableIdentifier == expected.SourceTableIdentifier
+	})
+	require.GreaterOrEqual(s.t, idx, 0)
+	require.True(s.t, proto.Equal(expected, catalogConfig.TableMappings[idx]),
+		"updated table mapping should be persisted in the catalog")
+}
+
+// TestTableLevelResyncUpdatesTableSettings resyncs one of two tables with a new ordering key, partition
+// expression, nullable column, widened column type and an excluded column; the other table must be untouched.
+func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("table-level resync test uses a Postgres source")
+	}
+
+	ctx := s.t.Context()
+	resyncSource := AttachSchema(s, "table_resync_orders")
+	retainedSource := AttachSchema(s, "table_resync_customers")
+	resyncDestination := AddSuffix(s, "table_resync_orders")
+	retainedDestination := AddSuffix(s, "table_resync_customers")
+
+	for _, table := range []string{resyncSource, retainedSource} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+			"CREATE TABLE %s(id int primary key, customer_id int not null, val text, amount int, note text)", table)))
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+			"INSERT INTO %s(id, customer_id, val, amount, note) VALUES (1, 10, 'initial', 100, 'n1')", table)))
+	}
+
+	oldOrdering := []*protos.ColumnSetting{{SourceName: "id", Ordering: 1}}
+	env, flowConfig := s.startTableResyncMirror("table_level_resync_"+s.suffix, []*protos.TableMapping{
+		{SourceTableIdentifier: resyncSource, DestinationTableIdentifier: resyncDestination, Columns: oldOrdering},
+		{SourceTableIdentifier: retainedSource, DestinationTableIdentifier: retainedDestination, Columns: oldOrdering},
+	})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial selected table", "table_resync_orders",
+		resyncDestination, "id,customer_id,val,amount,note")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial retained table", "table_resync_customers",
+		retainedDestination, "id,customer_id,val,amount,note")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	resyncBefore := s.getCHTableInfo(ch, resyncDestination)
+	retainedBefore := s.getCHTableInfo(ch, retainedDestination)
+	for _, info := range []chTableInfo{resyncBefore, retainedBefore} {
+		require.Equal(s.t, "id", info.sortingKey)
+		require.Empty(s.t, info.partitionKey)
+		require.Equal(s.t, "String", info.columns["val"])
+		require.Equal(s.t, "Int32", info.columns["amount"])
+		require.Equal(s.t, "String", info.columns["note"])
+	}
+
+	s.pauseMirror(env, flowConfig.FlowJobName)
 
 	// This row must be picked up by the fresh table snapshot even though the main
 	// CDC loop is paused.
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
-		"INSERT INTO %s(id, customer_id, val) VALUES (2, 20, 'during-pause')", resyncSource)))
+		"INSERT INTO %s(id, customer_id, val, amount, note) VALUES (2, 20, 'during-pause', 200, 'n2')", resyncSource)))
 
 	// An invalid resync request is rejected by the API and leaves the mirror paused.
-	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
-		FlowConfigUpdate: &protos.FlowConfigUpdate{
-			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
-				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
-					ResyncTables: []*protos.TableMapping{{
-						SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
-						DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
-					}},
-				},
-			},
-		},
+	err = s.requestTableResync(flowConfig.FlowJobName, &protos.TableMapping{
+		SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
+		DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
 	})
 	require.Error(s.t, err)
 	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
@@ -2000,32 +2060,23 @@ func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
 	newMapping.Columns = []*protos.ColumnSetting{
 		{SourceName: "customer_id", Ordering: 1},
 		{SourceName: "id", Ordering: 2},
+		{SourceName: "val", NullableEnabled: true},
+		{SourceName: "amount", DestinationType: "Int64"},
 	}
-	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
-		FlowConfigUpdate: &protos.FlowConfigUpdate{
-			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
-				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
-					ResyncTables: []*protos.TableMapping{newMapping},
-				},
-			},
-		},
-	})
-	require.NoError(s.t, err)
-
-	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
+	newMapping.Exclude = []string{"note"}
+	newMapping.PartitionByExpr = "customer_id % 4"
+	s.resyncTablesAndWait(env, flowConfig.FlowJobName, newMapping)
 	EnvWaitForEqualTablesWithNames(env, s.ch, "selected table after resync", "table_resync_orders",
 		resyncDestination, "id,customer_id,val")
 
-	resyncUUIDAfter, resyncKeyAfter := tableMetadata(resyncDestination)
-	retainedUUIDAfter, retainedKeyAfter := tableMetadata(retainedDestination)
-	require.NotEqual(s.t, resyncUUIDBefore, resyncUUIDAfter, "selected table should have been replaced")
-	require.Equal(s.t, "customer_id,id", normalizeKey(resyncKeyAfter))
-	require.Equal(s.t, retainedUUIDBefore, retainedUUIDAfter, "unselected table must not be replaced")
-	require.Equal(s.t, "id", normalizeKey(retainedKeyAfter))
+	resyncAfter := s.getCHTableInfo(ch, resyncDestination)
+	require.NotEqual(s.t, resyncBefore.uuid, resyncAfter.uuid, "selected table should have been replaced")
+	require.Equal(s.t, "customer_id,id", resyncAfter.sortingKey)
+	require.Equal(s.t, "customer_id%4", resyncAfter.partitionKey)
+	require.Equal(s.t, "Nullable(String)", resyncAfter.columns["val"])
+	require.Equal(s.t, "Int64", resyncAfter.columns["amount"])
+	require.NotContains(s.t, resyncAfter.columns, "note")
+	require.Equal(s.t, retainedBefore, s.getCHTableInfo(ch, retainedDestination), "unselected table must not be replaced")
 
 	var oldResyncTableCount uint64
 	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
@@ -2035,28 +2086,92 @@ func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
 	)).Scan(&oldResyncTableCount))
 	require.Zero(s.t, oldResyncTableCount, "the exchanged old table should be dropped")
 
-	catalogConfig, err := s.loadConfigFromCatalog(ctx, flowConfig.FlowJobName)
-	require.NoError(s.t, err)
-	var persistedMapping *protos.TableMapping
-	for _, mapping := range catalogConfig.TableMappings {
-		if mapping.SourceTableIdentifier == resyncSource {
-			persistedMapping = mapping
-			break
-		}
-	}
-	require.NotNil(s.t, persistedMapping)
-	require.True(s.t, proto.Equal(newMapping, persistedMapping),
-		"updated table mapping should be persisted in the catalog")
+	s.requireCatalogTableMapping(flowConfig.FlowJobName, newMapping)
 
-	// Both the rebuilt and untouched tables must continue receiving CDC.
-	for _, table := range []string{resyncSource, retainedSource} {
-		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
-			"INSERT INTO %s(id, customer_id, val) VALUES (3, 30, 'after-resync')", table)))
-	}
+	// Both the rebuilt and untouched tables must continue receiving CDC. The NULL only round-trips
+	// into the rebuilt table, where val is now Nullable.
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, customer_id, val, amount, note) VALUES (3, 30, NULL, 300, 'n3')", resyncSource)))
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, customer_id, val, amount, note) VALUES (3, 30, 'after-resync', 300, 'n3')", retainedSource)))
 	EnvWaitForEqualTablesWithNames(env, s.ch, "selected table CDC after resync", "table_resync_orders",
 		resyncDestination, "id,customer_id,val")
 	EnvWaitForEqualTablesWithNames(env, s.ch, "retained table CDC after resync", "table_resync_customers",
-		retainedDestination, "id,customer_id,val")
+		retainedDestination, "id,customer_id,val,amount,note")
+
+	var amountSum int64
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf("SELECT sum(amount) FROM %s FINAL",
+		clickhouse.QuoteIdentifier(resyncDestination))).Scan(&amountSum))
+	require.Equal(s.t, int64(600), amountSum)
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(s.t, env)
+}
+
+// TestTableLevelResyncRevertsColumnSettings goes the other way: a nullable column becomes non-nullable,
+// a type override is dropped, and a previously excluded column is brought back under a new name.
+func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("table-level resync test uses a Postgres source")
+	}
+
+	ctx := s.t.Context()
+	source := AttachSchema(s, "table_resync_revert")
+	destination := AddSuffix(s, "table_resync_revert")
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"CREATE TABLE %s(id int primary key, val text, amount int, note text)", source)))
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val, amount, note) VALUES (1, 'a', 1, 'n1'), (2, NULL, 2, 'n2')", source)))
+
+	env, flowConfig := s.startTableResyncMirror("table_level_resync_revert_"+s.suffix, []*protos.TableMapping{{
+		SourceTableIdentifier:      source,
+		DestinationTableIdentifier: destination,
+		Columns: []*protos.ColumnSetting{
+			{SourceName: "val", NullableEnabled: true},
+			{SourceName: "amount", DestinationType: "Int64"},
+		},
+		Exclude: []string{"note"},
+	}})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial table", "table_resync_revert", destination, "id,val")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	before := s.getCHTableInfo(ch, destination)
+	require.Equal(s.t, "Nullable(String)", before.columns["val"])
+	require.Equal(s.t, "Int64", before.columns["amount"])
+	require.NotContains(s.t, before.columns, "note")
+
+	s.pauseMirror(env, flowConfig.FlowJobName)
+	newMapping := &protos.TableMapping{
+		SourceTableIdentifier:      source,
+		DestinationTableIdentifier: destination,
+		Columns:                    []*protos.ColumnSetting{{SourceName: "note", DestinationName: "memo"}},
+	}
+	s.resyncTablesAndWait(env, flowConfig.FlowJobName, newMapping)
+	EnvWaitForEqualTablesWithNames(env, s.ch, "table after resync", "table_resync_revert", destination, "id,amount")
+
+	after := s.getCHTableInfo(ch, destination)
+	require.NotEqual(s.t, before.uuid, after.uuid, "table should have been replaced")
+	require.Equal(s.t, "String", after.columns["val"])
+	require.Equal(s.t, "Int32", after.columns["amount"])
+	require.Equal(s.t, "String", after.columns["memo"])
+	require.NotContains(s.t, after.columns, "note")
+	s.requireCatalogTableMapping(flowConfig.FlowJobName, newMapping)
+
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val, amount, note) VALUES (3, NULL, 3, 'n3')", source)))
+	EnvWaitForEqualTablesWithNames(env, s.ch, "table CDC after resync", "table_resync_revert", destination, "id,amount")
+
+	// val is no longer Nullable, so NULLs land as empty strings; note values land in memo.
+	var emptyVals uint64
+	var memos []string
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+		"SELECT countIf(val = ''), groupArray(memo) FROM (SELECT val, memo FROM %s FINAL ORDER BY id)",
+		clickhouse.QuoteIdentifier(destination))).Scan(&emptyVals, &memos))
+	require.Equal(s.t, uint64(2), emptyVals)
+	require.Equal(s.t, []string{"n1", "n2", "n3"}, memos)
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(s.t, env)
