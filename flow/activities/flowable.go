@@ -1097,6 +1097,11 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 			telemetry.LogPeerInfo(ctx, peer, version, variant)
 			for _, entry := range peerFlowEntries {
 				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
+				if peer.Type == protos.DBType_POSTGRES {
+					if enabled, err := internal.PeerDBPostgresEnableFailoverSlots(ctx, entry.Env); err == nil {
+						entry.FlowConfig.FailoverSlotsEnabled = &enabled
+					}
+				}
 			}
 		}
 		telemetry.LogFlowConfigs(ctx, flowConfigsForLogging)

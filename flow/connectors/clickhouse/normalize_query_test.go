@@ -131,15 +131,15 @@ func TestBuildQueryArrayOfJSON(t *testing.T) {
 }
 
 // TestBuildQueryNullableJSON checks the projection for native JSON columns.
-// JSONExtractString yields `""` both for a JSON null and for a missing field so `"" ::JSON` errors.
+// JSONExtractString yields `""` both for a SQL NULL and for a missing field, and casting `""` to JSON errors.
 // Nullable(JSON) column has to route `""` to NULL.
-// A non-nullable JSON column keeps the plain ::JSON cast.
+// A non-nullable JSON column writes {} for it instead.
 func TestBuildQueryNullableJSON(t *testing.T) {
 	const (
 		nullableProjection = `CAST(nullIf(JSONExtractString(_peerdb_data, 'payload'), ''), 'Nullable(JSON)') AS ` + "`payload`"
 		nullableUpdate     = `CAST(nullIf(JSONExtractString(_peerdb_match_data, 'payload'), ''), 'Nullable(JSON)') AS ` + "`payload`"
-		plainProjection    = `JSONExtractString(_peerdb_data, 'payload')::JSON AS ` + "`payload`"
-		plainUpdate        = `JSONExtractString(_peerdb_match_data, 'payload')::JSON AS ` + "`payload`"
+		plainProjection    = `CAST(ifNull(nullIf(JSONExtractString(_peerdb_data, 'payload'), ''), '{}'), 'JSON') AS ` + "`payload`"
+		plainUpdate        = `CAST(ifNull(nullIf(JSONExtractString(_peerdb_match_data, 'payload'), ''), '{}'), 'JSON') AS ` + "`payload`"
 	)
 	// ClickHouse 25.8 supports the native JSON type
 	chVersion := &chproto.Version{Major: 25, Minor: 8}
@@ -210,7 +210,7 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		require.NotContains(t, query, "Nullable(Nullable(")
 	})
 
-	t.Run("non-nullable JSON column keeps plain cast", func(t *testing.T) {
+	t.Run("non-nullable JSON column writes {} on empty", func(t *testing.T) {
 		query := build(t, newSchema(false), newMapping(""), true, jsonEnabled)
 		require.Contains(t, query, plainProjection)
 		require.Contains(t, query, plainUpdate)

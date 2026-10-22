@@ -76,6 +76,26 @@ func TestBuildBigQueryExportSQL(t *testing.T) {
 				"CAST(`ts` AS TIMESTAMP) AS `ts` FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:00:00 UTC')",
 		},
 		{
+			name:    "RECORD columns are encoded as JSON strings",
+			dsTable: datasetTable{dataset: "ds", table: "tbl"},
+			schema: bigquery.Schema{
+				{Name: "rec", Type: bigquery.RecordFieldType, Schema: bigquery.Schema{
+					{Name: "b", Type: bigquery.StringFieldType},
+				}},
+				{Name: "recs", Type: bigquery.RecordFieldType, Repeated: true, Schema: bigquery.Schema{
+					{Name: "b", Type: bigquery.StringFieldType},
+				}},
+			},
+			snapshotStagingPath:   "gs://bucket",
+			sourceTableIdentifier: "tbl",
+			snapshotTime:          time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
+			expected: "EXPORT DATA OPTIONS(uri='gs://bucket/tbl/*.parquet', format='PARQUET', " +
+				"compression='GZIP', overwrite=true) AS " +
+				"SELECT IF(`rec` IS NULL, NULL, TO_JSON_STRING(`rec`)) AS `rec`, " +
+				"ARRAY(SELECT TO_JSON_STRING(e) FROM UNNEST(`recs`) AS e WITH OFFSET AS o ORDER BY o) AS `recs` " +
+				"FROM `ds`.`tbl` FOR SYSTEM_TIME AS OF TIMESTAMP('2026-08-14 12:00:00 UTC')",
+		},
+		{
 			name:    "watermark column filters instead of FOR SYSTEM_TIME AS OF",
 			dsTable: datasetTable{dataset: "ds", table: "tbl"},
 			schema: bigquery.Schema{

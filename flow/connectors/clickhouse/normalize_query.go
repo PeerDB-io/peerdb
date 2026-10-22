@@ -273,14 +273,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			}
 		case "JSON":
+			// JSONExtractString yields '' both for a SQL NULL and for a missing field, and casting '' with
+			// ::JSON raises; every other type lands as its zero value on NULL, so write {} instead.
 			fmt.Fprintf(&projection,
-				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
+				"CAST(ifNull(nullIf(JSONExtractString(_peerdb_data, %s), ''), '{}'), 'JSON') AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
+					"CAST(ifNull(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), '{}'), 'JSON') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)

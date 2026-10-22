@@ -1065,7 +1065,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	require.Equal(t, "0.12345678901234567890123456789012345678", bigNumeric.String())
 	require.Equal(t, "1-2 3 4:5:6", row[1].Value())
 	require.Equal(t, "[2024-01-01, 2024-02-01)", row[2].Value())
-	require.JSONEq(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value().(string))
+	require.Equal(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value()) //nolint:testifylint // exact match: JSONEq ignores key order
 	require.Equal(t, []string{"aGk=", "Ynll"}, row[4].Value())
 	arrayTime, ok := row[5].Value().([]time.Time)
 	require.True(t, ok, "array_time should land as an array of time-of-day values, got %T", row[5].Value())
@@ -1075,7 +1075,88 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	arrayRecord, ok := row[7].Value().([]string)
 	require.True(t, ok)
 	require.Len(t, arrayRecord, 1)
-	require.JSONEq(t, `{"item_count":9,"item_name":"item"}`, arrayRecord[0])
+	require.Equal(t, `{"item_name":"item","item_count":9}`, arrayRecord[0]) //nolint:testifylint // exact match: JSONEq ignores key order
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Snapshot_And_CDC_Struct_JSON_Match checks that STRUCT columns
+// land identically whether a row arrives via the initial snapshot (Parquet export)
+// or via CDC (Go JSON encoding), with keys in schema order.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_And_CDC_Struct_JSON_Match() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := e2e.AddSuffix(s, "cdc_struct_match")
+	dstTable := srcTable + "_dst"
+	tableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, srcTable)
+	// Field names are deliberately not in alphabetical order.
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s (
+		id INT64 NOT NULL,
+		record_col STRUCT<nested_str STRING, nested_int INT64, sub STRUCT<z STRING, y INT64>>,
+		array_record ARRAY<STRUCT<item_name STRING, item_count INT64>>,
+		PRIMARY KEY(id) NOT ENFORCED
+	)`, quoteBigQueryTableFQN(tableFQN))), "should create struct BigQuery CDC source table %s", srcTable)
+	t.Cleanup(func() {
+		table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+		if err := table.Delete(context.Background()); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	})
+
+	insertRow := func(id int64) {
+		t.Helper()
+		require.NoError(t, source.Exec(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (
+			%d,
+			STRUCT('nested', 7, STRUCT('zz', 1)),
+			[STRUCT('item', 9), STRUCT('other', 3)]
+		)`, quoteBigQueryTableFQN(tableFQN), id)), "should insert struct row %d", id)
+	}
+
+	// present before the mirror exists - lands via the initial snapshot.
+	insertRow(1)
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	waitForRows := func(reason string, n int) {
+		t.Helper()
+		e2e.EnvWaitFor(t, env, 4*time.Minute, reason, func() bool {
+			rows, err := s.GetRows(dstTable, "id")
+			if err != nil {
+				t.Log(err)
+				return false
+			}
+			return len(rows.Records) == n
+		})
+	}
+	waitForRows("snapshot row landed", 1)
+
+	// inserted after the snapshot - lands via CDC.
+	insertRow(2)
+	waitForRows("CDC row landed", 2)
+
+	rows, err := s.GetRows(dstTable, "id,record_col,array_record")
+	require.NoError(t, err)
+	require.Len(t, rows.Records, 2)
+	snapshotRow, cdcRow := rows.Records[0], rows.Records[1]
+	require.Equal(t, int64(1), snapshotRow[0].Value())
+	require.Equal(t, int64(2), cdcRow[0].Value())
+
+	expectedRecord := `{"nested_str":"nested","nested_int":7,"sub":{"z":"zz","y":1}}`
+	expectedArray := []string{`{"item_name":"item","item_count":9}`, `{"item_name":"other","item_count":3}`}
+	require.Equal(t, expectedRecord, cdcRow[1].Value(), "CDC record_col")
+	require.Equal(t, expectedArray, cdcRow[2].Value(), "CDC array_record")
+	require.Equal(t, cdcRow[1].Value(), snapshotRow[1].Value(), "snapshot and CDC record_col should match")
+	require.Equal(t, cdcRow[2].Value(), snapshotRow[2].Value(), "snapshot and CDC array_record should match")
 
 	env.Cancel(ctx)
 	e2e.RequireEnvCanceled(t, env)

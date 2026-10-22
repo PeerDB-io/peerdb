@@ -520,6 +520,17 @@ func buildBigQueryExportSQL(
 			// is timezone-unaware and its Parquet representation may not be compatible
 			// with ClickHouse. Casting to TIMESTAMP (UTC) preserves the value.
 			columnSelect = fmt.Sprintf("CAST(%s AS TIMESTAMP) AS %s", quotedName, quotedName)
+		case bigquery.RecordFieldType:
+			// Encode STRUCT as JSON here, matching CDC; otherwise ClickHouse reads the
+			// Parquet group as a Tuple and casts it to unnamed tuple text like ('a',1).
+			// TO_JSON_STRING keeps schema field order but returns 'null' for NULL, hence the IF.
+			if field.Repeated {
+				columnSelect = fmt.Sprintf(
+					"ARRAY(SELECT TO_JSON_STRING(e) FROM UNNEST(%s) AS e WITH OFFSET AS o ORDER BY o) AS %s",
+					quotedName, quotedName)
+			} else {
+				columnSelect = fmt.Sprintf("IF(%s IS NULL, NULL, TO_JSON_STRING(%s)) AS %s", quotedName, quotedName, quotedName)
+			}
 		}
 		columnSelects = append(columnSelects, columnSelect)
 	}
