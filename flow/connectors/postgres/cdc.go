@@ -1537,11 +1537,11 @@ type addedColumnCatalogInfo struct {
 	// PostgreSQL uses this value when the column is physically absent from a row that predates
 	// ADD COLUMN. nil means either there is no missing value or that value is SQL NULL.
 	missingValue *string
-	hasMissing   bool
-	notNull      bool
 	// missingJSON is the same value as JSON text, which keeps a top-level JSON string quoted and a JSON
 	// null distinct from SQL NULL; only meaningful for json/jsonb columns.
 	missingJSON *string
+	hasMissing  bool
+	notNull     bool
 }
 
 // missingValueFor returns the stored missing value in the form defaultExprFromPostgresMissingValue

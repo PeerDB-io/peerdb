@@ -97,11 +97,12 @@ type PullRecordsRequest[T Items] struct {
 	OverrideReplicationSlotName string
 	// LastOffset is the latest LSN that was synced.
 	LastOffset CdcCheckpoint
+	// destination capabilities recorded at mirror creation
+	Flags []string
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// peerdb versioning to prevent breaking changes
 	InternalVersion uint32
-	Flags           []string
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 }

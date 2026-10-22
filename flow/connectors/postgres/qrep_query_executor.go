@@ -30,8 +30,8 @@ type QRepQueryExecutor struct {
 	snapshot    string
 	flowJobName string
 	partitionID string
-	version     uint32
 	flags       []string
+	version     uint32
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
