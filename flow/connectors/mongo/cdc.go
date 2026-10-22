@@ -63,6 +63,7 @@ type ChangeEvent struct {
 	OperationType            string         `bson:"operationType"`
 	DocumentKey              bson.Raw       `bson:"documentKey,omitempty"`
 	ClusterTime              bson.Timestamp `bson:"clusterTime"`
+	CollectionUUID           bson.Binary    `bson:"collectionUUID,omitempty"`
 }
 
 const (
@@ -224,6 +225,9 @@ func (c *MongoConnector) SetupReplication(
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup)
+	if c.parallelDocumentLookup {
+		changeStreamOpts.SetFullDocument(options.Default).SetShowExpandedEvents(true)
+	}
 
 	pipeline, err := createPipeline(nil, nil)
 	if err != nil {
@@ -248,9 +252,11 @@ func (c *MongoConnector) SetupReplication(
 			}
 		}
 	}
-	err = c.metadataStore.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
-		Text: base64.StdEncoding.EncodeToString(resumeToken),
-	})
+	checkpointText := base64.StdEncoding.EncodeToString(resumeToken)
+	if c.parallelDocumentLookup {
+		checkpointText = encodeDocumentLookupCheckpoint(checkpointText, bson.Timestamp{})
+	}
+	err = c.metadataStore.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{Text: checkpointText})
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to store initial resume token: %w", err)
 	}
@@ -305,6 +311,8 @@ type encodedMongoEvent struct {
 	destinationTableName string
 	documentKey          bson.Raw
 	commitTimeNanos      int64
+	clusterTime          bson.Timestamp
+	collectionUUID       bson.Binary
 }
 
 // decodeEvent is spun up by PullRecordsWorkerPool in separate goroutines, up to
@@ -454,6 +462,11 @@ func (c *MongoConnector) PullRecords(
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
+	if c.parallelDocumentLookup {
+		// Updates are hydrated outside MongoDB's serial change-stream pipeline.
+		// Expanded events provide the collection UUID used to guard each lookup.
+		changeStreamOpts.SetFullDocument(options.Default).SetShowExpandedEvents(true)
+	}
 
 	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
 		// whenAvailable, never required: a pre-image can be missing even for a collection that has
@@ -473,16 +486,27 @@ func (c *MongoConnector) PullRecords(
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
-		resumeToken, err = base64.StdEncoding.DecodeString(req.LastOffset.Text)
+		var lookupTime bson.Timestamp
+		var clientLookup bool
+		resumeToken, lookupTime, clientLookup, err = decodeMongoCheckpoint(req.LastOffset.Text)
 		if err != nil {
 			return fmt.Errorf("failed to parse last offset: %w", err)
 		}
+		if clientLookup && !c.parallelDocumentLookup {
+			return errors.New("MongoDB parallel document lookup checkpoint requires parallel document lookup to remain enabled")
+		}
+		c.documentLookupWatermark = laterDocumentLookupTime(c.documentLookupWatermark, lookupTime)
 		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
 	pipeline, err := createPipeline(req.TableNameMapping, c.excludedOps)
 	if err != nil {
 		return err
+	}
+	if c.parallelDocumentLookup {
+		projection := pipeline[len(pipeline)-1][0].Value.(bson.D)
+		projection = append(projection, bson.E{Key: "collectionUUID", Value: 1})
+		pipeline[len(pipeline)-1][0].Value = projection
 	}
 
 	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
@@ -577,6 +601,27 @@ func (c *MongoConnector) PullRecords(
 		},
 	}
 	workerPool.Init(ctx)
+	var pendingUpdates []pendingDocumentLookup
+	flushLookups := func() error {
+		if len(pendingUpdates) == 0 {
+			return nil
+		}
+		floor, bytes, err := c.lookupUpdates(ctx, pendingUpdates)
+		if err != nil {
+			return err
+		}
+		deltaBytesProcessed.Add(bytes)
+		cumulativeBytesProcessed.Add(bytes)
+		for i := range pendingUpdates {
+			pending := &pendingUpdates[i]
+			if err := workerPool.AddItem(ctx, pending.event, encodeDocumentLookupCheckpoint(pending.resumeToken, floor)); err != nil {
+				return err
+			}
+		}
+		c.documentLookupWatermark = floor
+		pendingUpdates = nil
+		return nil
+	}
 	// before the first record arrives, we wait for up to noEventTimeout before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	noEventTimeout := defaultNoEventTimeout
@@ -608,6 +653,9 @@ func (c *MongoConnector) PullRecords(
 			return ""
 		}
 		text := base64.StdEncoding.EncodeToString(rt)
+		if c.parallelDocumentLookup {
+			text = encodeDocumentLookupCheckpoint(text, c.documentLookupWatermark)
+		}
 		req.RecordStream.UpdateLatestCheckpointText(text)
 		return text
 	}
@@ -691,6 +739,9 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
+			if err := flushLookups(); err != nil {
+				return err
+			}
 			if err := workerPool.Flush(ctx); err != nil {
 				return err
 			}
@@ -795,6 +846,8 @@ func (c *MongoConnector) PullRecords(
 			sourceTableName:      sourceTableName,
 			destinationTableName: destinationTableName,
 			commitTimeNanos:      commitTimeNanos,
+			clusterTime:          changeEvent.ClusterTime,
+			collectionUUID:       changeEvent.CollectionUUID,
 		}
 		switch event.operationType {
 		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
@@ -803,6 +856,10 @@ func (c *MongoConnector) PullRecords(
 		default:
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
+
+			if err := flushLookups(); err != nil {
+				return err
+			}
 
 			// When the skipped event is a collection-level DDL (drop or rename), generate customer facing logs.
 			if alerter != nil {
@@ -827,12 +884,32 @@ func (c *MongoConnector) PullRecords(
 		} else {
 			rtText = base64.StdEncoding.EncodeToString(rt)
 		}
-		if err := workerPool.AddItem(ctx, event, rtText); err != nil {
-			return err
+		if c.parallelDocumentLookup && event.operationType == operationTypeUpdate && event.maybeFullDocument == nil {
+			pendingUpdates = append(pendingUpdates, pendingDocumentLookup{event: event, resumeToken: rtText})
+			if len(pendingUpdates) == documentLookupWindowSize {
+				if err := flushLookups(); err != nil {
+					return err
+				}
+			}
+		} else {
+			// Inserts, replacements and deletes delimit update-only windows. Never
+			// coalesce the same _id across a delete/reinsert or replacement.
+			if err := flushLookups(); err != nil {
+				return err
+			}
+			if c.parallelDocumentLookup {
+				rtText = encodeDocumentLookupCheckpoint(rtText, c.documentLookupWatermark)
+			}
+			if err := workerPool.AddItem(ctx, event, rtText); err != nil {
+				return err
+			}
 		}
 		processTime.Add(int64(time.Since(serialProcessStart)))
 	}
 	serialProcessStart := time.Now()
+	if err := flushLookups(); err != nil {
+		return err
+	}
 	if err := workerPool.Flush(ctx); err != nil {
 		return err
 	}

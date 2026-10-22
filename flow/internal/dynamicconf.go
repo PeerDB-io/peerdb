@@ -614,6 +614,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP",
+		Description: "Experimental: fetch update documents in bounded parallel batches outside the change stream. " +
+			"Requires expanded events and ObjectID-only document keys. Missing documents fail the batch. " +
+			"Enabling this mode changes the checkpoint format and requires a validated cutover.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_LOG_COMMANDS",
 		Description: "Log metadata for each MongoDB command sent during CDC, for debugging in production. " +
 			"This setting increases log volume significantly and can overload the logging pipeline. Disable it when debugging is complete.",
@@ -1142,6 +1152,10 @@ func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]
 
 func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
+}
+
+func PeerDBMongoDBParallelDocumentLookup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP")
 }
 
 func PeerDBMongoDBLogCommands(ctx context.Context, env map[string]string) (bool, error) {
