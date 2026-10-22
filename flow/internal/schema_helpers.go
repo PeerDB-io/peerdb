@@ -1,11 +1,13 @@
 package internal
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -36,6 +38,64 @@ func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 		}
 	}
 	return false
+}
+
+// DestinationSupportsColumnUpdates reports whether the destination applies ColumnSetting
+// overrides when adding columns to an existing table.
+func DestinationSupportsColumnUpdates(destinationType protos.DBType) bool {
+	return destinationType == protos.DBType_CLICKHOUSE
+}
+
+// DiffTableColumns compares the desired full column list of a table mapping with what the mirror
+// currently replicates and returns the settings for columns that are new to the mirror.
+//
+//	catalogColumns:  source column names in the catalog table schema (what is replicated today)
+//	currentSettings: TableMapping.Columns as stored today
+//	desired:         full column list requested by the user
+func DiffTableColumns(
+	catalogColumns []string,
+	currentSettings []*protos.ColumnSetting,
+	desired []*protos.ColumnSetting,
+) ([]*protos.ColumnSetting, error) {
+	existing := make(map[string]struct{}, len(catalogColumns))
+	for _, name := range catalogColumns {
+		existing[name] = struct{}{}
+	}
+	currentByName := make(map[string]*protos.ColumnSetting, len(currentSettings))
+	for _, setting := range currentSettings {
+		currentByName[setting.SourceName] = setting
+	}
+
+	seen := make(map[string]struct{}, len(desired))
+	var added []*protos.ColumnSetting
+	for _, setting := range desired {
+		if setting.GetSourceName() == "" {
+			return nil, fmt.Errorf("column with empty source_name")
+		}
+		if _, dup := seen[setting.SourceName]; dup {
+			return nil, fmt.Errorf("duplicate column %q", setting.SourceName)
+		}
+		seen[setting.SourceName] = struct{}{}
+
+		if _, isExisting := existing[setting.SourceName]; !isExisting {
+			added = append(added, setting)
+			continue
+		}
+		// settings of a column that is already replicated cannot be applied to the existing destination table
+		if current, ok := currentByName[setting.SourceName]; !ok || !proto.Equal(current, setting) {
+			if ok || setting.DestinationName != "" || setting.DestinationType != "" ||
+				setting.Ordering != 0 || setting.Partitioning != 0 || setting.NullableEnabled {
+				return nil, fmt.Errorf("changing settings of existing column %q is not supported", setting.SourceName)
+			}
+		}
+	}
+
+	for _, name := range catalogColumns {
+		if _, ok := seen[name]; !ok {
+			return nil, fmt.Errorf("existing column %q is missing from the column list, removing columns is not supported", name)
+		}
+	}
+	return added, nil
 }
 
 // given the output of GetTableSchema, processes it to be used by CDCFlow
