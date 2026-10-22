@@ -1775,7 +1775,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 					fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
 			}
 
-			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("Resync completed for %d tables", len(config.RenameTableOptions)))
 			return renameOutput, nil
 		}
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
@@ -1808,7 +1808,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync with soft-delete completed for all tables")
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+		fmt.Sprintf("Resync with soft-delete completed for %d tables", len(config.RenameTableOptions)))
 	return renameOutput, nil
 }
 

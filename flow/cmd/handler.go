@@ -474,8 +474,16 @@ func (h *FlowRequestHandler) FlowStateChange(
 		for _, tm := range cdcUpdate.AdditionalTables {
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
-		if len(cdcUpdate.ResyncTables) > 0 && currState != protos.FlowStatus_STATUS_PAUSED {
-			return nil, NewInvalidArgumentApiError(fmt.Errorf("table-level resync requires the mirror to be paused"))
+		for _, tm := range cdcUpdate.ResyncTables {
+			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
+		}
+		if len(cdcUpdate.ResyncTables) > 0 {
+			if currState != protos.FlowStatus_STATUS_PAUSED {
+				return nil, NewInvalidArgumentApiError(fmt.Errorf("table-level resync requires the mirror to be paused"))
+			}
+			if apiErr := h.validateTableResync(ctx, req.FlowJobName, cdcUpdate); apiErr != nil {
+				return nil, apiErr
+			}
 		}
 	}
 
@@ -689,6 +697,40 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	}
 
 	return workflowID, nil
+}
+
+// validateTableResync checks a table-level resync against the catalog config and validates the
+// new table settings the same way the workflow will use them: a snapshot-only resync of those tables.
+func (h *FlowRequestHandler) validateTableResync(
+	ctx context.Context,
+	flowName string,
+	cdcUpdate *protos.CDCFlowConfigUpdate,
+) APIError {
+	config, err := h.getFlowConfigFromCatalog(ctx, flowName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+	}
+	resyncTables, err := internal.ResolveResyncTableMappings(config.TableMappings, cdcUpdate.ResyncTables)
+	if err != nil {
+		return NewInvalidArgumentApiError(err)
+	}
+	if err := internal.ValidateResyncTableUpdate(
+		resyncTables, cdcUpdate.AdditionalTables, cdcUpdate.RemovedTables,
+	); err != nil {
+		return NewInvalidArgumentApiError(err)
+	}
+
+	config.TableMappings = resyncTables
+	config.Resync = true
+	config.DoInitialSnapshot = true
+	config.InitialSnapshotOnly = true
+	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
+		return NewInternalApiError(err)
+	} else {
+		config.Version = internalVersion
+	}
+	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false)
+	return apiErr
 }
 
 func (h *FlowRequestHandler) resyncByRecreatingFlow(

@@ -1,11 +1,14 @@
 package internal
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -87,4 +90,64 @@ func BuildProcessedSchemaMapping(
 			slog.Any("schema", tableSchema))
 	}
 	return processedSchemaMapping
+}
+
+// ResolveResyncTableMappings checks that each requested mapping refers to an existing mirror table with
+// the same destination, and returns copies of the requested mappings, which hold the new table settings.
+func ResolveResyncTableMappings(
+	currentTableMappings []*protos.TableMapping,
+	requestedTableMappings []*protos.TableMapping,
+) ([]*protos.TableMapping, error) {
+	currentBySource := make(map[string]*protos.TableMapping, len(currentTableMappings))
+	for _, mapping := range currentTableMappings {
+		currentBySource[mapping.SourceTableIdentifier] = mapping
+	}
+
+	seen := make(map[string]struct{}, len(requestedTableMappings))
+	resolved := make([]*protos.TableMapping, 0, len(requestedTableMappings))
+	for _, requested := range requestedTableMappings {
+		if requested == nil || requested.SourceTableIdentifier == "" {
+			return nil, errors.New("resync table must have a source table identifier")
+		}
+		if _, duplicate := seen[requested.SourceTableIdentifier]; duplicate {
+			return nil, fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
+		}
+		seen[requested.SourceTableIdentifier] = struct{}{}
+
+		current, exists := currentBySource[requested.SourceTableIdentifier]
+		if !exists {
+			return nil, fmt.Errorf("table %s is not part of the mirror", requested.SourceTableIdentifier)
+		}
+		if requested.DestinationTableIdentifier != current.DestinationTableIdentifier {
+			return nil, fmt.Errorf("destination for table %s does not match the mirror configuration",
+				requested.SourceTableIdentifier)
+		}
+		resolved = append(resolved, proto.CloneOf(requested))
+	}
+	return resolved, nil
+}
+
+// ValidateResyncTableUpdate rejects updates that also add or remove a table that is being resynced.
+func ValidateResyncTableUpdate(
+	resyncTables []*protos.TableMapping,
+	additionalTables []*protos.TableMapping,
+	removedTables []*protos.TableMapping,
+) error {
+	resyncSources := make(map[string]struct{}, len(resyncTables))
+	for _, table := range resyncTables {
+		resyncSources[table.SourceTableIdentifier] = struct{}{}
+	}
+	for _, table := range additionalTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be added and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	for _, table := range removedTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be removed and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	return nil
 }

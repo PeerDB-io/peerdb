@@ -1977,6 +1977,25 @@ func (s APITestSuite) TestTableLevelResyncUpdatesOrderingKey() {
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
 		"INSERT INTO %s(id, customer_id, val) VALUES (2, 20, 'during-pause')", resyncSource)))
 
+	// An invalid resync request is rejected by the API and leaves the mirror paused.
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					ResyncTables: []*protos.TableMapping{{
+						SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
+						DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
+					}},
+				},
+			},
+		},
+	})
+	require.Error(s.t, err)
+	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
+
 	newMapping := proto.CloneOf(flowConfig.TableMappings[0])
 	newMapping.Columns = []*protos.ColumnSetting{
 		{SourceName: "customer_id", Ordering: 1},
