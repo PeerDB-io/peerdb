@@ -114,11 +114,14 @@ func (s ClickHouseSuite) Test_JSON_CH_AddColumnDefault() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`ALTER TABLE %s ADD COLUMN c_scalar JSONB DEFAULT '"dark"', ADD COLUMN c_array JSON DEFAULT '[1, 2]', `+
-			`ADD COLUMN c_obj JSONB DEFAULT '{"a": 1}'`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s (id, c_scalar, c_array, c_obj) VALUES (2, '"explicit"', '[3]', '{"b": 2}')`, srcFullName)))
+	for _, stmt := range []string{
+		`ALTER TABLE %s ADD COLUMN c_scalar JSONB DEFAULT '"dark"'`,
+		`ALTER TABLE %s ADD COLUMN c_array JSON DEFAULT '[1, 2]'`,
+		`ALTER TABLE %s ADD COLUMN c_obj JSONB DEFAULT '{"a": 1}'`,
+		`INSERT INTO %s (id, c_scalar, c_array, c_obj) VALUES (2, '"explicit"', '[3]', '{"b": 2}')`,
+	} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(stmt, srcFullName)))
+	}
 
 	jsonColumns := []string{"c_scalar", "c_array", "c_obj"}
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "waiting on cdc add column with default", srcTableName, dstTableName,
