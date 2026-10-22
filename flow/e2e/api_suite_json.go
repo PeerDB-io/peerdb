@@ -16,8 +16,12 @@ import (
 // Flag_ClickHouseJSONEnabled from its stored config, as a mirror created before the flag existed looks. The
 // recreation has to determine the flags again, or the resynced mirror would leave a scalar unwrapped and fail.
 func (s APITestSuite) TestResyncInitializesJSONFlag() {
-	switch s.source.(type) {
-	case *PostgresSource, *MySqlSource:
+	switch source := s.source.(type) {
+	case *PostgresSource:
+	case *MySqlSource:
+		if source.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+		}
 	default:
 		s.t.Skip("JSON wrapping applies to Postgres and MySQL sources")
 	}
