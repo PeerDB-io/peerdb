@@ -384,8 +384,8 @@ func corePullQRepRecords(
 
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
-		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns), config.SnapshotName,
-			config.FlowJobName, partition.PartitionId)
+		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.Flags,
+			model.ColumnDestinationTypes(config.Columns), config.SnapshotName, config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 		}
@@ -457,7 +457,8 @@ func corePullQRepRecords(
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns), config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns),
+		config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -487,7 +488,8 @@ func pullChildTableRanges(
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(
-		ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns), config.SnapshotName, config.FlowJobName, partition.PartitionId)
+		ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns),
+		config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
@@ -575,8 +577,8 @@ func pullXminRecordStream(
 		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
-	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.Flags, model.ColumnDestinationTypes(config.Columns), config.SnapshotName,
-		config.FlowJobName, partition.PartitionId)
+	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Env, config.Version, config.Flags,
+		model.ColumnDestinationTypes(config.Columns), config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}

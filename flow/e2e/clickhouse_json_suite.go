@@ -164,7 +164,8 @@ func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
 	nativeMatches := jsonBatchesMatch([]string{"native"}, nil, true)
 	overriddenMatches := jsonBatchesMatch([]string{"overridden"}, nil, false)
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare native initial load", srcTableName, dstTableName, "id,native", nativeMatches)
-	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare overridden initial load", srcTableName, dstTableName, "id,overridden", overriddenMatches)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare overridden initial load", srcTableName, dstTableName, "id,overridden",
+		overriddenMatches)
 	insertDocs()
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare native cdc", srcTableName, dstTableName, "id,native", nativeMatches)
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare overridden cdc", srcTableName, dstTableName, "id,overridden", overriddenMatches)
