@@ -76,7 +76,7 @@ type MongoConnector struct {
 	numDecodeWorkers     int
 }
 
-func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (_ *MongoConnector, err error) {
+func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata, err := metadata.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -153,7 +153,15 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (_ *Mong
 	}
 
 	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
-		clientOptions.SetMonitor(NewCommandMonitor(logger))
+		clientOptions.SetMonitor(newDebugCommandMonitor(logger))
+	} else {
+		logCommands, err := internal.PeerDBMongoDBLogCommands(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		if logCommands {
+			clientOptions.SetMonitor(newCommandMonitor(logger))
+		}
 	}
 
 	client, err := mongo.Connect(clientOptions)
