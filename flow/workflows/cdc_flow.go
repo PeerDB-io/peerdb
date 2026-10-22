@@ -219,6 +219,8 @@ func applyQueryCDCConfigUpdate(cfg *protos.FlowConnectionConfigsCore, update *pr
 	cfg.GetBigqueryCdcConfig().QueryCdc = proto.CloneOf(update)
 }
 
+// applyResyncedTableMappings swaps in the new mappings of resynced tables and replaces their source
+// table IDs with the ones SetupFlow found during the resync.
 func applyResyncedTableMappings(
 	syncFlowOptions *protos.SyncFlowOptions,
 	resyncTables []*protos.TableMapping,
