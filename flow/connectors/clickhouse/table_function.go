@@ -175,8 +175,18 @@ func buildInsertFromTableFunctionQuery(
 			sourceFieldName = convertedExpr
 		}
 
+		dstColName := colName
+		for _, column := range config.config.GetColumns() {
+			if column.SourceName == colName {
+				if column.DestinationName != "" {
+					dstColName = column.DestinationName
+				}
+				break
+			}
+		}
+
 		selectedColumnNames = append(selectedColumnNames, sourceFieldName)
-		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
+		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(dstColName))
 	}
 
 	// Add source schema column if needed
