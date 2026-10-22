@@ -251,6 +251,32 @@ func (s *ClickHouseAvroSyncMethod) pushDataToStagingForSnapshot(
 	return avroFiles, totalRecords, nil
 }
 
+// snapshotInsertSettings keeps majority acknowledgement without serializing snapshot workers.
+// CDC continues to use the connection's sequential quorum settings.
+func (s *ClickHouseAvroSyncMethod) snapshotInsertSettings(
+	ctx context.Context,
+	config *protos.QRepConfig,
+) (*clickhouse.CHSettings, error) {
+	chSettings := clickhouse.NewCHSettings(s.chVersion)
+	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
+	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	}
+	if s.Config.Replicated {
+		quorum, err := internal.PeerDBClickHouseEnableReplicatedQuorum(ctx, config.Env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load replicated quorum config for snapshot: %w", err)
+		}
+		if quorum {
+			chSettings.Add(clickhouse.SettingInsertQuorum, "'auto'")
+			chSettings.Add(clickhouse.SettingInsertQuorumParallel, "1")
+			chSettings.Add(clickhouse.SettingSelectSequentialConsistency, "0")
+		}
+	}
+	return chSettings, nil
+}
+
 func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	ctx context.Context,
 	avroFiles []utils.AvroFile,
@@ -275,11 +301,9 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	}
 	numParts = max(numParts, 1)
 
-	chSettings := clickhouse.NewCHSettings(s.chVersion)
-	chSettings.Add(clickhouse.SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	chSettings.Add(clickhouse.SettingTypeJsonSkipDuplicatedPaths, "1")
-	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		chSettings.Add(clickhouse.SettingJsonTypeEscapeDotsInKeys, "1")
+	chSettings, err := s.snapshotInsertSettings(ctx, config)
+	if err != nil {
+		return err
 	}
 
 	// Process each chunk file individually

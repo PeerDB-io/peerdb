@@ -14,6 +14,9 @@ import (
 // Important: if the setting causes breaking changes to existing PeerDB flows (not just ClickHouse compatibility),
 // it must also be gated by PeerDB's internal version.
 const (
+	SettingInsertQuorum                       CHSetting = "insert_quorum"
+	SettingInsertQuorumParallel               CHSetting = "insert_quorum_parallel"
+	SettingSelectSequentialConsistency        CHSetting = "select_sequential_consistency"
 	SettingAllowNullableKey                   CHSetting = "allow_nullable_key"
 	SettingJsonTypeEscapeDotsInKeys           CHSetting = "json_type_escape_dots_in_keys"
 	SettingTypeJsonSkipDuplicatedPaths        CHSetting = "type_json_skip_duplicated_paths"
