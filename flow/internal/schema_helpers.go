@@ -91,26 +91,24 @@ func BuildProcessedSchemaMapping(
 	return processedSchemaMapping
 }
 
-// ValidateResyncTableMappings checks that each requested mapping refers to an existing mirror table
-// with the same destination. Other fields of the requested mappings are the new table settings.
-func ValidateResyncTableMappings(
-	currentTableMappings []*protos.TableMapping,
-	requestedTableMappings []*protos.TableMapping,
-) error {
+// ValidateResyncTables checks that each table to resync is an existing mirror table with the same
+// destination, is requested once, and is not also added or removed in the same update.
+// Other fields of the resync mappings are the new table settings.
+func ValidateResyncTables(currentTableMappings []*protos.TableMapping, update *protos.CDCFlowConfigUpdate) error {
 	currentBySource := make(map[string]*protos.TableMapping, len(currentTableMappings))
 	for _, mapping := range currentTableMappings {
 		currentBySource[mapping.SourceTableIdentifier] = mapping
 	}
 
-	seen := make(map[string]struct{}, len(requestedTableMappings))
-	for _, requested := range requestedTableMappings {
+	resyncSources := make(map[string]struct{}, len(update.ResyncTables))
+	for _, requested := range update.ResyncTables {
 		if requested == nil || requested.SourceTableIdentifier == "" {
 			return errors.New("resync table must have a source table identifier")
 		}
-		if _, duplicate := seen[requested.SourceTableIdentifier]; duplicate {
+		if _, duplicate := resyncSources[requested.SourceTableIdentifier]; duplicate {
 			return fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
 		}
-		seen[requested.SourceTableIdentifier] = struct{}{}
+		resyncSources[requested.SourceTableIdentifier] = struct{}{}
 
 		current, exists := currentBySource[requested.SourceTableIdentifier]
 		if !exists {
@@ -121,26 +119,14 @@ func ValidateResyncTableMappings(
 				requested.SourceTableIdentifier)
 		}
 	}
-	return nil
-}
 
-// ValidateResyncTableUpdate rejects updates that also add or remove a table that is being resynced.
-func ValidateResyncTableUpdate(
-	resyncTables []*protos.TableMapping,
-	additionalTables []*protos.TableMapping,
-	removedTables []*protos.TableMapping,
-) error {
-	resyncSources := make(map[string]struct{}, len(resyncTables))
-	for _, table := range resyncTables {
-		resyncSources[table.SourceTableIdentifier] = struct{}{}
-	}
-	for _, table := range additionalTables {
+	for _, table := range update.AdditionalTables {
 		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
 			return fmt.Errorf("table %s cannot be added and resynced in the same update",
 				table.SourceTableIdentifier)
 		}
 	}
-	for _, table := range removedTables {
+	for _, table := range update.RemovedTables {
 		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
 			return fmt.Errorf("table %s cannot be removed and resynced in the same update",
 				table.SourceTableIdentifier)
