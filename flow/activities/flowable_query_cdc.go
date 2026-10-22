@@ -229,9 +229,12 @@ func queryCDCPollWindow(
 }
 
 // queryCDCCatchingUp reports whether a successful poll advanced the checkpoint
-// but left it behind the safe end that was in effect when the poll started.
-func queryCDCCatchingUp(start, nextCursor, safeEnd time.Time) bool {
-	return nextCursor.After(start) && nextCursor.Before(safeEnd)
+// but left it behind the safe end that was in effect when the poll started,
+// because the requested end was capped before that safe end. A cursor short of
+// the safe end alone isn't enough: watermark-based sources return the max
+// watermark seen, which trails the safe end even after scanning all of it.
+func queryCDCCatchingUp(start, end, nextCursor, safeEnd time.Time) bool {
+	return end.Before(safeEnd) && nextCursor.After(start) && nextCursor.Before(safeEnd)
 }
 
 // queryCDCPollWait mirrors bigquery/cdc.go's checkpoint.nextPollWait,
@@ -400,9 +403,9 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		var pullResult model.PullTableRecordsResult
 		var rowCounts *model.RecordTypeCounts
 		pollSkipped := false
-		// start and safe end of this poll, compared with the cursor the connector
-		// returns: it may advance past the requested end when nothing was found there
-		var pollStart, pollSafeEnd time.Time
+		// start, requested end and safe end of this poll, compared with the cursor the
+		// connector returns: it may advance past the requested end when nothing was found there
+		var pollStart, pollEnd, pollSafeEnd time.Time
 		var safetyLagWait time.Duration
 		pollErr, fatalErr := func() (error, error) {
 			// bounded parallelism: only pull+sync for up to parallelism tables at once
@@ -431,7 +434,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 				return nil, nil
 			}
 
-			pollStart, pollSafeEnd = start, safeEnd
+			pollStart, pollEnd, pollSafeEnd = start, end, safeEnd
 
 			logger.Info("[cdc] starting poll")
 			if err := pgMetadata.RecordQueryCDCAttempt(ctx, flowName, sourceTable, time.Now()); err != nil {
@@ -529,7 +532,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
-		catchingUp = syncSchedule != nil && queryCDCCatchingUp(pollStart, nextCursor, pollSafeEnd)
+		catchingUp = syncSchedule != nil && queryCDCCatchingUp(pollStart, pollEnd, nextCursor, pollSafeEnd)
 
 		var numSynced int64
 		if rowCounts != nil {
