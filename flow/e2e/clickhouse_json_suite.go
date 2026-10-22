@@ -26,7 +26,6 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 		nativeJSON:         true,
 		expectedColumnType: "JSON",
 		sourceNullLandsAs:  &emptyObject,
-		skipNullDuringCDC:  true,
 	})
 }
 
@@ -273,12 +272,6 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 		if testCase.skip {
 			continue
 		}
-		// a SQL NULL into a plain JSON column fails on the CDC path: the normalize query extracts it as an
-		// empty string and casts that with ::JSON, which ClickHouse rejects, so the batch errors and the
-		// mirror stalls
-		if testCase.isNull && cfg.skipNullDuringCDC {
-			continue
-		}
 		require.NoError(s.t, s.source.Exec(s.t.Context(), insertStmt(testCase.value)))
 	}
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, cols, rowsMatch)
@@ -298,8 +291,6 @@ type jsonColumnMirrorConfig struct {
 	nativeJSON bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
-	// skipNullDuringCDC keeps the SQL NULL case out of the CDC phase
-	skipNullDuringCDC bool
 }
 
 // jsonColumnTestCase is one source value for the JSON column tests. value is the SQL literal to insert.
