@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -446,9 +448,24 @@ func (c *MongoConnector) PullRecords(
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
 		slog.Duration("sync_interval", req.IdleTimeout))
 
+	// Validated once per SyncFlow activity: the table mapping only changes across a pause/resume,
+	// which starts a new activity and resets this in SetupReplConn.
+	if c.usePostImages && !c.postImagesValidated {
+		c.usePostImages = c.postImagesEnabled(ctx, req.TableNameMapping)
+		c.postImagesValidated = true
+		if c.usePostImages {
+			c.logger.Info("[mongo] reading update events from post-images")
+		}
+	}
+	usePostImages := c.usePostImages
+	fullDocumentMode := options.UpdateLookup
+	if usePostImages {
+		fullDocumentMode = options.WhenAvailable
+	}
+
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
+		SetFullDocument(fullDocumentMode).
 		// batchSize=0 only affects the initial aggregate response, so Watch returns
 		// immediately without blocking on the initial cursor establishment. Subsequent
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
@@ -787,6 +804,17 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
 			continue
 		}
+		if usePostImages && operationType(changeEvent.OperationType) == operationTypeUpdate &&
+			(changeEvent.FullDocument == nil || len(*changeEvent.FullDocument) == 0) {
+			// No post-image: the pre-image expired, or the update happened before
+			// changeStreamPreAndPostImages was enabled. Look the document up ourselves, as
+			// updateLookup would, instead of writing an empty document over the row.
+			doc, err := c.lookupCurrentDocument(ctx, changeEvent.Ns.Db, changeEvent.Ns.Coll, changeEvent.DocumentKey)
+			if err != nil {
+				return err
+			}
+			changeEvent.FullDocument = doc
+		}
 		event := encodedMongoEvent{
 			documentKey:          changeEvent.DocumentKey,
 			maybeFullDocument:    changeEvent.FullDocument,
@@ -843,6 +871,40 @@ func (c *MongoConnector) PullRecords(
 	processTime.Add(int64(time.Since(serialProcessStart)))
 
 	return nil
+}
+
+// postImagesEnabled reports whether every source collection has changeStreamPreAndPostImages enabled,
+// which fullDocument: whenAvailable needs to produce post-images. Otherwise every update would take
+// the per-event lookup fallback, which is slower than updateLookup.
+func (c *MongoConnector) postImagesEnabled(ctx context.Context, tableNameMapping map[string]model.SourceTableMapping) bool {
+	tables := make([]*common.QualifiedTable, 0, len(tableNameMapping))
+	for sourceTableName := range tableNameMapping {
+		t, err := common.ParseTableIdentifier(sourceTableName)
+		if err != nil {
+			c.logger.Warn("[mongo] post-images disabled, falling back to updateLookup", slog.Any("error", err))
+			return false
+		}
+		tables = append(tables, t)
+	}
+	if err := shared_mongo.ValidatePreAndPostImages(ctx, c.client, tables); err != nil {
+		c.logger.Warn("[mongo] post-images disabled, falling back to updateLookup", slog.Any("error", err))
+		return false
+	}
+	return true
+}
+
+// lookupCurrentDocument fetches the current majority-committed version of a document, matching what
+// updateLookup returns. It returns nil when the document no longer exists.
+func (c *MongoConnector) lookupCurrentDocument(ctx context.Context, db, coll string, documentKey bson.Raw) (*bson.Raw, error) {
+	collection := c.client.Database(db).Collection(coll, options.Collection().SetReadConcern(readconcern.Majority()))
+	doc, err := collection.FindOne(ctx, documentKey).Raw()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up document in %s.%s: %w", db, coll, err)
+	}
+	return &doc, nil
 }
 
 // tablesWithDeletePreimage returns the sorted source tables whose table mapping enables delete pre-images.
@@ -1001,6 +1063,12 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 		return err
 	}
 	c.numDecodeWorkers = int(numParallelDecodeWorkers)
+	usePostImages, err := internal.PeerDBMongoDBUsePostImages(ctx, env)
+	if err != nil {
+		return err
+	}
+	c.usePostImages = usePostImages
+	c.postImagesValidated = false
 	return nil
 }
 

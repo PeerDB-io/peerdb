@@ -614,6 +614,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_USE_POST_IMAGES",
+		Description: "Read MongoDB update events with fullDocument: whenAvailable (post-images) instead of updateLookup. " +
+			"Avoids cross-shard document lookups on sharded clusters, but requires changeStreamPreAndPostImages " +
+			"on every replicated collection. Falls back to updateLookup if any collection does not have it enabled.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_MONGODB_LOG_COMMANDS",
 		Description: "Log metadata for each MongoDB command sent during CDC, for debugging in production. " +
 			"This setting increases log volume significantly and can overload the logging pipeline. Disable it when debugging is complete.",
@@ -1156,6 +1166,10 @@ func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]s
 
 func PeerDBMongoDBLogCommands(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_LOG_COMMANDS")
+}
+
+func PeerDBMongoDBUsePostImages(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_USE_POST_IMAGES")
 }
 
 func PeerDBPostgresFastProcessJsonColumns(ctx context.Context, env map[string]string) (bool, error) {
