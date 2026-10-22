@@ -390,3 +390,51 @@ func jsonBatchesMatch(jsonColumns []string, sourceNullLandsAs *string) func(*tes
 		return true
 	}
 }
+
+// Test_JSON_CH_StringOverride pins a JSON column to String on a native JSON mirror. The snapshot has to
+// leave that column out of its JSON cast, as the DDL and the normalize query already honour the override.
+func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+	}
+
+	srcTableName := "test_json_string_override"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+	docs := []string{`'{"key": "val"}'`, `'"dark"'`, `'[1, 2]'`, `'42'`}
+	insertDocs := func() {
+		for _, doc := range docs {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, doc)))
+		}
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON)`, srcFullName)))
+	insertDocs()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{{SourceName: "json", DestinationType: "String"}}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	columnType, err := s.GetColumnType(dstTableName, "json")
+	require.NoError(s.t, err)
+	require.Equal(s.t, "String", columnType)
+
+	rowsMatch := jsonBatchesMatch([]string{"json"}, nil)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, "id,json", rowsMatch)
+	insertDocs()
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, "id,json", rowsMatch)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
