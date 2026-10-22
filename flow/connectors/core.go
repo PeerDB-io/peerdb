@@ -634,7 +634,7 @@ func getConnector(ctx context.Context, env map[string]string, config *protos.Pee
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
 	case *protos.Peer_MongoConfig:
-		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
+		return connmongo.NewMongoConnector(ctx, env, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:

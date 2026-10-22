@@ -434,6 +434,7 @@ func (c *MongoConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
+	ctx = withCommandLogging(ctx)
 
 	var alerter *alerting.Alerter
 	if catalogPool.Pool != nil {
