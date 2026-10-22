@@ -615,9 +615,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name: "PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP",
-		Description: "Experimental: fetch update documents in bounded parallel batches outside the change stream. " +
-			"Requires expanded events and ObjectID-only document keys. Missing documents fail the batch. " +
-			"Enabling this mode changes the checkpoint format and requires a validated cutover.",
+		Description: "Fetch update documents in bounded parallel batches outside the change stream on MongoDB 6.0 or newer. " +
+			"Uses majority reads, preserves event order and native resume tokens. " +
+			"Unsupported servers, including DocumentDB, and non-simple collations retain native updateLookup.",
 		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
