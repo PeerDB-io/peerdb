@@ -144,3 +144,49 @@ func TestBuildInsertFromTableFunctionQueryJSON(t *testing.T) {
 	// the classifier relies on Exec recognizing these casts
 	require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 }
+
+// TestBuildInsertFromTableFunctionQueryJSONOverride checks that an explicit destination type on a JSON
+// column wins over the mirror-wide native JSON setting, as it does in the DDL and the normalize query.
+func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema: types.QRecordSchema{Fields: []types.QField{
+			{Name: "as_string", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "as_json", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "untouched", Type: types.QValueKindJSON, Nullable: true},
+		}},
+		config: &protos.QRepConfig{
+			Env: map[string]string{
+				"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+				"PEERDB_CLICKHOUSE_ENABLE_JSON":              "false",
+			},
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "as_string", DestinationType: "String"},
+				{SourceName: "as_json", DestinationType: "Nullable(JSON)"},
+			},
+		},
+		connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`as_string`,`as_json`,`untouched`) SELECT "+
+			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),`untouched` "+
+			"FROM s3('s3://bucket/key', 'Avro')",
+		query)
+
+	// with native JSON on, the String override still keeps its column out of the cast
+	config.config.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
+	query, err = buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`as_string`,`as_json`,`untouched`) SELECT "+
+			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),CAST(`untouched`, 'Nullable(JSON)') "+
+			"FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}
