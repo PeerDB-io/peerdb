@@ -68,13 +68,11 @@ type ChangeEvent struct {
 const (
 	mongoClockOffsetTTL = time.Hour
 
-	// defaultNoEventTimeout determines how long a batch waits for its first event before it persists
-	// the post-batch resume token and reopens a new change stream. In rare cases, such as the
-	// resharding of another collection in a sharded cluster, the first server reply can take
-	// much longer because the server must scan a large volume of unrelated reshard entries. To avoid
-	// getting stuck retrying the same offset, the timeout grows exponentially (1h, 2h, 4h, ...) up to
-	// maxNoEventTimeout; and once the resume token moves past the previously recorded offset, the
-	// timeout resets to defaultNoEventTimeout.
+	// defaultNoEventTimeout bounds a read from an unresponsive server and sets
+	// the idle checkpoint cadence. Normal empty replies and batch boundaries do
+	// not close the cursor. Historical oplog scans can take much longer than an
+	// hour, so a timed-out read with no token progress grows the watchdog up to
+	// maxNoEventTimeout before reopening. This is independent of the sync interval.
 	defaultNoEventTimeout = time.Hour
 	maxNoEventTimeout     = 48 * time.Hour
 )
@@ -125,6 +123,9 @@ func (c *MongoConnector) queryMongoClockOffset(ctx context.Context) (time.Durati
 // ChangeStream is defined as an interface, allowing tests inject mock change stream.
 type ChangeStream interface {
 	Next(ctx context.Context) bool
+	TryNext(ctx context.Context) bool
+	ID() int64
+	RemainingBatchLength() int
 	ResumeToken() bson.Raw
 	Err() error
 	Close() error
@@ -449,6 +450,9 @@ func (c *MongoConnector) PullRecords(
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
 		SetFullDocument(options.UpdateLookup).
+		// Bound empty polls without expiring the context and poisoning the driver
+		// cursor. This is an await-data limit, not a deadline for historical scans.
+		SetMaxAwaitTime(time.Second).
 		// batchSize=0 only affects the initial aggregate response, so Watch returns
 		// immediately without blocking on the initial cursor establishment. Subsequent
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
@@ -472,7 +476,6 @@ func (c *MongoConnector) PullRecords(
 
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
-		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
 		resumeToken, err = base64.StdEncoding.DecodeString(req.LastOffset.Text)
 		if err != nil {
 			return fmt.Errorf("failed to parse last offset: %w", err)
@@ -485,7 +488,26 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	changeStream, err := c.createChangeStream(ctx, pipeline, changeStreamOpts)
+	identity, err := c.changeStreamIdentity(req)
+	if err != nil {
+		return fmt.Errorf("failed to identify change stream configuration: %w", err)
+	}
+	var changeStream ChangeStream
+	if retained := c.changeStream; retained != nil {
+		if retained.acknowledged && retained.identity == identity && retained.checkpoint == req.LastOffset.Text {
+			changeStream = retained.stream
+			c.changeStream = nil // this pull now owns the stream until it seals a batch
+			c.logger.Info("[mongo] reusing change stream", slog.Int64("cursorID", changeStream.ID()))
+		} else if err := c.closeRetainedChangeStream(); err != nil {
+			return fmt.Errorf("failed to close previous change stream: %w", err)
+		}
+	}
+	if changeStream == nil {
+		if resumeToken != nil {
+			c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
+		}
+		changeStream, err = c.createChangeStream(ctx, pipeline, changeStreamOpts)
+	}
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
 			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
@@ -502,10 +524,18 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to create change stream: %w", err)
 		}
 	}
+	var sealedCheckpoint string
 	defer func() {
-		// Wrapped in a closure so changeStream is evaluated at return time. A direct
-		// `defer changeStream.Close()` would bind the original stream created above
-		// and miss any replacement made by recreateChangeStream.
+		// Retain only a healthy stream after the ordered decode/send workers drain.
+		// The next pull also requires destination acknowledgment AND an exact match
+		// with the persisted offset; a failed write must replay from that offset.
+		if ctx.Err() == nil && sealedCheckpoint != "" &&
+			changeStream != nil && changeStream.Err() == nil && changeStream.ID() != 0 {
+			c.changeStream = &retainedChangeStream{
+				stream: changeStream, identity: identity, checkpoint: sealedCheckpoint,
+			}
+			return
+		}
 		if changeStream != nil {
 			if err := changeStream.Close(); err != nil {
 				c.logger.Warn("failed to close change stream", slog.Any("error", err))
@@ -577,10 +607,11 @@ func (c *MongoConnector) PullRecords(
 		},
 	}
 	workerPool.Init(ctx)
-	// before the first record arrives, we wait for up to noEventTimeout before resetting context timeout
-	// after the first record arrives, we switch to configured idleTimeout
+	// The read watchdog handles an unresponsive server. Batch timing is separate:
+	// canceling a driver read to finish a batch makes that cursor unusable.
 	noEventTimeout := defaultNoEventTimeout
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, noEventTimeout)
+	var batchDeadline time.Time
+	lastIdleCheckpoint := time.Now()
 
 	reportBytesShutdown := common.Interval(ctx, time.Second*10, func() {
 		read := deltaBytesProcessed.Swap(0)
@@ -589,7 +620,6 @@ func (c *MongoConnector) PullRecords(
 	})
 
 	defer func() {
-		cancelTimeout()
 		_ = workerPool.Wait(ctx)
 		reportBytesShutdown()
 		read := deltaBytesProcessed.Swap(0)
@@ -628,7 +658,7 @@ func (c *MongoConnector) PullRecords(
 			// rows sit in workerPool until a chunk fills or the batch ends, so AddRecord is too late to
 			// mark when the first row was received
 			req.RecordStream.MarkFirstRowReceived(time.Now())
-			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout) //nolint:gosec // G118: cancelTimeout called in defer
+			batchDeadline = time.Now().Add(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",
@@ -647,13 +677,11 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		// close existing change stream
-		if err := changeStream.Close(); err != nil {
+		oldStream := changeStream
+		changeStream = nil
+		if err := oldStream.Close(); err != nil {
 			return fmt.Errorf("failed to close change stream: %w", err)
 		}
-
-		// reset context timeout
-		cancelTimeout()
-		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, noEventTimeout)
 
 		// reset worker pool. Wait() has already been called on this workerPool.
 		workerPool.Init(ctx)
@@ -682,13 +710,42 @@ func (c *MongoConnector) PullRecords(
 	var lastEventGaugesRecordedAt time.Time
 	retryChangeStreamCount := 0
 	for recordCount < req.MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !batchDeadline.IsZero() && !time.Now().Before(batchDeadline) {
+			// A soft boundary: let an in-flight historical scan finish rather
+			// than canceling it and losing the server-side cursor position.
+			break
+		}
 		receiveStart := time.Now()
-		ok := changeStream.Next(timeoutCtx)
+		var ok bool
+		if changeStream.RemainingBatchLength() > 0 {
+			// Reading the driver's local buffer needs no per-event watchdog timer.
+			ok = changeStream.TryNext(ctx)
+		} else {
+			readCtx, cancelRead := context.WithTimeout(ctx, noEventTimeout)
+			ok = changeStream.TryNext(readCtx)
+			cancelRead()
+		}
 		receiveTime.Add(int64(time.Since(receiveStart)))
 		if !ok {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			err := changeStream.Err()
 			if err == nil {
-				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
+				if changeStream.ID() == 0 {
+					return fmt.Errorf("change stream cursor exhausted")
+				}
+				noEventTimeout = defaultNoEventTimeout
+				// An empty server batch is not an error. Keep its scan position,
+				// and periodically persist idle progress when no records are in flight.
+				if recordCount == 0 && time.Since(lastIdleCheckpoint) >= defaultNoEventTimeout {
+					checkpointToCatalog()
+					lastIdleCheckpoint = time.Now()
+				}
+				continue
 			}
 
 			if err := workerPool.Flush(ctx); err != nil {
@@ -705,7 +762,7 @@ func (c *MongoConnector) PullRecords(
 					//
 					// This checkpoint is safe to do here as opposed to in sendLoop, because sendLoop has been drained away
 					// above.
-					checkpoint()
+					sealedCheckpoint = checkpoint()
 					return nil
 				}
 				// when no events arrived in this batch, still advance offset to the PostBatchResumeToken.
@@ -751,6 +808,7 @@ func (c *MongoConnector) PullRecords(
 
 			return fmt.Errorf("change stream error: %w", err)
 		}
+		noEventTimeout = defaultNoEventTimeout
 		serialProcessStart := time.Now()
 
 		current := changeStream.Current()
@@ -841,6 +899,9 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 	processTime.Add(int64(time.Since(serialProcessStart)))
+	// ResumeToken respects unread events in the driver's buffer. It is safe to
+	// seal now that every consumed replicable event has reached RecordStream.
+	sealedCheckpoint = checkpoint()
 
 	return nil
 }
@@ -1005,6 +1066,16 @@ func (c *MongoConnector) SetupReplConn(ctx context.Context, env map[string]strin
 }
 
 func (c *MongoConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
+	// The activity calls this only after pull and destination sync succeed.
+	// Acknowledgment alone is not enough: the next pull also checks the persisted
+	// offset, so rewinding/resetting an offset cannot reuse an advanced cursor.
+	if retained := c.changeStream; retained != nil {
+		if retained.checkpoint == lastOffset.Text {
+			retained.acknowledged = true
+		} else {
+			return c.closeRetainedChangeStream()
+		}
+	}
 	return nil
 }
 

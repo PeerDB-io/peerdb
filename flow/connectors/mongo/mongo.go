@@ -69,6 +69,7 @@ type MongoConnector struct {
 	client               *mongo.Client
 	ssh                  *utils.SSHTunnel
 	createChangeStream   createChangeStreamFunc
+	changeStream         *retainedChangeStream
 	excludedOps          []operationType
 	totalBytesRead       atomic.Int64
 	deltaBytesRead       atomic.Int64
@@ -178,8 +179,14 @@ func (c *MongoConnector) Client() *mongo.Client {
 }
 
 func (c *MongoConnector) Close() error {
+	if c == nil {
+		return nil
+	}
 	var errs []error
-	if c != nil && c.client != nil {
+	if err := c.closeRetainedChangeStream(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to close change stream: %w", err))
+	}
+	if c.client != nil {
 		// Use a timeout to ensure the disconnect operation does not hang indefinitely
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

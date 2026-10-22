@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -54,6 +55,7 @@ func newPullHarness(t *testing.T, iterations ...iterationType) *pullHarness {
 			context.Context, mongo.Pipeline, ...options.Lister[options.ChangeStreamOptions],
 		) (ChangeStream, error) {
 			h.streamCreations++
+			h.stream.reopen()
 			return h.stream, nil
 		},
 		metadataStore: h.store,
@@ -186,105 +188,121 @@ func TestPullRecordsOffsetNeverRunsAheadOfDeliveredRecords(t *testing.T) {
 			iterations:   append(repeatInserts(pullRecordsItemsChunkSize), nullIdInsert),
 			maxBatchSize: pullRecordsItemsChunkSize + 1,
 		},
-		// A batch that never sees a record keeps recreating its stream on every idle
-		// timeout, so these cases have to be ended by a hard failure instead.
+		// A batch that never sees a record keeps polling, so these cases
+		// have to be ended by a hard failure instead.
 		{name: "unsupported operations only", iterations: []iterationType{unsupportedOp, unsupportedOp, fatal}, maxBatchSize: 100},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newPullHarness(t, tc.iterations...)
-			h.req.MaxBatchSize = tc.maxBatchSize
+			synctest.Test(t, func(t *testing.T) {
+				h := newPullHarness(t, tc.iterations...)
+				h.req.MaxBatchSize = tc.maxBatchSize
 
-			out := h.run(t)
-			// Whatever reached the stream must be a gap-free prefix of the emitted
-			// inserts: a hole would mean an offset skipped an event even if the
-			// offset itself looks sane.
-			require.Equal(t, mockEventIDs(len(out.ids)), out.ids, "records reached the stream out of order or with gaps")
-			h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+				out := h.run(t)
+				// Whatever reached the stream must be a gap-free prefix of the emitted
+				// inserts: a hole would mean an offset skipped an event even if the
+				// offset itself looks sane.
+				require.Equal(t, mockEventIDs(len(out.ids)), out.ids, "records reached the stream out of order or with gaps")
+				h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+			})
 		})
 	}
 }
 
-// MaxBatchSize is a hard cap: PullRecords must stop pulling the moment it is reached,
-// because an event read past the cap is neither delivered nor covered by the offset, and
-// the change stream it came from is closed on the way out.
+// MaxBatchSize is a hard cap: unread events must remain on the cursor for the next batch.
 func TestPullRecordsTruncatesBatchAtMaxBatchSize(t *testing.T) {
-	const maxBatchSize = 4
-	h := newPullHarness(t, repeatInserts(maxBatchSize+6)...)
-	h.req.MaxBatchSize = maxBatchSize
+	synctest.Test(t, func(t *testing.T) {
+		const maxBatchSize = 4
+		h := newPullHarness(t, repeatInserts(maxBatchSize+6)...)
+		h.req.MaxBatchSize = maxBatchSize
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(maxBatchSize), out.ids)
-	require.Equal(t, maxBatchSize, h.stream.idx, "pulled events past MaxBatchSize")
-	require.Equal(t, h.stream.tokenAt(maxBatchSize-1), out.checkpoint)
-	require.Empty(t, h.persistedOffsets(), "a full batch is committed by the sync workflow, not the puller")
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(maxBatchSize), out.ids)
+		require.Equal(t, maxBatchSize, h.stream.idx, "pulled events past MaxBatchSize")
+		require.Equal(t, h.stream.tokenAt(maxBatchSize-1), out.checkpoint)
+		require.Empty(t, h.persistedOffsets(), "a full batch is committed by the sync workflow, not the puller")
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // A batch larger than pullRecordsItemsChunkSize is handed to the decode workers in
 // several chunks that are decoded in parallel. Every event must still arrive exactly
 // once and in change stream order, and the offset must land on the last one.
 func TestPullRecordsTruncatesBatchSpanningManyDecodeBatches(t *testing.T) {
-	maxBatchSize := 2*pullRecordsItemsChunkSize + 37
-	h := newPullHarness(t, repeatInserts(maxBatchSize+1)...)
-	h.req.MaxBatchSize = uint32(maxBatchSize)
+	synctest.Test(t, func(t *testing.T) {
+		maxBatchSize := 2*pullRecordsItemsChunkSize + 37
+		h := newPullHarness(t, repeatInserts(maxBatchSize+1)...)
+		h.req.MaxBatchSize = uint32(maxBatchSize)
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(maxBatchSize), out.ids)
-	require.Equal(t, maxBatchSize, h.stream.idx, "pulled events past MaxBatchSize")
-	require.Equal(t, h.stream.tokenAt(maxBatchSize-1), out.checkpoint)
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(maxBatchSize), out.ids)
+		require.Equal(t, maxBatchSize, h.stream.idx, "pulled events past MaxBatchSize")
+		require.Equal(t, h.stream.tokenAt(maxBatchSize-1), out.checkpoint)
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // The sync interval bounds the batch from the arrival of its first record, not the gap
 // between consecutive records: once the interval elapses the batch is cut and handed
 // over, however busy the stream still is.
 func TestPullRecordsSyncIntervalBoundsBatchFromFirstRecord(t *testing.T) {
-	const syncInterval = 90 * time.Second
-	h := newPullHarness(t, insert, insert, idle)
-	h.req.IdleTimeout = syncInterval
+	synctest.Test(t, func(t *testing.T) {
+		const syncInterval = 90 * time.Second
+		h := newPullHarness(t, insert, insert, idle, insert)
+		h.req.IdleTimeout = syncInterval
+		h.stream.idleDelay = 0
+		h.stream.beforeNext = func(idx int) {
+			switch idx {
+			case 1:
+				time.Sleep(time.Minute)
+			case 2:
+				time.Sleep(40 * time.Second)
+			}
+		}
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(2), out.ids)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(2), out.ids)
+		require.Equal(t, 3, h.stream.idx, "batch timer must not reset after the second record")
 
-	// Before any record arrives the pull waits on the long, hour-long budget rather
-	// than the sync interval, so an idle mirror does not spin recreating its stream.
-	require.Greater(t, h.stream.deadlines[0], time.Hour-time.Minute)
-	// Once a record has landed, the remaining budget is the configured sync interval,
-	// and it keeps counting down rather than being reset per record.
-	require.LessOrEqual(t, h.stream.deadlines[1], syncInterval)
-	require.Greater(t, h.stream.deadlines[1], syncInterval-time.Minute)
-	require.Less(t, h.stream.deadlines[2], h.stream.deadlines[1], "sync interval restarted mid-batch")
+		// Every poll retains the independent hung-read watchdog. The shorter sync
+		// interval is checked between polls and must never poison the live cursor.
+		for _, deadline := range h.stream.deadlines {
+			require.Greater(t, deadline, syncInterval)
+		}
+		require.NoError(t, h.stream.Err())
+		require.Zero(t, h.stream.closeCalls)
 
-	// Cutting a non-empty batch advances the offset to the post-batch resume token,
-	// which is safe because every record is already on the stream, but it must be left
-	// for the sync workflow to commit rather than persisted here.
-	require.Equal(t, h.stream.tokenAt(2), out.checkpoint)
-	require.Empty(t, h.persistedOffsets())
-	require.Equal(t, 1, h.streamCreations, "cutting a batch should not recreate the change stream")
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		// Cutting a non-empty batch advances the offset to the post-batch resume token,
+		// which is safe because every record is already on the stream, but it must be left
+		// for the sync workflow to commit rather than persisted here.
+		require.Equal(t, h.stream.tokenAt(2), out.checkpoint)
+		require.Empty(t, h.persistedOffsets())
+		require.Equal(t, 1, h.streamCreations, "cutting a batch should not recreate the change stream")
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // An idle stream with nothing pulled yet is the one case where the puller commits an
 // offset itself. That is safe because no records are in flight, and it is what
 // stops an idle mirror's resume token from ageing out. A batch that has seen no record
 // keeps waiting rather than returning empty, so this one only ends once a record shows up.
-func TestPullRecordsIdleWithEmptyBatchPersistsOffsetAndRecreatesStream(t *testing.T) {
-	h := newPullHarness(t, idle, idle, insert, idle)
+func TestPullRecordsIdleWithEmptyBatchPersistsOffsetAndKeepsStream(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newPullHarness(t, idle, idle, idle, idle, insert, idle)
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(1), out.ids)
-	// One offset per idle timeout that found the batch empty, and none for the timeout
-	// that cut the batch holding a record: committing that one is the sync workflow's job.
-	require.Equal(t, []string{h.stream.tokenAt(0), h.stream.tokenAt(1)}, h.persistedOffsets())
-	require.Equal(t, h.stream.tokenAt(3), out.checkpoint)
-	// One initial stream plus one recreation per idle timeout: a deadline-exceeded
-	// stream is not resumable.
-	require.Equal(t, 3, h.streamCreations)
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(1), out.ids)
+		// Persist hourly while the batch is empty. The checkpoint after an insert
+		// is left for the sync workflow to commit.
+		require.Equal(t, []string{h.stream.tokenAt(1), h.stream.tokenAt(3)}, h.persistedOffsets())
+		require.Equal(t, h.stream.tokenAt(5), out.checkpoint)
+		require.Equal(t, 1, h.streamCreations, "empty server replies must not recreate the cursor")
+		require.Zero(t, h.stream.closeCalls)
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // A no-event timeout that finds the resume token still at the offset the pull started from
@@ -293,77 +311,85 @@ func TestPullRecordsIdleWithEmptyBatchPersistsOffsetAndRecreatesStream(t *testin
 // is doubled and retried, up to maxNoEventTimeout. Once the pull has made any progress,
 // the timeout goes back to defaultNoEventTimeout.
 func TestPullRecordsNoProgressExtendsNoEventTimeout(t *testing.T) {
-	iterations := make([]iterationType, 0, 11)
-	for range 7 {
-		iterations = append(iterations, idleNoReply)
-	}
-	iterations = append(iterations, idle, idleNoReply, insert, idle)
-	h := newPullHarness(t, iterations...)
-	startToken := toResumeToken(time.Now().Add(-time.Hour))
-	h.stream.resumeToken = startToken
-	h.req.LastOffset = model.CdcCheckpoint{Text: b64(startToken)}
+	synctest.Test(t, func(t *testing.T) {
+		iterations := make([]iterationType, 0, 12)
+		for range 7 {
+			iterations = append(iterations, idleNoReply)
+		}
+		iterations = append(iterations, idle, idle, idleNoReply, insert, idle)
+		h := newPullHarness(t, iterations...)
+		startToken := toResumeToken(time.Now().Add(-time.Hour))
+		h.stream.resumeToken = startToken
+		h.req.LastOffset = model.CdcCheckpoint{Text: b64(startToken)}
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(1), out.ids)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(1), out.ids)
 
-	hour := time.Hour
-	want := []time.Duration{hour, 2 * hour, 4 * hour, 8 * hour, 16 * hour, 32 * hour, 48 * hour, 48 * hour, hour, hour}
-	for i, timeout := range want {
-		require.LessOrEqual(t, h.stream.deadlines[i], timeout, "timeout before iteration %d", i)
-		require.Greater(t, h.stream.deadlines[i], timeout-time.Minute, "timeout before iteration %d", i)
-	}
-	start := b64(startToken)
-	moved := h.stream.tokenAt(7)
-	require.Equal(t, []string{start, start, start, start, start, start, start, moved, moved}, h.persistedOffsets())
-	require.Equal(t, 10, h.streamCreations)
-	require.Equal(t, h.stream.tokenAt(10), out.checkpoint)
+		hour := time.Hour
+		want := []time.Duration{hour, 2 * hour, 4 * hour, 8 * hour, 16 * hour, 32 * hour, 48 * hour, 48 * hour, hour, hour, hour, hour}
+		for i, timeout := range want {
+			require.LessOrEqual(t, h.stream.deadlines[i], timeout, "timeout before iteration %d", i)
+			require.Greater(t, h.stream.deadlines[i], timeout-time.Minute, "timeout before iteration %d", i)
+		}
+		start := b64(startToken)
+		moved := h.stream.tokenAt(8)
+		require.Equal(t, []string{start, start, start, start, start, start, start, moved, moved}, h.persistedOffsets())
+		require.Equal(t, 9, h.streamCreations, "only watchdog errors recreate the cursor")
+		require.Equal(t, h.stream.tokenAt(11), out.checkpoint)
+	})
 }
 
 // Events the connector cannot replicate must not consume batch budget, and must not
 // advance the offset on their own: the offset stays on the last event that was replicated.
 func TestPullRecordsSkipsUnsupportedOperations(t *testing.T) {
-	h := newPullHarness(t, insert, unsupportedOp, unsupportedOp, insert, idle)
-	h.req.MaxBatchSize = 2
+	synctest.Test(t, func(t *testing.T) {
+		h := newPullHarness(t, insert, unsupportedOp, unsupportedOp, insert, idle)
+		h.req.MaxBatchSize = 2
 
-	out := h.run(t)
-	require.NoError(t, out.err)
-	require.Equal(t, mockEventIDs(2), out.ids)
-	// Five iterations were scripted; the two inserts plus the two skipped events is
-	// where MaxBatchSize is reached, so the trailing idle is never reached.
-	require.Equal(t, 4, h.stream.idx)
-	require.Equal(t, h.stream.tokenAt(3), out.checkpoint)
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.NoError(t, out.err)
+		require.Equal(t, mockEventIDs(2), out.ids)
+		// Five iterations were scripted; the two inserts plus the two skipped events is
+		// where MaxBatchSize is reached, so the trailing idle is never reached.
+		require.Equal(t, 4, h.stream.idx)
+		require.Equal(t, h.stream.tokenAt(3), out.checkpoint)
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // A change stream error that is neither a timeout nor a stale resume token ends the
 // pull. The caller throws the batch away, so the one thing that must not happen is an
 // offset reaching the catalog.
 func TestPullRecordsFatalStreamErrorCommitsNoOffset(t *testing.T) {
-	h := newPullHarness(t, insert, insert, fatal)
+	synctest.Test(t, func(t *testing.T) {
+		h := newPullHarness(t, insert, insert, fatal)
 
-	out := h.run(t)
-	require.ErrorIs(t, out.err, errFatalChangeStream)
-	require.ErrorContains(t, out.err, "change stream error")
-	// The workers are drained before the error is surfaced, so the records pulled
-	// before the failure are intact on the stream rather than half-written.
-	require.Equal(t, mockEventIDs(2), out.ids)
-	require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.ErrorIs(t, out.err, errFatalChangeStream)
+		require.ErrorContains(t, out.err, "change stream error")
+		// The workers are drained before the error is surfaced, so the records pulled
+		// before the failure are intact on the stream rather than half-written.
+		require.Equal(t, mockEventIDs(2), out.ids)
+		require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // A document the decode workers reject must fail the pull. Silently dropping it would
 // leave the offset covering an event that never reached the destination.
 func TestPullRecordsUndecodableDocumentFailsPull(t *testing.T) {
-	h := newPullHarness(t, insert, insert, nullIdInsert)
-	h.req.MaxBatchSize = 3
+	synctest.Test(t, func(t *testing.T) {
+		h := newPullHarness(t, insert, insert, nullIdInsert)
+		h.req.MaxBatchSize = 3
 
-	out := h.run(t)
-	require.ErrorContains(t, out.err, "_id field is missing or null in table db.coll")
-	// The bad document is in the only sub-batch, so the whole batch dies with it.
-	require.Empty(t, out.ids)
-	require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.ErrorContains(t, out.err, "_id field is missing or null in table db.coll")
+		// The bad document is in the only sub-batch, so the whole batch dies with it.
+		require.Empty(t, out.ids)
+		require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // The same failure in a sub-batch the pull loop has already moved past has to be noticed
@@ -371,36 +397,40 @@ func TestPullRecordsUndecodableDocumentFailsPull(t *testing.T) {
 // batch as if nothing happened would hand the sync workflow an offset spanning the
 // records that worker dropped.
 func TestPullRecordsUndecodableDocumentInEarlierSubBatchFailsPull(t *testing.T) {
-	// The bad document heads the first sub-batch; MaxBatchSize is two sub-batches, so
-	// the loop keeps pulling well past the point the worker rejects it.
-	iterations := append([]iterationType{nullIdInsert}, repeatInserts(3*pullRecordsItemsChunkSize)...)
-	h := newPullHarness(t, iterations...)
-	h.req.MaxBatchSize = uint32(2 * pullRecordsItemsChunkSize)
+	synctest.Test(t, func(t *testing.T) {
+		// The bad document heads the first sub-batch; MaxBatchSize is two sub-batches, so
+		// the loop keeps pulling well past the point the worker rejects it.
+		iterations := append([]iterationType{nullIdInsert}, repeatInserts(3*pullRecordsItemsChunkSize)...)
+		h := newPullHarness(t, iterations...)
+		h.req.MaxBatchSize = uint32(2 * pullRecordsItemsChunkSize)
 
-	out := h.run(t)
-	require.ErrorContains(t, out.err, "_id field is missing or null in table db.coll")
-	require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.ErrorContains(t, out.err, "_id field is missing or null in table db.coll")
+		require.Empty(t, h.persistedOffsets(), "a failed pull must not commit an offset")
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
 
 // Cancelling the activity mid-pull must surface as an error. Returning nil would let the
 // sync workflow commit the offset for a batch that was cut off part-way through.
 func TestPullRecordsContextCancellationMidBatchFailsPull(t *testing.T) {
-	h := newPullHarness(t, repeatInserts(4*pullRecordsItemsChunkSize)...)
-	h.req.MaxBatchSize = 3 * pullRecordsItemsChunkSize
-	// Cancel once a couple of sub-batches are in flight, so the cancellation races the
-	// decode workers rather than arriving before any work started.
-	h.stream.beforeNext = func(idx int) {
-		if idx == 2*pullRecordsItemsChunkSize {
-			h.cancel()
+	synctest.Test(t, func(t *testing.T) {
+		h := newPullHarness(t, repeatInserts(4*pullRecordsItemsChunkSize)...)
+		h.req.MaxBatchSize = 3 * pullRecordsItemsChunkSize
+		// Cancel once a couple of sub-batches are in flight, so the cancellation races the
+		// decode workers rather than arriving before any work started.
+		h.stream.beforeNext = func(idx int) {
+			if idx == 2*pullRecordsItemsChunkSize {
+				h.cancel()
+			}
 		}
-	}
 
-	out := h.run(t)
-	require.ErrorIs(t, out.err, context.Canceled)
-	require.Empty(t, h.persistedOffsets(), "a cancelled pull must not commit an offset")
-	// Whatever did reach the stream is still a gap-free prefix; cancellation drops
-	// in-flight records rather than reordering or interleaving them.
-	require.Equal(t, mockEventIDs(len(out.ids)), out.ids)
-	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+		out := h.run(t)
+		require.ErrorIs(t, out.err, context.Canceled)
+		require.Empty(t, h.persistedOffsets(), "a cancelled pull must not commit an offset")
+		// Whatever did reach the stream is still a gap-free prefix; cancellation drops
+		// in-flight records rather than reordering or interleaving them.
+		require.Equal(t, mockEventIDs(len(out.ids)), out.ids)
+		h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
+	})
 }
