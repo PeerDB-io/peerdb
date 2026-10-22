@@ -1451,17 +1451,18 @@ func processRelationMessage[Items model.Items](
 		// not present in previous relation message, but in current one, so added.
 		if isAddedColumnAndNotExcluded(column.Name) {
 			catalogInfo := addedColumnCatalogInfo[column.Name]
+			// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
+			qkind := types.QValueKind(currRelMap[column.Name])
+			missingValue := catalogInfo.missingValueFor(qkind)
 			sourceMissingValue := ""
-			if catalogInfo.missingValue != nil {
-				sourceMissingValue = *catalogInfo.missingValue
+			if missingValue != nil {
+				sourceMissingValue = *missingValue
 			}
 			var defaultExpr *string
 			// destinations on the PG type system splice the column type in verbatim, so a literal
 			// rendered for a QValueKind would not fit their DDL
-			if catalogInfo.missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				if literal, ok := defaultExprFromPostgresMissingValue(
-					*catalogInfo.missingValue, types.QValueKind(currRelMap[column.Name]),
-				); ok {
+			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
+				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind); ok {
 					defaultExpr = &literal
 				}
 			}
@@ -1532,8 +1533,20 @@ type addedColumnCatalogInfo struct {
 	// PostgreSQL uses this value when the column is physically absent from a row that predates
 	// ADD COLUMN. nil means either there is no missing value or that value is SQL NULL.
 	missingValue *string
-	hasMissing   bool
-	notNull      bool
+	// missingJSON is the same value as JSON text, which keeps a top-level JSON string quoted and a JSON
+	// null distinct from SQL NULL; only meaningful for json/jsonb columns.
+	missingJSON *string
+	hasMissing  bool
+	notNull     bool
+}
+
+// missingValueFor returns the stored missing value in the form defaultExprFromPostgresMissingValue
+// expects for a column of kind qkind.
+func (info addedColumnCatalogInfo) missingValueFor(qkind types.QValueKind) *string {
+	if qkind == types.QValueKindJSON || qkind == types.QValueKindJSONB {
+		return info.missingJSON
+	}
+	return info.missingValue
 }
 
 // fetchAddedColumnCatalogInfo reads nullability and the value PostgreSQL uses for rows that predate
@@ -1549,9 +1562,11 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	// attmissingval holds the original default value materialized when the column was added, rather
 	// than its current default. It is an anyarray with one element; converting through JSON extracts
 	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
-	// string while returning SQL NULL for a missing value of NULL.
+	// string while returning SQL NULL for a missing value of NULL. -> keeps the element as JSON text,
+	// which is what a json/jsonb column needs.
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
-		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END
+		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END,
+		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END
 		FROM pg_catalog.pg_attribute a
 		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
 		relID, columnNames)
@@ -1563,12 +1578,16 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	var name string
 	var notNull bool
 	var hasMissing bool
-	var missingValue pgtype.Text
-	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue}, func() error {
+	var missingValue, missingJSON pgtype.Text
+	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue, &missingJSON}, func() error {
 		info := addedColumnCatalogInfo{hasMissing: hasMissing, notNull: notNull}
 		if missingValue.Valid {
 			value := missingValue.String
 			info.missingValue = &value
+		}
+		if missingJSON.Valid {
+			value := missingJSON.String
+			info.missingJSON = &value
 		}
 		catalogInfo[name] = info
 		return nil
