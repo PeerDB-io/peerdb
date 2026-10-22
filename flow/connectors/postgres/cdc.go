@@ -1455,6 +1455,7 @@ func processRelationMessage[Items model.Items](
 		// not present in previous relation message, but in current one, so added.
 		if isAddedColumnAndNotExcluded(column.Name) {
 			catalogInfo := addedColumnCatalogInfo[column.Name]
+			// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
 			qkind := types.QValueKind(currRelMap[column.Name])
 			missingValue := catalogInfo.missingValueFor(qkind)
 			sourceMissingValue := ""
