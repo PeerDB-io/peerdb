@@ -710,17 +710,16 @@ func (h *FlowRequestHandler) validateTableResync(
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 	}
-	resyncTables, err := internal.ResolveResyncTableMappings(config.TableMappings, cdcUpdate.ResyncTables)
-	if err != nil {
+	if err := internal.ValidateResyncTableMappings(config.TableMappings, cdcUpdate.ResyncTables); err != nil {
 		return NewInvalidArgumentApiError(err)
 	}
 	if err := internal.ValidateResyncTableUpdate(
-		resyncTables, cdcUpdate.AdditionalTables, cdcUpdate.RemovedTables,
+		cdcUpdate.ResyncTables, cdcUpdate.AdditionalTables, cdcUpdate.RemovedTables,
 	); err != nil {
 		return NewInvalidArgumentApiError(err)
 	}
 
-	config.TableMappings = resyncTables
+	config.TableMappings = cdcUpdate.ResyncTables
 	config.Resync = true
 	config.DoInitialSnapshot = true
 	config.InitialSnapshotOnly = true

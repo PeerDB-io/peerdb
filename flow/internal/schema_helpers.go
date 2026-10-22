@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"go.temporal.io/sdk/log"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -92,39 +91,37 @@ func BuildProcessedSchemaMapping(
 	return processedSchemaMapping
 }
 
-// ResolveResyncTableMappings checks that each requested mapping refers to an existing mirror table with
-// the same destination, and returns copies of the requested mappings, which hold the new table settings.
-func ResolveResyncTableMappings(
+// ValidateResyncTableMappings checks that each requested mapping refers to an existing mirror table
+// with the same destination. Other fields of the requested mappings are the new table settings.
+func ValidateResyncTableMappings(
 	currentTableMappings []*protos.TableMapping,
 	requestedTableMappings []*protos.TableMapping,
-) ([]*protos.TableMapping, error) {
+) error {
 	currentBySource := make(map[string]*protos.TableMapping, len(currentTableMappings))
 	for _, mapping := range currentTableMappings {
 		currentBySource[mapping.SourceTableIdentifier] = mapping
 	}
 
 	seen := make(map[string]struct{}, len(requestedTableMappings))
-	resolved := make([]*protos.TableMapping, 0, len(requestedTableMappings))
 	for _, requested := range requestedTableMappings {
 		if requested == nil || requested.SourceTableIdentifier == "" {
-			return nil, errors.New("resync table must have a source table identifier")
+			return errors.New("resync table must have a source table identifier")
 		}
 		if _, duplicate := seen[requested.SourceTableIdentifier]; duplicate {
-			return nil, fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
+			return fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
 		}
 		seen[requested.SourceTableIdentifier] = struct{}{}
 
 		current, exists := currentBySource[requested.SourceTableIdentifier]
 		if !exists {
-			return nil, fmt.Errorf("table %s is not part of the mirror", requested.SourceTableIdentifier)
+			return fmt.Errorf("table %s is not part of the mirror", requested.SourceTableIdentifier)
 		}
 		if requested.DestinationTableIdentifier != current.DestinationTableIdentifier {
-			return nil, fmt.Errorf("destination for table %s does not match the mirror configuration",
+			return fmt.Errorf("destination for table %s does not match the mirror configuration",
 				requested.SourceTableIdentifier)
 		}
-		resolved = append(resolved, proto.CloneOf(requested))
 	}
-	return resolved, nil
+	return nil
 }
 
 // ValidateResyncTableUpdate rejects updates that also add or remove a table that is being resynced.

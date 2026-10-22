@@ -166,18 +166,17 @@ func processCDCFlowConfigUpdate(
 		if tablesAreResynced {
 			// The API validates against the catalog config, re-check against workflow state.
 			// Returning an error here would fail the whole mirror, so skip the resync instead.
-			resyncTables, err := internal.ResolveResyncTableMappings(
+			err := internal.ValidateResyncTableMappings(
 				state.SyncFlowOptions.TableMappings, flowConfigUpdate.ResyncTables)
 			if err == nil {
-				err = internal.ValidateResyncTableUpdate(resyncTables,
+				err = internal.ValidateResyncTableUpdate(flowConfigUpdate.ResyncTables,
 					flowConfigUpdate.AdditionalTables, flowConfigUpdate.RemovedTables)
 			}
 			if err != nil {
 				logger.Warn("skipping invalid table resync", slog.Any("error", err))
-				resyncTables = nil
+				flowConfigUpdate.ResyncTables = nil
 				tablesAreResynced = false
 			}
-			flowConfigUpdate.ResyncTables = resyncTables
 		}
 
 		if tablesAreAdded {
