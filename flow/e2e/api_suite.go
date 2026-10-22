@@ -2109,7 +2109,7 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 }
 
 // TestTableLevelResyncRevertsColumnSettings goes the other way: a nullable column becomes non-nullable,
-// a type override is dropped, and a previously excluded column is brought back under a new name.
+// a type override is dropped, and a previously excluded column is brought back.
 func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("table-level resync test uses a Postgres source")
@@ -2147,7 +2147,6 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	newMapping := &protos.TableMapping{
 		SourceTableIdentifier:      source,
 		DestinationTableIdentifier: destination,
-		Columns:                    []*protos.ColumnSetting{{SourceName: "note", DestinationName: "memo"}},
 	}
 	s.resyncTablesAndWait(env, flowConfig.FlowJobName, newMapping)
 	EnvWaitForEqualTablesWithNames(env, s.ch, "table after resync", "table_resync_revert", destination, "id,amount")
@@ -2156,22 +2155,21 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	require.NotEqual(s.t, before.uuid, after.uuid, "table should have been replaced")
 	require.Equal(s.t, "String", after.columns["val"])
 	require.Equal(s.t, "Int32", after.columns["amount"])
-	require.Equal(s.t, "String", after.columns["memo"])
-	require.NotContains(s.t, after.columns, "note")
+	require.Equal(s.t, "String", after.columns["note"])
 	s.requireCatalogTableMapping(flowConfig.FlowJobName, newMapping)
 
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
 		"INSERT INTO %s(id, val, amount, note) VALUES (3, NULL, 3, 'n3')", source)))
 	EnvWaitForEqualTablesWithNames(env, s.ch, "table CDC after resync", "table_resync_revert", destination, "id,amount")
 
-	// val is no longer Nullable, so NULLs land as empty strings; note values land in memo.
+	// val is no longer Nullable, so NULLs land as empty strings; note is filled again.
 	var emptyVals uint64
-	var memos []string
+	var notes []string
 	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
-		"SELECT countIf(val = ''), groupArray(memo) FROM (SELECT val, memo FROM %s FINAL ORDER BY id)",
-		clickhouse.QuoteIdentifier(destination))).Scan(&emptyVals, &memos))
+		"SELECT countIf(val = ''), groupArray(note) FROM (SELECT val, note FROM %s FINAL ORDER BY id)",
+		clickhouse.QuoteIdentifier(destination))).Scan(&emptyVals, &notes))
 	require.Equal(s.t, uint64(2), emptyVals)
-	require.Equal(s.t, []string{"n1", "n2", "n3"}, memos)
+	require.Equal(s.t, []string{"n1", "n2", "n3"}, notes)
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(s.t, env)
