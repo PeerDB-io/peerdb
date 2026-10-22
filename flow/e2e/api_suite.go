@@ -2099,10 +2099,14 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	EnvWaitForEqualTablesWithNames(env, s.ch, "retained table CDC after resync", "table_resync_customers",
 		retainedDestination, "id,customer_id,val,amount,note")
 
+	// The row comparison treats NULL and '' as equal, so check the NULL that arrived via CDC directly:
+	// normalize must use the new mapping, where val is Nullable.
 	var amountSum int64
-	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf("SELECT sum(amount) FROM %s FINAL",
-		clickhouse.QuoteIdentifier(resyncDestination))).Scan(&amountSum))
+	var nullVals uint64
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf("SELECT sum(amount), countIf(val IS NULL) FROM %s FINAL",
+		clickhouse.QuoteIdentifier(resyncDestination))).Scan(&amountSum, &nullVals))
 	require.Equal(s.t, int64(600), amountSum)
+	require.Equal(s.t, uint64(1), nullVals)
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(s.t, env)
