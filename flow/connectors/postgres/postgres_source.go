@@ -338,10 +338,7 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
 	}
-	wrapNonObjectJSON, err := qvalue.ShouldWrapNonObjectJSON(ctx, req.Env, req.InternalVersion)
-	if err != nil {
-		return fmt.Errorf("failed to get setting for wrapNonObjectJSON: %w", err)
-	}
+	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion)
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,

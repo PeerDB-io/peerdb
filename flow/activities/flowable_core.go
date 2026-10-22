@@ -251,6 +251,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
+			Flags:                       config.Flags,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)

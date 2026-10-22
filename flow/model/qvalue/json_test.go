@@ -29,22 +29,20 @@ func TestWrapNonObjectJSON(t *testing.T) {
 }
 
 func TestShouldWrapNonObjectJSON(t *testing.T) {
-	ctx := t.Context()
-	on := map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
-	off := map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "false"}
+	nativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONEnabled}
+	noNativeJSON := []string{shared.Flag_ClickHouseTime64Enabled}
 
 	for _, tc := range []struct {
-		env     map[string]string
+		flags   []string
 		version uint32
 		want    bool
 	}{
-		{on, shared.InternalVersion_WrapNonObjectJSON, true},
-		{on, shared.InternalVersion_Latest, true},
-		{on, shared.InternalVersion_WrapNonObjectJSON - 1, false},
-		{off, shared.InternalVersion_Latest, false},
+		{nativeJSON, shared.InternalVersion_WrapNonObjectJSON, true},
+		{nativeJSON, shared.InternalVersion_Latest, true},
+		{nativeJSON, shared.InternalVersion_WrapNonObjectJSON - 1, false},
+		{noNativeJSON, shared.InternalVersion_Latest, false},
+		{nil, shared.InternalVersion_Latest, false},
 	} {
-		got, err := ShouldWrapNonObjectJSON(ctx, tc.env, tc.version)
-		require.NoError(t, err)
-		require.Equal(t, tc.want, got, "env=%v version=%d", tc.env, tc.version)
+		require.Equal(t, tc.want, ShouldWrapNonObjectJSON(tc.flags, tc.version), "flags=%v version=%d", tc.flags, tc.version)
 	}
 }

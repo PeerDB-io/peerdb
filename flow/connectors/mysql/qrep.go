@@ -292,10 +292,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
-	wrapNonObjectJSON, err := qvalue.ShouldWrapNonObjectJSON(ctx, config.Env, config.Version)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get setting for wrapNonObjectJSON: %w", err)
-	}
+	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version)
 
 	c.logger.Info("[mysql] pulling records start")
 

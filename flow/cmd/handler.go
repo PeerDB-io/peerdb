@@ -77,7 +77,7 @@ func (h *FlowRequestHandler) determineFlags(
 	}
 	defer connClose(ctx)
 
-	return conn.GetFlags(ctx)
+	return conn.GetFlags(ctx, env)
 }
 
 func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {

@@ -31,16 +31,17 @@ type QRepQueryExecutor struct {
 	flowJobName string
 	partitionID string
 	version     uint32
+	flags       []string
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, nil, "", flowJobName, partitionID)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
-	snapshot string, flowJobName string, partitionID string,
+	flags []string, snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
@@ -54,6 +55,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 		version:           version,
+		flags:             flags,
 	}, nil
 }
 
@@ -308,11 +310,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	if err != nil {
 		return 0, 0, err
 	}
-	wrapNonObjectJSON, err := qvalue.ShouldWrapNonObjectJSON(ctx, qe.env, qe.version)
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to get setting for wrapNonObjectJSON", slog.Any("error", err))
-		return 0, 0, fmt.Errorf("failed to get setting for wrapNonObjectJSON: %w", err)
-	}
+	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version)
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")

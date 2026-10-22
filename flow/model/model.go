@@ -101,6 +101,7 @@ type PullRecordsRequest[T Items] struct {
 	MaxBatchSize uint32
 	// peerdb versioning to prevent breaking changes
 	InternalVersion uint32
+	Flags           []string
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 }

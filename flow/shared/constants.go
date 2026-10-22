@@ -107,4 +107,7 @@ func Val[T any](p *T) T {
 // Flag constants for flow config Flags mapping
 const (
 	Flag_ClickHouseTime64Enabled = "clickhouse_time64_enabled"
+	// the destination maps JSON columns to the native ClickHouse JSON type (PEERDB_CLICKHOUSE_ENABLE_JSON on and
+	// ClickHouse >= 25.3), decided once at mirror creation; sources wrap non-object JSON values for it
+	Flag_ClickHouseJSONEnabled = "clickhouse_json_enabled"
 )

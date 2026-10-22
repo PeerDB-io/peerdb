@@ -615,10 +615,7 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
-	wrapNonObjectJSON, err := qvalue.ShouldWrapNonObjectJSON(ctx, req.Env, req.InternalVersion)
-	if err != nil {
-		return err
-	}
+	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion)
 
 	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
