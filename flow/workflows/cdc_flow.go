@@ -458,6 +458,11 @@ func processTableAdditions(
 	return nextRunNone, nil
 }
 
+// processTableResyncs rebuilds the tables in FlowConfigUpdate.ResyncTables while the mirror is paused.
+// A snapshot-only child CDCFlowWorkflow with Resync=true snapshots them into "_resync" tables, then
+// RenameTables swaps those in for the originals. On success the new mappings replace the old ones in
+// SyncFlowOptions, and CDC resumes from the same slot. If the child fails, the original tables and
+// mappings are kept and an alert is raised instead of failing the mirror.
 func processTableResyncs(
 	ctx workflow.Context,
 	logger log.Logger,
