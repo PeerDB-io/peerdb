@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -58,10 +59,10 @@ func (s ClickHouseSuite) Test_JSON_CH_Disabled_Nullable() {
 	})
 }
 
-// Test_JSON_CH_OldVersion pins a native JSON mirror below InternalVersion_WrapNonObjectJSON: object documents
-// still land unchanged, and a non-object document is still rejected by ClickHouse and surfaces as a flow
-// error, since the reader does not wrap at that version.
-func (s ClickHouseSuite) Test_JSON_CH_OldVersion() {
+// Test_JSON_CH_OldMirror runs a native JSON mirror as one created before InternalVersion_WrapNonObjectJSON:
+// object documents still land unchanged, and a non-object document is still rejected by ClickHouse and
+// surfaces as a flow error, since the reader does not wrap for such a mirror.
+func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
 	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
 	}
@@ -108,8 +109,9 @@ func (s ClickHouseSuite) Test_JSON_CH_OldVersion() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json) VALUES ('"dark"')`, srcFullName)))
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for the unwrapped scalar to fail", func() bool {
-		// 117 is INCORRECT_DATA, which ClickHouse raises when casting a non-object to JSON
-		count, err := GetLogCount(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "code: 117")
+		// casting a non-object to JSON fails with INCORRECT_DATA
+		count, err := GetLogCount(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
+			fmt.Sprintf("code: %d", chproto.ErrIncorrectData))
 		return err == nil && count > 0
 	})
 
