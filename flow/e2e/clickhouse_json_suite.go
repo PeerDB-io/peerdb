@@ -71,6 +71,19 @@ func (s ClickHouseSuite) Test_JSON_CH_OldVersion() {
 	})
 }
 
+// Test_JSON_CH_ClassicReader runs the native JSON matrix with PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS off, so
+// the Postgres reader takes the unmarshal/marshal path instead of the token walk.
+func (s ClickHouseSuite) Test_JSON_CH_ClassicReader() {
+	emptyObject := "{}"
+	s.testJSONColumns(jsonColumnMirrorConfig{
+		tableName:                     "test_json_classic",
+		nativeJSON:                    true,
+		disableFastProcessJSONColumns: true,
+		expectedColumnType:            "JSON",
+		sourceNullLandsAs:             &emptyObject,
+	})
+}
+
 // Test_JSON_CH_AddColumnDefault adds JSON columns with defaults while the mirror runs. The row that
 // predates the columns gets its value from the ClickHouse column default, which schema-change replay
 // carries over from the Postgres default, wrapped like any other value.
@@ -267,6 +280,10 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 		}
 	}
 
+	if _, isPostgres := s.source.(*PostgresSource); cfg.disableFastProcessJSONColumns && !isPostgres {
+		s.t.Skip("PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS only applies to postgres")
+	}
+
 	jsonTestCases := jsonColumnTestCases(mysqlUtf8mb4Support)
 	// below InternalVersion_WrapNonObjectJSON a non-object document fails on a ClickHouse JSON column and
 	// stalls the mirror, which is what the wrapping fixes
@@ -309,6 +326,9 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	if cfg.oldVersion {
 		flowConnConfig.Version = shared.InternalVersion_WrapNonObjectJSON - 1
 		flowConnConfig.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(uint64(flowConnConfig.Version), 10)
+	}
+	if cfg.disableFastProcessJSONColumns {
+		flowConnConfig.Env["PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS"] = "false"
 	}
 
 	tc := NewTemporalClient(s.t)
@@ -356,6 +376,9 @@ type jsonColumnMirrorConfig struct {
 	nullableDestinationColumns bool
 	// oldVersion pins the mirror below InternalVersion_WrapNonObjectJSON
 	oldVersion bool
+	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
+	// takes the unmarshal/marshal path instead of the token walk; Postgres only
+	disableFastProcessJSONColumns bool
 }
 
 // jsonColumnTestCase is one source value for the JSON column tests. value is the SQL literal to insert.
