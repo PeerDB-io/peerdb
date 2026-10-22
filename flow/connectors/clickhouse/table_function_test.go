@@ -153,6 +153,8 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 		schema: types.QRecordSchema{Fields: []types.QField{
 			{Name: "as_string", Type: types.QValueKindJSON, Nullable: true},
 			{Name: "as_json", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "as_bare_json", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "as_bare_json_required", Type: types.QValueKindJSON, Nullable: false},
 			{Name: "untouched", Type: types.QValueKindJSON, Nullable: true},
 		}},
 		config: &protos.QRepConfig{
@@ -163,6 +165,9 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 			Columns: []*protos.ColumnSetting{
 				{SourceName: "as_string", DestinationType: "String"},
 				{SourceName: "as_json", DestinationType: "Nullable(JSON)"},
+				// a bare JSON override is promoted for a nullable column, as the DDL does
+				{SourceName: "as_bare_json", DestinationType: "JSON"},
+				{SourceName: "as_bare_json_required", DestinationType: "JSON"},
 			},
 		},
 		connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
@@ -173,8 +178,9 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t,
-		"INSERT INTO `t1`(`as_string`,`as_json`,`untouched`) SELECT "+
-			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),`untouched` "+
+		"INSERT INTO `t1`(`as_string`,`as_json`,`as_bare_json`,`as_bare_json_required`,`untouched`) SELECT "+
+			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),CAST(`as_bare_json`, 'Nullable(JSON)'),"+
+			"CAST(`as_bare_json_required`, 'JSON'),`untouched` "+
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
 
@@ -185,8 +191,9 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t,
-		"INSERT INTO `t1`(`as_string`,`as_json`,`untouched`) SELECT "+
-			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),CAST(`untouched`, 'Nullable(JSON)') "+
+		"INSERT INTO `t1`(`as_string`,`as_json`,`as_bare_json`,`as_bare_json_required`,`untouched`) SELECT "+
+			"`as_string`,CAST(`as_json`, 'Nullable(JSON)'),CAST(`as_bare_json`, 'Nullable(JSON)'),"+
+			"CAST(`as_bare_json_required`, 'JSON'),CAST(`untouched`, 'Nullable(JSON)') "+
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
 }

@@ -48,13 +48,21 @@ func jsonFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	// an explicit destination type decides for its column, as the DDL and the normalize query do
+	// an explicit destination type decides for its column, as the DDL and the normalize query do; a bare JSON
+	// is promoted for a nullable column the same way the DDL does it
 	for _, column := range config.config.GetColumns() {
 		if column.SourceName == field.Name && column.DestinationType != "" {
-			if column.DestinationType == "JSON" || column.DestinationType == "Nullable(JSON)" {
-				return fmt.Sprintf("CAST(%s, %s)", sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(column.DestinationType)), nil
+			switch column.DestinationType {
+			case "JSON":
+				if field.Nullable {
+					return fmt.Sprintf("CAST(%s, 'Nullable(JSON)')", sourceFieldIdentifier), nil
+				}
+				return fmt.Sprintf("CAST(%s, 'JSON')", sourceFieldIdentifier), nil
+			case "Nullable(JSON)":
+				return fmt.Sprintf("CAST(%s, 'Nullable(JSON)')", sourceFieldIdentifier), nil
+			default:
+				return sourceFieldIdentifier, nil
 			}
-			return sourceFieldIdentifier, nil
 		}
 	}
 
