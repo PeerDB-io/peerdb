@@ -609,7 +609,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description: "Experimental: fetch update documents in bounded parallel batches outside the change stream. " +
 			"Requires expanded events and ObjectID-only document keys. Missing documents fail the batch. " +
 			"Enabling this mode changes the checkpoint format and requires a validated cutover.",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
