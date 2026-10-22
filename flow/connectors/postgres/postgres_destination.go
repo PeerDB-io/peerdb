@@ -162,7 +162,7 @@ func syncRecordsCore[Items model.Items](
 					2,
 					itemsJSON,
 					req.SyncBatchID,
-					"",
+					utils.KeysToString(typedRecord.UnchangedToastColumns),
 				}
 
 			case *model.MessageRecord[Items]:
