@@ -86,9 +86,9 @@ func newDebugCommandMonitor(logger log.Logger) *event.CommandMonitor {
 		Succeeded: func(ctx context.Context, evt *event.CommandSucceededEvent) {
 			logline := fmt.Sprintf("[CommandMonitor] succeeded: command=%s size=%d duration=%v",
 				evt.CommandName, len(evt.Reply), evt.Duration)
-			// never log the reply itself: aggregate/getMore replies carry customer documents
-			if batchLen, ok := cursorBatchLen(evt.Reply); ok {
-				logline += fmt.Sprintf(" batchLen=%d", batchLen)
+			var reply bson.M
+			if err := bson.Unmarshal(evt.Reply, &reply); err == nil {
+				logline += fmt.Sprintf(" reply=%+v", reply)
 			}
 			logger.Debug(logline)
 		},
@@ -100,24 +100,4 @@ func newDebugCommandMonitor(logger log.Logger) *event.CommandMonitor {
 			))
 		},
 	}
-}
-
-// cursorBatchLen returns the number of documents in a cursor reply (cursor.firstBatch or cursor.nextBatch).
-func cursorBatchLen(reply bson.Raw) (int, bool) {
-	for _, key := range []string{"nextBatch", "firstBatch"} {
-		val, err := reply.LookupErr("cursor", key)
-		if err != nil {
-			continue
-		}
-		arr, ok := val.ArrayOK()
-		if !ok {
-			return 0, false
-		}
-		values, err := arr.Values()
-		if err != nil {
-			return 0, false
-		}
-		return len(values), true
-	}
-	return 0, false
 }
