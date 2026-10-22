@@ -2,7 +2,6 @@ package connmongo
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
@@ -74,6 +74,9 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+
+	documentLookupWatermark bson.Timestamp
+	parallelDocumentLookup  bool
 }
 
 func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
@@ -162,6 +165,11 @@ func NewMongoConnector(ctx context.Context, env map[string]string, config *proto
 		if logCommands {
 			clientOptions.SetMonitor(newCommandMonitor(logger))
 		}
+	}
+
+	mc.parallelDocumentLookup, err = internal.PeerDBMongoDBParallelDocumentLookup(ctx, env)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := mongo.Connect(clientOptions)
@@ -268,7 +276,7 @@ func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context,
 		return 0, fmt.Errorf("last offset is empty string, cannot calculate commit lag")
 	}
 
-	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
+	resumeToken, _, _, err := decodeMongoCheckpoint(lastOffset.Text)
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode resume token: %w", err)
 	}
