@@ -119,6 +119,18 @@ func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_JSON_CH_JSONOverride keeps PEERDB_CLICKHOUSE_ENABLE_JSON off and pins the JSON columns to JSON through
+// their destination type: the override alone selects native JSON, and the readers wrap for it.
+func (s ClickHouseSuite) Test_JSON_CH_JSONOverride() {
+	emptyObject := "{}"
+	s.testJSONColumns(jsonColumnMirrorConfig{
+		tableName:          "test_json_override",
+		overrideToJSON:     true,
+		expectedColumnType: "JSON",
+		sourceNullLandsAs:  &emptyObject,
+	})
+}
+
 // Test_JSON_CH_StringOverride mixes, on a native JSON mirror, a JSON column that lands in native JSON with one
 // whose destination type is overridden to String: only the first one is wrapped.
 func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
@@ -369,7 +381,7 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	mysqlUtf8mb4Support := true
 	if mySource, ok := s.source.(*MySqlSource); ok {
 		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-			if cfg.nativeJSON {
+			if cfg.nativeJSON || cfg.overrideToJSON {
 				s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
 			}
 		} else {
@@ -386,8 +398,8 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	}
 
 	jsonTestCases := jsonColumnTestCases(mysqlUtf8mb4Support)
-	// with native JSON on, the readers wrap non-object documents
-	wrapNonObjects := cfg.nativeJSON
+	// with native JSON on, or the columns pinned to JSON, the readers wrap non-object documents
+	wrapNonObjects := cfg.nativeJSON || cfg.overrideToJSON
 
 	srcTableName := cfg.tableName
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -421,6 +433,12 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	flowConnConfig.Env = map[string]string{
 		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
 		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
+	}
+	if cfg.overrideToJSON {
+		for _, column := range jsonColumns {
+			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
+				&protos.ColumnSetting{SourceName: column, DestinationType: "JSON"})
+		}
 	}
 	if cfg.disableFastProcessJSONColumns {
 		flowConnConfig.Env["PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS"] = "false"
@@ -469,6 +487,8 @@ type jsonColumnMirrorConfig struct {
 	nativeJSON bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
+	// overrideToJSON gives every JSON column the destination type JSON through its column settings
+	overrideToJSON bool
 	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
 	// takes the unmarshal/marshal path instead of the token walk; Postgres only
 	disableFastProcessJSONColumns bool

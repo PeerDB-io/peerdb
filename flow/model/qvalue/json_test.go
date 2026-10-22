@@ -29,8 +29,9 @@ func TestWrapNonObjectJSON(t *testing.T) {
 }
 
 func TestShouldWrapNonObjectJSON(t *testing.T) {
-	nativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONEnabled}
-	noNativeJSON := []string{shared.Flag_ClickHouseTime64Enabled}
+	nativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported, shared.Flag_ClickHouseJSONEnabled}
+	noNativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
+	otherDestination := []string{shared.Flag_ClickHouseTime64Enabled}
 
 	for _, tc := range []struct {
 		destinationType string
@@ -49,6 +50,9 @@ func TestShouldWrapNonObjectJSON(t *testing.T) {
 		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "JSON", want: true},
 		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: true},
 		{flags: noNativeJSON, version: shared.InternalVersion_WrapNonObjectJSON - 1, destinationType: "JSON", want: false},
+		// an explicit JSON type is only honoured where the destination has the type
+		{flags: otherDestination, version: shared.InternalVersion_Latest, destinationType: "JSON", want: false},
+		{flags: nil, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: false},
 	} {
 		got := ShouldWrapNonObjectJSON(tc.flags, tc.version, tc.destinationType)
 		require.Equal(t, tc.want, got, "flags=%v version=%d destinationType=%q", tc.flags, tc.version, tc.destinationType)
