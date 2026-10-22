@@ -57,18 +57,56 @@ func (s ClickHouseSuite) Test_JSON_CH_Disabled_Nullable() {
 	})
 }
 
-// Test_JSON_CH_OldVersion pins the mirror below InternalVersion_WrapNonObjectJSON: objects still land
-// unchanged and nothing gets wrapped. Non-object documents are left out, as they fail on ClickHouse JSON
-// at that version.
+// Test_JSON_CH_OldVersion pins a native JSON mirror below InternalVersion_WrapNonObjectJSON and checks that
+// object documents still land unchanged. Non-object documents are left out: at that version ClickHouse
+// rejects them, which is what the wrapping fixes.
 func (s ClickHouseSuite) Test_JSON_CH_OldVersion() {
-	emptyObject := "{}"
-	s.testJSONColumns(jsonColumnMirrorConfig{
-		tableName:          "test_json_old",
-		nativeJSON:         true,
-		oldVersion:         true,
-		expectedColumnType: "JSON",
-		sourceNullLandsAs:  &emptyObject,
-	})
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+	}
+
+	srcTableName := "test_json_old"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+	docs := []string{`'{"key": "val", "number": 30, "bool": true}'`, `'{"nested": {"arr": [1, 2, null]}}'`, `'{}'`}
+	insertDocs := func() {
+		for _, doc := range docs {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, doc)))
+		}
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON)`, srcFullName)))
+	insertDocs()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Version = shared.InternalVersion_WrapNonObjectJSON - 1
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(flowConnConfig.Version), 10),
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	columnType, err := s.GetColumnType(dstTableName, "json")
+	require.NoError(s.t, err)
+	require.Equal(s.t, "JSON", columnType)
+
+	rowsMatch := jsonBatchesMatch([]string{"json"}, nil, false)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, "id,json", rowsMatch)
+	insertDocs()
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, "id,json", rowsMatch)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 // Test_JSON_CH_ClassicReader runs the native JSON matrix with PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS off, so
@@ -226,29 +264,24 @@ func jsonColumnTestCases(mysqlUtf8mb4Support bool) []jsonColumnTestCase {
 			value: `'{"blob": "` + strings.Repeat("x", 1<<20) + `"}'`,
 		},
 		{
-			desc:      "top-level number",
-			value:     `'123'`,
-			nonObject: true,
+			desc:  "top-level number",
+			value: `'123'`,
 		},
 		{
-			desc:      "top-level string",
-			value:     `'"string value"'`,
-			nonObject: true,
+			desc:  "top-level string",
+			value: `'"string value"'`,
 		},
 		{
-			desc:      "top-level boolean",
-			value:     `'true'`,
-			nonObject: true,
+			desc:  "top-level boolean",
+			value: `'true'`,
 		},
 		{
-			desc:      "top-level arrays",
-			value:     `'[1, 2, 3, {"key": "val"}, ["hello", "world"]]'`,
-			nonObject: true,
+			desc:  "top-level arrays",
+			value: `'[1, 2, 3, {"key": "val"}, ["hello", "world"]]'`,
 		},
 		{
-			desc:      "json null value",
-			value:     `'null'`,
-			nonObject: true,
+			desc:  "json null value",
+			value: `'null'`,
 		},
 		{
 			desc:   "postgres null value",
@@ -288,10 +321,8 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	}
 
 	jsonTestCases := jsonColumnTestCases(mysqlUtf8mb4Support)
-	// below InternalVersion_WrapNonObjectJSON a non-object document fails on a ClickHouse JSON column and
-	// stalls the mirror, which is what the wrapping fixes
-	skipNonObjects := cfg.nativeJSON && cfg.oldVersion
-	wrapNonObjects := cfg.nativeJSON && !cfg.oldVersion
+	// with native JSON on, the readers wrap non-object documents
+	wrapNonObjects := cfg.nativeJSON
 
 	srcTableName := cfg.tableName
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -310,7 +341,7 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 
 	require.NoError(s.T(), s.source.Exec(s.t.Context(), createStmt))
 	for _, testCase := range jsonTestCases {
-		if !testCase.skip && !(testCase.nonObject && skipNonObjects) {
+		if !testCase.skip {
 			require.NoError(s.t, s.source.Exec(s.t.Context(), insertStmt(testCase.value)))
 		}
 	}
@@ -325,10 +356,6 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	flowConnConfig.Env = map[string]string{
 		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
 		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
-	}
-	if cfg.oldVersion {
-		flowConnConfig.Version = shared.InternalVersion_WrapNonObjectJSON - 1
-		flowConnConfig.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(uint64(flowConnConfig.Version), 10)
 	}
 	if cfg.disableFastProcessJSONColumns {
 		flowConnConfig.Env["PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS"] = "false"
@@ -355,7 +382,7 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, cols, rowsMatch)
 
 	for _, testCase := range jsonTestCases {
-		if testCase.skip || (testCase.nonObject && skipNonObjects) {
+		if testCase.skip {
 			continue
 		}
 		require.NoError(s.t, s.source.Exec(s.t.Context(), insertStmt(testCase.value)))
@@ -377,8 +404,6 @@ type jsonColumnMirrorConfig struct {
 	nativeJSON bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
-	// oldVersion pins the mirror below InternalVersion_WrapNonObjectJSON
-	oldVersion bool
 	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
 	// takes the unmarshal/marshal path instead of the token walk; Postgres only
 	disableFastProcessJSONColumns bool
@@ -391,8 +416,6 @@ type jsonColumnTestCase struct {
 	skipReason string
 	skip       bool
 	isNull     bool
-	// nonObject marks a document ClickHouse JSON only accepts wrapped: scalars, arrays and JSON null
-	nonObject bool
 }
 
 // manyKeysJSON returns '{"k0": 0, "k1": 1, ..., "k<n-1>": <n-1>}' as a SQL literal.
