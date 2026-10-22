@@ -25,37 +25,40 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
-	logger      log.Logger
-	env         map[string]string
-	snapshot    string
-	flowJobName string
-	partitionID string
-	flags       []string
-	version     uint32
+	logger log.Logger
+	env    map[string]string
+	// columnDestinationTypes holds the explicit destination types from the column settings, by source column
+	columnDestinationTypes map[string]string
+	snapshot               string
+	flowJobName            string
+	partitionID            string
+	flags                  []string
+	version                uint32
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, nil, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, nil, nil, "", flowJobName, partitionID)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
-	flags []string, snapshot string, flowJobName string, partitionID string,
+	flags []string, columnDestinationTypes map[string]string, snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
 	return &QRepQueryExecutor{
-		PostgresConnector: c,
-		env:               env,
-		snapshot:          snapshot,
-		flowJobName:       flowJobName,
-		partitionID:       partitionID,
-		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-		version:           version,
-		flags:             flags,
+		PostgresConnector:      c,
+		env:                    env,
+		snapshot:               snapshot,
+		flowJobName:            flowJobName,
+		partitionID:            partitionID,
+		logger:                 log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
+		version:                version,
+		flags:                  flags,
+		columnDestinationTypes: columnDestinationTypes,
 	}, nil
 }
 
@@ -310,14 +313,13 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	if err != nil {
 		return 0, 0, err
 	}
-	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version)
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, fastProcessJsonColumns, wrapNonObjectJSON)
+		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi, fastProcessJsonColumns)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -516,7 +518,6 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
 	fastProcessJsonColumns bool,
-	wrapNonObjectJSON bool,
 ) ([]types.QValue, error) {
 	rawValues := row.RawValues()
 	values := make([]any, len(fds))
@@ -621,7 +622,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			wrapNonObjectJSON,
+			qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version, qe.columnDestinationTypes[fd.Name]),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

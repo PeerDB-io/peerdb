@@ -33,16 +33,24 @@ func TestShouldWrapNonObjectJSON(t *testing.T) {
 	noNativeJSON := []string{shared.Flag_ClickHouseTime64Enabled}
 
 	for _, tc := range []struct {
-		flags   []string
-		version uint32
-		want    bool
+		destinationType string
+		flags           []string
+		version         uint32
+		want            bool
 	}{
-		{nativeJSON, shared.InternalVersion_WrapNonObjectJSON, true},
-		{nativeJSON, shared.InternalVersion_Latest, true},
-		{nativeJSON, shared.InternalVersion_WrapNonObjectJSON - 1, false},
-		{noNativeJSON, shared.InternalVersion_Latest, false},
-		{nil, shared.InternalVersion_Latest, false},
+		{flags: nativeJSON, version: shared.InternalVersion_WrapNonObjectJSON, want: true},
+		{flags: nativeJSON, version: shared.InternalVersion_Latest, want: true},
+		{flags: nativeJSON, version: shared.InternalVersion_WrapNonObjectJSON - 1, want: false},
+		{flags: noNativeJSON, version: shared.InternalVersion_Latest, want: false},
+		{flags: nil, version: shared.InternalVersion_Latest, want: false},
+		// an explicit destination type decides for its column, whatever the mirror default is
+		{flags: nativeJSON, version: shared.InternalVersion_Latest, destinationType: "String", want: false},
+		{flags: nativeJSON, version: shared.InternalVersion_Latest, destinationType: "Nullable(String)", want: false},
+		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "JSON", want: true},
+		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: true},
+		{flags: noNativeJSON, version: shared.InternalVersion_WrapNonObjectJSON - 1, destinationType: "JSON", want: false},
 	} {
-		require.Equal(t, tc.want, ShouldWrapNonObjectJSON(tc.flags, tc.version), "flags=%v version=%d", tc.flags, tc.version)
+		got := ShouldWrapNonObjectJSON(tc.flags, tc.version, tc.destinationType)
+		require.Equal(t, tc.want, got, "flags=%v version=%d destinationType=%q", tc.flags, tc.version, tc.destinationType)
 	}
 }

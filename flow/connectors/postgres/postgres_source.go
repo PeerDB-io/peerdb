@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
@@ -338,7 +337,6 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
 	}
-	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion)
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -355,7 +353,7 @@ func pullCore[Items model.Items](
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
-		WrapNonObjectJSON:                        wrapNonObjectJSON,
+		Flags:                                    req.Flags,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))

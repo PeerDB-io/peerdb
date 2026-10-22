@@ -615,7 +615,6 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
-	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion)
 
 	isMariaDb := c.Flavor() == mysql.MariaDBFlavor
 	binlogRowMetadataSupported, err := c.IsBinlogRowMetadataSupported(ctx)
@@ -893,6 +892,10 @@ func (c *MySqlConnector) PullRecords(
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
+			columnDestinationTypes := req.TableNameMapping[sourceTableName].ColumnDestinationTypes
+			wrapJSON := func(column string) bool {
+				return qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion, columnDestinationTypes[column])
+			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				if isMariaDb {
@@ -968,7 +971,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapNonObjectJSON)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
 							if err != nil {
 								return err
 							}
@@ -1005,7 +1008,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapNonObjectJSON)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
 							if err != nil {
 								return err
 							}
@@ -1019,7 +1022,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapNonObjectJSON)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
 							if err != nil {
 								return err
 							}
@@ -1057,7 +1060,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapNonObjectJSON)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
 							if err != nil {
 								return err
 							}

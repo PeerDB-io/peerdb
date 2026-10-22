@@ -292,7 +292,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
-	wrapNonObjectJSON := qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version)
+	columnDestinationTypes := model.ColumnDestinationTypes(config.Columns)
 
 	c.logger.Info("[mysql] pulling records start")
 
@@ -316,7 +316,8 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val, wrapNonObjectJSON)
+			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val,
+				qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version, columnDestinationTypes[schema.Fields[idx].Name]))
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
 			}

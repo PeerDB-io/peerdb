@@ -119,6 +119,60 @@ func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_JSON_CH_StringOverride mixes, on a native JSON mirror, a JSON column that lands in native JSON with one
+// whose destination type is overridden to String: only the first one is wrapped.
+func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+	}
+
+	srcTableName := "test_json_string_override"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+	docs := []string{`'{"key": "val"}'`, `'"dark"'`, `'[1, 2]'`, `'42'`}
+	insertDocs := func() {
+		for _, doc := range docs {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (native, overridden) VALUES (%s, %s)`, srcFullName, doc, doc)))
+		}
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, native JSON, overridden JSON)`, srcFullName)))
+	insertDocs()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{{SourceName: "overridden", DestinationType: "String"}}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	for column, expectedType := range map[string]string{"native": "JSON", "overridden": "String"} {
+		columnType, err := s.GetColumnType(dstTableName, column)
+		require.NoError(s.t, err)
+		require.Equal(s.t, expectedType, columnType, "unexpected type for column %s", column)
+	}
+
+	nativeMatches := jsonBatchesMatch([]string{"native"}, nil, true)
+	overriddenMatches := jsonBatchesMatch([]string{"overridden"}, nil, false)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare native initial load", srcTableName, dstTableName, "id,native", nativeMatches)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare overridden initial load", srcTableName, dstTableName, "id,overridden", overriddenMatches)
+	insertDocs()
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare native cdc", srcTableName, dstTableName, "id,native", nativeMatches)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare overridden cdc", srcTableName, dstTableName, "id,overridden", overriddenMatches)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Test_JSON_CH_ClassicReader runs the native JSON matrix with PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS off, so
 // the Postgres reader takes the unmarshal/marshal path instead of the token walk.
 func (s ClickHouseSuite) Test_JSON_CH_ClassicReader() {

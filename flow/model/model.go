@@ -20,7 +20,9 @@ type SourceTableMapping struct {
 	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
 	MongoConfiguration *protos.MongoTableConfig
 	Exclude            map[string]struct{}
-	Name               string
+	// ColumnDestinationTypes holds the explicit destination types from the column settings, by source column.
+	ColumnDestinationTypes map[string]string
+	Name                   string
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
@@ -32,6 +34,20 @@ func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 		}
 	}
 	return SourceTableMapping{Name: name, Exclude: exset}
+}
+
+// ColumnDestinationTypes returns the explicit destination types from the column settings, by source column.
+func ColumnDestinationTypes(columns []*protos.ColumnSetting) map[string]string {
+	var result map[string]string
+	for _, column := range columns {
+		if column.DestinationType != "" {
+			if result == nil {
+				result = make(map[string]string)
+			}
+			result[column.SourceName] = column.DestinationType
+		}
+	}
+	return result
 }
 
 func NewSourceTableMappingWithStructuredIngestion(
