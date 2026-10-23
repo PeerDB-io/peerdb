@@ -229,10 +229,7 @@ func queryCDCPollWindow(
 }
 
 // queryCDCCatchingUp reports whether a successful poll advanced the checkpoint
-// but left it behind the safe end that was in effect when the poll started,
-// because the requested end was capped before that safe end. A cursor short of
-// the safe end alone isn't enough: watermark-based sources return the max
-// watermark seen, which trails the safe end even after scanning all of it.
+// but left it behind the safe end that was in effect when the poll started
 func queryCDCCatchingUp(start, end, nextCursor, safeEnd time.Time) bool {
 	return end.Before(safeEnd) && nextCursor.After(start) && nextCursor.Before(safeEnd)
 }
