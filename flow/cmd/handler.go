@@ -726,15 +726,18 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	} else {
 		config.Version = internalVersion
 	}
-	// the recreated mirror gets the destination's current capabilities, like a new mirror would; validation
-	// still compares the stored flags against them
+	// the recreated mirror gets the destination's current capabilities, like a new mirror would, once the
+	// stored flags are checked against them
 	flags, err := h.determineFlags(ctx, config.Env, config.DestinationName)
 	if err != nil {
-		return NewInternalApiError(err)
+		return NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
 	}
 	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
+	if apiErr := h.checkFlagsCompatibility(ctx, configCore, flags); apiErr != nil {
+		return apiErr
+	}
 	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
 		return err
 	}

@@ -4,12 +4,35 @@ import (
 	"testing"
 
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+// TestWrapNonObjectJSONResolvesDomains checks that a domain over json/jsonb wraps like its base type, as
+// the decoder resolves it to that type, while other columns and domains never wrap.
+func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
+	t.Parallel()
+
+	const jsonbDomainOID, textDomainOID uint32 = 70001, 70002
+	customTypes := map[uint32]pkg_pg.CustomDataType{
+		jsonbDomainOID: {Name: "jdoc", BaseOID: pgtype.JSONBOID},
+		textDomainOID:  {Name: "tdoc", BaseOID: pgtype.TextOID},
+	}
+	flags := []string{shared.Flag_ClickHouseJSONEnabled}
+	version := uint32(shared.InternalVersion_Latest)
+
+	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, nil))
+	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, nil))
+	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, nil))
+	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, nil))
+	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, nil))
+}
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {
 	t.Helper()

@@ -404,7 +404,8 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
-			wrapNonObjectJSON(rcol.DataType, rcol.Name, p.flags, p.internalVersion, sourceTableMapping.ColumnDestinationTypes),
+			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping,
+				p.flags, p.internalVersion, sourceTableMapping.ColumnDestinationTypes),
 		); err != nil {
 			return none, nil, err
 		}

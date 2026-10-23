@@ -374,13 +374,18 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-// wrapNonObjectJSON reports whether the values of a json/jsonb column are wrapped for the destination.
-// Other columns never wrap, so the gate is only consulted for those two types.
+// wrapNonObjectJSON reports whether the values of a json/jsonb column, or of a domain over one, are
+// wrapped for the destination. Other columns never wrap, so the gate is only consulted for those types.
 func wrapNonObjectJSON(
-	oid uint32, name string, flags []string, version uint32, destinationTypes map[string]string,
+	oid uint32, name string, customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	flags []string, version uint32, destinationTypes map[string]string,
 ) bool {
 	if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
-		return false
+		// a domain is decoded as its base type, so it wraps like the base type
+		oid, _ = pkg_pg.ResolveDataType(oid, 0, customTypeMapping)
+		if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
+			return false
+		}
 	}
 	return qvalue.ShouldWrapNonObjectJSON(flags, version, destinationTypes[name])
 }

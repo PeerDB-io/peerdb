@@ -46,6 +46,15 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
+	if flowConnectionConfigsCore.Resync {
+		flags, err := h.determineFlags(ctx, flowConnectionConfigsCore.Env, flowConnectionConfigsCore.DestinationName)
+		if err != nil {
+			return nil, NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
+		}
+		if apiErr := h.checkFlagsCompatibility(ctx, flowConnectionConfigsCore, flags); apiErr != nil {
+			return nil, apiErr
+		}
+	}
 	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
 
@@ -78,12 +87,6 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 				NewMirrorErrorInfo(map[string]string{
 					common.ErrorMetadataOffendingField: "flow_job_name",
 				}))
-		}
-	}
-
-	if connectionConfigs.Resync {
-		if apiErr := h.checkFlagsCompatibility(ctx, connectionConfigs); apiErr != nil {
-			return nil, apiErr
 		}
 	}
 
@@ -328,17 +331,14 @@ func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirror
 }
 
 // checkFlagsCompatibility blocks resync when a destination feature flag that was
-// enabled at mirror creation is now disabled and the stored schema contains
-// column types whose type mapping depends on that flag.
+// enabled at mirror creation (cfg.Flags) is absent from the flags the destination
+// reports now (newFlags) and the stored schema contains column types whose type
+// mapping depends on that flag.
 func (h *FlowRequestHandler) checkFlagsCompatibility(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
+	newFlags []string,
 ) APIError {
-	newFlags, err := h.determineFlags(ctx, cfg.Env, cfg.DestinationName)
-	if err != nil {
-		return NewInternalApiError(fmt.Errorf("failed to determine destination flags: %w", err))
-	}
-
 	schemaHasColumnTypes := func(colTypes []types.QValueKind) (bool, error) {
 		tableNames := make([]string, 0, len(cfg.TableMappings))
 		for _, tm := range cfg.TableMappings {
