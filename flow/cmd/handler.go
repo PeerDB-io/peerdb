@@ -215,7 +215,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
-		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
+		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true, false); err != nil {
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
@@ -723,7 +723,7 @@ func (h *FlowRequestHandler) validateTableResync(
 	} else {
 		config.Version = internalVersion
 	}
-	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false)
+	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false, true)
 	return apiErr
 }
 
@@ -768,7 +768,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
-	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
+	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false, false); err != nil {
 		return err
 	}
 
