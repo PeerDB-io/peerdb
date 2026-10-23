@@ -25,7 +25,7 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 		textDomainOID:  {Name: "tdoc", BaseOID: pgtype.TextOID},
 	}
 	flags := []string{shared.Flag_ClickHouseJSONEnabled}
-	version := uint32(shared.InternalVersion_Latest)
+	version := shared.InternalVersion_Latest
 
 	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, nil))
 	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, nil))
