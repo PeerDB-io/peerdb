@@ -405,10 +405,13 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+func (c *ClickHouseConnector) GetFlags(ctx context.Context, env map[string]string) ([]string, error) {
 	var flags []string
 	if qvalue.NativeJSONTypeSupported(c.chVersion) {
 		flags = append(flags, shared.Flag_ClickHouseJSONSupported)
+		if qvalue.ShouldUseNativeJSONType(ctx, env, c.chVersion) {
+			flags = append(flags, shared.Flag_ClickHouseJSONEnabled)
+		}
 	}
 
 	var time64Setting string

@@ -74,7 +74,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
-	jsonWrapping                             qvalue.NonObjectJSONWrapping
+	flags                                    []string
 	warnedTypeChanges                        sync.Map
 }
 
@@ -88,7 +88,7 @@ type PostgresCDCConfig struct {
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
-	JSONWrapping                             qvalue.NonObjectJSONWrapping
+	Flags                                    []string
 	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
@@ -192,7 +192,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
-		jsonWrapping:                             cdcConfig.JSONWrapping,
+		flags:                                    cdcConfig.Flags,
 	}, nil
 }
 
@@ -404,7 +404,7 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
-			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.jsonWrapping, sourceTableMapping.Columns),
+			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, sourceTableMapping.Columns),
 		); err != nil {
 			return none, nil, err
 		}
@@ -1473,7 +1473,8 @@ func processRelationMessage[Items model.Items](
 			// rendered for a QValueKind would not fit their DDL
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
 				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind,
-					p.jsonWrapping.Wraps(model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name))); ok {
+					qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion,
+						model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name))); ok {
 					defaultExpr = &literal
 				}
 			}

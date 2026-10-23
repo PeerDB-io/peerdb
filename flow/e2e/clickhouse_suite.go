@@ -1573,7 +1573,7 @@ func (s ClickHouseSuite) Test_Time64() {
 		s.t.Skip("only applies to postgres and mysql")
 	}
 
-	flags, err := s.connector.GetFlags(s.t.Context())
+	flags, err := s.connector.GetFlags(s.t.Context(), nil)
 	require.NoError(s.t, err)
 	supportsTime64 := slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled)
 

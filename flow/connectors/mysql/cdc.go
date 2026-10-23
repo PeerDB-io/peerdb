@@ -38,7 +38,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -611,10 +610,6 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	jsonWrapping, err := qvalue.ResolveNonObjectJSONWrapping(ctx, req.Env, req.Flags, req.InternalVersion)
-	if err != nil {
-		return err
-	}
 	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
 	if err != nil {
 		return err
@@ -898,7 +893,7 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			columns := req.TableNameMapping[sourceTableName].Columns
 			wrapJSON := func(fd *protos.FieldDescription) bool {
-				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), jsonWrapping, columns)
+				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, columns)
 			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {

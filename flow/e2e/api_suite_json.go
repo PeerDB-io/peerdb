@@ -13,7 +13,7 @@ import (
 )
 
 // TestResyncInitializesJSONFlag recreates a native JSON mirror through a RESYNC state change after stripping
-// Flag_ClickHouseJSONSupported from its stored config, as a mirror created before the flag existed looks. The
+// Flag_ClickHouseJSONEnabled from its stored config, as a mirror created before the flag existed looks. The
 // recreation has to determine the flags again, or the resynced mirror would leave a scalar unwrapped and fail.
 func (s APITestSuite) TestResyncInitializesJSONFlag() {
 	switch source := s.source.(type) {
@@ -58,8 +58,8 @@ func (s APITestSuite) TestResyncInitializesJSONFlag() {
 	// a mirror created before the flag existed has none of it in its stored config
 	config, err := s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.Contains(s.t, config.Flags, shared.Flag_ClickHouseJSONSupported)
-	config.Flags = slices.DeleteFunc(config.Flags, func(flag string) bool { return flag == shared.Flag_ClickHouseJSONSupported })
+	require.Contains(s.t, config.Flags, shared.Flag_ClickHouseJSONEnabled)
+	config.Flags = slices.DeleteFunc(config.Flags, func(flag string) bool { return flag == shared.Flag_ClickHouseJSONEnabled })
 	configBytes, err := proto.Marshal(config)
 	require.NoError(s.t, err)
 	_, err = s.catalog.Exec(s.t.Context(), "UPDATE flows SET config_proto = $1 WHERE name = $2", configBytes, flowConnConfig.FlowJobName)
@@ -78,7 +78,7 @@ func (s APITestSuite) TestResyncInitializesJSONFlag() {
 		jsonBatchesMatch([]string{"j"}, nil, true))
 	config, err = s.loadConfigFromCatalog(s.t.Context(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.Contains(s.t, config.Flags, shared.Flag_ClickHouseJSONSupported)
+	require.Contains(s.t, config.Flags, shared.Flag_ClickHouseJSONEnabled)
 
 	env, err = GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)

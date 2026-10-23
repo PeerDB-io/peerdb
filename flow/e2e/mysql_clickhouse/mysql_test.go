@@ -1645,7 +1645,7 @@ func (s MySQLClickHouseSuite) Test_MySQL_AlterTableAddColumnDefault() {
 	supportsBinlogRowMetadata, err := mysource.CompareServerVersion(s.T().Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
 	require.NoError(s.T(), err)
 
-	flags, err := s.DestinationConnector().(*connclickhouse.ClickHouseConnector).GetFlags(s.T().Context())
+	flags, err := s.DestinationConnector().(*connclickhouse.ClickHouseConnector).GetFlags(s.T().Context(), nil)
 	require.NoError(s.T(), err)
 
 	cols := mysqlAddColumnDefaultTestCases(supportsBinlogRowMetadata >= 0,
