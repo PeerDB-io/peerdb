@@ -187,27 +187,16 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 		for _, column := range tableSchema.Columns {
 			colName := column.Name
-			colType := types.QValueKind(column.Type)
 			colSetting := findColumnSetting(colName, tableMapping.GetColumns())
 			dstColName := resolveDestinationColumnName(colName, tableMapping.GetColumns())
 			if dstColName != colName {
 				colNameMap[colName] = dstColName
 			}
-			clickHouseType := colSetting.GetDestinationType()
-			columnNullableEnabled := colSetting.GetNullableEnabled()
-
-			if clickHouseType == "" {
-				var err error
-				clickHouseType, err = qvalue.ToDWHColumnType(
-					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column,
-					tableSchema.NullableEnabled || columnNullableEnabled, flags,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-				}
-			} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
-				!strings.HasPrefix(clickHouseType, "Nullable(") {
-				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+			clickHouseType, err := resolveClickHouseColumnType(
+				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
 
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
@@ -710,6 +699,32 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 		}
 	}
 	return nil
+}
+
+// resolveClickHouseColumnType returns the ClickHouse type for a source column, preferring the
+// configured destination type. Both the normalized table DDL and the normalize query use it,
+// so the type a column is created with and the type it is extracted as never diverge.
+func resolveClickHouseColumnType(
+	ctx context.Context,
+	column *protos.FieldDescription,
+	colSetting *protos.ColumnSetting,
+	tableNullableEnabled bool,
+	env map[string]string,
+	chVersion *chproto.Version,
+	flags []string,
+) (string, error) {
+	colType := types.QValueKind(column.Type)
+	nullableEnabled := tableNullableEnabled || colSetting.GetNullableEnabled()
+	clickHouseType := colSetting.GetDestinationType()
+	if clickHouseType == "" {
+		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags)
+	}
+	// TODO basic validation to avoid injection
+	if nullableEnabled && column.Nullable && !colType.IsArray() && !strings.HasPrefix(clickHouseType, "Nullable(") {
+		// a nullable-enabled column must be Nullable(...), or JSON nulls turn into the type's default value
+		return fmt.Sprintf("Nullable(%s)", clickHouseType), nil
+	}
+	return clickHouseType, nil
 }
 
 func getColName(overrides map[string]string, name string) string {
