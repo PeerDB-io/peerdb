@@ -21,7 +21,7 @@ type SourceTableMapping struct {
 	MongoConfiguration *protos.MongoTableConfig
 	Exclude            map[string]struct{}
 	Name               string
-	// Columns holds the table's column settings, for ExplicitDestinationType.
+	// Columns holds the table's column settings.
 	Columns []*protos.ColumnSetting
 }
 
