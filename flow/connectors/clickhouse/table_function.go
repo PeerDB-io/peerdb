@@ -48,7 +48,15 @@ func jsonFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	if !qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion) {
+	// an explicit destination type decides for its column, as the DDL and the normalize query do
+	castToJSON := qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion)
+	for _, column := range config.config.GetColumns() {
+		if column.SourceName == field.Name && column.DestinationType != "" {
+			castToJSON = column.DestinationType == "JSON" || column.DestinationType == "Nullable(JSON)"
+			break
+		}
+	}
+	if !castToJSON {
 		return sourceFieldIdentifier, nil
 	}
 
