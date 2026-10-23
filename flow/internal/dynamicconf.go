@@ -588,11 +588,11 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING_TABLES",
-		Description: "Comma-separated list of MongoDB collections (database.collection) whose ObjectID _id snapshot " +
-			"partitions use sampled boundaries instead of an even split of the min-max _id range",
-		DefaultValue:     "",
-		ValueType:        protos.DynconfValueType_STRING,
+		Name: "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING",
+		Description: "Controls whether MongoDB ObjectID _id snapshot partitions use sampled boundaries instead of " +
+			"an even split of the min-max _id range",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
@@ -1123,18 +1123,8 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 	return ops, nil
 }
 
-func PeerDBMongoDBSampledObjectIDPartitioningTables(ctx context.Context, env map[string]string) ([]string, error) {
-	value, err := dynLookup(ctx, env, "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING_TABLES")
-	if err != nil {
-		return nil, err
-	}
-	var tables []string
-	for raw := range strings.SplitSeq(value, ",") {
-		if table := strings.TrimSpace(raw); table != "" {
-			tables = append(tables, table)
-		}
-	}
-	return tables, nil
+func PeerDBMongoDBSampledObjectIDPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING")
 }
 
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {

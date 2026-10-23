@@ -1255,7 +1255,7 @@ func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
 	require.NoError(t, err)
 }
 
-func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Uniform() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_simple_partitioned"
@@ -1269,6 +1269,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.Env["PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING"] = "false"
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -1316,7 +1317,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
-func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_Sampled_Skewed_ObjectID() {
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Sample() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_partitioned_sampled_skewed"
@@ -1329,27 +1330,28 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_Sampled_Skewed_Object
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.SnapshotNumRowsPerPartition = 10
-	flowConnConfig.Env["PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING_TABLES"] = e2e.AttachSchema(s, srcTable)
+	flowConnConfig.SnapshotNumRowsPerPartition = 1000
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	// Two outliers near the ends of the ObjectID keyspace (1970 and 2106 timestamps) and
-	// 1,000 documents within ~17 minutes: an even split of [min, max] would put all
-	// 1,000 in a single partition.
-	docs := make([]any, 0, 1002)
+	// Mimics the likely $sample path in production: MongoDB uses a random cursor only when the
+	// sample is under 5% of the collection and the collection has more than 100 documents;
+	// otherwise scans the whole collection and sorts it randomly. 5,002 documents at
+	// 1,000 rows per partition give 6 partitions and a 120-document sample (6 x 20, 2.4%).
+	const clustered = 5_000
+	docs := make([]any, 0, clustered+2)
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range clustered {
+		docs = append(docs, bson.D{
+			{Key: "_id", Value: bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))},
+			{Key: "key", Value: fmt.Sprintf("value_%d", i)},
+		})
+	}
 	docs = append(docs,
 		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(1, 0))}, {Key: "outlier", Value: "min"}},
 		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(math.MaxUint32-1, 0))}, {Key: "outlier", Value: "max"}},
 	)
-	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := range 1000 {
-		docs = append(docs, bson.D{
-			{Key: "_id", Value: bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))},
-			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
-		})
-	}
 	_, err := collection.InsertMany(t.Context(), docs)
 	require.NoError(t, err)
 
@@ -1366,9 +1368,9 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_Sampled_Skewed_Object
 		`SELECT COUNT(*), COALESCE(MAX(rows_in_partition), 0) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
 		flowConnConfig.FlowJobName).Scan(&partitionCount, &maxRowsInPartition))
 	require.Greaterf(t, partitionCount, 1, "expected a parallel snapshot, got %d partition(s)", partitionCount)
-	require.LessOrEqualf(t, maxRowsInPartition, int64(30),
-		"largest partition held %d of 1,002 documents across %d partitions; sampled boundaries should spread the "+
-			"1,000 clustered _ids across partitions instead of the single partition an even split gives",
+	// allow 3x the target since the random cursor gives different boundaries on every run.
+	require.LessOrEqualf(t, maxRowsInPartition, int64(3_000),
+		"largest of %d partitions held %d of 5,002 documents; sampling should spread the clustered _ids",
 		maxRowsInPartition, partitionCount)
 
 	env.Cancel(t.Context())

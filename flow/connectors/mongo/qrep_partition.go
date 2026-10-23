@@ -28,8 +28,8 @@ const (
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
 // default _id index) and dispatches to a type-specific partitioner:
-//   - ObjectID  -> uniform division of the 12-byte ObjectID keyspace, or
-//     sampling-based quantile boundaries when sampleObjectIDs is set
+//   - ObjectID  -> sampling-based quantile boundaries when sampleObjectIDs is set (default),
+//     or uniform division of the 12-byte ObjectID keyspace
 //   - Int32/64  -> uniform division of the numeric range
 //   - String    -> sampling-based quantile boundaries
 //
@@ -62,7 +62,7 @@ func (c *MongoConnector) buildPartitions(
 		if sampleObjectIDs {
 			return c.sampledObjectIDPartitions(ctx, collection, minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
 		}
-		return c.objectIDPartitions(minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
+		return c.uniformObjectIDPartitions(minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
 	case isNumericIDType(minRaw.Type) && isNumericIDType(maxRaw.Type):
 		minVal, _ := rawValueToInt64(minRaw)
 		maxVal, _ := rawValueToInt64(maxRaw)
@@ -77,10 +77,10 @@ func (c *MongoConnector) buildPartitions(
 	}
 }
 
-// objectIDPartitions divides the ObjectID keyspace uniformly using integer
+// uniformObjectIDPartitions divides the ObjectID keyspace uniformly using integer
 // arithmetic on the full 12-byte value. Since the leading 4-byte timestamp is the
 // most significant component, this naturally partitions by insertion time.
-func (c *MongoConnector) objectIDPartitions(
+func (c *MongoConnector) uniformObjectIDPartitions(
 	minID bson.ObjectID,
 	maxID bson.ObjectID,
 	numPartitions int64,
@@ -133,10 +133,11 @@ func (c *MongoConnector) objectIDPartitions(
 }
 
 // sampledObjectIDPartitions builds partitions for an ObjectID _id collection from
-// quantile boundaries of a sample, for collections whose _ids are not spread evenly
-// over the keyspace (e.g. a few outlying timestamps far from the rest). If sampling
-// fails, for example on MongoDB versions where $sample can error on large samples,
-// or yields too few boundaries, it falls back to the uniform ObjectID division.
+// quantile boundaries of a sample, because _ids are rarely spread evenly over the
+// keyspace: insert rates change over time, and a few outlying timestamps far from
+// the rest leave nearly all documents in a handful of uniform partitions. If sampling
+// fails, it falls back to the uniform ObjectID division; if it yields too few
+// boundaries, there are too few documents to split, so it uses a full table partition.
 func (c *MongoConnector) sampledObjectIDPartitions(
 	ctx context.Context,
 	collection *mongo.Collection,
@@ -145,15 +146,15 @@ func (c *MongoConnector) sampledObjectIDPartitions(
 	numPartitions int64,
 ) ([]*protos.QRepPartition, error) {
 	if compareObjectIDs(minID, maxID) >= 0 {
-		c.logger.Info("[mongo] min/max ObjectID range is non-positive, falling back to full table partition")
+		c.logger.Info("[mongo] ObjectID range is non-positive, falling back to full table partition")
 		return utils.FullTablePartition(), nil
 	}
 
 	rawSamples, err := c.sampleIDs(ctx, collection, numPartitions)
 	if err != nil {
-		c.logger.Warn("[mongo] failed to sample ObjectID _ids, falling back to min/max ObjectID partitioning",
+		c.logger.Warn("[mongo] failed to sample ObjectID _ids, falling back to uniform ObjectID partitioning",
 			slog.Any("error", err))
-		return c.objectIDPartitions(minID, maxID, numPartitions)
+		return c.uniformObjectIDPartitions(minID, maxID, numPartitions)
 	}
 	samples := make([]bson.ObjectID, 0, len(rawSamples))
 	for _, rv := range rawSamples {
@@ -167,9 +168,9 @@ func (c *MongoConnector) sampledObjectIDPartitions(
 		return nil, err
 	}
 	if len(ranges) < 2 {
-		c.logger.Info("[mongo] insufficient ObjectID boundaries from sampling, falling back to min/max ObjectID partitioning",
+		c.logger.Info("[mongo] insufficient ObjectID boundaries from sampling, falling back to full table partition",
 			slog.Int("sampleCount", len(samples)))
-		return c.objectIDPartitions(minID, maxID, numPartitions)
+		return utils.FullTablePartition(), nil
 	}
 
 	c.logger.Info("[mongo] using sampled ObjectID partitioning",
@@ -338,21 +339,7 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		interior = append(interior, s)
 	}
 
-	// Pick up to numPartitions-1 evenly spaced interior boundaries (quantiles).
-	desiredBoundaries := numPartitions - 1
-	var picked []string
-	if int64(len(interior)) <= desiredBoundaries {
-		picked = interior
-	} else {
-		picked = make([]string, 0, desiredBoundaries)
-		for i := int64(1); i <= desiredBoundaries; i++ {
-			idx := i * int64(len(interior)) / numPartitions
-			if idx >= int64(len(interior)) {
-				idx = int64(len(interior)) - 1
-			}
-			picked = append(picked, interior[idx])
-		}
-	}
+	picked := pickQuantiles(interior, numPartitions)
 
 	// Build ranges: [min, p0), [p0, p1), ..., [pLast-1, pLast), [pLast, max].
 	// The last range is closed (end_inclusive=true); all others are half-open.
@@ -396,15 +383,7 @@ func computeObjectIDBoundaries(
 	slices.SortFunc(interior, compareObjectIDs)
 	interior = slices.Compact(interior)
 
-	// Pick up to numPartitions-1 evenly spaced interior boundaries (quantiles).
-	desiredBoundaries := numPartitions - 1
-	picked := interior
-	if int64(len(interior)) > desiredBoundaries {
-		picked = make([]bson.ObjectID, 0, desiredBoundaries)
-		for i := int64(1); i <= desiredBoundaries; i++ {
-			picked = append(picked, interior[i*int64(len(interior))/numPartitions])
-		}
-	}
+	picked := pickQuantiles(interior, numPartitions)
 
 	// Build ranges: [min, p0-1], [p0, p1-1], ..., [pLast, max].
 	ranges := make([][2]bson.ObjectID, 0, len(picked)+1)
@@ -418,6 +397,20 @@ func computeObjectIDBoundaries(
 		start = boundary
 	}
 	return append(ranges, [2]bson.ObjectID{start, maxID}), nil
+}
+
+// pickQuantiles picks numPartitions-1 evenly spaced boundaries from sorted, distinct
+// interior values, or all of them when there are too few.
+func pickQuantiles[T any](interior []T, numPartitions int64) []T {
+	desiredBoundaries := numPartitions - 1
+	if int64(len(interior)) <= desiredBoundaries {
+		return interior
+	}
+	picked := make([]T, 0, desiredBoundaries)
+	for i := int64(1); i <= desiredBoundaries; i++ {
+		picked = append(picked, interior[i*int64(len(interior))/numPartitions])
+	}
+	return picked
 }
 
 // compareObjectIDs orders ObjectIDs the way MongoDB does: bytewise.
