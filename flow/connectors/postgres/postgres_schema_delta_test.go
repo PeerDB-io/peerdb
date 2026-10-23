@@ -299,6 +299,10 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			want: "'00000000-0000-0000-0000-000000000001'",
 		},
 		{name: "c_jsonb", colDef: `jsonb DEFAULT '{"a": 1}'`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
+		// json documents keep their JSON form: a top-level string stays quoted, JSON null is not SQL NULL
+		{name: "c_jsonb_string", colDef: `jsonb DEFAULT '"dark"'`, qkind: types.QValueKindJSONB, want: `'"dark"'`},
+		{name: "c_json_array", colDef: `json DEFAULT '[1, 2]'`, qkind: types.QValueKindJSON, want: `'[1, 2]'`},
+		{name: "c_jsonb_null", colDef: `jsonb DEFAULT 'null'`, qkind: types.QValueKindJSONB, want: `'null'`},
 		{name: "c_inet", colDef: "inet DEFAULT '10.0.0.1'", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
 		{name: "c_date", colDef: "date DEFAULT '2020-01-02'", qkind: types.QValueKindDate, want: "'2020-01-02'"},
 		{
@@ -363,7 +367,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			require.Equal(t, tc.notNull, catalogInfo[tc.name].notNull)
 
 			var literal string
-			if missingValue := catalogInfo[tc.name].missingValue; missingValue != nil {
+			if missingValue := catalogInfo[tc.name].missingValueFor(tc.qkind); missingValue != nil {
 				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind)
 			}
 			if tc.wantNonEmpty {
