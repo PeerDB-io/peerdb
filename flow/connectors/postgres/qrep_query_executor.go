@@ -38,11 +38,11 @@ type QRepQueryExecutor struct {
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, nil, nil, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID, nil, nil)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
-	flags []string, columns []*protos.ColumnSetting, snapshot string, flowJobName string, partitionID string,
+	snapshot string, flowJobName string, partitionID string, flags []string, columns []*protos.ColumnSetting,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
