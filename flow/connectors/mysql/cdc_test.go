@@ -494,6 +494,10 @@ func TestShouldReportColumnTypeChange(t *testing.T) {
 		{"maria inet to string", types.QValueKindINET, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, true},
 		// Bytes on the wire for a non-uuid/inet schema kind is a real change.
 		{"maria string to bytes", types.QValueKindString, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, true},
+		// A MariaDB JSON column is the LONGTEXT it is stored in on the wire: benign, suppressed.
+		{"maria json as string", types.QValueKindJSON, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, false},
+		{"mysql json as string", types.QValueKindJSON, types.QValueKindString, protos.MySqlFlavor_MYSQL_MYSQL, true},
+		{"maria string to json", types.QValueKindString, types.QValueKindJSON, protos.MySqlFlavor_MYSQL_MARIA, true},
 		// Ordinary type change.
 		{"int to bigint", types.QValueKindInt32, types.QValueKindInt64, protos.MySqlFlavor_MYSQL_MYSQL, true},
 	} {
@@ -501,6 +505,39 @@ func TestShouldReportColumnTypeChange(t *testing.T) {
 			require.Equal(t, tc.want, shouldReportColumnTypeChange(tc.schemaKind, tc.wireKind, tc.flavor))
 		})
 	}
+}
+
+func TestJSONValidCheckColumn(t *testing.T) {
+	t.Parallel()
+
+	for clause, want := range map[string]string{
+		`json_valid("j")`:                    "j",
+		`json_valid("my col")`:               "my col",
+		`json_valid("a") or json_valid("b")`: "",
+		`json_valid("a""b")`:                 "",
+		`json_valid("")`:                     "",
+		`json_length("j") > 0`:               "",
+		`"j" is not null`:                    "",
+		"json_valid(`j`)":                    "", // the ANSI session never sees backticks
+		"":                                   "",
+	} {
+		got, ok := jsonValidCheckColumn(clause)
+		require.Equal(t, want != "", ok, "clause=%q", clause)
+		require.Equal(t, want, got, "clause=%q", clause)
+	}
+}
+
+func TestMariaDBJSONColumnsSkipsOldServers(t *testing.T) {
+	t.Parallel()
+
+	// no connection: reaching the check_constraints query would fail
+	c := &MySqlConnector{
+		config:        &protos.MySqlConfig{Flavor: protos.MySqlFlavor_MYSQL_MARIA},
+		serverVersion: "10.4.2-MariaDB",
+	}
+	columns, err := c.mariaDBJSONColumns(t.Context(), "db", "t", shared.InternalVersion_Latest)
+	require.NoError(t, err)
+	require.Nil(t, columns)
 }
 
 func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {

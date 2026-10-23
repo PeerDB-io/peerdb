@@ -48,6 +48,9 @@ const (
 	// Postgres/MySQL: wrap non-object JSON values (scalars, arrays, JSON null) as {"_value": ...} when
 	// PEERDB_CLICKHOUSE_ENABLE_JSON is on, since ClickHouse JSON only accepts objects at the top level
 	InternalVersion_WrapNonObjectJSON
+	// MariaDB: type a LONGTEXT column that carries a json_valid check as JSON, which is how MariaDB
+	// stores a column declared JSON; older mirrors keep typing it as a string
+	InternalVersion_MariaDBJSONColumns
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
