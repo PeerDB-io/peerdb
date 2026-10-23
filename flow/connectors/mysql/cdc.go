@@ -38,7 +38,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -893,10 +892,8 @@ func (c *MySqlConnector) PullRecords(
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			columnDestinationTypes := req.TableNameMapping[sourceTableName].ColumnDestinationTypes
-			// only JSON columns can wrap, so skip the gate for the rest
 			wrapJSON := func(fd *protos.FieldDescription) bool {
-				return types.QValueKind(fd.Type) == types.QValueKindJSON &&
-					qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion, columnDestinationTypes[fd.Name])
+				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, columnDestinationTypes)
 			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {

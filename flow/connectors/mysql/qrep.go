@@ -15,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -317,10 +316,8 @@ func (c *MySqlConnector) PullQRepRecords(
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
 			field := schema.Fields[idx]
-			// only JSON columns can wrap, so skip the gate for the rest
-			wrap := field.Type == types.QValueKindJSON &&
-				qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version, columnDestinationTypes[field.Name])
-			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val, wrap)
+			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val,
+				wrapNonObjectJSON(field.Name, field.Type, config.Flags, config.Version, columnDestinationTypes))
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}

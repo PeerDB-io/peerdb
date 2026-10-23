@@ -403,13 +403,10 @@ func processTuple[Items model.Items](
 				unchangedToastColumns = make(map[string]struct{})
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
-		} else {
-			// only json/jsonb columns can wrap, so skip the gate for the rest
-			wrap := (rcol.DataType == pgtype.JSONOID || rcol.DataType == pgtype.JSONBOID) &&
-				qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, sourceTableMapping.ColumnDestinationTypes[rcol.Name])
-			if err := processor.Process(items, p, tcol, rcol, customTypeMapping, wrap); err != nil {
-				return none, nil, err
-			}
+		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
+			wrapNonObjectJSON(rcol.DataType, rcol.Name, p.flags, p.internalVersion, sourceTableMapping.ColumnDestinationTypes),
+		); err != nil {
+			return none, nil, err
 		}
 	}
 

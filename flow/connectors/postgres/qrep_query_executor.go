@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -614,9 +613,6 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
 		_, nullable := nullableFields[fd.Name]
-		// only json/jsonb columns can wrap, so skip the gate for the rest
-		wrap := (fd.DataTypeOID == pgtype.JSONOID || fd.DataTypeOID == pgtype.JSONBOID) &&
-			qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version, qe.columnDestinationTypes[fd.Name])
 		tmp, err := qe.parseFieldFromPostgresOID(
 			fd.DataTypeOID,
 			fd.TypeModifier,
@@ -625,7 +621,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			wrap,
+			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.flags, qe.version, qe.columnDestinationTypes),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
