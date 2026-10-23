@@ -17,11 +17,8 @@ func WrapNonObjectJSON(doc string) string {
 	return `{"_value":` + doc + `}`
 }
 
-// ShouldWrapNonObjectJSON reports whether a source reader wraps a JSON column's values: the mirror is at or
-// above InternalVersion_WrapNonObjectJSON and the column lands in native ClickHouse JSON. An explicit
-// destination type decides for its column, JSON or Nullable(JSON) on a destination that has the type
-// (Flag_ClickHouseJSONSupported); without one the mirror default decides (Flag_ClickHouseJSONEnabled).
-// GetFlags records both flags at mirror creation.
+// ShouldWrapNonObjectJSON reports whether a JSON column with the given explicit destination type, "" for
+// none, lands in native ClickHouse JSON on this mirror and so has its non-object values wrapped.
 func ShouldWrapNonObjectJSON(flags []string, version uint32, destinationType string) bool {
 	if version < shared.InternalVersion_WrapNonObjectJSON {
 		return false
