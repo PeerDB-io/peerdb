@@ -295,7 +295,7 @@ func TestBuildPgDumpArgs(t *testing.T) {
 				User:     "admin",
 			},
 			wantArgs: []string{
-				"--schema-only", "--no-owner", "--no-privileges",
+				"--schema-only", "--no-owner", "--no-privileges", "--no-policies", "--exclude-schema=_peerdb_internal",
 				"-h", "src-host", "-p", "5432", "-d", "mydb", "-U", "admin",
 			},
 		},
@@ -307,7 +307,7 @@ func TestBuildPgDumpArgs(t *testing.T) {
 				Database: "test",
 			},
 			wantArgs: []string{
-				"--schema-only", "--no-owner", "--no-privileges",
+				"--schema-only", "--no-owner", "--no-privileges", "--no-policies", "--exclude-schema=_peerdb_internal",
 				"-h", "localhost", "-p", "5432", "-d", "test",
 			},
 		},
