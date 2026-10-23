@@ -378,7 +378,7 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 // wrapped for the destination. Other columns never wrap, so the gate is only consulted for those types.
 func wrapNonObjectJSON(
 	oid uint32, name string, customTypeMapping map[uint32]pkg_pg.CustomDataType,
-	flags []string, version uint32, destinationTypes map[string]string,
+	wrapping qvalue.NonObjectJSONWrapping, destinationTypes map[string]string,
 ) bool {
 	if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
 		// a domain is decoded as its base type, so it wraps like the base type
@@ -387,7 +387,7 @@ func wrapNonObjectJSON(
 			return false
 		}
 	}
-	return qvalue.ShouldWrapNonObjectJSON(flags, version, destinationTypes[name])
+	return wrapping.Wraps(destinationTypes[name])
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(

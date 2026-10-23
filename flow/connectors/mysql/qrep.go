@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -292,6 +293,10 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	columnDestinationTypes := model.ColumnDestinationTypes(config.Columns)
+	jsonWrapping, err := qvalue.ResolveNonObjectJSONWrapping(ctx, config.Env, config.Flags, config.Version)
+	if err != nil {
+		return 0, 0, err
+	}
 
 	c.logger.Info("[mysql] pulling records start")
 
@@ -317,7 +322,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		for idx, val := range row {
 			field := schema.Fields[idx]
 			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val,
-				wrapNonObjectJSON(field.Name, field.Type, config.Flags, config.Version, columnDestinationTypes))
+				wrapNonObjectJSON(field.Name, field.Type, jsonWrapping, columnDestinationTypes))
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}

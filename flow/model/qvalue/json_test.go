@@ -28,33 +28,39 @@ func TestWrapNonObjectJSON(t *testing.T) {
 	}
 }
 
-func TestShouldWrapNonObjectJSON(t *testing.T) {
-	nativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported, shared.Flag_ClickHouseJSONEnabled}
-	noNativeJSON := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
+func TestNonObjectJSONWrapping(t *testing.T) {
+	on := map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+	off := map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "false"}
+	clickhouse := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
 	otherDestination := []string{shared.Flag_ClickHouseTime64Enabled}
 
 	for _, tc := range []struct {
+		env             map[string]string
 		destinationType string
 		flags           []string
 		version         uint32
 		want            bool
 	}{
-		{flags: nativeJSON, version: shared.InternalVersion_WrapNonObjectJSON, want: true},
-		{flags: nativeJSON, version: shared.InternalVersion_Latest, want: true},
-		{flags: nativeJSON, version: shared.InternalVersion_WrapNonObjectJSON - 1, want: false},
-		{flags: noNativeJSON, version: shared.InternalVersion_Latest, want: false},
-		{flags: nil, version: shared.InternalVersion_Latest, want: false},
+		{env: on, flags: clickhouse, version: shared.InternalVersion_WrapNonObjectJSON, want: true},
+		{env: on, flags: clickhouse, version: shared.InternalVersion_Latest, want: true},
+		{env: on, flags: clickhouse, version: shared.InternalVersion_WrapNonObjectJSON - 1, want: false},
+		{env: off, flags: clickhouse, version: shared.InternalVersion_Latest, want: false},
+		{env: on, flags: otherDestination, version: shared.InternalVersion_Latest, want: false},
+		{env: on, flags: nil, version: shared.InternalVersion_Latest, want: false},
 		// an explicit destination type decides for its column, whatever the mirror default is
-		{flags: nativeJSON, version: shared.InternalVersion_Latest, destinationType: "String", want: false},
-		{flags: nativeJSON, version: shared.InternalVersion_Latest, destinationType: "Nullable(String)", want: false},
-		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "JSON", want: true},
-		{flags: noNativeJSON, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: true},
-		{flags: noNativeJSON, version: shared.InternalVersion_WrapNonObjectJSON - 1, destinationType: "JSON", want: false},
+		{env: on, flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "String", want: false},
+		{env: on, flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Nullable(String)", want: false},
+		{env: off, flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "JSON", want: true},
+		{env: off, flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: true},
+		{env: off, flags: clickhouse, version: shared.InternalVersion_WrapNonObjectJSON - 1, destinationType: "JSON", want: false},
 		// an explicit JSON type is only honoured where the destination has the type
-		{flags: otherDestination, version: shared.InternalVersion_Latest, destinationType: "JSON", want: false},
-		{flags: nil, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: false},
+		{env: on, flags: otherDestination, version: shared.InternalVersion_Latest, destinationType: "JSON", want: false},
+		{env: on, flags: nil, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: false},
 	} {
-		got := ShouldWrapNonObjectJSON(tc.flags, tc.version, tc.destinationType)
-		require.Equal(t, tc.want, got, "flags=%v version=%d destinationType=%q", tc.flags, tc.version, tc.destinationType)
+		wrapping, err := ResolveNonObjectJSONWrapping(t.Context(), tc.env, tc.flags, tc.version)
+		require.NoError(t, err)
+		got := wrapping.Wraps(tc.destinationType)
+		require.Equal(t, tc.want, got, "env=%v flags=%v version=%d destinationType=%q",
+			tc.env, tc.flags, tc.version, tc.destinationType)
 	}
 }

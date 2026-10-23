@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -31,7 +32,7 @@ type QRepQueryExecutor struct {
 	snapshot               string
 	flowJobName            string
 	partitionID            string
-	flags                  []string
+	jsonWrapping           qvalue.NonObjectJSONWrapping
 	version                uint32
 }
 
@@ -48,6 +49,10 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
+	jsonWrapping, err := qvalue.ResolveNonObjectJSONWrapping(ctx, env, flags, version)
+	if err != nil {
+		return nil, err
+	}
 	return &QRepQueryExecutor{
 		PostgresConnector:      c,
 		env:                    env,
@@ -56,7 +61,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		partitionID:            partitionID,
 		logger:                 log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 		version:                version,
-		flags:                  flags,
+		jsonWrapping:           jsonWrapping,
 		columnDestinationTypes: columnDestinationTypes,
 	}, nil
 }
@@ -621,7 +626,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.columnDestinationTypes),
+			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.jsonWrapping, qe.columnDestinationTypes),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

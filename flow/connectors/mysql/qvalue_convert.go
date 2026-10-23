@@ -271,12 +271,12 @@ func processVector(data []byte) []float32 {
 // wrapNonObjectJSON reports whether the values of a JSON column are wrapped for the destination.
 // Other columns never wrap, so the gate is only consulted for that type.
 func wrapNonObjectJSON(
-	name string, kind types.QValueKind, flags []string, version uint32, destinationTypes map[string]string,
+	name string, kind types.QValueKind, wrapping qvalue.NonObjectJSONWrapping, destinationTypes map[string]string,
 ) bool {
 	if kind != types.QValueKindJSON {
 		return false
 	}
-	return qvalue.ShouldWrapNonObjectJSON(flags, version, destinationTypes[name])
+	return wrapping.Wraps(destinationTypes[name])
 }
 
 func QValueFromMysqlFieldValue(

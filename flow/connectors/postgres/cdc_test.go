@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -24,14 +25,16 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 		jsonbDomainOID: {Name: "jdoc", BaseOID: pgtype.JSONBOID},
 		textDomainOID:  {Name: "tdoc", BaseOID: pgtype.TextOID},
 	}
-	flags := []string{shared.Flag_ClickHouseJSONEnabled}
-	version := uint32(shared.InternalVersion_Latest)
+	wrapping, err := qvalue.ResolveNonObjectJSONWrapping(t.Context(),
+		map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"},
+		[]string{shared.Flag_ClickHouseJSONSupported}, shared.InternalVersion_Latest)
+	require.NoError(t, err)
 
-	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, nil))
-	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, nil))
+	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, wrapping, nil))
+	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, wrapping, nil))
+	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, wrapping, nil))
+	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, wrapping, nil))
+	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, wrapping, nil))
 }
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {
