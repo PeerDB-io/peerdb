@@ -965,6 +965,72 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 	require.Equal(s.t, int64(0), numRows)
 }
 
+func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Key_Only_Delete_With_Insert() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	cmpTableName := s.attachSchemaSuffix("test_softdel_kod")
+	srcTableName := cmpTableName + "_src"
+	dstTableName := s.attachSchemaSuffix("test_softdel_kod_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
+			c2 INT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_softdel_kod"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		SourceName:        e2e.GeneratePostgresPeer(s.t).Name,
+		SoftDeleteColName: "_PEERDB_IS_DELETED",
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+		MaxBatchSize:      100,
+	}
+
+	env := e2e.ExecutePeerflow(s.t, tc, config)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2) VALUES (1,2)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize row", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2") == nil
+	})
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+
+	// The insert gives the batch an update arm for empty unchanged toast columns,
+	// which the key-only delete of id=1 must not take.
+	tx, err := s.Conn().Begin(s.t.Context())
+	e2e.EnvNoError(s.t, env, err)
+	_, err = tx.Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2) VALUES (3,4)`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = tx.Exec(s.t.Context(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvNoError(s.t, env, tx.Commit(s.t.Context()))
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize transaction", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+
+	require.NoError(s.t, s.comparePGTables(cmpTableName, dstTableName+` WHERE "_PEERDB_IS_DELETED"`, "id,c1,c2"))
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 	tc := e2e.NewTemporalClient(s.t)
 

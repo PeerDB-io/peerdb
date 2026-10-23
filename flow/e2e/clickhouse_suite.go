@@ -2217,6 +2217,8 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
 		{"c_enum", enumType + " DEFAULT 'ok'", "'sad'"},
 		{"c_uuid", "UUID DEFAULT '00000000-0000-0000-0000-000000000001'", "'11111111-1111-1111-1111-111111111111'"},
 		{"c_jsonb", `JSONB DEFAULT '{"a": 1}'`, `'{"b": 2}'`},
+		// a top-level JSON string must keep its quotes; the text form of the missing value would drop them
+		{"c_jsonb_string", `JSONB DEFAULT '"dark"'`, `'"explicit"'`},
 		{"c_hstore", `HSTORE DEFAULT '"z"=>"<&>", "a"=>NULL'`, `'"a"=>NULL, "z"=>"<&>"'`},
 		// Date and time values; non-volatile expressions are evaluated once into attmissingval.
 		{"c_date", "DATE DEFAULT '2020-01-02'", "'2021-02-03'"},
