@@ -1371,7 +1371,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Sample() {
 	// allow 3x the target since the random cursor gives different boundaries on every run.
 	require.LessOrEqualf(t, maxRowsInPartition, int64(3_000),
 		"largest of %d partitions held %d of 5,002 documents; sampling should spread the clustered _ids",
-		maxRowsInPartition, partitionCount)
+		partitionCount, maxRowsInPartition)
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
