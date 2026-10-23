@@ -896,9 +896,9 @@ func (c *MySqlConnector) PullRecords(
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
-			columnDestinationTypes := req.TableNameMapping[sourceTableName].ColumnDestinationTypes
+			columns := req.TableNameMapping[sourceTableName].Columns
 			wrapJSON := func(fd *protos.FieldDescription) bool {
-				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), jsonWrapping, columnDestinationTypes)
+				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), jsonWrapping, columns)
 			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {

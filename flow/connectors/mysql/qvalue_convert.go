@@ -24,6 +24,7 @@ import (
 	"golang.org/x/text/encoding"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -271,12 +272,12 @@ func processVector(data []byte) []float32 {
 // wrapNonObjectJSON reports whether the values of a JSON column are wrapped for the destination.
 // Other columns never wrap, so the gate is only consulted for that type.
 func wrapNonObjectJSON(
-	name string, kind types.QValueKind, wrapping qvalue.NonObjectJSONWrapping, destinationTypes map[string]string,
+	name string, kind types.QValueKind, wrapping qvalue.NonObjectJSONWrapping, columns []*protos.ColumnSetting,
 ) bool {
 	if kind != types.QValueKindJSON {
 		return false
 	}
-	return wrapping.Wraps(destinationTypes[name])
+	return wrapping.Wraps(model.ExplicitDestinationType(columns, name))
 }
 
 func QValueFromMysqlFieldValue(

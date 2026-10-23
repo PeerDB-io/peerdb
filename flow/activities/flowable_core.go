@@ -149,7 +149,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestionConfig,
 		)
 		mapping.MongoConfiguration = v.MongoConfig
-		mapping.ColumnDestinationTypes = model.ColumnDestinationTypes(v.Columns)
+		mapping.Columns = v.Columns
 		tblNameMapping[v.SourceTableIdentifier] = mapping
 	}
 

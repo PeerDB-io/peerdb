@@ -20,9 +20,9 @@ type SourceTableMapping struct {
 	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
 	MongoConfiguration *protos.MongoTableConfig
 	Exclude            map[string]struct{}
-	// ColumnDestinationTypes holds the explicit destination types from the column settings, by source column.
-	ColumnDestinationTypes map[string]string
-	Name                   string
+	// Columns holds the table's column settings, for ExplicitDestinationType.
+	Columns []*protos.ColumnSetting
+	Name    string
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
@@ -36,20 +36,15 @@ func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 	return SourceTableMapping{Name: name, Exclude: exset}
 }
 
-// ColumnDestinationTypes returns the explicit destination types from the column settings, by source column.
-// Validation admits duplicate settings for a column, and the destination resolves a column's type from the
-// first setting that names it, even one without a destination type, so the first setting is kept here too.
-func ColumnDestinationTypes(columns []*protos.ColumnSetting) map[string]string {
-	if len(columns) == 0 {
-		return nil
-	}
-	result := make(map[string]string, len(columns))
+// ExplicitDestinationType returns the destination type from the first column setting that names the
+// column, which is the one the destination resolves the column's type from, or "" when it sets none.
+func ExplicitDestinationType(columns []*protos.ColumnSetting, name string) string {
 	for _, column := range columns {
-		if _, seen := result[column.SourceName]; !seen {
-			result[column.SourceName] = column.DestinationType
+		if column.SourceName == name {
+			return column.DestinationType
 		}
 	}
-	return result
+	return ""
 }
 
 func NewSourceTableMappingWithStructuredIngestion(
