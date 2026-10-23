@@ -102,6 +102,16 @@ func findTypeConversions(schema types.QRecordSchema, columns []*protos.ColumnSet
 	return typeConversions
 }
 
+// findTableMappingByDestination returns the table mapping for the given destination table, or nil if there is none
+func findTableMappingByDestination(tableMappings []*protos.TableMapping, dstTableName string) *protos.TableMapping {
+	for _, tableMapping := range tableMappings {
+		if tableMapping.DestinationTableIdentifier == dstTableName {
+			return tableMapping
+		}
+	}
+	return nil
+}
+
 // findColumnSetting returns the column setting for the given source column, or nil if there is none
 func findColumnSetting(sourceColumnName string, columns []*protos.ColumnSetting) *protos.ColumnSetting {
 	for _, column := range columns {

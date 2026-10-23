@@ -118,13 +118,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	schema := t.tableNameSchemaMapping[t.TableName]
 
-	var tableMapping *protos.TableMapping
-	for _, tm := range t.tableMappings {
-		if tm.DestinationTableIdentifier == t.TableName {
-			tableMapping = tm
-			break
-		}
-	}
+	tableMapping := findTableMappingByDestination(t.tableMappings, t.TableName)
 
 	var escapedSourceSchemaSelectorFragment string
 	if t.sourceSchemaAsDestinationColumn {

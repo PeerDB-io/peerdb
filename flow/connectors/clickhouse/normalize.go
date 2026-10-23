@@ -96,13 +96,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
 
-	var tableMapping *protos.TableMapping
-	for _, tm := range config.TableMappings {
-		if tm.DestinationTableIdentifier == tableIdentifier {
-			tmEngine = tm.Engine
-			tableMapping = tm
-			break
-		}
+	tableMapping := findTableMappingByDestination(config.TableMappings, tableIdentifier)
+	if tableMapping != nil {
+		tmEngine = tableMapping.Engine
 	}
 
 	isDeletedColumn := defaultIsDeletedColName
