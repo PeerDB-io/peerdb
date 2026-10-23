@@ -588,6 +588,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING",
+		Description: "Controls whether MongoDB ObjectID _id snapshot partitions use sampled boundaries instead of " +
+			"an even split of the min-max _id range",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
 		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
 			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
@@ -1121,6 +1130,10 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 		}
 	}
 	return ops, nil
+}
+
+func PeerDBMongoDBSampledObjectIDPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING")
 }
 
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
