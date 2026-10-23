@@ -102,6 +102,25 @@ func findTypeConversions(schema types.QRecordSchema, columns []*protos.ColumnSet
 	return typeConversions
 }
 
+// findColumnSetting returns the column setting for the given source column, or nil if there is none
+func findColumnSetting(sourceColumnName string, columns []*protos.ColumnSetting) *protos.ColumnSetting {
+	for _, column := range columns {
+		if column.SourceName == sourceColumnName {
+			return column
+		}
+	}
+	return nil
+}
+
+// resolveDestinationColumnName returns the mapped destination name for a source column,
+// falling back to the source name when no mapping is configured
+func resolveDestinationColumnName(sourceColumnName string, columns []*protos.ColumnSetting) string {
+	if dstColName := findColumnSetting(sourceColumnName, columns).GetDestinationName(); dstColName != "" {
+		return dstColName
+	}
+	return sourceColumnName
+}
+
 func applyTypeConversions(schema types.QRecordSchema, typeConversions map[string]types.TypeConversion) types.QRecordSchema {
 	for i, field := range schema.Fields {
 		if conversion, exist := typeConversions[field.Name]; exist {

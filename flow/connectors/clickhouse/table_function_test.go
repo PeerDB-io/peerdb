@@ -81,6 +81,30 @@ func TestBuildInsertFromTableFunctionQueryArrayTime(t *testing.T) {
 		query)
 }
 
+// TestBuildInsertFromTableFunctionQueryDestinationName checks a renamed column is inserted under its
+// destination name while still being read from the staged field with the source name.
+func TestBuildInsertFromTableFunctionQueryDestinationName(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema: types.QRecordSchema{Fields: []types.QField{
+			{Name: "id", Type: types.QValueKindInt64},
+			{Name: "note", Type: types.QValueKindString},
+		}},
+		config: &protos.QRepConfig{
+			Env:     map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+			Columns: []*protos.ColumnSetting{{SourceName: "note", DestinationName: "memo"}},
+		},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(
+		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`id`,`memo`) SELECT `id`,`note` FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}
+
 // TestBuildInsertFromTableFunctionQueryArrayOfJSON checks arrays of JSON, staged as a string holding the
 // whole array, are parsed when their column is declared an array, a null one into the empty array, and
 // left as is otherwise, as when they land in a String column.

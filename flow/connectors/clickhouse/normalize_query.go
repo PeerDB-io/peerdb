@@ -138,26 +138,12 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	for _, column := range schema.Columns {
 		colName := column.Name
-		dstColName := colName
 		colType := types.QValueKind(column.Type)
-
-		var clickHouseType string
-		var columnNullableEnabled bool
-		if tableMapping != nil {
-			for _, col := range tableMapping.Columns {
-				if col.SourceName == colName {
-					if col.DestinationName != "" {
-						dstColName = col.DestinationName
-					}
-					if col.DestinationType != "" {
-						// TODO basic validation to avoid injection
-						clickHouseType = col.DestinationType
-					}
-					columnNullableEnabled = col.NullableEnabled
-					break
-				}
-			}
-		}
+		colSetting := findColumnSetting(colName, tableMapping.GetColumns())
+		dstColName := resolveDestinationColumnName(colName, tableMapping.GetColumns())
+		// TODO basic validation to avoid injection
+		clickHouseType := colSetting.GetDestinationType()
+		columnNullableEnabled := colSetting.GetNullableEnabled()
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 		if clickHouseType == "" {

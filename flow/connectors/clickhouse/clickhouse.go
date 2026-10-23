@@ -350,16 +350,8 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
-		colName := srcField.Name
 		// if the column is mapped to a different name, find and use that name instead
-		for _, col := range tableMapping.Columns {
-			if col.SourceName == colName {
-				if col.DestinationName != "" {
-					colName = col.DestinationName
-				}
-				break
-			}
-		}
+		colName := resolveDestinationColumnName(srcField.Name, tableMapping.GetColumns())
 		found := false
 		// compare either the source column name or the mapped destination column name to the ClickHouse schema
 		for _, dstField := range dstSchema {

@@ -451,6 +451,46 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_DestinationNameColumnSetting checks a column renamed via destination_name is filled by both the
+// initial snapshot and CDC.
+func (s ClickHouseSuite) Test_DestinationNameColumnSetting() {
+	srcTableName := "test_destination_name"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_destination_name_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, note TEXT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note) VALUES (1, 'snapshot')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_destination_name"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{{SourceName: "note", DestinationName: "memo"}}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on initial", dstTableName, "id,memo", 1)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note) VALUES (2, 'cdc')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,memo", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,memo")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.Equal(s.t, "snapshot", rows.Records[0][1].Value())
+	require.Equal(s.t, "cdc", rows.Records[1][1].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 	srcTableName := "test_update_pkey_disabled"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
