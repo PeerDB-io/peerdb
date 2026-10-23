@@ -20,9 +20,9 @@ type SourceTableMapping struct {
 	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
 	MongoConfiguration *protos.MongoTableConfig
 	Exclude            map[string]struct{}
+	Name               string
 	// Columns holds the table's column settings, for ExplicitDestinationType.
 	Columns []*protos.ColumnSetting
-	Name    string
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {

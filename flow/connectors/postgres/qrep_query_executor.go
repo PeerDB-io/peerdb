@@ -24,15 +24,15 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
-	logger log.Logger
-	env    map[string]string
-	// columns holds the table's column settings, for the explicit destination types
-	columns     []*protos.ColumnSetting
+	logger      log.Logger
+	env         map[string]string
 	snapshot    string
 	flowJobName string
 	partitionID string
-	flags       []string
-	version     uint32
+	// columns holds the table's column settings, for the explicit destination types
+	columns []*protos.ColumnSetting
+	flags   []string
+	version uint32
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
