@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func TestCdcStreamGetLastCheckpointPanic(t *testing.T) {
@@ -33,4 +35,19 @@ func TestJsonOptionsUnnestCols(t *testing.T) {
 	_, ok2 := opts.UnnestColumns["missing"]
 	require.True(t, ok1)
 	require.False(t, ok2)
+}
+
+// TestColumnDestinationTypes checks that the first setting for a column wins, as in the ClickHouse DDL,
+// even when it leaves the destination type empty.
+func TestColumnDestinationTypes(t *testing.T) {
+	t.Parallel()
+
+	result := ColumnDestinationTypes([]*protos.ColumnSetting{
+		{SourceName: "explicit_first", DestinationType: "JSON"},
+		{SourceName: "explicit_first", DestinationType: "String"},
+		{SourceName: "empty_first", NullableEnabled: true},
+		{SourceName: "empty_first", DestinationType: "JSON"},
+	})
+	require.Equal(t, "JSON", result["explicit_first"])
+	require.Empty(t, result["empty_first"])
 }

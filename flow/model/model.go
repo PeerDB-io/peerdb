@@ -37,13 +37,15 @@ func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 }
 
 // ColumnDestinationTypes returns the explicit destination types from the column settings, by source column.
+// Validation admits duplicate settings for a column, and the destination resolves a column's type from the
+// first setting that names it, even one without a destination type, so the first setting is kept here too.
 func ColumnDestinationTypes(columns []*protos.ColumnSetting) map[string]string {
 	var result map[string]string
 	for _, column := range columns {
-		if column.DestinationType != "" {
-			if result == nil {
-				result = make(map[string]string)
-			}
+		if result == nil {
+			result = make(map[string]string, len(columns))
+		}
+		if _, seen := result[column.SourceName]; !seen {
 			result[column.SourceName] = column.DestinationType
 		}
 	}
