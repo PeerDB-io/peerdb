@@ -614,6 +614,9 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
 		_, nullable := nullableFields[fd.Name]
+		// only json/jsonb columns can wrap, so skip the gate for the rest
+		wrap := (fd.DataTypeOID == pgtype.JSONOID || fd.DataTypeOID == pgtype.JSONBOID) &&
+			qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version, qe.columnDestinationTypes[fd.Name])
 		tmp, err := qe.parseFieldFromPostgresOID(
 			fd.DataTypeOID,
 			fd.TypeModifier,
@@ -622,7 +625,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			qvalue.ShouldWrapNonObjectJSON(qe.flags, qe.version, qe.columnDestinationTypes[fd.Name]),
+			wrap,
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

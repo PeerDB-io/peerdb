@@ -893,8 +893,10 @@ func (c *MySqlConnector) PullRecords(
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			columnDestinationTypes := req.TableNameMapping[sourceTableName].ColumnDestinationTypes
-			wrapJSON := func(column string) bool {
-				return qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion, columnDestinationTypes[column])
+			// only JSON columns can wrap, so skip the gate for the rest
+			wrapJSON := func(fd *protos.FieldDescription) bool {
+				return types.QValueKind(fd.Type) == types.QValueKindJSON &&
+					qvalue.ShouldWrapNonObjectJSON(req.Flags, req.InternalVersion, columnDestinationTypes[fd.Name])
 			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
@@ -971,7 +973,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1008,7 +1010,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1022,7 +1024,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1060,7 +1062,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd.Name))
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}

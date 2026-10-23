@@ -316,10 +316,13 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val,
-				qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version, columnDestinationTypes[schema.Fields[idx].Name]))
+			field := schema.Fields[idx]
+			// only JSON columns can wrap, so skip the gate for the rest
+			wrap := field.Type == types.QValueKindJSON &&
+				qvalue.ShouldWrapNonObjectJSON(config.Flags, config.Version, columnDestinationTypes[field.Name])
+			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val, wrap)
 			if err != nil {
-				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
+				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}
 			record = append(record, qv)
 		}
