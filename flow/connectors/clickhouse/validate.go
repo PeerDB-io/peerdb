@@ -66,8 +66,10 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return err
 	}
 
-	if cfg.Resync {
-		return nil // no need to validate schema for resync, as we will create or replace the tables
+	// Without source schemas (full mirror resync) there is nothing left to validate, as the tables are created or replaced.
+	// A table-level resync passes them to validate the new table settings.
+	if cfg.Resync && tableNameSchemaMapping == nil {
+		return nil
 	}
 
 	peerDBColumns := []string{versionColName}
@@ -98,17 +100,20 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return err
 	}
 
-	if !sourceSchemaAsDestinationColumn {
+	if !sourceSchemaAsDestinationColumn && !cfg.Resync {
 		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
 			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), initialLoadAllowNonEmptyTables,
 		); err != nil {
 			return err
 		}
 	}
-	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
-	if err != nil {
-		return err
+	var chTableColumnsMapping map[string][]chvalidate.ClickHouseColumn
+	if !cfg.Resync {
+		// optimization: fetching columns for all tables at once
+		chTableColumnsMapping, err = chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, tableMapping := range cfg.TableMappings {
@@ -150,12 +155,12 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 
 		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
+		// for resync, we don't need to check the content or structure of the original tables;
+		// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
+		if _, ok := chTableColumnsMapping[dstTableName]; !ok || cfg.Resync {
 			continue
 		}
 
-		// for resync, we don't need to check the content or structure of the original tables;
-		// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
 		if err := c.processTableComparison(dstTableName, processedMapping[dstTableName],
 			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping,
 		); err != nil {
