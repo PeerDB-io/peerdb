@@ -176,8 +176,11 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if strings.HasPrefix(table, "_peerdb_raw") {
 		rows, rowsErr = s.queryRawTable(ch, table, cols)
 	} else {
+		// Remove this setting once clickhouse-go supports ClickHouse 26.10+ native JSON serialization.
 		rows, rowsErr = ch.Query(
-			s.t.Context(),
+			clickhouse.Context(s.t.Context(), clickhouse.WithSettings(clickhouse.Settings{
+				"output_format_native_use_flattened_dynamic_and_json_serialization": 1,
+			})),
 			fmt.Sprintf(`SELECT %s FROM "%s" FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 		)
 	}
