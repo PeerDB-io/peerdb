@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,7 +15,7 @@ func SwitchboardDSN(peer string, options map[string]string) string {
 		for k, v := range options {
 			optParts = append(optParts, fmt.Sprintf("-c peerdb.%s=%s", k, v))
 		}
-		dsn += "&options=" + strings.ReplaceAll(url.QueryEscape(strings.Join(optParts, " ")), "+", "%20")
+		dsn += "&options=" + strings.Join(optParts, " ")
 	}
 	return dsn
 }
