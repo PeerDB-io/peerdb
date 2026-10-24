@@ -24,6 +24,8 @@ import (
 	"golang.org/x/text/encoding"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -267,7 +269,20 @@ func processVector(data []byte) []float32 {
 	return floats
 }
 
-func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
+// wrapNonObjectJSON reports whether the values of a JSON column are wrapped for the destination.
+// Other columns never wrap, so the gate is only consulted for that type.
+func wrapNonObjectJSON(
+	name string, kind types.QValueKind, flags []string, version uint32, columns []*protos.ColumnSetting,
+) bool {
+	if kind != types.QValueKindJSON {
+		return false
+	}
+	return qvalue.ShouldWrapNonObjectJSON(flags, version, model.ExplicitDestinationType(columns, name))
+}
+
+func QValueFromMysqlFieldValue(
+	qkind types.QValueKind, mytype byte, fv mysql.FieldValue, wrapNonObjectJSON bool,
+) (types.QValue, error) {
 	switch fv.Type {
 	case mysql.FieldValueTypeNull:
 		return types.QValueNull(qkind), nil
@@ -351,7 +366,11 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			return types.QValueBytes{Val: slices.Clone(v)}, nil
 		case types.QValueKindJSON:
 			// keep snapshot and cdc json representation consistent
-			return types.QValueJSON{Val: compactMySQLJSON(v)}, nil
+			doc := compactMySQLJSON(v)
+			if wrapNonObjectJSON {
+				doc = qvalue.WrapNonObjectJSON(doc)
+			}
+			return types.QValueJSON{Val: doc}, nil
 		case types.QValueKindUUID:
 			// snapshot reads via the text protocol, so MariaDB sends the canonical string
 			u, err := uuid.Parse(unsafeString)
@@ -437,6 +456,7 @@ func QValueFromMysqlRowEvent(
 	ev *replication.TableMapEvent, idx int,
 	enums []string, sets []string,
 	qkind types.QValueKind, val any, enc encoding.Encoding, logger log.Logger, coercionReported *bool,
+	wrapNonObjectJSON bool,
 ) (types.QValue, error) {
 	mytype := ev.ColumnType[idx]
 
@@ -590,7 +610,11 @@ func QValueFromMysqlRowEvent(
 			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
 			// MySQL always stores JSON internally as utf8mb4, so it never needs transcoding.
-			return types.QValueJSON{Val: string(val)}, nil
+			doc := string(val)
+			if wrapNonObjectJSON {
+				doc = qvalue.WrapNonObjectJSON(doc)
+			}
+			return types.QValueJSON{Val: doc}, nil
 		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
 			return processGeometryData(val)
@@ -616,6 +640,9 @@ func QValueFromMysqlRowEvent(
 			}
 			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
+			if wrapNonObjectJSON {
+				val = qvalue.WrapNonObjectJSON(val)
+			}
 			return types.QValueJSON{Val: val}, nil
 		case types.QValueKindArrayFloat32:
 			b := shared.UnsafeFastStringToReadOnlyBytes(val)

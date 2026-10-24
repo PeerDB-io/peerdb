@@ -33,6 +33,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
@@ -73,6 +74,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+	flags                                    []string
 	warnedTypeChanges                        sync.Map
 }
 
@@ -86,6 +88,7 @@ type PostgresCDCConfig struct {
 	FlowJobName                              string
 	Slot                                     string
 	Publication                              string
+	Flags                                    []string
 	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
@@ -189,6 +192,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
+		flags:                                    cdcConfig.Flags,
 	}, nil
 }
 
@@ -272,6 +276,7 @@ type replProcessor[Items model.Items] interface {
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
 		customTypeMapping map[uint32]pkg_pg.CustomDataType,
+		wrapNonObjectJSON bool,
 	) error
 
 	AddStringColumn(items Items, name string, value string)
@@ -289,6 +294,7 @@ func (pgProcessor) Process(
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	_ bool,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -324,6 +330,7 @@ func (qProcessor) Process(
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
 	customTypeMapping map[uint32]pkg_pg.CustomDataType,
+	wrapNonObjectJSON bool,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -331,7 +338,7 @@ func (qProcessor) Process(
 	case 't': // text
 		// bytea also appears here as a hex
 		data, err := p.decodeColumnData(
-			tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion,
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion, wrapNonObjectJSON,
 		)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
@@ -341,7 +348,7 @@ func (qProcessor) Process(
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
 		data, err := p.decodeColumnData(
-			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion, wrapNonObjectJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("error decoding binary data for column %s: %w", col.Name, err)
@@ -396,7 +403,9 @@ func processTuple[Items model.Items](
 				unchangedToastColumns = make(map[string]struct{})
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
-		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping); err != nil {
+		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
+			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, sourceTableMapping.Columns),
+		); err != nil {
 			return none, nil, err
 		}
 	}
@@ -414,6 +423,7 @@ func processTuple[Items model.Items](
 
 func (p *PostgresCDCSource) decodeColumnData(
 	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]pkg_pg.CustomDataType, version uint32,
+	wrapNonObjectJSON bool,
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
@@ -446,7 +456,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				}
 			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-				parsedData, customTypeMapping, p.internalVersion)
+				parsedData, customTypeMapping, p.internalVersion, wrapNonObjectJSON)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
@@ -486,7 +496,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 			parsedData = arr
 		}
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			parsedData, customTypeMapping, p.internalVersion)
+			parsedData, customTypeMapping, p.internalVersion, wrapNonObjectJSON)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -515,10 +525,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return nil, err
 		}
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			parsedData, customTypeMapping, p.internalVersion)
+			parsedData, customTypeMapping, p.internalVersion, wrapNonObjectJSON)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
-			string(data), customTypeMapping, p.internalVersion)
+			string(data), customTypeMapping, p.internalVersion, wrapNonObjectJSON)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
@@ -1462,7 +1472,9 @@ func processRelationMessage[Items model.Items](
 			// destinations on the PG type system splice the column type in verbatim, so a literal
 			// rendered for a QValueKind would not fit their DDL
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind); ok {
+				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind,
+					qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion,
+						model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name))); ok {
 					defaultExpr = &literal
 				}
 			}
@@ -1603,7 +1615,7 @@ var pgNumericLiteralRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+
 // defaultExprFromPostgresMissingValue renders the value PostgreSQL stored in attmissingval as a SQL
 // literal that destinations can splice into DDL verbatim. Only types whose text form carries over are
 // translated; everything else is declined, leaving the destination column without a default.
-func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (string, bool) {
+func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, wrapNonObjectJSON bool) (string, bool) {
 	switch qkind {
 	case types.QValueKindBoolean:
 		if value != "true" && value != "false" {
@@ -1646,9 +1658,14 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind) (
 		}
 		return quoteDefaultLiteral(value), true
 
+	case types.QValueKindJSON, types.QValueKindJSONB:
+		if wrapNonObjectJSON {
+			value = qvalue.WrapNonObjectJSON(value)
+		}
+		return quoteDefaultLiteral(value), true
+
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
-		types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindINET,
-		types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
+		types.QValueKindINET, types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
 		return quoteDefaultLiteral(value), true
 
 	default:

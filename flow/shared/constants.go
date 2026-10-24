@@ -45,6 +45,9 @@ const (
 	// inserting into ClickHouse. Otherwise inference is indeterministic depending on initial
 	// input data, and can silently corrupts out-of-range values (e,g, pre-1970 date becomes 1970-01-01).
 	InternalVersion_AlwaysUseDateTime64Inference
+	// Postgres/MySQL: wrap non-object JSON values (scalars, arrays, JSON null) as {"_value": ...} when
+	// PEERDB_CLICKHOUSE_ENABLE_JSON is on, since ClickHouse JSON only accepts objects at the top level
+	InternalVersion_WrapNonObjectJSON
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
@@ -104,4 +107,10 @@ func Val[T any](p *T) T {
 // Flag constants for flow config Flags mapping
 const (
 	Flag_ClickHouseTime64Enabled = "clickhouse_time64_enabled"
+	// the destination is a ClickHouse that has the native JSON type (>= 25.3), so an explicit JSON destination
+	// type on a column can be honoured; decided once at mirror creation
+	Flag_ClickHouseJSONSupported = "clickhouse_json_supported"
+	// the destination maps JSON columns to native JSON by default (PEERDB_CLICKHOUSE_ENABLE_JSON on and
+	// Flag_ClickHouseJSONSupported); sources wrap non-object JSON values for it
+	Flag_ClickHouseJSONEnabled = "clickhouse_json_enabled"
 )

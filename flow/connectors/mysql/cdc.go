@@ -891,6 +891,10 @@ func (c *MySqlConnector) PullRecords(
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
+			columns := req.TableNameMapping[sourceTableName].Columns
+			wrapJSON := func(fd *protos.FieldDescription) bool {
+				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, columns)
+			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				if isMariaDb {
@@ -966,7 +970,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1003,7 +1007,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1017,7 +1021,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1055,7 +1059,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, wrapJSON(fd))
 							if err != nil {
 								return err
 							}

@@ -145,11 +145,11 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
-	val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][0])
+	val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][0], false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert partition minimum to qvalue: %w", err)
 	}
-	val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][1])
+	val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][1], false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert partition maximum to qvalue: %w", err)
 	}
@@ -313,9 +313,11 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
+			field := schema.Fields[idx]
+			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val,
+				wrapNonObjectJSON(field.Name, field.Type, config.Flags, config.Version, config.Columns))
 			if err != nil {
-				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
+				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}
 			record = append(record, qv)
 		}

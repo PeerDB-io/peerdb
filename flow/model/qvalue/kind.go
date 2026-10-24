@@ -113,13 +113,17 @@ func ToDWHColumnType(
 	return colType, nil
 }
 
+// NativeJSONTypeSupported reports whether the ClickHouse version has the native JSON type, which is
+// marked production ready in 25.3.
+func NativeJSONTypeSupported(chVersion *chproto.Version) bool {
+	return chVersion != nil && chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, *chVersion)
+}
+
 func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersion *chproto.Version) bool {
-	if chVersion == nil {
+	if !NativeJSONTypeSupported(chVersion) {
 		return false
 	}
-	// JSON data type is marked as production ready in version ClickHouse 25.3
-	isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, *chVersion)
 	// Treat error the same as not enabled
 	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
-	return isJsonSupported && isJsonEnabled
+	return isJsonEnabled
 }

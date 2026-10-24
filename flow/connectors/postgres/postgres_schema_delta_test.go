@@ -263,6 +263,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		postAlter    string
 		qkind        types.QValueKind
 		want         string
+		wantWrapped  string // literal with non-object JSON wrapping on; empty means the same as want
 		wantNonEmpty bool
 		notNull      bool
 	}{
@@ -300,9 +301,18 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		},
 		{name: "c_jsonb", colDef: `jsonb DEFAULT '{"a": 1}'`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
 		// json documents keep their JSON form: a top-level string stays quoted, JSON null is not SQL NULL
-		{name: "c_jsonb_string", colDef: `jsonb DEFAULT '"dark"'`, qkind: types.QValueKindJSONB, want: `'"dark"'`},
-		{name: "c_json_array", colDef: `json DEFAULT '[1, 2]'`, qkind: types.QValueKindJSON, want: `'[1, 2]'`},
-		{name: "c_jsonb_null", colDef: `jsonb DEFAULT 'null'`, qkind: types.QValueKindJSONB, want: `'null'`},
+		{
+			name: "c_jsonb_string", colDef: `jsonb DEFAULT '"dark"'`, qkind: types.QValueKindJSONB,
+			want: `'"dark"'`, wantWrapped: `'{"_value":"dark"}'`,
+		},
+		{
+			name: "c_json_array", colDef: `json DEFAULT '[1, 2]'`, qkind: types.QValueKindJSON,
+			want: `'[1, 2]'`, wantWrapped: `'{"_value":[1, 2]}'`,
+		},
+		{
+			name: "c_jsonb_null", colDef: `jsonb DEFAULT 'null'`, qkind: types.QValueKindJSONB,
+			want: `'null'`, wantWrapped: `'{"_value":null}'`,
+		},
 		{name: "c_inet", colDef: "inet DEFAULT '10.0.0.1'", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
 		{name: "c_date", colDef: "date DEFAULT '2020-01-02'", qkind: types.QValueKindDate, want: "'2020-01-02'"},
 		{
@@ -366,14 +376,20 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			require.Len(t, catalogInfo, 1)
 			require.Equal(t, tc.notNull, catalogInfo[tc.name].notNull)
 
-			var literal string
+			var literal, wrappedLiteral string
 			if missingValue := catalogInfo[tc.name].missingValueFor(tc.qkind); missingValue != nil {
-				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind)
+				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, false)
+				wrappedLiteral, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true)
 			}
 			if tc.wantNonEmpty {
 				require.NotEmpty(t, literal)
 			} else {
 				require.Equal(t, tc.want, literal)
+				wantWrapped := tc.wantWrapped
+				if wantWrapped == "" {
+					wantWrapped = tc.want
+				}
+				require.Equal(t, wantWrapped, wrappedLiteral)
 			}
 		})
 	}

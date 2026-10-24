@@ -77,7 +77,7 @@ func (h *FlowRequestHandler) determineFlags(
 	}
 	defer connClose(ctx)
 
-	return conn.GetFlags(ctx)
+	return conn.GetFlags(ctx, env)
 }
 
 func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {
@@ -726,12 +726,19 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	} else {
 		config.Version = internalVersion
 	}
+	// the recreated mirror gets the destination's current capabilities, like a new mirror would; validation
+	// still compares the stored flags against them
+	flags, err := h.determineFlags(ctx, config.Env, config.DestinationName)
+	if err != nil {
+		return NewInternalApiError(err)
+	}
 	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
 	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false); err != nil {
 		return err
 	}
+	configCore.Flags = flags
 
 	if err := h.shutdownFlow(ctx, flowName, dropStats, false); err != nil {
 		return err

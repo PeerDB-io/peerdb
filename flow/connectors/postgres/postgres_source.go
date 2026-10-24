@@ -353,6 +353,7 @@ func pullCore[Items model.Items](
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
+		Flags:                                    req.Flags,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))

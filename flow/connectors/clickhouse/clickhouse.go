@@ -22,6 +22,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -396,8 +397,14 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
+func (c *ClickHouseConnector) GetFlags(ctx context.Context, env map[string]string) ([]string, error) {
 	var flags []string
+	if qvalue.NativeJSONTypeSupported(c.chVersion) {
+		flags = append(flags, shared.Flag_ClickHouseJSONSupported)
+		if qvalue.ShouldUseNativeJSONType(ctx, env, c.chVersion) {
+			flags = append(flags, shared.Flag_ClickHouseJSONEnabled)
+		}
+	}
 
 	var time64Setting string
 	err := c.queryRow(ctx,

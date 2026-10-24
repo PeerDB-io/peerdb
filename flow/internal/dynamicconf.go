@@ -373,8 +373,10 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_ENABLE_JSON",
-		Description:      "Map JSON datatype from source to JSON in ClickHouse instead of String",
+		Name: "PEERDB_CLICKHOUSE_ENABLE_JSON",
+		Description: "Map JSON datatype from source to JSON in ClickHouse instead of String. Postgres/MySQL values that " +
+			"are not objects (scalars, arrays) are wrapped as {\"_value\": ...}, since ClickHouse JSON only accepts " +
+			"objects at the top level; a JSON null lands as {} because ClickHouse JSON drops null paths",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
