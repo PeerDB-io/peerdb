@@ -54,10 +54,10 @@ type PostgresCDCSource struct {
 	publication            string
 	commitLock             *pglogrepl.BeginMessage
 
-	// for partitioned tables, maps child relid to parent relid
+	// maps inheritance descendants and partitions to the mirrored ancestor they are remapped to
 	childToParentRelIDMapping map[uint32]uint32
 	idToRelKindMap            map[uint32]byte
-	// relids of the tables in the mirror, the only candidates a child can be remapped to
+	// relids of the tables in the mirror, the only candidates a descendant can be remapped to
 	mirroredRelIDs          []uint32
 	publishViaPartitionRoot bool
 
@@ -216,50 +216,180 @@ func inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables bool) st
 	return "'p'"
 }
 
-// childToParentRelIDMapQuery and inheritedParentQuery must agree on which parent a child is remapped to:
-// candidates are the mirrored tables ($1 / $2) with a qualifying relkind, and the one with the lowest
-// inhseqno wins. The startup map and runtime discovery would otherwise route a child of several mirrored
-// parents differently across pulls.
-func childToParentRelIDMapQuery(handleInheritanceForNonPartitionedTables bool) string {
+// inheritanceEdgesQuery returns the pg_inherits edges whose parent (byParent) or child is in $1, with the parent's
+// relkind, keeping only edges whose parent has a qualifying relkind.
+func inheritanceEdgesQuery(byParent bool, handleInheritanceForNonPartitionedTables bool) string {
+	key := "i.inhrelid"
+	if byParent {
+		key = "i.inhparent"
+	}
 	return fmt.Sprintf(`
-		SELECT DISTINCT ON (i.inhrelid) i.inhparent AS parentrelid, i.inhrelid AS childrelid, parent.relkind
+		SELECT i.inhparent, i.inhrelid, i.inhseqno, parent.relkind
 		FROM pg_inherits i
-		JOIN pg_class parent ON i.inhparent = parent.oid
-		WHERE parent.relkind IN (%s) AND i.inhparent = ANY($1)
-		ORDER BY i.inhrelid, i.inhseqno`, inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables))
+		JOIN pg_class parent ON parent.oid = i.inhparent
+		WHERE %s = ANY($1) AND parent.relkind IN (%s)`, key, inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables))
 }
 
-func inheritedParentQuery(handleInheritanceForNonPartitionedTables bool) string {
-	return fmt.Sprintf(`
-		SELECT i.inhparent, parent.relkind
-		FROM pg_inherits i
-		JOIN pg_class parent ON i.inhparent = parent.oid
-		WHERE i.inhrelid = $1 AND parent.relkind IN (%s) AND i.inhparent = ANY($2)
-		ORDER BY i.inhseqno
-		LIMIT 1`, inheritanceParentRelkinds(handleInheritanceForNonPartitionedTables))
+// inheritanceRoute is how a relation reaches the mirrored ancestor it is remapped to.
+type inheritanceRoute struct {
+	// inhseqno of each traversed edge, from the relation upwards
+	path     []int32
+	ancestor uint32
+	relkind  byte // the ancestor's
 }
 
+// before reports whether r is preferred to other: the lower depth, then the lower inhseqno path.
+func (r inheritanceRoute) before(other inheritanceRoute) bool {
+	if len(r.path) != len(other.path) {
+		return len(r.path) < len(other.path)
+	}
+	return slices.Compare(r.path, other.path) < 0
+}
+
+// getChildToParentRelIDMap and findMirroredAncestor must agree on which mirrored ancestor (parentTableOIDs /
+// mirroredRelIDs) a relation is remapped to, or the startup map and runtime discovery would route it differently
+// across pulls. Every traversed edge's parent needs a qualifying relkind. A mirrored relation is remapped only
+// through a mirrored direct parent, as before; any other relation goes to its nearest mirrored ancestor, through
+// unmirrored intermediates. Ties go to the lowest depth, then the lowest inhseqno path read from the relation
+// upwards, which at depth one is the lowest inhseqno. Both walk one level per query and keep only the best route
+// to each relation, which is enough because a worse route to an intermediate can never lead to a better route
+// further on, so each edge is visited at most once however the hierarchy branches. Inheritance cannot be circular,
+// so the walks end.
 func getChildToParentRelIDMap(ctx context.Context,
 	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
 ) (map[uint32]uint32, map[uint32]byte, error) {
-	rows, err := conn.Query(ctx, childToParentRelIDMapQuery(handleInheritanceForNonPartitionedTables), parentTableOIDs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
+	mirrored := make(map[uint32]struct{}, len(parentTableOIDs))
+	for _, oid := range parentTableOIDs {
+		mirrored[oid] = struct{}{}
+	}
+	// relations that have children, loaded before descending below depth one, so that a catalog of leaves
+	// costs one query instead of a lookup per leaf
+	var withChildren map[uint32]struct{}
+
+	routes := make(map[uint32]inheritanceRoute)
+	frontier := parentTableOIDs
+	for depth := 1; len(frontier) > 0; depth++ {
+		rows, err := conn.Query(ctx, inheritanceEdgesQuery(true, handleInheritanceForNonPartitionedTables), frontier)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
+		}
+		level := make(map[uint32]inheritanceRoute)
+		var parentOID, childOID uint32
+		var seq int32
+		var relkind byte
+		if _, err := pgx.ForEachRow(rows, []any{&parentOID, &childOID, &seq, &relkind}, func() error {
+			if _, done := routes[childOID]; done {
+				return nil // routed at a lower depth
+			}
+			route := inheritanceRoute{ancestor: parentOID, relkind: relkind, path: []int32{seq}}
+			if depth > 1 {
+				if _, isMirrored := mirrored[childOID]; isMirrored {
+					return nil // a mirrored relation is remapped only through a mirrored direct parent
+				}
+				via := routes[parentOID]
+				route = inheritanceRoute{ancestor: via.ancestor, relkind: via.relkind, path: append([]int32{seq}, via.path...)}
+			}
+			if current, ok := level[childOID]; !ok || route.before(current) {
+				level[childOID] = route
+			}
+			return nil
+		}); err != nil {
+			return nil, nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
+		}
+
+		if len(level) > 0 && withChildren == nil {
+			if withChildren, err = relationsWithChildren(ctx, conn); err != nil {
+				return nil, nil, err
+			}
+		}
+		frontier = nil
+		for oid, route := range level {
+			routes[oid] = route
+			_, isMirrored := mirrored[oid]
+			if _, hasChildren := withChildren[oid]; hasChildren && !isMirrored {
+				frontier = append(frontier, oid)
+			}
+		}
 	}
 
-	childToParentRelIDMap := make(map[uint32]uint32)
+	childToParentRelIDMap := make(map[uint32]uint32, len(routes))
 	idToRelKindMap := make(map[uint32]byte)
-	var parentRelID, childRelID pgtype.Uint32
-	var relkind byte
-	if _, err := pgx.ForEachRow(rows, []any{&parentRelID, &childRelID, &relkind}, func() error {
-		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
-		idToRelKindMap[parentRelID.Uint32] = relkind
-		return nil
-	}); err != nil {
-		return nil, nil, fmt.Errorf("error iterating over child to parent relid map: %w", err)
+	for oid, route := range routes {
+		childToParentRelIDMap[oid] = route.ancestor
+		idToRelKindMap[route.ancestor] = route.relkind
 	}
-
 	return childToParentRelIDMap, idToRelKindMap, nil
+}
+
+func relationsWithChildren(ctx context.Context, conn *pgx.Conn) (map[uint32]struct{}, error) {
+	rows, err := conn.Query(ctx, "SELECT DISTINCT inhparent FROM pg_inherits")
+	if err != nil {
+		return nil, fmt.Errorf("error querying for inheritance parents: %w", err)
+	}
+	parents, err := pgx.CollectRows(rows, pgx.RowTo[uint32])
+	if err != nil {
+		return nil, fmt.Errorf("error reading inheritance parents: %w", err)
+	}
+	withChildren := make(map[uint32]struct{}, len(parents))
+	for _, oid := range parents {
+		withChildren[oid] = struct{}{}
+	}
+	return withChildren, nil
+}
+
+// findMirroredAncestor routes relation relID, which is not mirrored, by the same rule as getChildToParentRelIDMap,
+// walking up one level per query and stopping at the nearest mirrored ancestors. found is false when none is
+// reachable.
+func findMirroredAncestor(ctx context.Context, conn *pgx.Conn, relID uint32, mirroredRelIDs []uint32,
+	handleInheritanceForNonPartitionedTables bool,
+) (inheritanceRoute, bool, error) {
+	mirrored := make(map[uint32]struct{}, len(mirroredRelIDs))
+	for _, oid := range mirroredRelIDs {
+		mirrored[oid] = struct{}{}
+	}
+	// the best route from relID up to each relation reached so far
+	reached := map[uint32]inheritanceRoute{relID: {}}
+	frontier := []uint32{relID}
+	for len(frontier) > 0 {
+		rows, err := conn.Query(ctx, inheritanceEdgesQuery(false, handleInheritanceForNonPartitionedTables), frontier)
+		if err != nil {
+			return inheritanceRoute{}, false, fmt.Errorf("failed to query pg_inherits: %w", err)
+		}
+		level := make(map[uint32]inheritanceRoute)
+		var parentOID, childOID uint32
+		var seq int32
+		var relkind byte
+		if _, err := pgx.ForEachRow(rows, []any{&parentOID, &childOID, &seq, &relkind}, func() error {
+			if _, done := reached[parentOID]; done {
+				return nil // reached at a lower depth
+			}
+			route := inheritanceRoute{
+				ancestor: parentOID, relkind: relkind, path: append(slices.Clone(reached[childOID].path), seq),
+			}
+			if current, ok := level[parentOID]; !ok || route.before(current) {
+				level[parentOID] = route
+			}
+			return nil
+		}); err != nil {
+			return inheritanceRoute{}, false, fmt.Errorf("failed to read pg_inherits: %w", err)
+		}
+
+		var winner inheritanceRoute
+		found := false
+		frontier = nil
+		for oid, route := range level {
+			reached[oid] = route
+			if _, isMirrored := mirrored[oid]; !isMirrored {
+				frontier = append(frontier, oid)
+			} else if !found || route.before(winner) {
+				winner, found = route, true
+			}
+		}
+		if found {
+			return winner, true, nil
+		}
+	}
+	return inheritanceRoute{}, false, nil
 }
 
 // replProcessor implements ingesting PostgreSQL logical replication tuples into items.
@@ -1710,35 +1840,31 @@ func (p *PostgresCDCSource) relationMessageFor(
 }
 
 // since we generate the childToParent mapping at the beginning of the CDC stream
-// some child tables could be created after the CDC stream starts
-// and we need to check if they inherit from a known table
-// filtered by relkind; parent needs to be a partitioned table by default
+// some descendants could be created after the CDC stream starts
+// and we need to check if they descend from a mirrored table (findMirroredAncestor)
+// filtered by relkind; parents need to be partitioned tables by default
 func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
 ) (uint32, byte, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
 
-	// Relations with no mirrored parent are looked up again on each of their RelationMessages (before their
+	// Relations with no mirrored ancestor are looked up again on each of their RelationMessages (before their
 	// first change in a session, and after DDL or cache invalidation), as before. Caching the miss across
 	// sessions could hide a later ALTER TABLE ... INHERIT.
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
-		var parentRelID uint32
-		var parentRelKind byte
-		if err := p.conn.QueryRow(
-			ctx,
-			inheritedParentQuery(p.handleInheritanceForNonPartitionedTables),
-			relID, p.mirroredRelIDs,
-		).Scan(&parentRelID, &parentRelKind); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return relID, 0, nil
-			}
-			return 0, 0, fmt.Errorf("failed to query pg_inherits: %w", err)
+		route, found, err := findMirroredAncestor(ctx, p.conn, relID, p.mirroredRelIDs, p.handleInheritanceForNonPartitionedTables)
+		if err != nil {
+			return 0, 0, err
 		}
+		if !found {
+			return relID, 0, nil
+		}
+		parentRelID, parentRelKind := route.ancestor, route.relkind
 		p.childToParentRelIDMapping[relID] = parentRelID
 		// the parent may have had no children when the startup map was built
 		p.idToRelKindMap[parentRelID] = parentRelKind
 		p.hushWarnUnknownTableDetected[relID] = struct{}{}
-		p.logger.Info("Detected new child table in CDC stream, remapping to parent table",
+		p.logger.Info("Detected new inheritance descendant in CDC stream, remapping to mirrored ancestor",
 			slog.Uint64("childRelID", uint64(relID)),
 			slog.Uint64("parentRelID", uint64(parentRelID)),
 			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))

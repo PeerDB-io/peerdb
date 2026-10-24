@@ -834,9 +834,302 @@ func (c *PostgresConnector) SetupReplication(
 	})
 	defer stopSlotCreateWarning()
 
+	c.warnOverlappingInheritanceMappings(ctx, catalogPool, req)
+
 	// Create the replication slot and publication
 	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
 		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
+}
+
+// inheritanceOverlapStartsQuery finds the mirrored tables ($1) that have a parent and the relations that have more
+// than one, using indexes. A relation is in the snapshot scope of more than one mirrored table exactly when it is, or
+// descends from, one of these that is: its owners' paths up from it either pass through each other, at a mirrored
+// table with a parent and the other owner above it, or part at a relation with more than one parent and both owners
+// above it. So a catalog without any needs no closure.
+const inheritanceOverlapStartsQuery = `
+	SELECT inhrelid FROM pg_catalog.pg_inherits WHERE inhrelid = ANY($1)
+	UNION
+	SELECT inhrelid FROM pg_catalog.pg_inherits WHERE inhseqno > 1`
+
+// overlappingInheritanceMappingsQuery finds relations in the snapshot scope of more than one of the mirrored tables
+// ($1): those of the inheritanceOverlapStartsQuery relations ($2) that are, and their descendants. A snapshot without
+// ONLY reads every descendant whatever its relkind, so ownership follows every pg_inherits edge, unlike routing. Each
+// relation's owners are its mirrored ancestors plus itself if it is mirrored.
+const overlappingInheritanceMappingsQuery = `
+	WITH RECURSIVE start_ancestry AS (
+		SELECT relid, relid AS ancestor FROM unnest($2::oid[]) AS s(relid)
+		UNION
+		SELECT a.relid, i.inhparent FROM start_ancestry a JOIN pg_catalog.pg_inherits i ON i.inhrelid = a.ancestor
+	), scope AS (
+		SELECT relid FROM start_ancestry WHERE ancestor = ANY($1) GROUP BY relid HAVING count(*) > 1
+		UNION
+		SELECT i.inhrelid FROM scope s JOIN pg_catalog.pg_inherits i ON i.inhparent = s.relid
+	), ancestry AS (
+		SELECT relid, relid AS ancestor FROM scope
+		UNION
+		SELECT a.relid, i.inhparent FROM ancestry a JOIN pg_catalog.pg_inherits i ON i.inhrelid = a.ancestor
+	), overlapping AS (
+		SELECT relid, array_agg(ancestor) AS owners FROM ancestry WHERE ancestor = ANY($1)
+		GROUP BY relid HAVING count(*) > 1
+	)
+	SELECT o.relid, rn.nspname || '.' || r.relname, o.relid = ANY($1),
+		ARRAY(
+			SELECT ownn.nspname || '.' || own.relname
+			FROM unnest(o.owners) AS u(oid)
+			JOIN pg_catalog.pg_class own ON own.oid = u.oid
+			JOIN pg_catalog.pg_namespace ownn ON ownn.oid = own.relnamespace
+			ORDER BY 1
+		)
+	FROM overlapping o
+	JOIN pg_catalog.pg_class r ON r.oid = o.relid
+	JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
+	ORDER BY 2`
+
+// inheritanceOverlap is a relation in the snapshot scope of more than one mirrored table.
+type inheritanceOverlap struct {
+	name     string
+	owners   []string
+	relID    uint32
+	mirrored bool
+}
+
+// overlappingInheritanceMappings returns the relations in the snapshot scope of more than one of tables.
+func (c *PostgresConnector) overlappingInheritanceMappings(
+	ctx context.Context, mirrored []uint32,
+) ([]inheritanceOverlap, error) {
+	rows, err := c.conn.Query(ctx, inheritanceOverlapStartsQuery, mirrored)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for overlapping inheritance mappings: %w", err)
+	}
+	starts, err := pgx.CollectRows(rows, pgx.RowTo[uint32])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read overlapping inheritance mappings: %w", err)
+	}
+	if len(starts) == 0 {
+		return nil, nil
+	}
+	rows, err = c.conn.Query(ctx, overlappingInheritanceMappingsQuery, mirrored, starts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for overlapping inheritance mappings: %w", err)
+	}
+	overlaps, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (inheritanceOverlap, error) {
+		var o inheritanceOverlap
+		err := row.Scan(&o.relID, &o.name, &o.mirrored, &o.owners)
+		return o, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read overlapping inheritance mappings: %w", err)
+	}
+	return overlaps, nil
+}
+
+// overlapWarning describes relations (names) that share their owners, naming the mirrored table whose mapping
+// receives their changes (route), or saying that CDC does not replicate them when route is empty. It lists at most
+// three of the relations.
+func overlapWarning(names []string, owners []string, route string) error {
+	const listed = 3
+	subject, their := names[0], "its"
+	if len(names) > 1 {
+		subject = fmt.Sprintf("%d relations (%s", len(names), strings.Join(names[:min(len(names), listed)], ", "))
+		if len(names) > listed {
+			subject += fmt.Sprintf(" and %d more", len(names)-listed)
+		}
+		subject += ")"
+		their = "their"
+	}
+	if route == "" {
+		return fmt.Errorf("rows of %s are included in the snapshot scope of %s; %s changes are not replicated by CDC",
+			subject, strings.Join(owners, ", "), their)
+	}
+	return fmt.Errorf("rows of %s are included in the snapshot scope of %s; "+
+		"%s changes are replicated through the mapping of %s only", subject, strings.Join(owners, ", "), their, route)
+}
+
+// overlappingInheritanceWarnings returns warnings for the relations in the snapshot scope of more than one of tables,
+// naming the mirrored table whose mapping receives their changes, which follows CDC routing. Relations with the same
+// owners and route share a warning, so that a mirrored table under another one does not record one per descendant.
+// When onlyInvolving is not nil, overlaps none of its tables take part in are skipped.
+func (c *PostgresConnector) overlappingInheritanceWarnings(
+	ctx context.Context, env map[string]string, tables []*common.QualifiedTable, onlyInvolving []*common.QualifiedTable,
+) ([]error, error) {
+	handleInheritance, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	mirroredOIDs, err := c.relationOIDs(ctx, tables)
+	if err != nil {
+		return nil, err
+	}
+	overlaps, err := c.overlappingInheritanceMappings(ctx, mirroredOIDs)
+	if err != nil || len(overlaps) == 0 {
+		return nil, err
+	}
+
+	if onlyInvolving != nil {
+		involved := make(map[string]struct{}, len(onlyInvolving))
+		for _, table := range onlyInvolving {
+			involved[table.Namespace+"."+table.Table] = struct{}{}
+		}
+		overlaps = slices.DeleteFunc(overlaps, func(o inheritanceOverlap) bool {
+			return !slices.ContainsFunc(append([]string{o.name}, o.owners...), func(name string) bool {
+				_, ok := involved[name]
+				return ok
+			})
+		})
+		if len(overlaps) == 0 {
+			return nil, nil
+		}
+	}
+
+	// the startup map routes every relation CDC remaps, the same way runtime discovery does; a mirrored relation
+	// absent from it keeps its own mapping, and any other relation absent from it is not replicated. Building it
+	// costs a pull's startup walk, which only catalogs with overlaps pay here.
+	childToParent, _, err := getChildToParentRelIDMap(ctx, c.conn, mirroredOIDs, handleInheritance)
+	if err != nil {
+		return nil, err
+	}
+	routes := make([]uint32, len(overlaps)) // 0 when CDC replicates no changes of the relation
+	for i, o := range overlaps {
+		if route, ok := childToParent[o.relID]; ok {
+			routes[i] = route
+		} else if o.mirrored {
+			routes[i] = o.relID
+		}
+	}
+	names, err := c.relationNames(ctx, routes)
+	if err != nil {
+		return nil, err
+	}
+
+	// overlaps are sorted by name, so each group lists its first relations by name
+	type group struct {
+		owners []string
+		route  string
+		names  []string
+	}
+	var groups []*group
+	byKey := make(map[string]*group)
+	for i, o := range overlaps {
+		route := names[routes[i]]
+		key := strings.Join(o.owners, "\x00") + "\x01" + route
+		g, ok := byKey[key]
+		if !ok {
+			g = &group{owners: o.owners, route: route}
+			byKey[key] = g
+			groups = append(groups, g)
+		}
+		g.names = append(g.names, o.name)
+	}
+	warnings := make([]error, 0, len(groups))
+	for _, g := range groups {
+		warnings = append(warnings, overlapWarning(g.names, g.owners, g.route))
+	}
+	return warnings, nil
+}
+
+// relationNames returns the schema-qualified names of the relations in oids.
+func (c *PostgresConnector) relationNames(ctx context.Context, oids []uint32) (map[uint32]string, error) {
+	rows, err := c.conn.Query(ctx, `SELECT c.oid, n.nspname || '.' || c.relname
+		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.oid = ANY($1)`, oids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to name relations: %w", err)
+	}
+	names := make(map[uint32]string, len(oids))
+	var oid uint32
+	var name string
+	if _, err := pgx.ForEachRow(rows, []any{&oid, &name}, func() error {
+		names[oid] = name
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to read relation names: %w", err)
+	}
+	return names, nil
+}
+
+// relationOIDs returns the OIDs of tables that exist.
+func (c *PostgresConnector) relationOIDs(ctx context.Context, tables []*common.QualifiedTable) ([]uint32, error) {
+	schemas, names := splitQualifiedTables(tables)
+	rows, err := c.conn.Query(ctx, `SELECT c.oid
+		FROM unnest($1::text[], $2::text[]) AS t(nspname, relname)
+		JOIN pg_catalog.pg_namespace n ON n.nspname = t.nspname
+		JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relname = t.relname`, schemas, names)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up mirrored tables: %w", err)
+	}
+	oids, err := pgx.CollectRows(rows, pgx.RowTo[uint32])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read mirrored tables: %w", err)
+	}
+	return oids, nil
+}
+
+// warnOverlappingInheritanceMappings records a flow warning for each relation in the snapshot scope of more than one
+// mirrored table. It never fails setup.
+func (c *PostgresConnector) warnOverlappingInheritanceMappings(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	req *protos.SetupReplicationInput,
+) {
+	tables := make([]*common.QualifiedTable, 0, len(req.TableNameMapping))
+	for srcTable := range req.TableNameMapping {
+		parsed, err := common.ParseTableIdentifier(srcTable)
+		if err != nil {
+			c.logger.Warn("failed to parse source table for inheritance check", slog.String("table", srcTable), slog.Any("error", err))
+			return
+		}
+		tables = append(tables, parsed)
+	}
+
+	warnings, err := c.overlappingInheritanceWarnings(ctx, req.Env, tables, nil)
+	if err != nil {
+		c.logger.Warn("failed to check for overlapping inheritance mappings", slog.Any("error", err))
+		return
+	}
+	for _, warning := range warnings {
+		if err := alerting.InsertFlowLog(ctx, catalogPool, req.FlowJobName, warning.Error(), alerting.FlowErrorTypeWarn); err != nil {
+			c.logger.Error("failed to insert overlapping inheritance warning", slog.Any("error", err))
+		}
+	}
+}
+
+// ValidateTableAdditions checks tables about to be added to a running mirror, before the publication changes,
+// and returns warnings to record for them: overlaps between the mirror's tables, existing and added, that an added
+// table takes part in. Table additions skip replication setup, which reports these for a new mirror.
+func (c *PostgresConnector) ValidateTableAdditions(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore, additionalTables []*protos.TableMapping,
+) ([]error, error) {
+	added, err := parseSourceTables(additionalTables)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := parseSourceTables(cfg.TableMappings)
+	if err != nil {
+		return nil, err
+	}
+	return c.overlappingInheritanceWarnings(ctx, cfg.Env, append(existing, added...), added)
+}
+
+func parseSourceTables(mappings []*protos.TableMapping) ([]*common.QualifiedTable, error) {
+	tables := make([]*common.QualifiedTable, 0, len(mappings))
+	for _, tm := range mappings {
+		parsed, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source table identifier %s: %w", tm.SourceTableIdentifier, err)
+		}
+		tables = append(tables, parsed)
+	}
+	return tables, nil
+}
+
+func splitQualifiedTables(tables []*common.QualifiedTable) ([]string, []string) {
+	schemas := make([]string, 0, len(tables))
+	names := make([]string, 0, len(tables))
+	for _, table := range tables {
+		schemas = append(schemas, table.Namespace)
+		names = append(names, table.Table)
+	}
+	return schemas, names
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
