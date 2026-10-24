@@ -202,7 +202,7 @@ func newPostgresConnector(
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
-		typeMap:                pgtype.NewMap(),
+		typeMap:                shared.NewPostgresTypeMap(),
 		rdsAuth:                rdsAuth,
 		cloudSQLDialer:         cloudSQLDialer,
 		cdcStoreEnabled:        cdcStoreEnabled,
