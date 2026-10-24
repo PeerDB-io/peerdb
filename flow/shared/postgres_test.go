@@ -54,8 +54,6 @@ func TestNewPostgresTypeMap(t *testing.T) {
 			{"range", timestamp.rangeOID, rangeText, rangeValue},
 			{"range array", timestamp.rangeArrayOID, fmt.Sprintf("{%q}", rangeText), []pgtype.Range[time.Time]{rangeValue}},
 			{"multirange", timestamp.multirangeOID, multirangeText, multirangeValue},
-			{"multirange array", timestamp.multirangeArrayOID, fmt.Sprintf("{%q}", multirangeText),
-				[]pgtype.Multirange[pgtype.Range[time.Time]]{multirangeValue}},
 		} {
 			t.Run(timestamp.name+"/"+tc.name, func(t *testing.T) {
 				typ, ok := typeMap.TypeForOID(tc.oid)
@@ -71,6 +69,10 @@ func TestNewPostgresTypeMap(t *testing.T) {
 				requireUTCTimestamps(t, value, timestamp.want)
 			})
 		}
+
+		// Leave multirange arrays unregistered so PeerDB keeps PostgreSQL's original text formatting.
+		_, registered := typeMap.TypeForOID(timestamp.multirangeArrayOID)
+		require.False(t, registered)
 	}
 
 	// Configuring one map must not mutate pgx's defaults for other connections.
