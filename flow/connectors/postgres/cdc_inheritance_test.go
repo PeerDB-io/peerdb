@@ -211,3 +211,56 @@ func TestProcessTupleRejectsColumnCountMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, items.Len())
 }
+
+func TestReservedSourceSchemaColumnIsExcluded(t *testing.T) {
+	t.Parallel()
+	relWithReserved := func() *pglogrepl.RelationMessage {
+		rel := childARelation()
+		rel.Columns = append(rel.Columns, relColumn("_peerdb_source_schema", pgtype.TextOID))
+		rel.ColumnNum++
+		return rel
+	}
+	rowTuple := tuple(str("1"), str("alice"), str("a-val"), str("7"), str("from-source"))
+
+	p := newInheritanceTestCDCSource(t)
+	p.sourceSchemaAsDestinationColumn = true
+	p.handleInheritanceForNonPartitionedTables = true
+	p.schemaNameForRelID = map[uint32]string{}
+	p.warnedRelations = map[string]struct{}{}
+
+	// no added-column delta (which would need catalog queries), and the layout keeps the column for alignment
+	rec, err := processRelationMessage[model.RecordItems](t.Context(), p, 1, relWithReserved(), inhParentRelID)
+	require.NoError(t, err)
+	require.Nil(t, rec)
+	require.Len(t, p.relationMessageMapping[inhChildARelID].Columns, 5)
+	require.Len(t, p.warnedRelations, 1, "warned once for the table")
+	_, err = processRelationMessage[model.RecordItems](t.Context(), p, 2, relWithReserved(), inhParentRelID)
+	require.NoError(t, err)
+	require.Len(t, p.warnedRelations, 1)
+
+	insert, err := processInsertMessage(p, 3, &pglogrepl.InsertMessage{RelationID: inhChildARelID, Tuple: rowTuple},
+		qProcessor{}, p.customTypeMapping)
+	require.NoError(t, err)
+	items := insert.(*model.InsertRecord[model.RecordItems]).Items
+	requireRow(t, items, 1, "alice", "a-val", 7)
+	require.Equal(t, types.QValueString{Val: "public"}, items.GetColumnValue("_peerdb_source_schema"))
+
+	// update old tuples carry no stamp, and still never carry the source column's value
+	update, err := processUpdateMessage(p, 4, &pglogrepl.UpdateMessage{
+		RelationID: inhChildARelID, OldTupleType: pglogrepl.UpdateMessageTupleTypeOld,
+		OldTuple: rowTuple, NewTuple: rowTuple,
+	}, qProcessor{}, p.customTypeMapping, map[string]struct{}{})
+	require.NoError(t, err)
+	require.Nil(t, update.(*model.UpdateRecord[model.RecordItems]).OldItems.GetColumnValue("_peerdb_source_schema"))
+
+	// with the setting off it is an ordinary column
+	plain := newInheritanceTestCDCSource(t)
+	_, err = processRelationMessage[model.RecordItems](t.Context(), plain, 1, childARelation(), inhParentRelID)
+	require.NoError(t, err)
+	plain.relationMessageMapping[inhChildARelID] = relWithReserved()
+	insert, err = processInsertMessage(plain, 2, &pglogrepl.InsertMessage{RelationID: inhChildARelID, Tuple: rowTuple},
+		qProcessor{}, plain.customTypeMapping)
+	require.NoError(t, err)
+	require.Equal(t, types.QValueString{Val: "from-source"},
+		insert.(*model.InsertRecord[model.RecordItems]).Items.GetColumnValue("_peerdb_source_schema"))
+}

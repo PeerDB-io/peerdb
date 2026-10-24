@@ -71,6 +71,7 @@ type PostgresCDCSource struct {
 	flowJobName                              string
 	fastProcessJsonColumns                   bool
 	handleInheritanceForNonPartitionedTables bool
+	sourceSchemaAsDestinationColumn          bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 	warnedTypeChanges                        sync.Map
@@ -187,6 +188,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		flowJobName:                              cdcConfig.FlowJobName,
 		fastProcessJsonColumns:                   cdcConfig.FastProcessJsonColumns,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		sourceSchemaAsDestinationColumn:          cdcConfig.SourceSchemaAsDestinationColumn,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
@@ -205,6 +207,17 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 	}
 	p.schemaNameForRelID[relID] = schemaTable.Namespace
 	return schemaTable.Namespace, nil
+}
+
+// warnRelationOnce records msg as a flow warning the first time key is seen by this connector.
+func (p *PostgresCDCSource) warnRelationOnce(ctx context.Context, key string, msg string) {
+	if _, ok := p.warnedRelations[key]; ok {
+		return
+	}
+	p.warnedRelations[key] = struct{}{}
+	if p.alerter != nil { // nil in unit tests
+		p.alerter.LogFlowWarning(ctx, p.flowJobName, errors.New(msg))
+	}
 }
 
 // inheritanceParentRelkinds lists the relkinds a parent may have for its children to be remapped onto it:
@@ -388,7 +401,7 @@ func processTuple[Items model.Items](
 
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
-		if _, ok := sourceTableMapping.Exclude[rcol.Name]; ok {
+		if isExcludedColumn(sourceTableMapping, p.sourceSchemaAsDestinationColumn, rcol.Name) {
 			continue
 		}
 		if tcol.DataType == 'u' {
@@ -402,7 +415,7 @@ func processTuple[Items model.Items](
 	}
 
 	if schemaName != "" {
-		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+		processor.AddStringColumn(items, internal.SourceSchemaColumnName, schemaName)
 	}
 
 	if p.originMetadataAsDestinationColumn {
@@ -1419,8 +1432,7 @@ func processRelationMessage[Items model.Items](
 		if inPrevRel {
 			return false
 		}
-		_, isExcluded := currRelDstInfo.Exclude[columnName]
-		return !isExcluded
+		return !isExcludedColumn(currRelDstInfo, p.sourceSchemaAsDestinationColumn, columnName)
 	}
 
 	addedColumnNames := make([]string, 0)
@@ -1488,9 +1500,20 @@ func processRelationMessage[Items model.Items](
 				slog.String("default", addedColumn.GetDefaultExpr()),
 				slog.String("relationName", schemaDelta.SrcTableName))
 		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
-			// Column is added but excluded
-			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-				column.Name, schemaDelta.SrcTableName))
+			if p.sourceSchemaAsDestinationColumn && column.Name == internal.SourceSchemaColumnName {
+				// The value is never decoded, so the source schema stays authoritative, and the mirror keeps
+				// running: a retry would decode the same historical RelationMessage again whatever the source does.
+				p.warnRelationOnce(ctx, "reserved\x00"+currRel.Namespace+"\x00"+currRel.RelationName, fmt.Sprintf(
+					"Table %s.%s has a column named %s, which is reserved while PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN "+
+						"is enabled. Its values are not replicated. To replicate them, rename the column; values written "+
+						"before the rename need a resync of %s, or a separate backfill if the column only exists on "+
+						"inheritance children.",
+					currRel.Namespace, currRel.RelationName, internal.SourceSchemaColumnName, schemaDelta.SrcTableName))
+			} else {
+				// Column is added but excluded
+				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+					column.Name, schemaDelta.SrcTableName))
+			}
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
 				prevRelMap[column.Name], currRelMap[column.Name])
