@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,6 +56,10 @@ func TestGetCRDBConnectionString(t *testing.T) {
 	assert.Equal(t,
 		"postgres://user%40corp@localhost:26257/defaultdb?application_name=peerdb&client_encoding=UTF8&sslmode=require",
 		GetCRDBConnectionString(config, ""))
+
+	connConfig, err := pgx.ParseConfig(GetCRDBConnectionString(config, "test + flow"))
+	require.NoError(t, err)
+	assert.Equal(t, "peerdb_test + flow", connConfig.RuntimeParams["application_name"])
 }
 
 // generateClientCertKey returns a self-signed client certificate and its private key, PEM-encoded.
