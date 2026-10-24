@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -87,7 +88,8 @@ func GetCRDBConnectionString(config *protos.CockroachDBConfig, flowName string) 
 	} else {
 		q.Set("sslmode", "require")
 	}
-	u.RawQuery = q.Encode()
+	// Preserve spaces in application_name; pgx treats '+' literally.
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
 	return u.String()
 }
 
