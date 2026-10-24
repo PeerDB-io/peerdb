@@ -81,7 +81,7 @@ func syncQRepRecords(
 	startTime := time.Now()
 
 	txConfig := c.conn.Config()
-	txConn, err := shared.ConnectPostgres(ctx, txConfig)
+	txConn, err := pgx.ConnectConfig(ctx, txConfig)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to create tx pool: %w", err)
 	}
