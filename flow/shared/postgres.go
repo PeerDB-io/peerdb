@@ -53,12 +53,14 @@ func registerUTCTimeTypes(typeMap *pgtype.Map) {
 	tsrange := &pgtype.Type{Name: "tsrange", OID: pgtype.TsrangeOID, Codec: &pgtype.RangeCodec{ElementType: timestamp}}
 	tstzrange := &pgtype.Type{Name: "tstzrange", OID: pgtype.TstzrangeOID, Codec: &pgtype.RangeCodec{ElementType: timestamptz}}
 	tsmultirange := &pgtype.Type{Name: "tsmultirange", OID: pgtype.TsmultirangeOID, Codec: &pgtype.MultirangeCodec{ElementType: tsrange}}
-	tstzmultirange := &pgtype.Type{Name: "tstzmultirange", OID: pgtype.TstzmultirangeOID, Codec: &pgtype.MultirangeCodec{ElementType: tstzrange}}
+	tstzmultirange := &pgtype.Type{
+		Name: "tstzmultirange", OID: pgtype.TstzmultirangeOID, Codec: &pgtype.MultirangeCodec{ElementType: tstzrange},
+	}
 	typeMap.RegisterTypes([]*pgtype.Type{timestamp, timestamptz, tsrange, tstzrange, tsmultirange, tstzmultirange})
 
 	// Container codecs retain element pointers, so replacing only the scalar types is insufficient.
 	// Leave multirange arrays unregistered so PeerDB keeps PostgreSQL's original text formatting.
-	for _, array := range []struct {
+	for _, array := range []struct { //nolint:govet // fieldalignment: keep OIDs first in this small registration table.
 		oid     uint32
 		element *pgtype.Type
 	}{
