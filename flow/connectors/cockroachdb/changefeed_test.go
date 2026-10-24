@@ -249,7 +249,9 @@ func TestQValueFromChangefeedJSON(t *testing.T) {
 		{mustDecimal("-" + maxNumeric), "minimum numeric", "-" + maxNumeric, types.QValueKindNumeric},
 		{mustDecimal("1e-16383"), "quoted small fraction", `"1e-16383"`, types.QValueKindNumeric},
 		{
-			types.QValueArrayNumeric{Val: []decimal.Decimal{decimal.RequireFromString(maxNumeric), decimal.RequireFromString("-" + maxNumeric)}},
+			types.QValueArrayNumeric{Val: []decimal.Decimal{
+				decimal.RequireFromString(maxNumeric), decimal.RequireFromString("-" + maxNumeric),
+			}},
 			"extreme numeric array", "[" + maxNumeric + ",-" + maxNumeric + "]", types.QValueKindArrayNumeric,
 		},
 		{types.QValueString{Val: "b brown"}, "string", `"b brown"`, types.QValueKindString},
