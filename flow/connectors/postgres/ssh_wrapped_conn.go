@@ -10,7 +10,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func NewPostgresConnFromConfig(
@@ -69,7 +68,7 @@ func NewPostgresConnFromConfig(
 		frontend.SetMaxBodyLen(16 * 1024 * 1024)
 		return frontend
 	}
-	conn, err := shared.ConnectPostgres(ctx, connConfig)
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		logger.Error("Failed to create connection", slog.Any("error", err))
 		return nil, err
