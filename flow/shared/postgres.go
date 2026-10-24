@@ -196,6 +196,10 @@ func (rows CatalogRows) Conn() *pgx.Conn {
 	return rows.Rows.Conn()
 }
 
+func (rows CatalogRows) TypeMap() *pgtype.Map {
+	return rows.Rows.TypeMap()
+}
+
 func (tx CatalogTx) Begin(ctx context.Context) (pgx.Tx, error) {
 	subtx, err := tx.Tx.Begin(ctx)
 	if err != nil {
