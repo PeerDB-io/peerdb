@@ -86,8 +86,7 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 		// Other modes such as "verify-ca" or "verify-full" might be relaxed by this configuration.
 	}
 
-	// Preserve spaces in application_name; pgx treats '+' literally.
-	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
+	u.RawQuery = q.Encode()
 
 	return u.String()
 }
