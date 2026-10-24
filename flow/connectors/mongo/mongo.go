@@ -74,6 +74,8 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+
+	parallelDocumentLookup bool
 }
 
 func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
@@ -164,11 +166,31 @@ func NewMongoConnector(ctx context.Context, env map[string]string, config *proto
 		}
 	}
 
+	mc.parallelDocumentLookup, err = internal.PeerDBMongoDBParallelDocumentLookup(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		return nil, err
 	}
 	mc.client = client
+	if mc.parallelDocumentLookup {
+		// Causal majority reads are required. Keep
+		// the native path for incompatible servers or an inconclusive probe.
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		version, versionErr := mc.GetVersion(probeCtx)
+		variant, variantErr := mc.GetDatabaseVariant(probeCtx)
+		mc.parallelDocumentLookup = versionErr == nil && variantErr == nil &&
+			supportsParallelDocumentLookup(version, variant)
+		if !mc.parallelDocumentLookup {
+			logger.Warn("using native MongoDB document lookup: parallel lookup capabilities could not be verified",
+				slog.String("version", version), slog.Any("variant", variant),
+				slog.Any("error", errors.Join(versionErr, variantErr)))
+		}
+	}
 
 	return mc, nil
 }
@@ -215,6 +237,9 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	if strings.Contains(c.config.Uri, peerdb_mongo.DocumentDBDomain) || strings.Contains(c.config.Uri, "docdb-elastic.amazonaws.com") {
+		return protos.DatabaseVariant_AWS_DOCUMENTDB, nil
+	}
 	// AtlasDomain matches private link connections as well
 	// https://www.mongodb.com/docs/atlas/security-private-endpoint/?cloud-provider=aws#private-endpoint-aware-connection-strings
 	if strings.Contains(c.config.Uri, peerdb_mongo.AtlasDomain) {
@@ -224,7 +249,7 @@ func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	if err != nil {
 		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
 	}
-	if strings.Contains(ss.Host, peerdb_mongo.DocumentDBDomain) {
+	if strings.Contains(ss.Host, peerdb_mongo.DocumentDBDomain) || strings.Contains(ss.Host, "docdb-elastic.amazonaws.com") {
 		return protos.DatabaseVariant_AWS_DOCUMENTDB, nil
 	}
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
