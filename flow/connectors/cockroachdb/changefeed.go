@@ -359,7 +359,10 @@ func qvalueFromChangefeedJSON(field types.QField, raw json.RawMessage) (types.QV
 		}
 		return types.QValueFloat64{Val: v}, nil
 	case types.QValueKindNumeric:
-		num, valid := parseChangefeedNumeric(raw)
+		num, valid, err := parseChangefeedNumeric(raw)
+		if err != nil {
+			return nil, err
+		}
 		if !valid {
 			// NaN/Infinity, like the QRep path
 			if field.Nullable {
@@ -537,8 +540,8 @@ func qvalueFromChangefeedJSON(field types.QField, raw json.RawMessage) (types.QV
 		return types.QValueArrayFloat64{Val: a}, nil
 	case types.QValueKindArrayNumeric:
 		a, err := changefeedArray(raw, func(el json.RawMessage) (decimal.Decimal, error) {
-			num, _ := parseChangefeedNumeric(el)
-			return num, nil
+			num, _, err := parseChangefeedNumeric(el)
+			return num, err
 		})
 		if err != nil {
 			return nil, err
@@ -651,19 +654,28 @@ func parseChangefeedFloat(raw json.RawMessage) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-func parseChangefeedNumeric(raw json.RawMessage) (decimal.Decimal, bool) {
+// parseChangefeedNumeric reports valid=false for null and non-finite values.
+// Malformed values and decimal decoder limits return errors instead of being discarded.
+func parseChangefeedNumeric(raw json.RawMessage) (decimal.Decimal, bool, error) {
+	if isJSONNull(raw) {
+		return decimal.Decimal{}, false, nil
+	}
 	s := string(raw)
 	if s != "" && s[0] == '"' {
 		var err error
 		if s, err = jsonString(raw); err != nil {
-			return decimal.Decimal{}, false
+			return decimal.Decimal{}, false, err
 		}
+	}
+	switch s {
+	case "NaN", "Infinity", "-Infinity":
+		return decimal.Decimal{}, false, nil
 	}
 	num, err := decimal.NewFromString(s)
 	if err != nil {
-		return decimal.Decimal{}, false
+		return decimal.Decimal{}, false, err
 	}
-	return num, true
+	return num, true, nil
 }
 
 // decodeChangefeedBytes decodes the Postgres hex escape form ("\x0102")
