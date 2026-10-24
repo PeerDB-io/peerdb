@@ -1316,6 +1316,65 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_Sampled_Skewed_ObjectID() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_partitioned_sampled_skewed"
+	dstTable := "test_partitioned_sampled_skewed_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.Env["PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING_TABLES"] = e2e.AttachSchema(s, srcTable)
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Two outliers near the ends of the ObjectID keyspace (1970 and 2106 timestamps) and
+	// 1,000 documents within ~17 minutes: an even split of [min, max] would put all
+	// 1,000 in a single partition.
+	docs := make([]any, 0, 1002)
+	docs = append(docs,
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(1, 0))}, {Key: "outlier", Value: "min"}},
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(math.MaxUint32-1, 0))}, {Key: "outlier", Value: "max"}},
+	)
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 1000 {
+		docs = append(docs, bson.D{
+			{Key: "_id", Value: bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))},
+			{Key: fmt.Sprintf("init_key_%d", i), Value: fmt.Sprintf("init_value_%d", i)},
+		})
+	}
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	var maxRowsInPartition int64
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*), COALESCE(MAX(rows_in_partition), 0) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount, &maxRowsInPartition))
+	require.Greaterf(t, partitionCount, 1, "expected a parallel snapshot, got %d partition(s)", partitionCount)
+	require.LessOrEqualf(t, maxRowsInPartition, int64(30),
+		"largest partition held %d of 1,002 documents across %d partitions; sampled boundaries should spread the "+
+			"1,000 clustered _ids across partitions instead of the single partition an even split gives",
+		maxRowsInPartition, partitionCount)
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_StringID() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())

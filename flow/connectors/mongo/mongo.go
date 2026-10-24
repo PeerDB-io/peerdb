@@ -74,6 +74,8 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+	usePostImages        bool
+	postImagesValidated  bool
 }
 
 func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
