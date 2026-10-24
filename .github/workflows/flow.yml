@@ -52,7 +52,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.2'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -77,7 +77,7 @@ jobs:
             -p 32 ./... -timeout 300s
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: flow-unit-test-results
           path: logs/
@@ -112,7 +112,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.2'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
