@@ -58,7 +58,7 @@ func NewCockroachDBConnFromConfig(
 			return []string{host}, nil
 		}
 	}
-	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	conn, err := shared.ConnectPostgres(ctx, connConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to CockroachDB: %w", toCrdbError(err))
 	}
