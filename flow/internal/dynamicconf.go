@@ -609,7 +609,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description: "Fetch update documents in bounded parallel batches outside the change stream on MongoDB 6.0 or newer. " +
 			"Uses majority reads, preserves event order and native resume tokens. " +
 			"Unsupported servers, including DocumentDB, and non-simple collations retain native updateLookup.",
-		DefaultValue:     "true",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
