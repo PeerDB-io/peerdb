@@ -126,36 +126,8 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer srcClose(ctx)
 
 	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
-		if missing, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
-			return nil, NewFailedPreconditionApiError(
-				missing,
-				NewSourceTableMissingErrorDetails(missing.Tables)...)
-		}
-		if notInPub, ok := errors.AsType[*common.TablesNotInPublicationError](err); ok {
-			return nil, NewFailedPreconditionApiError(
-				notInPub,
-				NewTablesNotInPublicationErrorDetails(notInPub.Publication, notInPub.Tables)...)
-		}
-		if replicaIdErr, ok := errors.AsType[*common.ReplicaIdentifierInUseError](err); ok {
-			// Beyond other PeerDB mirrors, a replica id must not be already
-			// registered at source.
-			// We only enforce this check if the mirror doesn't already exist as
-			// a resync in that case might happen while the mirror is not paused thus
-			// detecting the same mirror as a conflict.
-			if mirrorExists, err := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName); err != nil {
-				return nil, NewInternalApiError(
-					fmt.Errorf("failed to check if mirror name exists: %w", err))
-			} else if !mirrorExists {
-				return nil, NewFailedPreconditionApiError(
-					fmt.Errorf("source peer %q pins a replica id = %s, which is already in use by a replica registered on the source database",
-						connectionConfigs.SourceName, replicaIdErr.Id),
-					NewMirrorErrorInfo(map[string]string{
-						common.ErrorMetadataOffendingField: "source_name",
-					}))
-			}
-		} else {
-			return nil, NewFailedPreconditionApiError(
-				fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+		if apiErr := h.sourceValidationApiError(ctx, connectionConfigs, err); apiErr != nil {
+			return nil, apiErr
 		}
 	}
 
@@ -185,6 +157,82 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
+}
+
+// sourceValidationApiError maps an error returned by ValidateMirrorSource to an APIError.
+// It returns nil when the error can be ignored.
+func (h *FlowRequestHandler) sourceValidationApiError(
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, err error,
+) APIError {
+	if missing, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
+		return NewFailedPreconditionApiError(
+			missing,
+			NewSourceTableMissingErrorDetails(missing.Tables)...)
+	}
+	if notInPub, ok := errors.AsType[*common.TablesNotInPublicationError](err); ok {
+		return NewFailedPreconditionApiError(
+			notInPub,
+			NewTablesNotInPublicationErrorDetails(notInPub.Publication, notInPub.Tables)...)
+	}
+	if replicaIdErr, ok := errors.AsType[*common.ReplicaIdentifierInUseError](err); ok {
+		// Beyond other PeerDB mirrors, a replica id must not be already
+		// registered at source.
+		// We only enforce this check if the mirror doesn't already exist as
+		// a resync in that case might happen while the mirror is not paused thus
+		// detecting the same mirror as a conflict.
+		if mirrorExists, err := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName); err != nil {
+			return NewInternalApiError(
+				fmt.Errorf("failed to check if mirror name exists: %w", err))
+		} else if !mirrorExists {
+			return NewFailedPreconditionApiError(
+				fmt.Errorf("source peer %q pins a replica id = %s, which is already in use by a replica registered on the source database",
+					connectionConfigs.SourceName, replicaIdErr.Id),
+				NewMirrorErrorInfo(map[string]string{
+					common.ErrorMetadataOffendingField: "source_name",
+				}))
+		}
+		return nil
+	}
+	return NewFailedPreconditionApiError(
+		fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
+}
+
+// validateAdditionalTables runs the source validation of mirror creation against the tables
+// a config update adds to a running mirror. Without it, a table missing from a user-provided
+// publication is accepted and only fails once the workflow tries to add it, leaving the
+// mirror retrying until the publication is fixed.
+func (h *FlowRequestHandler) validateAdditionalTables(
+	ctx context.Context, flowJobName string, cdcUpdate *protos.CDCFlowConfigUpdate,
+) APIError {
+	if len(cdcUpdate.GetAdditionalTables()) == 0 {
+		return nil
+	}
+
+	config, err := h.getFlowConfigFromCatalog(ctx, flowJobName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+	}
+	connectionConfigs := proto_conversions.FlowConnectionConfigsToCore(config)
+	connectionConfigs.TableMappings = cdcUpdate.AdditionalTables
+	// added tables are snapshotted unless skipped, and always replicated via CDC afterwards
+	connectionConfigs.DoInitialSnapshot = !cdcUpdate.SkipInitialSnapshotForTableAdditions
+	connectionConfigs.InitialSnapshotOnly = false
+
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
+		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
+	)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return NewFailedPreconditionApiError(fmt.Errorf("failed to create source connector: %s", err))
+	}
+	defer srcClose(ctx)
+
+	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
+		return h.sourceValidationApiError(ctx, connectionConfigs, err)
+	}
+	return nil
 }
 
 // checkQRepTableConfig validates the per-table settings of a standalone QRep mirror, which replicates a
