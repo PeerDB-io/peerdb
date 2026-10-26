@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/pubsub/v2"
-	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -43,17 +41,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	}
 	defer pool.Close()
 
-	go func() {
-		for curpub := range publish {
-			if curpub.PublishResult != nil {
-				if _, err := curpub.Get(ctx); err != nil {
-					queueErr(err)
-					break
-				}
-			}
-		}
-		close(waitChan)
-	}()
+	go consumeResults(queueCtx, queueErr, publish, nil, waitChan)
 
 Loop:
 	for {
@@ -117,17 +105,8 @@ Loop:
 		}
 	}
 
-	if err := pool.Wait(queueCtx); err != nil {
+	if err := finishPublishing(ctx, queueCtx, pool, publish, &topiccache, waitChan); err != nil {
 		return 0, nil, err
-	}
-	close(publish)
-	topiccache.ForEach(queueCtx, func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
-		publisher.Stop()
-	})
-	select {
-	case <-queueCtx.Done():
-		return 0, nil, queueCtx.Err()
-	case <-waitChan:
 	}
 
 	if err := c.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
