@@ -1,10 +1,12 @@
 package connmongo
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"slices"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -17,16 +19,17 @@ import (
 )
 
 const (
-	// stringSampleOversample draws more samples than partitions so quantile
+	// partitionSampleOversample draws more samples than partitions so quantile
 	// boundaries are well distributed even with clustered keys.
-	stringSampleOversample = 20
-	// stringSampleMaxSize caps sampling cost on very large collections.
-	stringSampleMaxSize = 100000
+	partitionSampleOversample = 20
+	// partitionSampleMaxSize caps sampling cost on very large collections.
+	partitionSampleMaxSize = 100000
 )
 
 // buildPartitions reads the collection's min and max _id (cheap, leverages the
 // default _id index) and dispatches to a type-specific partitioner:
-//   - ObjectID  -> uniform division of the 12-byte ObjectID keyspace
+//   - ObjectID  -> sampling-based quantile boundaries when sampleObjectIDs is set (default),
+//     or uniform division of the 12-byte ObjectID keyspace
 //   - Int32/64  -> uniform division of the numeric range
 //   - String    -> sampling-based quantile boundaries
 //
@@ -35,6 +38,7 @@ func (c *MongoConnector) buildPartitions(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
+	sampleObjectIDs bool,
 ) ([]*protos.QRepPartition, error) {
 	minRaw, err := findBoundaryID(ctx, collection, Lower, c.config.ReadPreference)
 	if err != nil {
@@ -55,7 +59,10 @@ func (c *MongoConnector) buildPartitions(
 
 	switch {
 	case minRaw.Type == bson.TypeObjectID && maxRaw.Type == bson.TypeObjectID:
-		return c.objectIDPartitions(minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
+		if sampleObjectIDs {
+			return c.sampledObjectIDPartitions(ctx, collection, minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
+		}
+		return c.uniformObjectIDPartitions(minRaw.ObjectID(), maxRaw.ObjectID(), numPartitions)
 	case isNumericIDType(minRaw.Type) && isNumericIDType(maxRaw.Type):
 		minVal, _ := rawValueToInt64(minRaw)
 		maxVal, _ := rawValueToInt64(maxRaw)
@@ -70,10 +77,10 @@ func (c *MongoConnector) buildPartitions(
 	}
 }
 
-// objectIDPartitions divides the ObjectID keyspace uniformly using integer
+// uniformObjectIDPartitions divides the ObjectID keyspace uniformly using integer
 // arithmetic on the full 12-byte value. Since the leading 4-byte timestamp is the
 // most significant component, this naturally partitions by insertion time.
-func (c *MongoConnector) objectIDPartitions(
+func (c *MongoConnector) uniformObjectIDPartitions(
 	minID bson.ObjectID,
 	maxID bson.ObjectID,
 	numPartitions int64,
@@ -125,6 +132,71 @@ func (c *MongoConnector) objectIDPartitions(
 	return partitions, nil
 }
 
+// sampledObjectIDPartitions builds partitions for an ObjectID _id collection from
+// quantile boundaries of a sample, because _ids are rarely spread evenly over the
+// keyspace: insert rates change over time, and a few outlying timestamps far from
+// the rest leave nearly all documents in a handful of uniform partitions. If sampling
+// fails, it falls back to the uniform ObjectID division; if it yields too few
+// boundaries, there are too few documents to split, so it uses a full table partition.
+func (c *MongoConnector) sampledObjectIDPartitions(
+	ctx context.Context,
+	collection *mongo.Collection,
+	minID bson.ObjectID,
+	maxID bson.ObjectID,
+	numPartitions int64,
+) ([]*protos.QRepPartition, error) {
+	if compareObjectIDs(minID, maxID) >= 0 {
+		c.logger.Info("[mongo] ObjectID range is non-positive, falling back to full table partition")
+		return utils.FullTablePartition(), nil
+	}
+
+	rawSamples, err := c.sampleIDs(ctx, collection, numPartitions)
+	if err != nil {
+		c.logger.Warn("[mongo] failed to sample ObjectID _ids, falling back to uniform ObjectID partitioning",
+			slog.Any("error", err))
+		return c.uniformObjectIDPartitions(minID, maxID, numPartitions)
+	}
+	samples := make([]bson.ObjectID, 0, len(rawSamples))
+	for _, rv := range rawSamples {
+		if rv.Type == bson.TypeObjectID {
+			samples = append(samples, rv.ObjectID())
+		}
+	}
+
+	ranges, err := computeObjectIDBoundaries(minID, maxID, samples, numPartitions)
+	if err != nil {
+		return nil, err
+	}
+	if len(ranges) < 2 {
+		c.logger.Info("[mongo] insufficient ObjectID boundaries from sampling, falling back to full table partition",
+			slog.Int("sampleCount", len(samples)))
+		return utils.FullTablePartition(), nil
+	}
+
+	c.logger.Info("[mongo] using sampled ObjectID partitioning",
+		slog.String("minID", minID.Hex()),
+		slog.String("maxID", maxID.Hex()),
+		slog.Int("numPartitions", len(ranges)),
+		slog.Int("sampleCount", len(samples)))
+
+	partitions := make([]*protos.QRepPartition, 0, len(ranges))
+	for _, rng := range ranges {
+		partitions = append(partitions, &protos.QRepPartition{
+			PartitionId: uuid.NewString(),
+			Range: &protos.PartitionRange{
+				Range: &protos.PartitionRange_ObjectIdRange{
+					ObjectIdRange: &protos.ObjectIdPartitionRange{
+						Start: rng[0].Hex(),
+						End:   rng[1].Hex(),
+					},
+				},
+			},
+			FullTablePartition: false,
+		})
+	}
+	return partitions, nil
+}
+
 // numericPartitions divides a numeric (int32/int64) _id range uniformly. MongoDB
 // sorts all numeric types by value, so integer min/max _ids cannot rule out
 // fractional (double/decimal) _ids in-between. Therefore we use [start, end) to
@@ -164,9 +236,15 @@ func (c *MongoConnector) stringPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	samples, err := c.sampleStringIDs(ctx, collection, numPartitions)
+	rawSamples, err := c.sampleIDs(ctx, collection, numPartitions)
 	if err != nil {
 		return nil, err
+	}
+	samples := make([]string, 0, len(rawSamples))
+	for _, rv := range rawSamples {
+		if rv.Type == bson.TypeString {
+			samples = append(samples, rv.StringValue())
+		}
 	}
 
 	ranges := computeStringBoundaries(minVal, maxVal, samples, numPartitions)
@@ -187,18 +265,19 @@ func (c *MongoConnector) stringPartitions(
 	return partitions, nil
 }
 
-// sampleStringIDs draws a random sample of string _id values. $sample with a size
+// sampleIDs draws a random sample of _id values, sorted by _id. $sample with a size
 // below ~5% of the collection uses WiredTiger's random cursor, so this is cheap even
 // on large collections; it honours the configured read preference (run on a
-// secondary to avoid loading the primary).
-func (c *MongoConnector) sampleStringIDs(
+// secondary to avoid loading the primary). Callers keep the _id types they can
+// partition on.
+func (c *MongoConnector) sampleIDs(
 	ctx context.Context,
 	collection *mongo.Collection,
 	numPartitions int64,
-) ([]string, error) {
-	sampleSize := numPartitions * stringSampleOversample
-	if sampleSize > stringSampleMaxSize {
-		sampleSize = stringSampleMaxSize
+) ([]bson.RawValue, error) {
+	sampleSize := numPartitions * partitionSampleOversample
+	if sampleSize > partitionSampleMaxSize {
+		sampleSize = partitionSampleMaxSize
 	}
 
 	aggCmd := bson.D{
@@ -218,12 +297,12 @@ func (c *MongoConnector) sampleStringIDs(
 	}
 	defer cursor.Close(ctx)
 
-	samples := make([]string, 0, sampleSize)
+	samples := make([]bson.RawValue, 0, sampleSize)
 	for cursor.Next(ctx) {
 		rv := cursor.Current.Lookup(DefaultDocumentKeyColumnName)
-		if rv.Type == bson.TypeString {
-			samples = append(samples, rv.StringValue())
-		}
+		// cursor.Current is only valid until the next call to Next
+		rv.Value = bytes.Clone(rv.Value)
+		samples = append(samples, rv)
 	}
 	if err := cursor.Err(); err != nil {
 		return nil, fmt.Errorf("cursor error while sampling _id values: %w", err)
@@ -260,21 +339,7 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		interior = append(interior, s)
 	}
 
-	// Pick up to numPartitions-1 evenly spaced interior boundaries (quantiles).
-	desiredBoundaries := numPartitions - 1
-	var picked []string
-	if int64(len(interior)) <= desiredBoundaries {
-		picked = interior
-	} else {
-		picked = make([]string, 0, desiredBoundaries)
-		for i := int64(1); i <= desiredBoundaries; i++ {
-			idx := i * int64(len(interior)) / numPartitions
-			if idx >= int64(len(interior)) {
-				idx = int64(len(interior)) - 1
-			}
-			picked = append(picked, interior[idx])
-		}
-	}
+	picked := pickQuantiles(interior, numPartitions)
 
 	// Build ranges: [min, p0), [p0, p1), ..., [pLast-1, pLast), [pLast, max].
 	// The last range is closed (end_inclusive=true); all others are half-open.
@@ -290,6 +355,67 @@ func computeStringBoundaries(minVal string, maxVal string, samples []string, num
 		ranges[i] = [2]string{starts[i], end}
 	}
 	return ranges
+}
+
+// computeObjectIDBoundaries turns a sample of ObjectID _ids plus the real min/max
+// into a contiguous set of closed ranges. Interior boundaries are quantiles of the
+// (deduplicated) sample, so ranges hold roughly equal shares of the documents however
+// the _ids are spread over the keyspace; the first range starts at the real min and
+// the last ends at the real max. Each range ends one before the next range starts,
+// matching the inclusive bounds of ObjectID partitions.
+//
+// It is pure (no I/O) to keep the boundary math unit-testable. Returns fewer ranges
+// than numPartitions when the sample yields too few distinct interior boundaries.
+func computeObjectIDBoundaries(
+	minID bson.ObjectID,
+	maxID bson.ObjectID,
+	samples []bson.ObjectID,
+	numPartitions int64,
+) ([][2]bson.ObjectID, error) {
+	// Keep unique sampled _ids strictly inside (min, max). Samples can fall outside
+	// when documents are inserted after the bounds were read.
+	interior := make([]bson.ObjectID, 0, len(samples))
+	for _, s := range samples {
+		if compareObjectIDs(s, minID) > 0 && compareObjectIDs(s, maxID) < 0 {
+			interior = append(interior, s)
+		}
+	}
+	slices.SortFunc(interior, compareObjectIDs)
+	interior = slices.Compact(interior)
+
+	picked := pickQuantiles(interior, numPartitions)
+
+	// Build ranges: [min, p0-1], [p0, p1-1], ..., [pLast, max].
+	ranges := make([][2]bson.ObjectID, 0, len(picked)+1)
+	start := minID
+	for _, boundary := range picked {
+		end, err := bigIntToObjectID(new(big.Int).Sub(new(big.Int).SetBytes(boundary[:]), big.NewInt(1)))
+		if err != nil {
+			return nil, err
+		}
+		ranges = append(ranges, [2]bson.ObjectID{start, end})
+		start = boundary
+	}
+	return append(ranges, [2]bson.ObjectID{start, maxID}), nil
+}
+
+// pickQuantiles picks numPartitions-1 evenly spaced boundaries from sorted, distinct
+// interior values, or all of them when there are too few.
+func pickQuantiles[T any](interior []T, numPartitions int64) []T {
+	desiredBoundaries := numPartitions - 1
+	if int64(len(interior)) <= desiredBoundaries {
+		return interior
+	}
+	picked := make([]T, 0, desiredBoundaries)
+	for i := int64(1); i <= desiredBoundaries; i++ {
+		picked = append(picked, interior[i*int64(len(interior))/numPartitions])
+	}
+	return picked
+}
+
+// compareObjectIDs orders ObjectIDs the way MongoDB does: bytewise.
+func compareObjectIDs(a, b bson.ObjectID) int {
+	return bytes.Compare(a[:], b[:])
 }
 
 // bigIntToObjectID converts a big.Int back to a 12-byte ObjectID.
