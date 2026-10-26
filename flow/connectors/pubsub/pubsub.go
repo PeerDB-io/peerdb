@@ -166,28 +166,39 @@ func (c *PubSubConnector) createPool(
 		return ls, nil
 	}, func(result poolResult) {
 		for _, message := range result.messages {
+			// Nothing is published once the batch is cancelled: Publish ignores
+			// the context, so anything queued now would only have to be flushed
+			// or failed by Stop, and could land after the batch is reported failed.
+			if ctx.Err() != nil {
+				return
+			}
 			topic, err := topiccache.GetOrSet(message.Topic, func() (*pubsubpb.Topic, error) {
 				topicName := fmt.Sprintf("projects/%s/topics/%s", c.client.Project(), message.Topic)
 				topic, err := c.client.TopicAdminClient.GetTopic(ctx, &pubsubpb.GetTopicRequest{
 					Topic: topicName,
 				})
-
-				if err != nil && status.Code(err) == codes.NotFound {
-					force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
-					if envErr != nil {
-						return nil, envErr
-					}
-					if force {
-						if newTopic, err := c.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
-							Name: topicName,
-						}); err != nil {
-							return nil, fmt.Errorf("error creating topic: %w", err)
-						} else {
-							topic = newTopic
-						}
-					}
+				if err == nil {
+					return topic, nil
 				}
-				return topic, nil
+				// Every other outcome used to hand the cache a nil topic with no
+				// error, which it then dereferenced.
+				if status.Code(err) != codes.NotFound {
+					return nil, err
+				}
+				force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
+				if envErr != nil {
+					return nil, envErr
+				}
+				if !force {
+					return nil, err
+				}
+				newTopic, err := c.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
+					Name: topicName,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("error creating topic: %w", err)
+				}
+				return newTopic, nil
 			})
 			if err != nil {
 				queueErr(fmt.Errorf("[pubsub] error getting topic: %w", err))
@@ -197,14 +208,91 @@ func (c *PubSubConnector) createPool(
 			if message.OrderingKey != "" {
 				topic.Publisher.EnableMessageOrdering = true
 			}
-			publish <- publishResult{
+			// Give up once the batch is cancelled, so a failed batch tears down
+			// without depending on the consumer: a send that waited here would
+			// block the pool and, through it, the SyncRecords loop in pool.Run.
+			select {
+			case publish <- publishResult{
 				PublishResult: topic.Publisher.Publish(ctx, message.Message),
+			}:
+			case <-ctx.Done():
+				return
 			}
 		}
-		publish <- publishResult{
+		select {
+		case publish <- publishResult{
 			lsn: result.lsn,
+		}:
+		case <-ctx.Done():
 		}
 	})
+}
+
+// consumeResults confirms each publish in order and, when lastSeenLSN is given,
+// records the LSN of every record whose messages all succeeded. Once the batch
+// is cancelled, for a failed publish or for any error the pool reports, it
+// keeps draining so no sender can ever block on the channel, but confirms
+// nothing more: a sentinel that follows a failed record must not advance the
+// offset the flush loop persists. Closes done once the channel is closed and
+// drained.
+func consumeResults(
+	queueCtx context.Context,
+	queueErr func(error),
+	publish <-chan publishResult,
+	lastSeenLSN *atomic.Int64,
+	done chan<- struct{},
+) {
+	defer close(done)
+	for curpub := range publish {
+		if queueCtx.Err() != nil {
+			continue
+		}
+		if curpub.PublishResult == nil {
+			if lastSeenLSN != nil {
+				shared.AtomicInt64Max(lastSeenLSN, curpub.lsn)
+			}
+		} else if _, err := curpub.Get(queueCtx); err != nil {
+			queueErr(fmt.Errorf("[pubsub] error publishing message: %w", err))
+		}
+	}
+}
+
+// finishPublishing tears a batch down once every record has been handed to the
+// pool. The pool is always waited for: it cannot block once the batch is
+// cancelled, and publish may only be closed when nothing will send on it again.
+// Returning early here used to leak the consumer goroutine, the Lua states and
+// the publishers of a failed batch. Each publisher's Stop waits for its pending
+// messages to be sent or to fail, up to the publish timeout after an outage, so
+// they run concurrently and are not waited for past the activity's own
+// cancellation. Returns the batch's error if it was cancelled.
+func finishPublishing(
+	ctx, queueCtx context.Context,
+	pool *utils.LPool[poolResult],
+	publish chan publishResult,
+	topiccache *topicCache,
+	consumed <-chan struct{},
+) error {
+	// Only fails on context cancellation, which this context cannot do.
+	_ = pool.Wait(context.WithoutCancel(queueCtx))
+	close(publish)
+	var stopping sync.WaitGroup
+	topiccache.ForEach(context.WithoutCancel(queueCtx), func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
+		stopping.Go(publisher.Stop)
+	})
+	stopped := make(chan struct{})
+	go func() {
+		stopping.Wait()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+	}
+	<-consumed
+	if err := context.Cause(queueCtx); err != nil {
+		return fmt.Errorf("[pubsub] sync failed: %w", err)
+	}
+	return nil
 }
 
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
@@ -223,17 +311,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 	}
 	defer pool.Close()
 
-	go func() {
-		for curpub := range publish {
-			if curpub.PublishResult == nil {
-				shared.AtomicInt64Max(&lastSeenLSN, curpub.lsn)
-			} else if _, err := curpub.Get(ctx); err != nil {
-				queueErr(fmt.Errorf("[pubsub] error publishing message: %w", err))
-				break
-			}
-		}
-		close(waitChan)
-	}()
+	go consumeResults(queueCtx, queueErr, publish, &lastSeenLSN, waitChan)
 
 	flushLoopDone := make(chan struct{})
 	go func() {
@@ -321,17 +399,8 @@ Loop:
 	}
 
 	close(flushLoopDone)
-	if err := pool.Wait(queueCtx); err != nil {
-		return nil, fmt.Errorf("[pubsub] pool.Wait error: %w", err)
-	}
-	close(publish)
-	topiccache.ForEach(queueCtx, func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
-		publisher.Stop()
-	})
-	select {
-	case <-queueCtx.Done():
-		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", context.Cause(queueCtx))
-	case <-waitChan:
+	if err := finishPublishing(ctx, queueCtx, pool, publish, &topiccache, waitChan); err != nil {
+		return nil, err
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
