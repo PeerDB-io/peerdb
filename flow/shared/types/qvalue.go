@@ -12,6 +12,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+func init() {
+	// Cover Postgres's numeric range when parsing strings and decoding CDC disk-spill records.
+	decimal.MaxDecodeExponent = 131072
+}
+
 // if new types are added, register them in gob - cdc_store.go
 type QValue interface {
 	Kind() QValueKind
