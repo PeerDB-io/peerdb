@@ -434,8 +434,6 @@ func (c *MongoConnector) PullRecords(
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
-	parallelDocumentLookup := c.parallelDocumentLookup
-	var lookupCollectionUUIDs map[string]bson.Binary
 	defer req.RecordStream.Close()
 	ctx = withCommandLogging(ctx)
 
@@ -451,25 +449,16 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
 		// batchSize=0 only affects the initial aggregate response, so Watch returns
 		// immediately without blocking on the initial cursor establishment. Subsequent
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
-	if parallelDocumentLookup {
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		collectionUUIDs, err := c.parallelLookupCollectionsSupported(probeCtx, req.TableNameMapping)
-		cancel()
-		if err != nil || collectionUUIDs == nil {
-			c.logger.Warn("using native MongoDB document lookup: collection identity or simple collation could not be verified",
-				slog.Any("error", err))
-			parallelDocumentLookup = false
-		} else {
-			lookupCollectionUUIDs = collectionUUIDs
-			// Updates are hydrated outside MongoDB's serial change-stream pipeline.
-			changeStreamOpts.SetFullDocument(options.Default)
-		}
+
+	if c.clientUpdateLookup {
+		changeStreamOpts.SetFullDocument(options.Default)
+	} else {
+		changeStreamOpts.SetFullDocument(options.UpdateLookup)
 	}
 
 	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
@@ -578,6 +567,15 @@ func (c *MongoConnector) PullRecords(
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
+		Prepare: func(ctx context.Context, events []encodedMongoEvent) error {
+			if !c.clientUpdateLookup {
+				return nil
+			}
+			bytes, err := c.hydrateUpdateEvents(ctx, events)
+			deltaBytesProcessed.Add(bytes)
+			cumulativeBytesProcessed.Add(bytes)
+			return err
+		},
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
 			decodeStart := time.Now()
 			defer func() {
@@ -594,47 +592,6 @@ func (c *MongoConnector) PullRecords(
 		},
 	}
 	workerPool.Init(ctx)
-	var pendingEvents []pendingDocumentLookup
-	var pendingBytes int64
-	var sendLookupWindow func([]pendingDocumentLookup) error
-	sendLookupWindow = func(window []pendingDocumentLookup) error {
-		bytes, err := c.lookupUpdates(ctx, window, lookupCollectionUUIDs)
-		deltaBytesProcessed.Add(bytes)
-		cumulativeBytesProcessed.Add(bytes)
-		if errors.Is(err, errDocumentLookupWindowBytes) && len(window) > 1 {
-			middle := len(window) / 2
-			if err := sendLookupWindow(window[:middle]); err != nil {
-				return err
-			}
-			return sendLookupWindow(window[middle:])
-		}
-		if err != nil {
-			return err
-		}
-		for i := range window {
-			pending := &window[i]
-			if err := workerPool.AddItem(ctx, pending.event, pending.resumeToken); err != nil {
-				return err
-			}
-			// AddItem owns its copy. Release this slot so recursively split parent
-			// windows do not retain every already-dispatched large document.
-			window[i] = pendingDocumentLookup{}
-		}
-		// A byte-limited subwindow may contain fewer than a decoder chunk's rows.
-		// Dispatch it now instead of accumulating several large lookup windows.
-		return workerPool.Flush(ctx)
-	}
-	flushLookups := func() error {
-		if len(pendingEvents) == 0 {
-			return nil
-		}
-		if err := sendLookupWindow(pendingEvents); err != nil {
-			return err
-		}
-		pendingEvents = nil
-		pendingBytes = 0
-		return nil
-	}
 	// before the first record arrives, we wait for up to noEventTimeout before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	noEventTimeout := defaultNoEventTimeout
@@ -749,9 +706,6 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unexpected: changestream.Next() returned false but no change stream error was recorded")
 			}
 
-			if err := flushLookups(); err != nil {
-				return err
-			}
 			if err := workerPool.Flush(ctx); err != nil {
 				return err
 			}
@@ -866,10 +820,6 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
 				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
 
-			if err := flushLookups(); err != nil {
-				return err
-			}
-
 			// When the skipped event is a collection-level DDL (drop or rename), generate customer facing logs.
 			if alerter != nil {
 				switch operationType(changeEvent.OperationType) {
@@ -893,34 +843,12 @@ func (c *MongoConnector) PullRecords(
 		} else {
 			rtText = base64.StdEncoding.EncodeToString(rt)
 		}
-		if parallelDocumentLookup && (len(pendingEvents) > 0 ||
-			(event.operationType == operationTypeUpdate && event.maybeFullDocument == nil)) {
-			if pendingBytes+changeEventSize > documentLookupMaxBytes {
-				if err := flushLookups(); err != nil {
-					return err
-				}
-			}
-			// Buffer mixed events together, hydrate only their update slots, and
-			// emit every event in source order. Unrelated inserts must not turn
-			// a batched lookup into one serial query per update.
-			pendingEvents = append(pendingEvents, pendingDocumentLookup{event: event, resumeToken: rtText})
-			pendingBytes += changeEventSize
-			if len(pendingEvents) == documentLookupWindowSize {
-				if err := flushLookups(); err != nil {
-					return err
-				}
-			}
-		} else {
-			if err := workerPool.AddItem(ctx, event, rtText); err != nil {
-				return err
-			}
+		if err := workerPool.AddItem(ctx, event, rtText); err != nil {
+			return err
 		}
 		processTime.Add(int64(time.Since(serialProcessStart)))
 	}
 	serialProcessStart := time.Now()
-	if err := flushLookups(); err != nil {
-		return err
-	}
 	if err := workerPool.Flush(ctx); err != nil {
 		return err
 	}

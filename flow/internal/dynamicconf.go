@@ -614,10 +614,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP",
-		Description: "Fetch update documents in bounded parallel batches outside the change stream on MongoDB 6.0 or newer. " +
-			"Uses majority reads, preserves event order and native resume tokens. " +
-			"Unsupported servers, including DocumentDB, and non-simple collations retain native updateLookup.",
+		Name:             "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP",
+		Description:      "Fetch update documents in bounded parallel batches outside the change stream. ",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
@@ -1154,8 +1152,8 @@ func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]s
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
 }
 
-func PeerDBMongoDBParallelDocumentLookup(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP")
+func PeerDBMongoDBClientSideUpdateLookup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP")
 }
 
 func PeerDBMongoDBLogCommands(ctx context.Context, env map[string]string) (bool, error) {

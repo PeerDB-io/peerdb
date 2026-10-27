@@ -11,7 +11,7 @@ type sendMsg[D, RT any] struct {
 	resumeToken  RT
 }
 
-// PullRecordsWorkerPool implements an ordered, batched concurent worker pool for use with
+// PullRecordsWorkerPool implements an ordered, batched concurrent worker pool for use with
 // PullRecords. The canonical use-case is for decoding events (type E) coming from the
 // source database into decoded events (type D), with an associated resumeToken
 // to thread through to the Send function along with events (type RT). We use the term
@@ -25,7 +25,15 @@ type sendMsg[D, RT any] struct {
 // events that arrive earlier will be part of earlier chunks than events that arrived later,
 // and chunks will maintain this AddItem-implied order on their way to Send(). Within a chunk,
 // the slice of events is also ordered from earliest to latest.
+//
+// Each chunk passes through three stages:
+//   - Prepare (optional) performs sequential work before the chunk reaches WorkerFunc. It runs
+//     for one chunk at a time, in AddItem order, on the goroutine that calls AddItem or Flush.
+//   - WorkerFunc performs parallel work that depends only on its chunk. It may run for up to
+//     Concurrency chunks at once and in any order, so it must be safe to call concurrently.
+//   - Send receives each result chunk in AddItem order, with the resume token of its last event.
 type PullRecordsWorkerPool[E, D, RT any] struct {
+	Prepare    func(ctx context.Context, events []E) error
 	WorkerFunc func(events []E) (D, error)
 	Send       func(ctx context.Context, items D, resumeToken RT) error
 
@@ -100,6 +108,11 @@ func (p *PullRecordsWorkerPool[E, D, RT]) Flush(ctx context.Context) error {
 	}
 	if err := p.workerCtx.Err(); err != nil {
 		return context.Cause(p.workerCtx)
+	}
+	if p.Prepare != nil {
+		if err := p.Prepare(ctx, p.inProgressChunk); err != nil {
+			return err
+		}
 	}
 	// Grab a slot in the semaphore.
 	select {

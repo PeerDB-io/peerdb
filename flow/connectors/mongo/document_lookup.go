@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,239 +13,193 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 const (
-	documentLookupWindowSize  = 256
-	documentLookupQuerySize   = 64
-	documentLookupConcurrency = 4
-	documentLookupMaxBytes    = 64 << 20
+	// TODO: make these configurable
+	lookupQueryBatchSize   = 64
+	lookupQueryParallelism = 4
 )
 
-func supportsParallelDocumentLookup(version string, variant protos.DatabaseVariant) bool {
-	majorText, _, _ := strings.Cut(version, ".")
-	major, err := strconv.Atoi(majorText)
-	return err == nil && major >= 6 && variant != protos.DatabaseVariant_AWS_DOCUMENTDB
-}
-
-// Native lookup targets sharded keys with simple collation, then matches using
-// the collection default. An external aggregate cannot express that split, so
-// retain native updateLookup for collections with a non-simple collation.
-func (c *MongoConnector) parallelLookupCollectionsSupported(
-	ctx context.Context, mappings map[string]model.SourceTableMapping,
-) (map[string]bson.Binary, error) {
-	databases := make(map[string][]string)
-	collectionUUIDs := make(map[string]bson.Binary, len(mappings))
-	for namespace := range mappings {
-		database, collection, ok := strings.Cut(namespace, ".")
-		if !ok || database == "" || collection == "" {
-			return nil, fmt.Errorf("invalid MongoDB namespace %q", namespace)
-		}
-		databases[database] = append(databases[database], collection)
-	}
-	for database, names := range databases {
-		specs, err := c.client.Database(database).ListCollectionSpecifications(ctx,
-			bson.D{{Key: "name", Value: bson.D{{Key: "$in", Value: names}}}})
-		if err != nil {
-			return nil, err
-		}
-		if len(specs) != len(names) {
-			return nil, nil
-		}
-		for i := range specs {
-			uuid := specs[i].UUID
-			if uuid == nil || uuid.Subtype != 4 || len(uuid.Data) != 16 {
-				return nil, nil
-			}
-			collation := specs[i].Options.Lookup("collation")
-			if !collation.IsZero() {
-				document, ok := collation.DocumentOK()
-				if !ok {
-					return nil, nil
-				}
-				locale, ok := document.Lookup("locale").StringValueOK()
-				if !ok || locale != "simple" {
-					return nil, nil
-				}
-			}
-			collectionUUIDs[database+"."+specs[i].Name] = bson.Binary{Subtype: 4, Data: slices.Clone(uuid.Data)}
-		}
-	}
-	return collectionUUIDs, nil
-}
-
-var errDocumentLookupWindowBytes = errors.New("MongoDB document lookup exceeded the 64 MiB window limit")
-
-type pendingDocumentLookup struct {
-	resumeToken string
-	event       encodedMongoEvent
-}
-
 type documentLookupKey struct {
-	namespace string
-	key       string
+	sourceTable string
+	key         string
 }
 
 type documentLookupRequest struct {
-	key       documentLookupKey
-	filter    bson.D
-	readTime  bson.Timestamp
-	id        bson.ObjectID
+	// fully qualified names (e.g. database.collection)
+	sourceTable string
+	// eventIndices are the indices of the update events in a given chunk that shares the same fullDocument.
+	eventIndices []int
+	documentKey  []bson.RawElement
+	// latestClusterTime is the latest clusterTime among the request's update events.
+	latestClusterTime bson.Timestamp
+	// a document lookup is batchable if _id is the whole document key
+	// (the collection is unsharded or sharded on _id), so the request
+	// can share an _id $in query and be matched back by _id. Otherwise,
+	// the request is deemed not batchable and executes its own full-key query.
 	batchable bool
 }
 
-type documentLookupQuery struct {
-	documents map[documentLookupKey]bson.Raw
-	requests  []*documentLookupRequest
-}
-
-// lookupUpdates hydrates update slots in a bounded source-ordered window. Other
-// event types retain their own images and positions. Like native updateLookup,
-// queries wait for the source event time, not the operationTime of an earlier
-// lookup (which can move all the way to the present while replaying a backlog).
-func (c *MongoConnector) lookupUpdates(
-	ctx context.Context, pending []pendingDocumentLookup, collectionUUIDs map[string]bson.Binary,
-) (int64, error) {
-	if len(pending) > documentLookupWindowSize {
-		return 0, errors.New("MongoDB document lookup window is too large")
-	}
-	keys := make(map[int]documentLookupKey)
-	requests := make(map[documentLookupKey]*documentLookupRequest)
-	var ordered []*documentLookupRequest
-	for i := range pending {
-		event := &pending[i].event
+// hydrateUpdateEvents hydrates the update events' `fullDocument` field using client-side lookup.
+func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encodedMongoEvent) (int64, error) {
+	var requests []*documentLookupRequest
+	requestsMap := make(map[documentLookupKey]*documentLookupRequest)
+	for i := range events {
+		event := &events[i]
 		if event.operationType != operationTypeUpdate || event.maybeFullDocument != nil {
 			continue
 		}
 		if event.clusterTime == (bson.Timestamp{}) {
-			return 0, errors.New("MongoDB document lookup requires a clusterTime")
+			return 0, errors.New("client-side update lookup requires a clusterTime")
 		}
-		elements, err := event.documentKey.Elements()
-		if err != nil || len(elements) == 0 || event.documentKey.Lookup("_id").IsZero() {
-			return 0, errors.New("MongoDB document lookup requires a documentKey containing _id")
-		}
-		key := documentLookupKey{namespace: event.sourceTableName, key: string(event.documentKey)}
-		keys[i] = key
-		if request := requests[key]; request != nil {
-			request.readTime = laterDocumentLookupTime(request.readTime, event.clusterTime)
+
+		key := documentLookupKey{sourceTable: event.sourceTableName, key: string(event.documentKey)}
+		if request := requestsMap[key]; request != nil {
+			request.latestClusterTime = maxTimestamp(request.latestClusterTime, event.clusterTime)
+			request.eventIndices = append(request.eventIndices, i)
 			continue
 		}
-		request := &documentLookupRequest{key: key, readTime: event.clusterTime}
-		request.id, request.batchable = event.documentKey.Lookup("_id").ObjectIDOK()
-		request.batchable = request.batchable && len(elements) == 1
-		if !request.batchable {
-			// Full-key equality retains shard targeting and avoids associating results
-			// by _id alone when it is not globally unique. $eq keeps object-valued
-			// IDs literal instead of interpreting their contents as query operators.
-			var expressions bson.A
-			for _, element := range elements {
-				if strings.HasPrefix(element.Key(), "$") {
-					expressions = append(expressions, bson.D{{Key: "$eq", Value: bson.A{
-						bson.D{{Key: "$getField", Value: bson.D{
-							{Key: "input", Value: "$$ROOT"},
-							{Key: "field", Value: bson.D{{Key: "$literal", Value: element.Key()}}},
-						}}},
-						bson.D{{Key: "$literal", Value: element.Value()}},
-					}}})
-				} else {
-					request.filter = append(request.filter, bson.E{Key: element.Key(), Value: bson.D{{Key: "$eq", Value: element.Value()}}})
-				}
-			}
-			if len(expressions) > 0 {
-				request.filter = append(request.filter, bson.E{Key: "$expr", Value: bson.D{{Key: "$and", Value: expressions}}})
-			}
+
+		elements, err := event.documentKey.Elements()
+		if err != nil || len(elements) == 0 || event.documentKey.Lookup("_id").IsZero() {
+			// should never happen
+			return 0, errors.New("client-side update lookup requires a documentKey containing _id")
 		}
-		requests[key] = request
-		ordered = append(ordered, request)
-	}
-	var queries []documentLookupQuery
-	collections := make(map[string][]*documentLookupRequest)
-	for _, request := range ordered {
-		if request.batchable {
-			collections[request.key.namespace] = append(collections[request.key.namespace], request)
-		} else {
-			queries = append(queries, documentLookupQuery{requests: []*documentLookupRequest{request}})
+		request := &documentLookupRequest{
+			sourceTable:       event.sourceTableName,
+			documentKey:       elements,
+			eventIndices:      []int{i},
+			latestClusterTime: event.clusterTime,
 		}
+		request.batchable = len(elements) == 1
+		requestsMap[key] = request
+		requests = append(requests, request)
 	}
-	for _, collection := range collections {
-		for chunk := range slices.Chunk(collection, documentLookupQuerySize) {
-			queries = append(queries, documentLookupQuery{requests: chunk})
-		}
-	}
-	var fetched atomic.Int64
+
+	groupedRequests := groupLookupRequests(requests)
+
+	pref := protoToReadPref[c.config.ReadPreference]
+	var fetchedSize atomic.Int64
 	group, queryCtx := errgroup.WithContext(ctx)
-	group.SetLimit(documentLookupConcurrency)
-	for i := range queries {
-		query := &queries[i]
+	group.SetLimit(lookupQueryParallelism)
+	for _, reqs := range groupedRequests {
 		group.Go(func() error {
-			var err error
-			query.documents, err = c.lookupUpdateDocuments(queryCtx, query.requests, &fetched, collectionUUIDs)
-			return err
+			return c.batchLookup(queryCtx, pref, events, reqs, &fetchedSize)
 		})
 	}
-	if err := group.Wait(); err != nil {
-		return fetched.Load(), err
-	}
-	if err := ctx.Err(); err != nil {
-		return fetched.Load(), err
-	}
-	images := make(map[documentLookupKey]bson.Raw, len(requests))
-	for i := range queries {
-		for key, raw := range queries[i].documents {
-			images[key] = raw
-		}
-	}
-	// Only mutate the window after every query succeeds. A missing document is
-	// normal when an update is followed by a delete, just as with updateLookup.
-	for i, key := range keys {
-		if raw := images[key]; raw != nil {
-			pending[i].event.maybeFullDocument = &raw
-		}
-	}
-	return fetched.Load(), nil
+	err := group.Wait()
+	return fetchedSize.Load(), err
 }
 
-func (c *MongoConnector) lookupUpdateDocuments(
-	ctx context.Context, requests []*documentLookupRequest, fetched *atomic.Int64,
-	collectionUUIDs map[string]bson.Binary,
-) (map[documentLookupKey]bson.Raw, error) {
+// batchLookup runs one lookup query and sets each matched document on its request's events.
+// fullDocument may be missing when an update is followed by a delete, just as with native
+// updateLookup. If any query fails, the chunk is never decoded, so events hydrated before
+// the failure are discarded with it.
+func (c *MongoConnector) batchLookup(
+	ctx context.Context, pref *readpref.ReadPref, events []encodedMongoEvent, requests []*documentLookupRequest, fetchedSize *atomic.Int64,
+) error {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	namespace := requests[0].key.namespace
-	database, name, ok := strings.Cut(namespace, ".")
-	if !ok || database == "" || name == "" {
-		return nil, errors.New("invalid MongoDB document lookup namespace")
-	}
-	collectionUUID, ok := collectionUUIDs[namespace]
-	if !ok {
-		return nil, errors.New("MongoDB document lookup requires verified collection metadata")
-	}
-	pref, ok := protoToReadPref[c.config.ReadPreference]
-	if !ok {
-		return nil, errors.New("invalid MongoDB document lookup read preference")
-	}
-	var floor bson.Timestamp
-	byID := make(map[bson.ObjectID]documentLookupKey, len(requests))
-	ids := make([]bson.ObjectID, 0, len(requests))
-	for _, request := range requests {
-		floor = laterDocumentLookupTime(floor, request.readTime)
-		ids = append(ids, request.id)
-		byID[request.id] = request.key
-	}
-	filter := requests[0].filter
+	var byID map[string]*documentLookupRequest
 	if requests[0].batchable {
-		filter = bson.D{{Key: "_id", Value: bson.D{{Key: "$in", Value: ids}}}}
+		byID = make(map[string]*documentLookupRequest, len(requests))
+		for _, request := range requests {
+			byID[rawValueKey(request.documentKey[0].Value())] = request
+		}
 	}
-	command := bson.D{
-		{Key: "aggregate", Value: name},
-		// Guard the current metadata, not the historical event UUID. If the collection
-		// is replaced after preflight, retry so its collation is checked again.
-		{Key: "collectionUUID", Value: collectionUUID},
+	db, collection, _ := strings.Cut(requests[0].sourceTable, ".")
+	command := buildBatchLookupCommand(collection, requests)
+	queryCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cursor, err := c.client.Database(db).RunCommandCursor(queryCtx, command, options.RunCmd().SetReadPreference(pref))
+	if err != nil {
+		if lookupCollectionMissing(err) {
+			c.logger.Warn("client-side update lookup found no collection, skipping",
+				slog.String("collection", requests[0].sourceTable))
+			return nil
+		}
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = cursor.Close(closeCtx)
+	}()
+	for cursor.Next(queryCtx) {
+		request := requests[0]
+		if byID != nil {
+			var expected bool
+			request, expected = byID[rawValueKey(cursor.Current.Lookup("_id"))]
+			if !expected {
+				return errors.New("client-side update lookup returned an unexpected document key")
+			}
+		}
+		if events[request.eventIndices[0]].maybeFullDocument != nil {
+			return fmt.Errorf("client-side update lookup returned multiple documents for one document key in %s",
+				request.sourceTable)
+		}
+		fetchedSize.Add(int64(len(cursor.Current)))
+		document := slices.Clone(cursor.Current)
+		for _, i := range request.eventIndices {
+			events[i].maybeFullDocument = &document
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		if lookupCollectionMissing(err) {
+			c.logger.Warn("client-side update lookup found no collection, skipping",
+				slog.String("collection", requests[0].sourceTable))
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// groupLookupRequests splits requests by source table for query batching. Batchable requests
+// share $in queries of up to lookupQueryBatchSize per collection, and remaining requests
+// get their own queries unbatched.
+func groupLookupRequests(requests []*documentLookupRequest) [][]*documentLookupRequest {
+	var groupedRequests [][]*documentLookupRequest
+	batches := make(map[string][]*documentLookupRequest)
+	for _, request := range requests {
+		if request.batchable {
+			batches[request.sourceTable] = append(batches[request.sourceTable], request)
+		} else {
+			groupedRequests = append(groupedRequests, []*documentLookupRequest{request})
+		}
+	}
+	for _, batch := range batches {
+		groupedRequests = slices.AppendSeq(groupedRequests, slices.Chunk(batch, lookupQueryBatchSize))
+	}
+	return groupedRequests
+}
+
+func buildBatchLookupCommand(collection string, requests []*documentLookupRequest) bson.D {
+	var floor bson.Timestamp
+	for _, request := range requests {
+		floor = maxTimestamp(floor, request.latestClusterTime)
+	}
+	var filter bson.D
+	if requests[0].batchable {
+		ids := make(bson.A, 0, len(requests))
+		for _, request := range requests {
+			ids = append(ids, request.documentKey[0].Value())
+		}
+		filter = bson.D{{Key: "_id", Value: bson.D{{Key: "$in", Value: ids}}}}
+	} else {
+		// Full-key equality retains shard targeting and avoids associating results by _id alone
+		// when it is not globally unique. $eq keeps object-valued IDs literal instead of
+		// interpreting their contents as query operators.
+		for _, element := range requests[0].documentKey {
+			filter = append(filter, bson.E{Key: element.Key(), Value: bson.D{{Key: "$eq", Value: element.Value()}}})
+		}
+	}
+	return bson.D{
+		{Key: "aggregate", Value: collection},
 		{Key: "pipeline", Value: mongo.Pipeline{
 			bson.D{{Key: "$match", Value: filter}},
 			bson.D{{Key: "$limit", Value: len(requests) + 1}},
@@ -256,57 +210,20 @@ func (c *MongoConnector) lookupUpdateDocuments(
 		{Key: "readConcern", Value: bson.D{{Key: "level", Value: "majority"}, {Key: "afterClusterTime", Value: floor}}},
 		{Key: "comment", Value: "PeerDB parallel document lookup"},
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	cursor, err := c.client.Database(database).RunCommandCursor(queryCtx, command, options.RunCmd().SetReadPreference(pref))
-	if err != nil {
-		if lookupCollectionMissing(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_ = cursor.Close(closeCtx)
-	}()
-	documents := make(map[documentLookupKey]bson.Raw, len(requests))
-	for cursor.Next(queryCtx) {
-		key := requests[0].key
-		if requests[0].batchable {
-			id, valid := cursor.Current.Lookup("_id").ObjectIDOK()
-			var expected bool
-			key, expected = byID[id]
-			if !valid || !expected {
-				return nil, errors.New("MongoDB document lookup returned an unexpected key")
-			}
-		}
-		if _, exists := documents[key]; exists {
-			return nil, fmt.Errorf("MongoDB document lookup returned multiple matches for a document key in %s", namespace)
-		}
-		// This bounds retained lookup BSON, not driver buffers or decoded records.
-		// The caller subdivides oversized windows and retries them in source order.
-		if fetched.Add(int64(len(cursor.Current))) > documentLookupMaxBytes {
-			return nil, errDocumentLookupWindowBytes
-		}
-		documents[key] = slices.Clone(cursor.Current)
-	}
-	if err := cursor.Err(); err != nil {
-		if lookupCollectionMissing(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return documents, nil
 }
 
 func lookupCollectionMissing(err error) bool {
 	var commandError mongo.CommandError
-	return errors.As(err, &commandError) &&
-		commandError.HasErrorCode(26) // NamespaceNotFound.
+	return errors.As(err, &commandError) && commandError.HasErrorCode(26) // NamespaceNotFound
 }
 
-func laterDocumentLookupTime(a, b bson.Timestamp) bson.Timestamp {
+// rawValueKey identifies a BSON value by its exact encoding. _id never changes, so a looked-up
+// document's _id has the same encoding as the _id in its event's documentKey.
+func rawValueKey(value bson.RawValue) string {
+	return string([]byte{byte(value.Type)}) + string(value.Value)
+}
+
+func maxTimestamp(a, b bson.Timestamp) bson.Timestamp {
 	if a.T > b.T || (a.T == b.T && a.I > b.I) {
 		return a
 	}

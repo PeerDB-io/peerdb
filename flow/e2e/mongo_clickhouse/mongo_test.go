@@ -1857,7 +1857,7 @@ func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP"] = "true"
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
 
 	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
 	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
@@ -1960,7 +1960,7 @@ func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup_Mixed_Id_Types()
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
-	flowConnConfig.Env["PEERDB_MONGODB_PARALLEL_DOCUMENT_LOOKUP"] = "true"
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
 
 	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
 	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
