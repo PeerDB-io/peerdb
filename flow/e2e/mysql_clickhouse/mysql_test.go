@@ -3082,10 +3082,52 @@ func (s MySQLClickHouseSuite) Test_MySQL_String_Partition_Key_Arbitrary_Parallel
 	e2e.RequireEnvCanceled(s.T(), env)
 }
 
-// Test_MySQL_String_Partition_Key_Special_Chars_Parallel_Snapshot guards against
-// silent endpoint data loss when a watermark value contains a backslash, which
-// the session sql_mode (NO_BACKSLASH_ESCAPES) treats as literal but mysql.Escape
-// would wrongly escape it (\ -> \\), potentially sorting below the real max value
+// Test_MySQL_Generated_Column_Escapes_Parallel_Snapshot snapshots a generated column containing a quote.
+func (s MySQLClickHouseSuite) Test_MySQL_Generated_Column_Escapes_Parallel_Snapshot() {
+	if _, ok := s.Source().(*e2e.MySqlSource); !ok {
+		s.T().Skip("only applies to mysql")
+	}
+
+	srcTable := "test_gcol_escapes"
+	srcFullName := e2e.AttachSchema(s, srcTable)
+	dstTable := "test_gcol_escapes_dst"
+
+	require.NoError(s.T(), s.Source().Exec(s.T().Context(), fmt.Sprintf(
+		`CREATE TABLE %s (id INT PRIMARY KEY, name VARCHAR(100) NOT NULL,
+			name_quote VARCHAR(200) AS (concat(lower(name), '\'s')))`,
+		srcFullName)))
+	// hex literals keep the inserted values independent of escaping
+	names := []string{`O'Brien`, `C:\tmp\x`, `plain`, `a\'b`}
+	values := make([]string, len(names))
+	for i, name := range names {
+		values[i] = fmt.Sprintf("(%d, X'%s')", i+1, hex.EncodeToString([]byte(name)))
+	}
+	require.NoError(s.T(), s.Source().Exec(s.T().Context(),
+		fmt.Sprintf("INSERT INTO %s (id, name) VALUES %s", srcFullName, strings.Join(values, ","))))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "gcol_escapes"),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	// more than one partition so the min/max partitioning query runs against the table
+	flowConnConfig.SnapshotNumPartitionsOverride = 2
+
+	tc := e2e.NewTemporalClient(s.T())
+	env := e2e.ExecutePeerflow(s.T(), tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.T(), env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTable, dstTable, "id,name,name_quote")
+
+	env.Cancel(s.T().Context())
+	e2e.RequireEnvCanceled(s.T(), env)
+}
+
+// Test_MySQL_String_Partition_Key_Special_Chars_Parallel_Snapshot checks that a max key containing a backslash
+// is not dropped. If the boundary literal is escaped for the wrong sql_mode, `key_99\max` is read back as
+// `key_99\\max`, which sorts below the real max, so the last partition silently misses that row.
 func (s MySQLClickHouseSuite) Test_MySQL_String_Partition_Key_Special_Chars_Parallel_Snapshot() {
 	if _, ok := s.Source().(*e2e.MySqlSource); !ok {
 		s.T().Skip("only applies to mysql")
@@ -3105,7 +3147,7 @@ func (s MySQLClickHouseSuite) Test_MySQL_String_Partition_Key_Special_Chars_Para
 	for i := range numRows - 1 {
 		keys[i] = fmt.Sprintf("key_%02d", i)
 	}
-	// wrongly escaped, `key_99\\max` sorts before `key_99\max` under binary collation:
+	// a raw string, so this is one literal backslash (0x5C); under binary collation the wrongly escaped form sorts first:
 	// key_99\max bytes:  6B 65 79 5F 39 39 5C 6D 61 78
 	// key_99\\max bytes: 6B 65 79 5F 39 39 5C 5C 6D 61 78
 	keys[numRows-1] = `key_99\max`
