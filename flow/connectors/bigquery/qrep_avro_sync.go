@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"github.com/hamba/avro/v2"
-	"github.com/hamba/avro/v2/ocf"
+	"github.com/twmb/avro"
+	"github.com/twmb/avro/atype"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -227,7 +227,7 @@ func DefineAvroSchema(dstTableName string,
 	syncedAtCol string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]*avro.Field, 0, len(dstTableMetadata.Schema))
+	avroFields := make([]avro.SchemaField, 0, len(dstTableMetadata.Schema))
 	qFields := make([]types.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
@@ -241,7 +241,7 @@ func DefineAvroSchema(dstTableName string,
 		qFields = append(qFields, BigQueryFieldToQField(bqField))
 	}
 
-	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
+	avroSchema, err := (&avro.SchemaNode{Type: atype.Record, Name: dstTableName, Fields: avroFields}).Schema()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Avro schema: %w", err)
 	}
@@ -252,102 +252,90 @@ func DefineAvroSchema(dstTableName string,
 	}, nil
 }
 
-func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
+func GetAvroType(bqField *bigquery.FieldSchema) (avro.SchemaNode, error) {
 	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
 		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
-	considerRepeated := func(typ avro.Type, repeated bool) avro.Schema {
+	considerRepeated := func(typ string, repeated bool) avro.SchemaNode {
 		if repeated {
-			return avro.NewArraySchema(avro.NewPrimitiveSchema(typ, nil))
+			return qvalue.AvroArraySchema(avro.SchemaNode{Type: typ})
 		} else {
-			return avro.NewPrimitiveSchema(typ, nil)
+			return avro.SchemaNode{Type: typ}
 		}
 	}
 
 	switch bqField.Type {
 	case bigquery.StringFieldType, bigquery.GeographyFieldType, bigquery.JSONFieldType:
-		return considerRepeated(avro.String, bqField.Repeated), nil
+		return considerRepeated(atype.String, bqField.Repeated), nil
 	case bigquery.BytesFieldType:
-		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
+		return avro.SchemaNode{Type: atype.Bytes}, nil
 	case bigquery.IntegerFieldType:
-		return considerRepeated("long", bqField.Repeated), nil
+		return considerRepeated(atype.Long, bqField.Repeated), nil
 	case bigquery.FloatFieldType:
-		return considerRepeated("double", bqField.Repeated), nil
+		return considerRepeated(atype.Double, bqField.Repeated), nil
 	case bigquery.BooleanFieldType:
-		return considerRepeated("boolean", bqField.Repeated), nil
+		return considerRepeated(atype.Boolean, bqField.Repeated), nil
 	case bigquery.TimestampFieldType:
-		timestampSchema := avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))
+		timestampSchema := avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimestampMicros}
 		if bqField.Repeated {
-			return avro.NewArraySchema(timestampSchema), nil
+			return qvalue.AvroArraySchema(timestampSchema), nil
 		}
 		return timestampSchema, nil
 	case bigquery.DateFieldType:
-		dateSchema := avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))
+		dateSchema := avro.SchemaNode{Type: atype.Int, LogicalType: atype.Date}
 		if bqField.Repeated {
-			return avro.NewArraySchema(dateSchema), nil
+			return qvalue.AvroArraySchema(dateSchema), nil
 		}
 		return dateSchema, nil
 	case bigquery.TimeFieldType:
-		timeSchema := avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros))
+		timeSchema := avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimeMicros}
 		if bqField.Repeated {
-			return avro.NewArraySchema(timeSchema), nil
+			return qvalue.AvroArraySchema(timeSchema), nil
 		}
 		return timeSchema, nil
 	case bigquery.DateTimeFieldType:
-		dateField, err := avro.NewField("date",
-			avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date)))
-		if err != nil {
-			return nil, err
-		}
-		timeField, err := avro.NewField("time",
-			avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)))
-		if err != nil {
-			return nil, err
-		}
-		return avro.NewRecordSchema("datetime", "", []*avro.Field{dateField, timeField})
+		return avro.SchemaNode{Type: atype.Record, Name: "datetime", Fields: []avro.SchemaField{
+			{Name: "date", Type: avro.SchemaNode{Type: atype.Int, LogicalType: atype.Date}},
+			{Name: "time", Type: avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimeMicros}},
+		}}, nil
 	case bigquery.BigNumericFieldType:
-		bigNumericSchema := avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale)))
+		bigNumericSchema := avro.SchemaNode{
+			Type:        atype.Bytes,
+			LogicalType: atype.Decimal,
+			Precision:   int(avroNumericPrecision),
+			Scale:       int(avroNumericScale),
+		}
 		if bqField.Repeated {
-			return avro.NewArraySchema(bigNumericSchema), nil
+			return qvalue.AvroArraySchema(bigNumericSchema), nil
 		}
 		return bigNumericSchema, nil
 	case bigquery.RecordFieldType:
-		avroFields := []*avro.Field{}
+		avroFields := []avro.SchemaField{}
 		for _, bqSubField := range bqField.Schema {
 			avroType, err := GetAvroType(bqSubField)
 			if err != nil {
-				return nil, err
+				return avro.SchemaNode{}, err
 			}
-			avroField, err := avro.NewField(
-				bqSubField.Name,
-				avroType,
-			)
-			if err != nil {
-				return nil, err
-			}
-			avroFields = append(avroFields, avroField)
+			avroFields = append(avroFields, avro.SchemaField{Name: bqSubField.Name, Type: avroType})
 		}
-		return avro.NewRecordSchema(bqField.Name, "", avroFields)
+		return avro.SchemaNode{Type: atype.Record, Name: bqField.Name, Fields: avroFields}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
+		return avro.SchemaNode{}, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
 	}
 }
 
-func GetAvroField(bqField *bigquery.FieldSchema) (*avro.Field, error) {
+func GetAvroField(bqField *bigquery.FieldSchema) (avro.SchemaField, error) {
 	avroType, err := GetAvroType(bqField)
 	if err != nil {
-		return nil, err
+		return avro.SchemaField{}, err
 	}
 
 	if !bqField.Required {
-		avroType, err = qvalue.NullableAvroSchema(avroType)
-		if err != nil {
-			return nil, err
-		}
+		avroType = qvalue.NullableAvroSchema(avroType)
 	}
 
-	return avro.NewField(bqField.Name, avroType)
+	return avro.SchemaField{Name: bqField.Name, Type: avroType}, nil
 }
 
 func (s *QRepAvroSyncMethod) writeToStage(
@@ -361,7 +349,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 ) (int64, error) {
 	var avroFile utils.AvroFile
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY, nil)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, utils.AvroSnappyCodec, protos.DBType_BIGQUERY, nil)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
