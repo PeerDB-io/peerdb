@@ -450,15 +450,11 @@ func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64
 	return c.processGeneralTime(t, "2006-01-02", true, so)
 }
 
+// processNullableUnion returns value as is: the Avro encoder picks the ["null", T] union branch
+// from the Go type of the value, with nil selecting null, so no pointer wrapping is needed.
 func (c *QValueAvroConverter) processNullableUnion(
 	value any,
 ) any {
-	if c.Nullable {
-		if value == nil {
-			return nil
-		}
-		return &value
-	}
 	return value
 }
 
