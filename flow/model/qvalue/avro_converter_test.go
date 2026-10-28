@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/avro"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -396,15 +396,16 @@ func TestDecimalSize(t *testing.T) {
 
 func getAvroSchema(
 	t *testing.T, ctx context.Context, env map[string]string, qv types.QValue, field *types.QField,
-) avro.Schema {
+) *avro.Schema {
 	t.Helper()
 	schema, err := GetAvroSchemaFromQValueKind(ctx, env, qv.Kind(), protos.DBType_CLICKHOUSE, field.Precision, field.Scale)
 	require.NoError(t, err)
 	if field.Nullable {
-		schema, err = NullableAvroSchema(schema)
-		require.NoError(t, err)
+		schema = NullableAvroSchema(schema)
 	}
-	return schema
+	avroSchema, err := schema.Schema()
+	require.NoError(t, err)
+	return avroSchema
 }
 
 func qvalueToAvro(
@@ -417,9 +418,9 @@ func qvalueToAvro(
 	return avroVal, computedSize
 }
 
-func avroEncodedSize(t *testing.T, schema avro.Schema, value any) int64 {
+func avroEncodedSize(t *testing.T, schema *avro.Schema, value any) int64 {
 	t.Helper()
-	data, err := avro.Marshal(schema, value)
+	data, err := schema.Encode(value)
 	require.NoError(t, err)
 	return int64(len(data))
 }
