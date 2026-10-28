@@ -30,6 +30,53 @@ const (
 	POSTGRES_17 PGVersion = 170000
 )
 
+// ConnectPostgres creates a connection with timestamp decoding in UTC.
+func ConnectPostgres(ctx context.Context, config *pgx.ConnConfig) (*pgx.Conn, error) {
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	registerUTCTimeTypes(conn.TypeMap())
+	return conn, nil
+}
+
+// NewPostgresTypeMap creates a standalone type map with timestamp decoding in UTC.
+func NewPostgresTypeMap() *pgtype.Map {
+	typeMap := pgtype.NewMap()
+	registerUTCTimeTypes(typeMap)
+	return typeMap
+}
+
+func registerUTCTimeTypes(typeMap *pgtype.Map) {
+	timestamp := &pgtype.Type{Name: "timestamp", OID: pgtype.TimestampOID, Codec: &pgtype.TimestampCodec{ScanLocation: time.UTC}}
+	timestamptz := &pgtype.Type{Name: "timestamptz", OID: pgtype.TimestamptzOID, Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC}}
+	tsrange := &pgtype.Type{Name: "tsrange", OID: pgtype.TsrangeOID, Codec: &pgtype.RangeCodec{ElementType: timestamp}}
+	tstzrange := &pgtype.Type{Name: "tstzrange", OID: pgtype.TstzrangeOID, Codec: &pgtype.RangeCodec{ElementType: timestamptz}}
+	tsmultirange := &pgtype.Type{Name: "tsmultirange", OID: pgtype.TsmultirangeOID, Codec: &pgtype.MultirangeCodec{ElementType: tsrange}}
+	tstzmultirange := &pgtype.Type{
+		Name: "tstzmultirange", OID: pgtype.TstzmultirangeOID, Codec: &pgtype.MultirangeCodec{ElementType: tstzrange},
+	}
+	typeMap.RegisterTypes([]*pgtype.Type{timestamp, timestamptz, tsrange, tstzrange, tsmultirange, tstzmultirange})
+
+	// Container codecs retain element pointers, so replacing only the scalar types is insufficient.
+	// Leave multirange arrays unregistered so PeerDB keeps PostgreSQL's original text formatting.
+	for _, array := range []struct { //nolint:govet // fieldalignment: keep OIDs first in this small registration table.
+		oid     uint32
+		element *pgtype.Type
+	}{
+		{pgtype.TimestampArrayOID, timestamp},
+		{pgtype.TimestamptzArrayOID, timestamptz},
+		{pgtype.TsrangeArrayOID, tsrange},
+		{pgtype.TstzrangeArrayOID, tstzrange},
+	} {
+		typeMap.RegisterType(&pgtype.Type{
+			Name:  "_" + array.element.Name,
+			OID:   array.oid,
+			Codec: &pgtype.ArrayCodec{ElementType: array.element},
+		})
+	}
+}
+
 func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
 	var hstoreOID *uint32
 	var vectorOID *uint32
@@ -194,6 +241,10 @@ func (rows CatalogRows) RawValues() [][]byte {
 
 func (rows CatalogRows) Conn() *pgx.Conn {
 	return rows.Rows.Conn()
+}
+
+func (rows CatalogRows) TypeMap() *pgtype.Map {
+	return rows.Rows.TypeMap()
 }
 
 func (tx CatalogTx) Begin(ctx context.Context) (pgx.Tx, error) {
