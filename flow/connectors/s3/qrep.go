@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -79,16 +78,16 @@ func (c *S3Connector) writeToAvroFile(
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 	}
 
-	var codec ocf.CodecName
+	var codec utils.AvroCompressionCodec
 	switch c.codec {
 	case protos.AvroCodec_Null:
-		codec = ocf.Null
+		codec = utils.AvroNullCodec
 	case protos.AvroCodec_Deflate:
-		codec = ocf.Deflate
+		codec = utils.AvroDeflateCodec
 	case protos.AvroCodec_Snappy:
-		codec = ocf.Snappy
+		codec = utils.AvroSnappyCodec
 	case protos.AvroCodec_ZStandard:
-		codec = ocf.ZStandard
+		codec = utils.AvroZstdCodec
 	default:
 		return 0, fmt.Errorf("unsupported codec %s", c.codec)
 	}

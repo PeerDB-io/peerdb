@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2/ocf"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
@@ -104,7 +103,7 @@ func BenchmarkWriteOCF(b *testing.B) {
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 	b.Cleanup(func() { slog.SetDefault(defaultLogger) })
 
-	for _, codec := range []ocf.CodecName{ocf.ZStandard, ocf.Null} {
+	for _, codec := range []AvroCompressionCodec{AvroZstdCodec, AvroNullCodec} {
 		b.Run(string(codec), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {

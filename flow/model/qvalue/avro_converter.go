@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2"
 	"github.com/shopspring/decimal"
+	"github.com/twmb/avro"
+	"github.com/twmb/avro/atype"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -59,111 +60,115 @@ func GetAvroSchemaFromQValueKind(
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
-) (avro.Schema, error) {
+) (avro.SchemaNode, error) {
 	switch kind {
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindCIDR,
 		types.QValueKindINET, types.QValueKindMacaddr:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	case types.QValueKindInterval:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	case types.QValueKindArrayInterval:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.String}), nil
 	case types.QValueKindUUID:
-		return avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID)), nil
+		return avro.SchemaNode{Type: atype.String, LogicalType: atype.UUID}, nil
 	case types.QValueKindArrayUUID:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID))), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.String, LogicalType: atype.UUID}), nil
 	case types.QValueKindGeometry, types.QValueKindGeography, types.QValueKindPoint:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
 		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64,
 		types.QValueKindUint16Enum, types.QValueKindUint64Set:
-		return avro.NewPrimitiveSchema(avro.Long, nil), nil
+		return avro.SchemaNode{Type: atype.Long}, nil
 	case types.QValueKindFloat32:
 		if targetDWH == protos.DBType_BIGQUERY {
-			return avro.NewPrimitiveSchema(avro.Double, nil), nil
+			return avro.SchemaNode{Type: atype.Double}, nil
 		}
-		return avro.NewPrimitiveSchema(avro.Float, nil), nil
+		return avro.SchemaNode{Type: atype.Float}, nil
 	case types.QValueKindFloat64:
-		return avro.NewPrimitiveSchema(avro.Double, nil), nil
+		return avro.SchemaNode{Type: atype.Double}, nil
 	case types.QValueKindBoolean:
-		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
+		return avro.SchemaNode{Type: atype.Boolean}, nil
 	case types.QValueKindBytes:
 		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
-			return nil, err
+			return avro.SchemaNode{}, err
 		}
 		if targetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
-			return avro.NewPrimitiveSchema(avro.String, nil), nil
+			return avro.SchemaNode{Type: atype.String}, nil
 		}
-		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
+		return avro.SchemaNode{Type: atype.Bytes}, nil
 	case types.QValueKindNumeric:
 		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
 	case types.QValueKindInt256:
-		return avro.NewFixedSchema("int256", "", 32, nil)
+		return avro.SchemaNode{Type: atype.Fixed, Name: "int256", Size: 32}, nil
 	case types.QValueKindUInt256:
-		return avro.NewFixedSchema("uint256", "", 32, nil)
+		return avro.SchemaNode{Type: atype.Fixed, Name: "uint256", Size: 32}, nil
 	case types.QValueKindDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewPrimitiveSchema(avro.String, nil), nil
+			return avro.SchemaNode{Type: atype.String}, nil
 		}
-		return avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date)), nil
+		return avro.SchemaNode{Type: atype.Int, LogicalType: atype.Date}, nil
 	case types.QValueKindTime, types.QValueKindTimeTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewPrimitiveSchema(avro.String, nil), nil
+			return avro.SchemaNode{Type: atype.String}, nil
 		}
-		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)), nil
+		return avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimeMicros}, nil
 	case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewPrimitiveSchema(avro.String, nil), nil
+			return avro.SchemaNode{Type: atype.String}, nil
 		}
-		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)), nil
+		return avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimestampMicros}, nil
 	case types.QValueKindHStore, types.QValueKindJSON, types.QValueKindJSONB:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	case types.QValueKindArrayFloat32:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Float, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Float}), nil
 	case types.QValueKindArrayFloat64:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Double, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Double}), nil
 	case types.QValueKindArrayInt32, types.QValueKindArrayInt16:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Int}), nil
 	case types.QValueKindArrayInt64:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Long}), nil
 	case types.QValueKindArrayBoolean:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Boolean, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Boolean}), nil
 	case types.QValueKindArrayDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+			return AvroArraySchema(avro.SchemaNode{Type: atype.String}), nil
 		}
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Int, LogicalType: atype.Date}), nil
 	case types.QValueKindArrayTime:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+			return AvroArraySchema(avro.SchemaNode{Type: atype.String}), nil
 		}
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros))), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimeMicros}), nil
 	case types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+			return AvroArraySchema(avro.SchemaNode{Type: atype.String}), nil
 		}
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.Long, LogicalType: atype.TimestampMicros}), nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	case types.QValueKindArrayString, types.QValueKindArrayEnum:
-		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+		return AvroArraySchema(avro.SchemaNode{Type: atype.String}), nil
 	case types.QValueKindArrayNumeric:
 		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
 		if err != nil {
-			return nil, err
+			return avro.SchemaNode{}, err
 		}
-		return avro.NewArraySchema(numericSchema), nil
+		return AvroArraySchema(numericSchema), nil
 	case types.QValueKindInvalid:
 		// lets attempt to do invalid as a string
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	default:
-		return nil, fmt.Errorf("unsupported types.QValueKind type: %s", kind)
+		return avro.SchemaNode{}, fmt.Errorf("unsupported types.QValueKind type: %s", kind)
 	}
 }
 
-func NullableAvroSchema(schema avro.Schema) (avro.Schema, error) {
-	return avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), schema})
+func NullableAvroSchema(schema avro.SchemaNode) avro.SchemaNode {
+	return avro.SchemaNode{Type: atype.Union, Branches: []avro.SchemaNode{{Type: atype.Null}, schema}}
+}
+
+func AvroArraySchema(items avro.SchemaNode) avro.SchemaNode {
+	return avro.SchemaNode{Type: atype.Array, Items: &items}
 }
 
 func getAvroNumericSchema(
@@ -172,17 +177,21 @@ func getAvroNumericSchema(
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
-) (avro.Schema, error) {
+) (avro.SchemaNode, error) {
 	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 	if err != nil {
-		return nil, err
+		return avro.SchemaNode{}, err
 	}
 	destinationType := GetNumericDestinationType(precision, scale, targetDWH, asString)
 	if destinationType.IsString {
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
+		return avro.SchemaNode{Type: atype.String}, nil
 	}
-	return avro.NewPrimitiveSchema(avro.Bytes,
-		avro.NewDecimalLogicalSchema(int(destinationType.Precision), int(destinationType.Scale))), nil
+	return avro.SchemaNode{
+		Type:        atype.Bytes,
+		LogicalType: atype.Decimal,
+		Precision:   int(destinationType.Precision),
+		Scale:       int(destinationType.Scale),
+	}, nil
 }
 
 type QValueAvroConverter struct {
@@ -902,11 +911,10 @@ func arraySize(count int, totalElemSize int64, so sizeOpt) int64 {
 	if so == sizeSkip {
 		return 0
 	}
-	// Avro array encoding: block header (negative count + byte size) + elements + termination (varint 0)
-	// Block header: varint(-count) + varint(totalElemSize)
+	// Avro array encoding: a single block of varint(count) + elements, then termination (varint 0)
 	size := so.nullableSize()
 	if count > 0 {
-		size += varIntSize(int64(-count), sizePlain) + varIntSize(totalElemSize, sizePlain) + totalElemSize
+		size += varIntSize(int64(count), sizePlain) + totalElemSize
 	}
 	size += 1 // array termination byte (varint 0)
 	return size

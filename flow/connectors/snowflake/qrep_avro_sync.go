@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hamba/avro/v2/ocf"
 	_ "github.com/snowflakedb/gosnowflake/v2"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -154,12 +153,12 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	flowJobName string,
 ) (utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		compression := ocf.ZStandard
+		compression := utils.AvroZstdCodec
 		skipCompression, err := internal.PeerDBSnowflakeSkipCompression(ctx, s.config.Env)
 		if err != nil {
 			s.logger.Warn("Failed to load PEERDB_SNOWFLAKE_SKIP_COMPRESSION, proceeding without", slog.Any("error", err))
 		} else if skipCompression {
-			compression = ocf.Null
+			compression = utils.AvroNullCodec
 		}
 
 		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, compression, protos.DBType_SNOWFLAKE, nil)
@@ -178,7 +177,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE, nil)
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, utils.AvroZstdCodec, protos.DBType_SNOWFLAKE, nil)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)

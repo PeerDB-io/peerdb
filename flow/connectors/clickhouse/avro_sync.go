@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -390,7 +389,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, utils.AvroZstdCodec, protos.DBType_CLICKHOUSE, sizeTracker)
 	prefix := s.staging.KeyPrefix()
 
 	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)

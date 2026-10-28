@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/hamba/avro/v2"
+	"github.com/twmb/avro"
+	"github.com/twmb/avro/atype"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -105,7 +106,7 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	Schema *avro.RecordSchema
+	Schema *avro.Schema
 	Fields []types.QField
 }
 
@@ -121,8 +122,7 @@ func GetAvroSchemaDefinition(
 	targetDWH protos.DBType,
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
-	namedSchemaSeen := make(map[string]avro.NamedSchema)
+	avroFields := make([]avro.SchemaField, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
@@ -130,21 +130,8 @@ func GetAvroSchemaDefinition(
 			return nil, err
 		}
 
-		// Avro named types (fixed, enum, record) must only be defined once per schema;
-		// subsequent references use RefSchema to emit just the type name.
-		if named, ok := avroType.(avro.NamedSchema); ok {
-			if _, seen := namedSchemaSeen[named.FullName()]; seen {
-				avroType = avro.NewRefSchema(named)
-			} else {
-				namedSchemaSeen[named.FullName()] = named
-			}
-		}
-
 		if qField.Nullable {
-			avroType, err = qvalue.NullableAvroSchema(avroType)
-			if err != nil {
-				return nil, err
-			}
+			avroType = qvalue.NullableAvroSchema(avroType)
 		}
 
 		avroFieldName := qField.Name
@@ -152,17 +139,15 @@ func GetAvroSchemaDefinition(
 			avroFieldName = avroNameMap[qField.Name]
 		}
 
-		avroField, err := avro.NewField(avroFieldName, avroType)
-		if err != nil {
-			return nil, err
-		}
-		avroFields = append(avroFields, avroField)
+		avroFields = append(avroFields, avro.SchemaField{Name: avroFieldName, Type: avroType})
 	}
 
 	if targetDWH == protos.DBType_CLICKHOUSE {
 		dstTableName = qvalue.ConvertToAvroCompatibleName(dstTableName)
 	}
-	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
+	// Avro named types (fixed, enum, record) must only be defined once per schema;
+	// SchemaNode.Schema emits later occurrences as references to the type name.
+	avroSchema, err := (&avro.SchemaNode{Type: atype.Record, Name: dstTableName, Fields: avroFields}).Schema()
 	if err != nil {
 		return nil, err
 	}
