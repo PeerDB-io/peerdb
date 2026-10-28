@@ -31,17 +31,22 @@ type documentLookupKey struct {
 type documentLookupRequest struct {
 	// fully qualified names (e.g. database.collection)
 	sourceTable string
+	// keyFields is the documentKey field names in order, joined by keyFieldSeparator. Requests
+	// with the same source table and key fields share one query and are matched back by their
+	// full key: "_id" alone (unsharded, or sharded on _id) uses an _id $in, and any other key
+	// (sharded on another field) uses an $or of full-key equalities.
+	keyFields string
 	// eventIndices are the indices of the update events in a given chunk that shares the same fullDocument.
 	eventIndices []int
 	documentKey  []bson.RawElement
 	// latestClusterTime is the latest clusterTime among the request's update events.
 	latestClusterTime bson.Timestamp
-	// a document lookup is batchable if _id is the whole document key
-	// (the collection is unsharded or sharded on _id), so the request
-	// can share an _id $in query and be matched back by _id. Otherwise,
-	// the request is deemed not batchable and executes its own full-key query.
-	batchable bool
 }
+
+const (
+	keyFieldSeparator = "\x00"
+	idOnlyKeyFields   = "_id"
+)
 
 // hydrateUpdateEvents hydrates the update events' `fullDocument` field using client-side lookup.
 func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encodedMongoEvent) (int64, error) {
@@ -68,13 +73,17 @@ func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encod
 			// should never happen
 			return 0, errors.New("client-side update lookup requires a documentKey containing _id")
 		}
+		fields := make([]string, len(elements))
+		for j, element := range elements {
+			fields[j] = element.Key()
+		}
 		request := &documentLookupRequest{
 			sourceTable:       event.sourceTableName,
 			documentKey:       elements,
 			eventIndices:      []int{i},
 			latestClusterTime: event.clusterTime,
+			keyFields:         strings.Join(fields, keyFieldSeparator),
 		}
-		request.batchable = len(elements) == 1
 		requestsMap[key] = request
 		requests = append(requests, request)
 	}
@@ -104,12 +113,10 @@ func (c *MongoConnector) batchLookup(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var byID map[string]*documentLookupRequest
-	if requests[0].batchable {
-		byID = make(map[string]*documentLookupRequest, len(requests))
-		for _, request := range requests {
-			byID[rawValueKey(request.documentKey[0].Value())] = request
-		}
+	fields := strings.Split(requests[0].keyFields, keyFieldSeparator)
+	byKey := make(map[string]*documentLookupRequest, len(requests))
+	for _, request := range requests {
+		byKey[requestKey(request)] = request
 	}
 	db, collection, _ := strings.Cut(requests[0].sourceTable, ".")
 	command := buildBatchLookupCommand(collection, requests)
@@ -130,13 +137,9 @@ func (c *MongoConnector) batchLookup(
 		_ = cursor.Close(closeCtx)
 	}()
 	for cursor.Next(queryCtx) {
-		request := requests[0]
-		if byID != nil {
-			var expected bool
-			request, expected = byID[rawValueKey(cursor.Current.Lookup("_id"))]
-			if !expected {
-				return errors.New("client-side update lookup returned an unexpected document key")
-			}
+		request, expected := byKey[documentKeyOf(cursor.Current, fields)]
+		if !expected {
+			return errors.New("client-side update lookup returned an unexpected document key")
 		}
 		if events[request.eventIndices[0]].maybeFullDocument != nil {
 			return fmt.Errorf("client-side update lookup returned multiple documents for one document key in %s",
@@ -159,18 +162,15 @@ func (c *MongoConnector) batchLookup(
 	return nil
 }
 
-// groupLookupRequests splits requests by source table for query batching. Batchable requests
-// share $in queries of up to lookupQueryBatchSize per collection, and remaining requests
-// get their own queries unbatched.
+// groupLookupRequests splits requests by source table and key fields into queries of up to
+// lookupQueryBatchSize requests.
 func groupLookupRequests(requests []*documentLookupRequest) [][]*documentLookupRequest {
+	type batchKey struct{ sourceTable, keyFields string }
 	var groupedRequests [][]*documentLookupRequest
-	batches := make(map[string][]*documentLookupRequest)
+	batches := make(map[batchKey][]*documentLookupRequest)
 	for _, request := range requests {
-		if request.batchable {
-			batches[request.sourceTable] = append(batches[request.sourceTable], request)
-		} else {
-			groupedRequests = append(groupedRequests, []*documentLookupRequest{request})
-		}
+		key := batchKey{request.sourceTable, request.keyFields}
+		batches[key] = append(batches[key], request)
 	}
 	for _, batch := range batches {
 		groupedRequests = slices.AppendSeq(groupedRequests, slices.Chunk(batch, lookupQueryBatchSize))
@@ -184,19 +184,21 @@ func buildBatchLookupCommand(collection string, requests []*documentLookupReques
 		floor = maxTimestamp(floor, request.latestClusterTime)
 	}
 	var filter bson.D
-	if requests[0].batchable {
+	switch {
+	case requests[0].keyFields == idOnlyKeyFields:
 		ids := make(bson.A, 0, len(requests))
 		for _, request := range requests {
 			ids = append(ids, request.documentKey[0].Value())
 		}
 		filter = bson.D{{Key: "_id", Value: bson.D{{Key: "$in", Value: ids}}}}
-	} else {
-		// Full-key equality retains shard targeting and avoids associating results by _id alone
-		// when it is not globally unique. $eq keeps object-valued IDs literal instead of
-		// interpreting their contents as query operators.
-		for _, element := range requests[0].documentKey {
-			filter = append(filter, bson.E{Key: element.Key(), Value: bson.D{{Key: "$eq", Value: element.Value()}}})
+	case len(requests) == 1:
+		filter = fullKeyFilter(requests[0])
+	default:
+		branches := make(bson.A, 0, len(requests))
+		for _, request := range requests {
+			branches = append(branches, fullKeyFilter(request))
 		}
+		filter = bson.D{{Key: "$or", Value: branches}}
 	}
 	return bson.D{
 		{Key: "aggregate", Value: collection},
@@ -212,13 +214,48 @@ func buildBatchLookupCommand(collection string, requests []*documentLookupReques
 	}
 }
 
+// fullKeyFilter matches one document by every documentKey field. Including the shard key keeps
+// the query targeted, and matching the full key avoids associating results by _id alone when
+// _id is unique only per shard. $eq keeps object values literal instead of interpreting their
+// contents as query operators.
+func fullKeyFilter(request *documentLookupRequest) bson.D {
+	filter := make(bson.D, 0, len(request.documentKey))
+	for _, element := range request.documentKey {
+		filter = append(filter, bson.E{Key: element.Key(), Value: bson.D{{Key: "$eq", Value: element.Value()}}})
+	}
+	return filter
+}
+
+func requestKey(request *documentLookupRequest) string {
+	var key strings.Builder
+	for _, element := range request.documentKey {
+		key.WriteString(rawValueKey(element.Value()))
+	}
+	return key.String()
+}
+
+// documentKeyOf rebuilds a looked-up document's key in the same form as requestKey. A shard key
+// field can be a dotted path, and a missing shard key field reads as null, as in documentKey.
+func documentKeyOf(document bson.Raw, fields []string) string {
+	var key strings.Builder
+	for _, field := range fields {
+		value, err := document.LookupErr(strings.Split(field, ".")...)
+		if err != nil {
+			value = bson.RawValue{Type: bson.TypeNull}
+		}
+		key.WriteString(rawValueKey(value))
+	}
+	return key.String()
+}
+
 func lookupCollectionMissing(err error) bool {
 	var commandError mongo.CommandError
 	return errors.As(err, &commandError) && commandError.HasErrorCode(26) // NamespaceNotFound
 }
 
-// rawValueKey identifies a BSON value by its exact encoding. _id never changes, so a looked-up
-// document's _id has the same encoding as the _id in its event's documentKey.
+// rawValueKey identifies a BSON value by its exact encoding. documentKey values are copied from the
+// stored document, so a looked-up document's key fields have the same encoding. A document whose
+// shard key changed after the update does not match the old key's query at all.
 func rawValueKey(value bson.RawValue) string {
 	return string([]byte{byte(value.Type)}) + string(value.Value)
 }
