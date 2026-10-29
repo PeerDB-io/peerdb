@@ -990,9 +990,9 @@ func PullCdcRecords[Items model.Items](
 
 					case *model.RelationRecord[Items]:
 						tableSchemaDelta := r.TableSchemaDelta
-						if len(tableSchemaDelta.AddedColumns) > 0 {
-							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
-								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
+						if len(tableSchemaDelta.AddedColumns) > 0 || len(tableSchemaDelta.DroppedColumns) > 0 {
+							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v, droppedColumns: %v",
+								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns, tableSchemaDelta.DroppedColumns))
 							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 						}
 

@@ -1590,6 +1590,77 @@ func (s PeerFlowE2ETestSuitePG) Test_Drop_Column_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+// Test_Drop_Column_Both_Sides_PG reproduces the production scenario: a column dropped on the source
+// is also dropped on the destination. Normalize is catalog-driven, so unless the drop is propagated
+// to the catalog the generated statement keeps referencing the now-missing destination column and
+// fails with 42703. The drop must reach applySchemaDeltas (not just be detected) for this to pass.
+func (s PeerFlowE2ETestSuitePG) Test_Drop_Column_Both_Sides_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := "test_drop_column_both_pg"
+	dstTableName := srcTableName + "_dst"
+	quotedSourceTableName := s.attachSchemaSuffix(srcTableName)
+	quotedDestTableName := s.attachSchemaSuffix(dstTableName)
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT,
+			c2 BIGINT
+		);
+	`, quotedSourceTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_drop_column_both_pg"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(srcTableName),
+				DestinationTableIdentifier: s.attachSchemaSuffix(dstTableName),
+			},
+		},
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize: 100,
+		System:       protos.TypeSystem_PG,
+	}
+
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c2) VALUES (1,10)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize initial row", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1,c2") == nil
+	})
+
+	// drop c2 on the source; the catalog must be healed so normalize stops referencing c2.
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c2`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (2)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize after source drop", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1") == nil
+	})
+
+	// now drop c2 on the destination too. If the catalog still referenced c2 (drop not propagated),
+	// the next normalize would fail with 42703; with the drop propagated it keeps working.
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c2`, quotedDestTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (3)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize after destination drop", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 // Test_Add_Drop_Add_Column_PG covers adding, dropping, then re-adding the same column under the PG
 // type system. Regardless of how the DDL/DML interleaves across sync batches, the net result must
 // converge: the column ends up present and its post-re-add values are normalized.
