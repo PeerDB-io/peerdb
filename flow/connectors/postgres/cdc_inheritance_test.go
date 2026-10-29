@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -56,6 +57,8 @@ func newInheritanceTestCDCSource(t *testing.T) *PostgresCDCSource {
 		idToRelKindMap:               map[uint32]byte{inhParentRelID: 'r'},
 		mirroredRelIDs:               []uint32{inhParentRelID},
 		hushWarnUnknownTableDetected: map[uint32]struct{}{},
+		emittedAddedColumns:          map[string]addedColumnType{},
+		warnedColumnEvents:           map[string]struct{}{},
 	}
 }
 
@@ -210,4 +213,39 @@ func TestProcessTupleRejectsColumnCountMismatch(t *testing.T) {
 	items, _, err := processTuple(qProcessor{}, p, nil, rel, mapping, nil, "", model.BaseRecord{})
 	require.NoError(t, err)
 	require.Equal(t, 0, items.Len())
+}
+
+func TestChildOnlyColumnEmittedOncePerPull(t *testing.T) {
+	t.Parallel()
+	p := newInheritanceTestCDCSource(t)
+	p.otelManager.Metrics.ColumnTypeChangesCounter = noop.Int64Counter{}
+	// another child already emitted these columns in this pull (emitting reads the catalog, so the test starts after)
+	p.emittedAddedColumns["parent\x00extra"] = addedColumnType{typ: string(types.QValueKindString), typmod: -1}
+	p.emittedAddedColumns["parent\x00amount"] = addedColumnType{typ: string(types.QValueKindNumeric), typmod: 655366}
+	withColumns := func(rel *pglogrepl.RelationMessage, columns ...*pglogrepl.RelationMessageColumn) *pglogrepl.RelationMessage {
+		rel.Columns = append(rel.Columns, columns...)
+		rel.ColumnNum = uint16(len(rel.Columns))
+		return rel
+	}
+
+	// the same column with the same type is not emitted again
+	rec, err := processRelationMessage[model.RecordItems](t.Context(), p, 1,
+		withColumns(childBRelation(), relColumn("extra", pgtype.TextOID)), inhParentRelID)
+	require.NoError(t, err)
+	require.Nil(t, rec)
+	conflicts := func() int {
+		count := 0
+		p.warnedTypeChanges.Range(func(_, _ any) bool { count++; return true })
+		return count
+	}
+	require.Equal(t, 0, conflicts())
+
+	// a different type, or the same type with a different precision and scale, is reported and not propagated
+	amount := relColumn("amount", pgtype.NumericOID)
+	amount.TypeModifier = 1310724
+	rec, err = processRelationMessage[model.RecordItems](t.Context(), p, 2,
+		withColumns(childARelation(), relColumn("extra", pgtype.Int8OID), amount), inhParentRelID)
+	require.NoError(t, err)
+	require.Nil(t, rec)
+	require.Equal(t, 2, conflicts())
 }

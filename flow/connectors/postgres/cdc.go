@@ -62,6 +62,11 @@ type PostgresCDCSource struct {
 	mirroredRelIDs          []uint32
 	publishViaPartitionRoot bool
 
+	// columns already emitted as schema deltas during this pull, keyed by destination table and column, so
+	// the RelationMessages of many inheritance children carrying the same column produce a single delta
+	emittedAddedColumns map[string]addedColumnType
+	warnedColumnEvents  map[string]struct{}
+
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
 	alerter                                  *alerting.Alerter
@@ -182,6 +187,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		childToParentRelIDMapping:                childToParentRelIDMap,
 		idToRelKindMap:                           idToRelKindMap,
 		mirroredRelIDs:                           mirroredRelIDs,
+		emittedAddedColumns:                      make(map[string]addedColumnType),
+		warnedColumnEvents:                       make(map[string]struct{}),
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
 		catalogPool:                              cdcConfig.CatalogPool,
 		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
@@ -1436,14 +1443,63 @@ func processRelationMessage[Items model.Items](
 		_, isExcluded := currRelDstInfo.Exclude[columnName]
 		return !isExcluded
 	}
-
-	addedColumnNames := make([]string, 0)
-	addedColumnTypeOIDs := make([]uint32, 0)
-	for _, column := range currRel.Columns {
-		if isAddedColumnAndNotExcluded(column.Name) {
-			addedColumnNames = append(addedColumnNames, column.Name)
-			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
+	// a domain column's type modifier is its base type's
+	resolvedTypmod := func(column *pglogrepl.RelationMessageColumn) int32 {
+		if prevSchema.System != protos.TypeSystem_Q {
+			return column.TypeModifier
 		}
+		_, typmod := pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
+		return typmod
+	}
+
+	// Every inheritance child carrying a column the destination schema lacks reports it, and the
+	// destination schema is only refreshed between pulls. Emit each column once per pull: a repeat with
+	// the same type is dropped silently, a repeat with a different type keeps the first (as replaying
+	// against the persisted schema would) and is reported. Only the delta is suppressed, never records.
+	addedColumns := make([]pglogrepl.RelationMessageColumn, 0)
+	for _, column := range currRel.Columns {
+		if !isAddedColumnAndNotExcluded(column.Name) {
+			continue
+		}
+		colType := addedColumnType{typ: currRelMap[column.Name], typmod: resolvedTypmod(column)}
+		prevType, emitted := p.emittedAddedColumns[schemaDelta.DstTableName+"\x00"+column.Name]
+		if !emitted {
+			addedColumns = append(addedColumns, *column)
+		} else if prevType == colType {
+			p.logger.Debug("added column already emitted in this pull, skipping",
+				slog.String("columnName", column.Name),
+				slog.String("relationName", schemaDelta.SrcTableName),
+				slog.String("childNamespace", currRel.Namespace),
+				slog.String("childRelationName", currRel.RelationName))
+		} else {
+			key := fmt.Sprintf("%s.%s.%s(%d).%s(%d)", schemaDelta.SrcTableName, column.Name,
+				prevType.typ, prevType.typmod, colType.typ, colType.typmod)
+			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
+				p.logger.Warn("added column type conflicts with the same column added by another relation, not propagating",
+					slog.String("table", schemaDelta.SrcTableName),
+					slog.String("column", column.Name),
+					slog.String("emittedType", prevType.typ),
+					slog.Int("emittedTypeModifier", int(prevType.typmod)),
+					slog.String("type", colType.typ),
+					slog.Int("typeModifier", int(colType.typmod)),
+					slog.String("childNamespace", currRel.Namespace),
+					slog.String("childRelationName", currRel.RelationName),
+					slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
+				)
+				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.TypeChangeFromKey, prevType.typ),
+					attribute.String(otel_metrics.TypeChangeToKey, colType.typ),
+					attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+				)))
+			}
+		}
+	}
+
+	addedColumnNames := make([]string, 0, len(addedColumns))
+	addedColumnTypeOIDs := make([]uint32, 0, len(addedColumns))
+	for _, column := range addedColumns {
+		addedColumnNames = append(addedColumnNames, column.Name)
+		addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 	}
 
 	typeSchemaNameMapping, err := p.GetSchemaNameOfColumnTypeByOID(ctx, addedColumnTypeOIDs)
@@ -1461,74 +1517,80 @@ func processRelationMessage[Items model.Items](
 		return nil, err
 	}
 
-	for _, column := range currRel.Columns {
-		// not present in previous relation message, but in current one, so added.
-		if isAddedColumnAndNotExcluded(column.Name) {
-			catalogInfo := addedColumnCatalogInfo[column.Name]
-			// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
-			qkind := types.QValueKind(currRelMap[column.Name])
-			missingValue := catalogInfo.missingValueFor(qkind)
-			sourceMissingValue := ""
-			if missingValue != nil {
-				sourceMissingValue = *missingValue
+	for _, column := range addedColumns {
+		catalogInfo := addedColumnCatalogInfo[column.Name]
+		// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
+		qkind := types.QValueKind(currRelMap[column.Name])
+		missingValue := catalogInfo.missingValueFor(qkind)
+		sourceMissingValue := ""
+		if missingValue != nil {
+			sourceMissingValue = *missingValue
+		}
+		var defaultExpr *string
+		// destinations on the PG type system splice the column type in verbatim, so a literal
+		// rendered for a QValueKind would not fit their DDL
+		if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
+			destinationType := model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name)
+			wrapJSON := qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled, destinationType)
+			if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON); ok {
+				defaultExpr = &literal
 			}
-			var defaultExpr *string
-			// destinations on the PG type system splice the column type in verbatim, so a literal
-			// rendered for a QValueKind would not fit their DDL
-			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				destinationType := model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name)
-				wrapJSON := qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled, destinationType)
-				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON); ok {
-					defaultExpr = &literal
+		}
+		addedColumn := &protos.FieldDescription{
+			Name:           column.Name,
+			Type:           currRelMap[column.Name],
+			TypeModifier:   resolvedTypmod(&column),
+			Nullable:       !catalogInfo.notNull,
+			TypeSchemaName: typeSchemaNameMapping[column.DataType],
+			DefaultExpr:    defaultExpr,
+		}
+		schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, addedColumn)
+		p.emittedAddedColumns[schemaDelta.DstTableName+"\x00"+column.Name] = addedColumnType{
+			typ: addedColumn.Type, typmod: addedColumn.TypeModifier,
+		}
+		p.logger.Info("Detected added column",
+			slog.String("columnName", addedColumn.Name),
+			slog.String("columnType", addedColumn.Type),
+			slog.Bool("nullable", addedColumn.Nullable),
+			slog.Bool("sourceHasMissing", catalogInfo.hasMissing),
+			slog.String("sourceMissingValue", sourceMissingValue),
+			slog.String("default", addedColumn.GetDefaultExpr()),
+			slog.String("relationName", schemaDelta.SrcTableName),
+			slog.String("sourceNamespace", currRel.Namespace),
+			slog.String("sourceRelationName", currRel.RelationName))
+	}
+
+	for _, column := range currRel.Columns {
+		if _, inPrevRel := prevRelMap[column.Name]; inPrevRel {
+			if prevRelMap[column.Name] != currRelMap[column.Name] {
+				key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
+					prevRelMap[column.Name], currRelMap[column.Name])
+				if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
+					p.logger.Warn("column type change detected, not propagating",
+						slog.String("table", schemaDelta.SrcTableName),
+						slog.String("column", column.Name),
+						slog.String("from", prevRelMap[column.Name]),
+						slog.String("to", currRelMap[column.Name]),
+						slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
+					)
+					p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+						attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+						attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+						attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+					)))
 				}
 			}
-			typmod := column.TypeModifier
-			if prevSchema.System == protos.TypeSystem_Q {
-				_, typmod = pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
-			}
-			addedColumn := &protos.FieldDescription{
-				Name:           column.Name,
-				Type:           currRelMap[column.Name],
-				TypeModifier:   typmod,
-				Nullable:       !catalogInfo.notNull,
-				TypeSchemaName: typeSchemaNameMapping[column.DataType],
-				DefaultExpr:    defaultExpr,
-			}
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, addedColumn)
-			p.logger.Info("Detected added column",
-				slog.String("columnName", addedColumn.Name),
-				slog.String("columnType", addedColumn.Type),
-				slog.Bool("nullable", addedColumn.Nullable),
-				slog.Bool("sourceHasMissing", catalogInfo.hasMissing),
-				slog.String("sourceMissingValue", sourceMissingValue),
-				slog.String("default", addedColumn.GetDefaultExpr()),
-				slog.String("relationName", schemaDelta.SrcTableName))
-		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
-			// Column is added but excluded
-			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-				column.Name, schemaDelta.SrcTableName))
-		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
-				prevRelMap[column.Name], currRelMap[column.Name])
-			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
-				p.logger.Warn("column type change detected, not propagating",
-					slog.String("table", schemaDelta.SrcTableName),
-					slog.String("column", column.Name),
-					slog.String("from", prevRelMap[column.Name]),
-					slog.String("to", currRelMap[column.Name]),
-					slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
-				)
-				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
-					attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
-					attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
-				)))
+		} else if _, isExcluded := currRelDstInfo.Exclude[column.Name]; isExcluded {
+			if p.warnColumnEventOnce("excluded", schemaDelta.DstTableName, column.Name) {
+				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+					column.Name, schemaDelta.SrcTableName))
 			}
 		}
 	}
 	for _, column := range prevSchema.Columns {
-		// present in previous relation message, but not in current one, so dropped.
-		if _, ok := currRelMap[column.Name]; !ok {
+		// present in previous relation message, but not in current one, so dropped. Inheritance children
+		// that lack a column only some of their siblings have report the same thing, so warn once per pull.
+		if _, ok := currRelMap[column.Name]; !ok && p.warnColumnEventOnce("dropped", schemaDelta.DstTableName, column.Name) {
 			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
 				schemaDelta.SrcTableName))
 		}
@@ -1543,6 +1605,23 @@ func processRelationMessage[Items model.Items](
 		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
+}
+
+// warnColumnEventOnce reports whether this is the first time in the pull that event was seen for column of
+// dstTable, so warnings repeated by every inheritance child are logged once.
+func (p *PostgresCDCSource) warnColumnEventOnce(event string, dstTable string, column string) bool {
+	key := event + "\x00" + dstTable + "\x00" + column
+	if _, ok := p.warnedColumnEvents[key]; ok {
+		return false
+	}
+	p.warnedColumnEvents[key] = struct{}{}
+	return true
+}
+
+// addedColumnType identifies an added column's destination type for deduplication across relations.
+type addedColumnType struct {
+	typ    string
+	typmod int32
 }
 
 type addedColumnCatalogInfo struct {
