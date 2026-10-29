@@ -325,10 +325,12 @@ func processTableAdditions(
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
 	})
+	// cfg is the config this run started with; earlier additions and removals are only in state, and the
+	// activity validates the added tables against the mirror's current tables
 	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
 		alterPublicationAddAdditionalTablesCtx,
 		flowable.AddTablesToPublication,
-		cfg, flowConfigUpdate.AdditionalTables)
+		updateFlowConfigWithLatestSettings(cfg, state), flowConfigUpdate.AdditionalTables)
 
 	var res *CDCFlowWorkflowResult
 	var addTablesFlowErr error

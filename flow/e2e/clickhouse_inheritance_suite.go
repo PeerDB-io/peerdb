@@ -75,8 +75,6 @@ func (s ClickHouseSuite) inhRestartReplication(env WorkflowRun, flowJobName stri
 
 // inhWaitForColumn waits until every non-deleted destination row has the expected value of column,
 // keyed by id; ids missing from expected must be NULL
-//
-//nolint:unparam // a helper for column checks on any destination table
 func (s ClickHouseSuite) inhWaitForColumn(env WorkflowRun, dstTable string, column string, expected map[int64]string) {
 	s.t.Helper()
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting on "+column, func() bool {
@@ -257,6 +255,123 @@ func (s ClickHouseSuite) Test_Inheritance_Child_Of_Two_Mirrored_Parents() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Inheritance_Grandchildren_Replicated() {
+	s.inhRequirePostgres()
+
+	srcTableName := "inh_deep"
+	parent := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "inh_deep_dst"
+	flowJobName := s.attachSuffix("inh_deep")
+	mid, leaf, late := s.inhTenantSchema("dm"), s.inhTenantSchema("dl"), s.inhTenantSchema("dx")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT, val TEXT)`, parent)
+	s.inhExec(`CREATE TABLE %s.%s () INHERITS (%s)`, mid, srcTableName, parent)
+	s.inhExec(`ALTER TABLE %s.%s ADD PRIMARY KEY (id)`, mid, srcTableName)
+	// the grandchild has its own column order and a column only it has
+	s.inhExec(`CREATE TABLE %s.%s (val TEXT, extra TEXT, name TEXT, id BIGINT NOT NULL)`, leaf, srcTableName)
+	s.inhExec(`ALTER TABLE %s.%s INHERIT %s.%s`, leaf, srcTableName, mid, srcTableName)
+	s.inhExec(`ALTER TABLE %s.%s ADD PRIMARY KEY (id)`, leaf, srcTableName)
+	s.inhExec(`INSERT INTO %s (id, name, val) VALUES (1, 'p1', 'vp1')`, parent)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val) VALUES (2, 'm2', 'vm2')`, mid, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val, extra) VALUES (3, 'l3', 'vl3', 'e3')`, leaf, srcTableName)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "snapshot includes the grandchild", srcTableName, dstTableName, "id,name,val")
+
+	// changes to the grandchild reach the mirrored root
+	s.inhExec(`INSERT INTO %s.%s (id, name, val, extra) VALUES (4, 'l4', 'vl4', 'e4')`, leaf, srcTableName)
+	s.inhExec(`UPDATE %s.%s SET name = 'l3-upd' WHERE id = 3`, leaf, srcTableName)
+	s.inhExec(`UPDATE %s.%s SET val = 'vm2-upd' WHERE id = 2`, mid, srcTableName)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc from the grandchild", srcTableName, dstTableName, "id,name,val")
+	s.inhWaitForColumn(env, dstTableName, "extra", map[int64]string{3: "e3", 4: "e4"})
+
+	// a grandchild created after the pull started is routed by runtime discovery
+	pub := connpostgres.GetDefaultPublicationName(flowJobName)
+	s.inhExec(`CREATE TABLE %s.%s (id BIGINT NOT NULL, name TEXT, val TEXT)`, late, srcTableName)
+	s.inhExec(`ALTER TABLE %s.%s INHERIT %s.%s`, late, srcTableName, mid, srcTableName)
+	s.inhExec(`ALTER TABLE %s.%s ADD PRIMARY KEY (id)`, late, srcTableName)
+	s.inhExec(`ALTER PUBLICATION %s ADD TABLE %s.%s`, pub, late, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val) VALUES (5, 'x5', 'vx5')`, late, srcTableName)
+	s.inhExec(`DELETE FROM %s.%s WHERE id = 4`, leaf, srcTableName)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc from a late grandchild", srcTableName, dstTableName, "id,name,val")
+
+	// after a restart the startup map routes both grandchildren
+	s.inhRestartReplication(env, flowJobName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val) VALUES (6, 'x6', 'vx6')`, late, srcTableName)
+	s.inhExec(`UPDATE %s.%s SET name = 'x5-upd' WHERE id = 5`, late, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val, extra) VALUES (7, 'l7', 'vl7', 'e7')`, leaf, srcTableName)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc after restart", srcTableName, dstTableName, "id,name,val")
+	s.inhWaitForColumn(env, dstTableName, "extra", map[int64]string{3: "e3", 7: "e7"})
+
+	// a column added to the intermediate also reaches its children; the intermediate and the leaf may each report
+	// it as added in the same pull, which the destination applies once
+	s.inhExec(`ALTER TABLE %s.%s ADD COLUMN note TEXT`, mid, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val, note) VALUES (8, 'm8', 'vm8', 'n8')`, mid, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name, val, note) VALUES (9, 'l9', 'vl9', 'n9')`, leaf, srcTableName)
+	s.inhWaitForColumn(env, dstTableName, "note", map[int64]string{8: "n8", 9: "n9"})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Inheritance_Overlapping_Mirrors_Warning() {
+	s.inhRequirePostgres()
+
+	m1, m2 := s.attachSchemaSuffix("inh_ovl_m1"), s.attachSchemaSuffix("inh_ovl_m2")
+	flowJobName := s.attachSuffix("inh_ovl")
+	tenant := s.inhTenantSchema("ov")
+
+	// m2 is mirrored too and inherits from m1; g is under m2
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, m1)
+	s.inhExec(`CREATE TABLE %s () INHERITS (%s)`, m2, m1)
+	s.inhExec(`ALTER TABLE %s ADD PRIMARY KEY (id)`, m2)
+	s.inhExec(`CREATE TABLE %s.g () INHERITS (%s)`, tenant, m2)
+	s.inhExec(`ALTER TABLE %s.g ADD PRIMARY KEY (id)`, tenant)
+	s.inhExec(`INSERT INTO %s.g (id, name) VALUES (1, 'g1')`, tenant)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{m1: "inh_ovl_m1_dst", m2: "inh_ovl_m2_dst"},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	for _, expected := range []string{
+		fmt.Sprintf("rows of %s.g are included in the snapshot scope of %s, %s; "+
+			"its changes are replicated through the mapping of %s only", tenant, m1, m2, m2),
+		fmt.Sprintf("rows of %s are included in the snapshot scope of %s, %s; "+
+			"its changes are replicated through the mapping of %s only", m2, m1, m2, m1),
+	} {
+		EnvWaitFor(s.t, env, time.Minute, "overlap warning: "+expected, func() bool {
+			count, err := GetLogCount(s.t.Context(), s.Catalog(), flowJobName, "warn", expected)
+			if err != nil {
+				s.t.Log(err)
+				return false
+			}
+			return count >= 1
+		})
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) inhPartitionDivergentLayout(pubViaRoot bool) {
 	s.inhRequirePostgres()
 
@@ -276,7 +391,13 @@ func (s ClickHouseSuite) inhPartitionDivergentLayout(pubViaRoot bool) {
 	// attached from a table with its own column order
 	s.inhExec(`CREATE TABLE %s_us (val TEXT, name TEXT, region TEXT NOT NULL, id BIGINT NOT NULL)`, root)
 	s.inhExec(`ALTER TABLE %[1]s ATTACH PARTITION %[1]s_us FOR VALUES IN ('us')`, root)
+	// a sub-partitioned branch, so its leaves sit two levels below the root
+	s.inhExec(`CREATE TABLE %[1]s_ap PARTITION OF %[1]s FOR VALUES IN ('ap') PARTITION BY RANGE (id)`, root)
+	s.inhExec(`CREATE TABLE %[1]s_ap_lo PARTITION OF %[1]s_ap FOR VALUES FROM (MINVALUE) TO (100)`, root)
+	s.inhExec(`CREATE TABLE %s_ap_hi (name TEXT, id BIGINT NOT NULL, val TEXT, region TEXT NOT NULL)`, root)
+	s.inhExec(`ALTER TABLE %[1]s_ap ATTACH PARTITION %[1]s_ap_hi FOR VALUES FROM (100) TO (MAXVALUE)`, root)
 	s.inhExec(`INSERT INTO %s (id, region, name, val) VALUES (1, 'eu', 'eu1', 'veu1'), (2, 'us', 'us2', 'vus2')`, root)
+	s.inhExec(`INSERT INTO %s (id, region, name, val) VALUES (10, 'ap', 'ap10', 'vap10'), (110, 'ap', 'ap110', 'vap110')`, root)
 	// validation requires the root itself to be published, which only holds with publish_via_partition_root;
 	// a mirror reaches leaf publishing when its publication is altered later, as done below
 	s.inhExec(`CREATE PUBLICATION %s FOR TABLE %s WITH (publish_via_partition_root = true)`, publication, root)
@@ -307,6 +428,9 @@ func (s ClickHouseSuite) inhPartitionDivergentLayout(pubViaRoot bool) {
 	s.inhExec(`UPDATE %s SET name = 'us2-upd' WHERE id = 2`, root)
 	s.inhExec(`DELETE FROM %s WHERE id = 1`, root)
 	s.inhExec(`INSERT INTO %s (id, region, name, val) VALUES (6, 'us', 'us6', 'vus6')`, root)
+	s.inhExec(`INSERT INTO %s (id, region, name, val) VALUES (11, 'ap', 'ap11', 'vap11'), (111, 'ap', 'ap111', 'vap111')`, root)
+	s.inhExec(`UPDATE %s SET name = 'ap110-upd' WHERE id = 110`, root)
+	s.inhExec(`DELETE FROM %s WHERE id = 10`, root)
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on interleaved cdc", srcTableName, dstTableName, "id,region,name,val")
 
@@ -320,4 +444,50 @@ func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Via_Root() {
 
 func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Leaf() {
 	s.inhPartitionDivergentLayout(false)
+}
+
+// Only a sub-partitioned branch is mirrored, below an unmirrored physical root; with publish_via_partition_root its
+// leaves' changes are published under the mirrored branch.
+func (s ClickHouseSuite) Test_Partition_Mirrored_Subtree_Publish_Via_Root() {
+	s.inhRequirePostgres()
+
+	root := s.attachSchemaSuffix("inh_subtree")
+	srcTableName := "inh_subtree_ap"
+	subtree := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+	flowJobName := s.attachSuffix("inh_subtree")
+	publication := s.attachSuffix("inh_subtree_pub")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT NOT NULL, region TEXT NOT NULL, name TEXT, PRIMARY KEY (id, region))
+		PARTITION BY LIST (region)`, root)
+	s.inhExec(`CREATE TABLE %[1]s_eu PARTITION OF %[1]s FOR VALUES IN ('eu')`, root)
+	s.inhExec(`CREATE TABLE %s PARTITION OF %s FOR VALUES IN ('ap') PARTITION BY RANGE (id)`, subtree, root)
+	s.inhExec(`CREATE TABLE %[1]s_lo PARTITION OF %[1]s FOR VALUES FROM (MINVALUE) TO (100)`, subtree)
+	// attached from a table with its own column order
+	s.inhExec(`CREATE TABLE %s_hi (name TEXT, id BIGINT NOT NULL, region TEXT NOT NULL)`, subtree)
+	s.inhExec(`ALTER TABLE %[1]s ATTACH PARTITION %[1]s_hi FOR VALUES FROM (100) TO (MAXVALUE)`, subtree)
+	s.inhExec(`INSERT INTO %s (id, region, name) VALUES (1, 'eu', 'eu1'), (10, 'ap', 'ap10'), (110, 'ap', 'ap110')`, root)
+	s.inhExec(`CREATE PUBLICATION %s FOR TABLE %s WITH (publish_via_partition_root = true)`, publication, subtree)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{subtree: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.PublicationName = publication
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,region,name")
+
+	s.inhExec(`INSERT INTO %s (id, region, name) VALUES (11, 'ap', 'ap11'), (111, 'ap', 'ap111'), (2, 'eu', 'eu2')`, root)
+	s.inhExec(`UPDATE %s SET name = 'ap110-upd' WHERE id = 110`, root)
+	s.inhExec(`DELETE FROM %s WHERE id = 10`, root)
+	EnvWaitForEqualTablesWithNames(env, s, "cdc into the mirrored subtree", srcTableName, dstTableName, "id,region,name")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
