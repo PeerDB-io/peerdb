@@ -88,6 +88,10 @@ func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encod
 		requests = append(requests, request)
 	}
 
+	if len(requests) == 0 {
+		return 0, nil
+	}
+
 	groupedRequests := groupLookupRequests(requests)
 
 	pref := protoToReadPref[c.config.ReadPreference]

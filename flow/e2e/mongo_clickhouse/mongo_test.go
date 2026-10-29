@@ -1255,6 +1255,103 @@ func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
 	require.NoError(t, err)
 }
 
+func (s MongoClickhouseSuite) Test_CDC_Client_Side_Lookup_Post_Images() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_use_post_images"
+	dstTable := "test_use_post_images_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable, preAndPostImages))
+	collection := db.Collection(srcTable)
+
+	// Only PeerDB's lookup queries are profiled, which shows which updates needed a lookup.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	lookedUpIDs := func() map[bson.ObjectID]struct{} {
+		cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+			{Key: "command.aggregate", Value: srcTable},
+			{Key: "command.comment", Value: parallelDocumentLookupComment},
+		})
+		require.NoError(t, err)
+		defer cursor.Close(t.Context())
+		ids := map[bson.ObjectID]struct{}{}
+		for cursor.Next(t.Context()) {
+			in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+			require.NoError(t, err, "expected an _id lookup to batch with $in")
+			values, err := in.Array().Values()
+			require.NoError(t, err)
+			for _, value := range values {
+				ids[value.ObjectID()] = struct{}{}
+			}
+		}
+		require.NoError(t, cursor.Err())
+		return ids
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	const numDocs = 300
+	docs := make([]any, 0, numDocs)
+	for i := range numDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+
+	// Tests that updates with a post-image need no lookup.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{}, bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(numDocs), updateRes.ModifiedCount)
+	// The post-image is the document right after the update, so it survives a later delete.
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: 0}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "key", Value: 0}})
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates with post-images", srcTable, dstTable, "_id,doc")
+	require.Empty(t, lookedUpIDs(), "updates with a post-image must not be looked up")
+
+	// Tests that an update without a post-image is looked up instead of written without its document.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: srcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: false}}},
+	}).Err())
+	const numWithoutPostImage = 10
+	expectedLookups := make(map[bson.ObjectID]struct{}, numWithoutPostImage)
+	for i := 1; i <= numWithoutPostImage; i++ {
+		_, err := collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: i}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 100 + i}}}})
+		require.NoError(t, err)
+		expectedLookups[insertRes.InsertedIDs[i].(bson.ObjectID)] = struct{}{}
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates without post-images", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+	require.Equal(t, expectedLookups, lookedUpIDs(), "only the updates without a post-image are looked up")
+}
+
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Uniform() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
