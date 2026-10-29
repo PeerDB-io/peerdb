@@ -74,6 +74,7 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+	clientUpdateLookup   bool
 }
 
 func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
@@ -162,6 +163,11 @@ func NewMongoConnector(ctx context.Context, env map[string]string, config *proto
 		if logCommands {
 			clientOptions.SetMonitor(newCommandMonitor(logger))
 		}
+	}
+
+	mc.clientUpdateLookup, err = internal.PeerDBMongoDBClientSideUpdateLookup(ctx, env)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := mongo.Connect(clientOptions)

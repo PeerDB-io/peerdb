@@ -305,6 +305,7 @@ type encodedMongoEvent struct {
 	destinationTableName string
 	documentKey          bson.Raw
 	commitTimeNanos      int64
+	clusterTime          bson.Timestamp
 }
 
 // decodeEvent is spun up by PullRecordsWorkerPool in separate goroutines, up to
@@ -448,12 +449,17 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
 		// batchSize=0 only affects the initial aggregate response, so Watch returns
 		// immediately without blocking on the initial cursor establishment. Subsequent
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
+
+	if c.clientUpdateLookup {
+		changeStreamOpts.SetFullDocument(options.Default)
+	} else {
+		changeStreamOpts.SetFullDocument(options.UpdateLookup)
+	}
 
 	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
 		// whenAvailable, never required: a pre-image can be missing even for a collection that has
@@ -561,6 +567,15 @@ func (c *MongoConnector) PullRecords(
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
+		Prepare: func(ctx context.Context, events []encodedMongoEvent) error {
+			if !c.clientUpdateLookup {
+				return nil
+			}
+			bytes, err := c.hydrateUpdateEvents(ctx, events)
+			deltaBytesProcessed.Add(bytes)
+			cumulativeBytesProcessed.Add(bytes)
+			return err
+		},
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
 			decodeStart := time.Now()
 			defer func() {
@@ -795,6 +810,7 @@ func (c *MongoConnector) PullRecords(
 			sourceTableName:      sourceTableName,
 			destinationTableName: destinationTableName,
 			commitTimeNanos:      commitTimeNanos,
+			clusterTime:          changeEvent.ClusterTime,
 		}
 		switch event.operationType {
 		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:

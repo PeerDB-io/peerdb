@@ -82,3 +82,67 @@ func TestPullRecordsWorkerPoolErrorFromWorker(t *testing.T) {
 	require.Error(t, pool.Wait(t.Context()))
 	require.Equal(t, "token-3", lastResumeToken)
 }
+
+func TestPullRecordsWorkerPoolPreparesChunksInOrderBeforeDecoding(t *testing.T) {
+	var prepared [][]int
+	var gotChunks [][]int
+
+	pool := PullRecordsWorkerPool[int, []int, string]{
+		Concurrency: 4,
+		ChunkSize:   3,
+		Prepare: func(_ context.Context, events []int) error {
+			// Prepare runs inside Flush on the caller's goroutine, so this needs no locking.
+			prepared = append(prepared, slices.Clone(events))
+			for i := range events {
+				events[i] *= 10
+			}
+			return nil
+		},
+		WorkerFunc: func(events []int) ([]int, error) { return events, nil },
+		Send: func(_ context.Context, items []int, _ string) error {
+			gotChunks = append(gotChunks, items)
+			return nil
+		},
+	}
+	pool.Init(t.Context())
+
+	for i := range 7 {
+		require.NoError(t, pool.AddItem(t.Context(), i, fmt.Sprintf("token-%d", i)))
+	}
+	require.NoError(t, pool.Flush(t.Context()))
+	require.NoError(t, pool.Wait(t.Context()))
+
+	require.Equal(t, [][]int{{0, 1, 2}, {3, 4, 5}, {6}}, prepared)
+	require.Equal(t, [][]int{{0, 10, 20}, {30, 40, 50}, {60}}, gotChunks, "workers decode the prepared events")
+}
+
+func TestPullRecordsWorkerPoolErrorFromPrepare(t *testing.T) {
+	alreadyRunning := goleak.IgnoreCurrent()
+	defer goleak.VerifyNone(t, alreadyRunning)
+
+	errPrepare := errors.New("prepare failed")
+	var sent [][]int
+	pool := PullRecordsWorkerPool[int, []int, string]{
+		Concurrency: 1,
+		ChunkSize:   2,
+		Prepare: func(_ context.Context, events []int) error {
+			if slices.Contains(events, 2) {
+				return errPrepare
+			}
+			return nil
+		},
+		WorkerFunc: func(events []int) ([]int, error) { return events, nil },
+		Send: func(_ context.Context, items []int, _ string) error {
+			sent = append(sent, items)
+			return nil
+		},
+	}
+	pool.Init(t.Context())
+
+	require.NoError(t, pool.AddItem(t.Context(), 0, "token-0"))
+	require.NoError(t, pool.AddItem(t.Context(), 1, "token-1"))
+	require.NoError(t, pool.AddItem(t.Context(), 2, "token-2"))
+	require.ErrorIs(t, pool.AddItem(t.Context(), 3, "token-3"), errPrepare)
+	require.NoError(t, pool.Wait(t.Context()))
+	require.Equal(t, [][]int{{0, 1}}, sent, "a chunk that fails to prepare is never decoded or sent")
+}
