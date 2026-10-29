@@ -221,6 +221,12 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	jsonColumns := []string{"json"}
 	createStmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON);`, srcFullName)
 	insertStmt := func(v string) string { return fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, v) }
+	if _, isMySQL := s.source.(*MySqlSource); isMySQL {
+		// test values are standard SQL literals, but MySQL reads backslash as an escape character
+		insertStmt = func(v string) string {
+			return fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, strings.ReplaceAll(v, `\`, `\\`))
+		}
+	}
 	if _, isPostgres := s.source.(*PostgresSource); isPostgres {
 		jsonColumns = []string{"json", "jsonb"}
 		createStmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON, jsonb JSONB);`, srcFullName)

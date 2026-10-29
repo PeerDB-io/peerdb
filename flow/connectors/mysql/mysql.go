@@ -275,7 +275,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 
 func (c *MySqlConnector) setSessionSettings() error {
 	conn := c.conn.Load()
-	if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
+	if _, err := conn.Execute("SET sql_mode = 'ANSI'"); err != nil {
 		return fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 	}
 
@@ -316,12 +316,6 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 	return nil
-}
-
-func escapeWithNoBackslashEscapes(s string) string {
-	// mysql.Escape must NOT be used because MySQL connector session has sql_mode set
-	// to NO_BACKSLASH_ESCAPES (see setSessionSettings). Only quotes needs to be escaped.
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // withRetries return an iterable over connections,
