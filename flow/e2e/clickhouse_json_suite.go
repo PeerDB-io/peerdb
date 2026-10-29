@@ -7,17 +7,21 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 // Tests for Postgres and MySQL JSON columns replicated to ClickHouse with PEERDB_CLICKHOUSE_ENABLE_JSON on
-// and off, with and without PEERDB_NULLABLE. Moved verbatim from clickhouse_suite.go.
+// and off, with and without PEERDB_NULLABLE. With the setting on, non-object documents are expected
+// wrapped as {"_value": ...} from InternalVersion_WrapNonObjectJSON on.
 
 func (s ClickHouseSuite) Test_JSON_CH() {
 	emptyObject := "{}"
@@ -55,11 +59,56 @@ func (s ClickHouseSuite) Test_JSON_CH_Disabled_Nullable() {
 	})
 }
 
-// jsonColumnTestCases is the source value table shared by the JSON column tests. mysqlUtf8mb4Support
-// drops the emoji case on MySQL servers that do not default to utf8mb4.
-func jsonColumnTestCases(mysqlUtf8mb4Support bool) []jsonColumnTestCase {
-	// TODO: fix and enable failing test cases
-	return []jsonColumnTestCase{
+// Test_JSON_CH_JSONOverride keeps PEERDB_CLICKHOUSE_ENABLE_JSON off and pins the JSON columns to JSON through
+// their destination type: the override alone selects native JSON, and the readers wrap for it.
+func (s ClickHouseSuite) Test_JSON_CH_JSONOverride() {
+	emptyObject := "{}"
+	s.testJSONColumns(jsonColumnMirrorConfig{
+		tableName:          "test_json_override",
+		overrideToJSON:     true,
+		expectedColumnType: "JSON",
+		sourceNullLandsAs:  &emptyObject,
+	})
+}
+
+// Test_JSON_CH_ClassicReader runs the native JSON matrix with PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS off, so
+// the Postgres reader takes the unmarshal/marshal path instead of the token walk.
+func (s ClickHouseSuite) Test_JSON_CH_ClassicReader() {
+	emptyObject := "{}"
+	s.testJSONColumns(jsonColumnMirrorConfig{
+		tableName:                     "test_json_classic",
+		nativeJSON:                    true,
+		disableFastProcessJSONColumns: true,
+		expectedColumnType:            "JSON",
+		sourceNullLandsAs:             &emptyObject,
+	})
+}
+
+// testJSONColumns mirrors a table with JSON columns (json and jsonb on Postgres, json on MySQL)
+// into ClickHouse, asserts the destination column type, and checks every destination row against
+// the source for the snapshot and the CDC path.
+func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
+	mysqlUtf8mb4Support := true
+	if mySource, ok := s.source.(*MySqlSource); ok {
+		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			if cfg.nativeJSON || cfg.overrideToJSON {
+				s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+			}
+		} else {
+			cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
+			require.NoError(s.t, err)
+			if cmp < 0 {
+				mysqlUtf8mb4Support = false
+			}
+		}
+	}
+
+	if _, isPostgres := s.source.(*PostgresSource); cfg.disableFastProcessJSONColumns && !isPostgres {
+		s.t.Skip("PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS only applies to postgres")
+	}
+
+	// source values; the emoji case is dropped on MySQL servers that do not default to utf8mb4
+	jsonTestCases := []jsonColumnTestCase{
 		{
 			desc:  "obj",
 			value: `'{"key": "val", "number": 30, "bool": true}'`,
@@ -150,34 +199,44 @@ func jsonColumnTestCases(mysqlUtf8mb4Support bool) []jsonColumnTestCase {
 			value: `'{"blob": "` + strings.Repeat("x", 1<<20) + `"}'`,
 		},
 		{
-			desc:       "top-level number",
-			value:      `'123'`,
-			skip:       true,
-			skipReason: "not supported by ClickHouse JSON",
+			desc:  "top-level number",
+			value: `'123'`,
 		},
 		{
-			desc:       "top-level string",
-			value:      `'"string value"'`,
-			skip:       true,
-			skipReason: "not supported by ClickHouse JSON",
+			desc:  "top-level string",
+			value: `'"string value"'`,
 		},
 		{
-			desc:       "top-level boolean",
-			value:      `'true'`,
-			skip:       true,
-			skipReason: "not supported by ClickHouse JSON",
+			desc:  "top-level boolean",
+			value: `'true'`,
 		},
 		{
-			desc:       "top-level arrays",
-			value:      `'[1, 2, 3, {"key": "val"}, ["hello", "world"]]'`,
-			skip:       true,
-			skipReason: "not supported by ClickHouse JSON",
+			desc:  "top-level false",
+			value: `'false'`,
 		},
 		{
-			desc:       "json null value",
-			value:      `'null'`,
-			skip:       true,
-			skipReason: "peerdb bug where null value is parsed as empty string due to JSONExtractString",
+			desc:  "top-level negative float",
+			value: `'-1.5'`,
+		},
+		{
+			desc:  "top-level empty string",
+			value: `'""'`,
+		},
+		{
+			desc:  "top-level string starting with a brace",
+			value: `'"{not an object"'`,
+		},
+		{
+			desc:  "top-level empty array",
+			value: `'[]'`,
+		},
+		{
+			desc:  "top-level arrays",
+			value: `'[1, 2, 3, {"key": "val"}, ["hello", "world"]]'`,
+		},
+		{
+			desc:  "json null value",
+			value: `'null'`,
 		},
 		{
 			desc:   "postgres null value",
@@ -191,28 +250,8 @@ func jsonColumnTestCases(mysqlUtf8mb4Support bool) []jsonColumnTestCase {
 			skipReason: "insertion succeeds; but comparison fails because CH JSON removes all null fields but postgres does not",
 		},
 	}
-}
-
-// testJSONColumns mirrors a table with JSON columns (json and jsonb on Postgres, json on MySQL)
-// into ClickHouse, asserts the destination column type, and checks every destination row against
-// the source for the snapshot and the CDC path.
-func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
-	mysqlUtf8mb4Support := true
-	if mySource, ok := s.source.(*MySqlSource); ok {
-		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-			if cfg.nativeJSON {
-				s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
-			}
-		} else {
-			cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
-			require.NoError(s.t, err)
-			if cmp < 0 {
-				mysqlUtf8mb4Support = false
-			}
-		}
-	}
-
-	jsonTestCases := jsonColumnTestCases(mysqlUtf8mb4Support)
+	// with native JSON on, or the columns pinned to JSON, the readers wrap non-object documents
+	wrapNonObjects := cfg.nativeJSON || cfg.overrideToJSON
 
 	srcTableName := cfg.tableName
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -253,6 +292,15 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
 		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
 	}
+	if cfg.overrideToJSON {
+		for _, column := range jsonColumns {
+			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
+				&protos.ColumnSetting{SourceName: column, DestinationType: "JSON"})
+		}
+	}
+	if cfg.disableFastProcessJSONColumns {
+		flowConnConfig.Env["PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS"] = "false"
+	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -271,7 +319,7 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	}
 
 	cols := "id," + strings.Join(jsonColumns, ",")
-	rowsMatch := jsonBatchesMatch(jsonColumns, cfg.sourceNullLandsAs)
+	rowsMatch := jsonBatchesMatch(jsonColumns, cfg.sourceNullLandsAs, wrapNonObjects)
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, cols, rowsMatch)
 
 	for _, testCase := range jsonTestCases {
@@ -297,6 +345,11 @@ type jsonColumnMirrorConfig struct {
 	nativeJSON bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
+	// overrideToJSON gives every JSON column the destination type JSON through its column settings
+	overrideToJSON bool
+	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
+	// takes the unmarshal/marshal path instead of the token walk; Postgres only
+	disableFastProcessJSONColumns bool
 }
 
 // jsonColumnTestCase is one source value for the JSON column tests. value is the SQL literal to insert.
@@ -337,8 +390,11 @@ func truncateForLog(s string) string {
 
 // destinationJSONMatches reports whether a destination cell holds what its source cell should have
 // produced: an equal JSON document (compared parsed, so key order and whitespace do not matter), or
-// sourceNullLandsAs when the source is SQL NULL (nil means it stays NULL). label names the cell in logs.
-func destinationJSONMatches(t *testing.T, label string, src types.QValue, dst types.QValue, sourceNullLandsAs *string) bool {
+// sourceNullLandsAs when the source is SQL NULL (nil means it stays NULL). With wrapNonObjects the source
+// document is first wrapped the way the readers do it. label names the cell in logs.
+func destinationJSONMatches(
+	t *testing.T, label string, src types.QValue, dst types.QValue, sourceNullLandsAs *string, wrapNonObjects bool,
+) bool {
 	t.Helper()
 	srcVal, dstVal := src.Value(), dst.Value()
 	if srcVal == nil {
@@ -357,12 +413,23 @@ func destinationJSONMatches(t *testing.T, label string, src types.QValue, dst ty
 		t.Logf("%s: expected JSON text on both sides, got %T and %T", label, srcVal, dstVal)
 		return false
 	}
+	if wrapNonObjects {
+		srcText = qvalue.WrapNonObjectJSON(srcText)
+	}
 	var srcParsed, dstParsed any
 	srcErr := json.Unmarshal([]byte(srcText), &srcParsed)
 	dstErr := json.Unmarshal([]byte(dstText), &dstParsed)
 	if srcErr != nil || dstErr != nil {
 		t.Logf("%s: invalid JSON: source %v, destination %v", label, srcErr, dstErr)
 		return false
+	}
+	if wrapNonObjects {
+		// ClickHouse JSON drops paths whose value is null, so a wrapped JSON null reads back as {}
+		if m, ok := srcParsed.(map[string]any); ok && len(m) == 1 {
+			if v, has := m["_value"]; has && v == nil {
+				srcParsed = map[string]any{}
+			}
+		}
 	}
 	if !reflect.DeepEqual(srcParsed, dstParsed) {
 		t.Logf("%s: %s != %s", label, truncateForLog(srcText), truncateForLog(dstText))
@@ -372,8 +439,11 @@ func destinationJSONMatches(t *testing.T, label string, src types.QValue, dst ty
 }
 
 // jsonBatchesMatch returns a batch comparison for EnvWaitForEqualTablesWithNamesFunc over tables selected
-// as "id" followed by jsonColumns, so row i and column c+1 line up on both sides.
-func jsonBatchesMatch(jsonColumns []string, sourceNullLandsAs *string) func(*testing.T, *model.QRecordBatch, *model.QRecordBatch) bool {
+// as "id" followed by jsonColumns, so row i and column c+1 line up on both sides. wrapNonObjects says
+// whether the mirror wraps non-object documents.
+func jsonBatchesMatch(
+	jsonColumns []string, sourceNullLandsAs *string, wrapNonObjects bool,
+) func(*testing.T, *model.QRecordBatch, *model.QRecordBatch) bool {
 	return func(t *testing.T, src *model.QRecordBatch, dst *model.QRecordBatch) bool {
 		t.Helper()
 		if len(dst.Records) != len(src.Records) {
@@ -388,13 +458,120 @@ func jsonBatchesMatch(jsonColumns []string, sourceNullLandsAs *string) func(*tes
 			for jsonColIdx, column := range jsonColumns {
 				colIdx := jsonColIdx + 1 // column 0 is id
 				label := fmt.Sprintf("row %d %s", rowIdx, column)
-				if !destinationJSONMatches(t, label, srcRow[colIdx], dst.Records[rowIdx][colIdx], sourceNullLandsAs) {
+				if !destinationJSONMatches(t, label, srcRow[colIdx], dst.Records[rowIdx][colIdx], sourceNullLandsAs, wrapNonObjects) {
 					return false
 				}
 			}
 		}
 		return true
 	}
+}
+
+// Test_JSON_CH_OldMirror runs a native JSON mirror as one created before InternalVersion_WrapNonObjectJSON:
+// object documents still land unchanged, and a non-object document is still rejected by ClickHouse and
+// surfaces as a flow error, since the reader does not wrap for such a mirror.
+func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+	}
+
+	srcTableName := "test_json_old"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+	docs := []string{`'{"key": "val", "number": 30, "bool": true}'`, `'{"nested": {"arr": [1, 2, null]}}'`, `'{}'`}
+	insertDocs := func() {
+		for _, doc := range docs {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, doc)))
+		}
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON)`, srcFullName)))
+	insertDocs()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Version = shared.InternalVersion_WrapNonObjectJSON - 1
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(flowConnConfig.Version), 10),
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	columnType, err := s.GetColumnType(dstTableName, "json")
+	require.NoError(s.t, err)
+	require.Equal(s.t, "JSON", columnType)
+
+	rowsMatch := jsonBatchesMatch([]string{"json"}, nil, false)
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, "id,json", rowsMatch)
+	insertDocs()
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, "id,json", rowsMatch)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json) VALUES ('"dark"')`, srcFullName)))
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for the unwrapped scalar to fail", func() bool {
+		// casting a non-object to JSON fails with INCORRECT_DATA
+		count, err := GetLogCount(s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error",
+			fmt.Sprintf("code: %d", chproto.ErrIncorrectData))
+		return err == nil && count > 0
+	})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_JSON_CH_AddColumnDefault adds JSON columns with defaults while the mirror runs. The row that
+// predates the columns gets its value from the ClickHouse column default, which schema-change replay
+// carries over from the Postgres default, wrapped like any other value.
+func (s ClickHouseSuite) Test_JSON_CH_AddColumnDefault() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_json_add_col_default"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	for _, stmt := range []string{
+		`ALTER TABLE %s ADD COLUMN c_scalar JSONB DEFAULT '"dark"'`,
+		`ALTER TABLE %s ADD COLUMN c_array JSON DEFAULT '[1, 2]'`,
+		`ALTER TABLE %s ADD COLUMN c_obj JSONB DEFAULT '{"a": 1}'`,
+		`INSERT INTO %s (id, c_scalar, c_array, c_obj) VALUES (2, '"explicit"', '[3]', '{"b": 2}')`,
+	} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(stmt, srcFullName)))
+	}
+
+	jsonColumns := []string{"c_scalar", "c_array", "c_obj"}
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "waiting on cdc add column with default", srcTableName, dstTableName,
+		"id,"+strings.Join(jsonColumns, ","), jsonBatchesMatch(jsonColumns, nil, true))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 // Test_JSON_CH_StringOverride pins a JSON column to String on a native JSON mirror. The snapshot has to
@@ -436,7 +613,7 @@ func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
 	require.NoError(s.t, err)
 	require.Equal(s.t, "String", columnType)
 
-	rowsMatch := jsonBatchesMatch([]string{"json"}, nil)
+	rowsMatch := jsonBatchesMatch([]string{"json"}, nil, false)
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, "id,json", rowsMatch)
 	insertDocs()
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, "id,json", rowsMatch)
