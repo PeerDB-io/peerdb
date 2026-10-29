@@ -632,6 +632,11 @@ message CDCFlowConfigUpdate {
   repeated string removed_env = 12;
   // Replaces the QueryCdcConfig settings when present. An absent message leaves them unchanged.
   QueryCdcConfig query_cdc = 13;
+  // Existing mirror tables to rebuild from a fresh snapshot. Source and
+  // destination identifiers must match the current mapping; other fields are
+  // the desired table settings. Each table is written to a temporary resync
+  // table and atomically swapped into place.
+  repeated TableMapping resync_tables = 14;
 }
 
 message QRepFlowConfigUpdate {
