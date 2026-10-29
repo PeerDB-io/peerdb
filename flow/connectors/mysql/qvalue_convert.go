@@ -269,9 +269,9 @@ func processVector(data []byte) []float32 {
 	return floats
 }
 
-// wrapNonObjectJSON reports whether the values of a JSON column are wrapped for the destination.
+// shouldWrapNonObjectJSON reports whether the values of a JSON column are wrapped for the destination.
 // Other columns never wrap, so the gate is only consulted for that type.
-func wrapNonObjectJSON(
+func shouldWrapNonObjectJSON(
 	name string, kind types.QValueKind, flags []string, version uint32, nativeJSONEnabled bool, columns []*protos.ColumnSetting,
 ) bool {
 	if kind != types.QValueKindJSON {

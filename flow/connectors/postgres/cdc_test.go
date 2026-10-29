@@ -27,11 +27,11 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 	flags := []string{shared.Flag_ClickHouseJSONSupported}
 	version := shared.InternalVersion_Latest
 
-	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
-	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
-	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, true, nil))
-	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
-	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, true, nil))
+	require.True(t, shouldWrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
+	require.True(t, shouldWrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, true, nil))
 }
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {

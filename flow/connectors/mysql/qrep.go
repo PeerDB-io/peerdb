@@ -321,7 +321,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		for idx, val := range row {
 			field := schema.Fields[idx]
 			qv, err := QValueFromMysqlFieldValue(field.Type, rs.Fields[idx].Type, val,
-				wrapNonObjectJSON(field.Name, field.Type, config.Flags, config.Version, nativeJSONEnabled, config.Columns))
+				shouldWrapNonObjectJSON(field.Name, field.Type, config.Flags, config.Version, nativeJSONEnabled, config.Columns))
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", field.Name, err)
 			}

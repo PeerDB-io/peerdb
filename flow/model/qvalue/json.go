@@ -9,6 +9,10 @@ import (
 
 // WrapNonObjectJSON wraps a JSON document that is not an object as {"_value": doc}, since ClickHouse's
 // JSON type only accepts objects at the top level. Objects and empty input are returned unchanged.
+//
+// doc is JSON text as Postgres and MySQL emit it, so its first non-blank byte identifies the kind: an
+// object always starts with '{' and nothing else can, since a top-level string is quoted
+// (the string value {a is the document "{a").
 func WrapNonObjectJSON(doc string) string {
 	trimmed := strings.TrimSpace(doc)
 	if trimmed == "" || trimmed[0] == '{' {

@@ -18,6 +18,9 @@ func TestWrapNonObjectJSON(t *testing.T) {
 		{" \n\t" + `{"a": 1}`, " \n\t" + `{"a": 1}`},
 		{`42`, `{"_value":42}`},
 		{`"dark"`, `{"_value":"dark"}`},
+		// a top-level string is quoted, so one that starts with a brace is not taken for an object
+		{`"{a"`, `{"_value":"{a"}`},
+		{`"{\"a\": 1}"`, `{"_value":"{\"a\": 1}"}`},
 		{`true`, `{"_value":true}`},
 		{`[1, 2]`, `{"_value":[1, 2]}`},
 		{`null`, `{"_value":null}`},

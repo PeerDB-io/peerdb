@@ -407,7 +407,7 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
-			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, p.nativeJSONEnabled,
+			shouldWrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, p.nativeJSONEnabled,
 				sourceTableMapping.Columns),
 		); err != nil {
 			return none, nil, err
@@ -1476,9 +1476,9 @@ func processRelationMessage[Items model.Items](
 			// destinations on the PG type system splice the column type in verbatim, so a literal
 			// rendered for a QValueKind would not fit their DDL
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind,
-					qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled,
-						model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name))); ok {
+				destinationType := model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name)
+				wrapJSON := qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled, destinationType)
+				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON); ok {
 					defaultExpr = &literal
 				}
 			}

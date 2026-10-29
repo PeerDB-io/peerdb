@@ -628,7 +628,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
+			shouldWrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
