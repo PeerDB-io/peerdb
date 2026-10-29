@@ -75,6 +75,7 @@ type PostgresCDCSource struct {
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 	flags                                    []string
+	nativeJSONEnabled                        bool
 	warnedTypeChanges                        sync.Map
 }
 
@@ -89,6 +90,7 @@ type PostgresCDCConfig struct {
 	Slot                                     string
 	Publication                              string
 	Flags                                    []string
+	NativeJSONEnabled                        bool
 	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
@@ -193,6 +195,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 		flags:                                    cdcConfig.Flags,
+		nativeJSONEnabled:                        cdcConfig.NativeJSONEnabled,
 	}, nil
 }
 
@@ -404,7 +407,8 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
-			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, sourceTableMapping.Columns),
+			wrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, p.nativeJSONEnabled,
+				sourceTableMapping.Columns),
 		); err != nil {
 			return none, nil, err
 		}
@@ -1473,7 +1477,7 @@ func processRelationMessage[Items model.Items](
 			// rendered for a QValueKind would not fit their DDL
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
 				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind,
-					qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion,
+					qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled,
 						model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name))); ok {
 					defaultExpr = &literal
 				}

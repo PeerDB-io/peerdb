@@ -18,14 +18,15 @@ func WrapNonObjectJSON(doc string) string {
 }
 
 // ShouldWrapNonObjectJSON reports whether a JSON column with the given explicit destination type, "" for
-// none, lands in native ClickHouse JSON on this mirror and so has its non-object values wrapped.
-func ShouldWrapNonObjectJSON(flags []string, version uint32, destinationType string) bool {
+// none, lands in native ClickHouse JSON on this mirror and so has its non-object values wrapped. nativeJSONEnabled
+// is PEERDB_CLICKHOUSE_ENABLE_JSON, which the readers look up once per pull.
+func ShouldWrapNonObjectJSON(flags []string, version uint32, nativeJSONEnabled bool, destinationType string) bool {
 	if version < shared.InternalVersion_WrapNonObjectJSON {
 		return false
 	}
 	switch destinationType {
 	case "":
-		return slices.Contains(flags, shared.Flag_ClickHouseJSONEnabled)
+		return nativeJSONEnabled && slices.Contains(flags, shared.Flag_ClickHouseJSONSupported)
 	case "JSON", "Nullable(JSON)":
 		return slices.Contains(flags, shared.Flag_ClickHouseJSONSupported)
 	default:

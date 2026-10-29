@@ -609,6 +609,10 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, req.Env)
+	if err != nil {
+		return err
+	}
 
 	binlogStalenessThreshold, err := internal.PeerDBMySQLBinlogStalenessSeconds(ctx, req.Env)
 	if err != nil {
@@ -893,7 +897,7 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			columns := req.TableNameMapping[sourceTableName].Columns
 			wrapJSON := func(fd *protos.FieldDescription) bool {
-				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, columns)
+				return wrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
 			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {

@@ -24,14 +24,14 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 		jsonbDomainOID: {Name: "jdoc", BaseOID: pgtype.JSONBOID},
 		textDomainOID:  {Name: "tdoc", BaseOID: pgtype.TextOID},
 	}
-	flags := []string{shared.Flag_ClickHouseJSONEnabled}
+	flags := []string{shared.Flag_ClickHouseJSONSupported}
 	version := shared.InternalVersion_Latest
 
-	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, nil))
-	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, nil))
-	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, nil))
+	require.True(t, wrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
+	require.True(t, wrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
+	require.False(t, wrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, wrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, wrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, true, nil))
 }
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {

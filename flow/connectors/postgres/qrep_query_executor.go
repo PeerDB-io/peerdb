@@ -33,6 +33,8 @@ type QRepQueryExecutor struct {
 	columns []*protos.ColumnSetting
 	flags   []string
 	version uint32
+	// PEERDB_CLICKHOUSE_ENABLE_JSON, looked up once per executor
+	nativeJSONEnabled bool
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
@@ -48,6 +50,10 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
 		env:               env,
@@ -57,6 +63,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 		version:           version,
 		flags:             flags,
+		nativeJSONEnabled: nativeJSONEnabled,
 		columns:           columns,
 	}, nil
 }
@@ -621,7 +628,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.columns),
+			wrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

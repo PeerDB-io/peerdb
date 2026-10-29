@@ -337,6 +337,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
 	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -354,6 +358,7 @@ func pullCore[Items model.Items](
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 		Flags:                                    req.Flags,
+		NativeJSONEnabled:                        nativeJSONEnabled,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))
