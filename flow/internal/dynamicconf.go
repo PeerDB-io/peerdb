@@ -616,8 +616,10 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP",
-		Description:      "Fetch update documents in bounded parallel batches outside the change stream. ",
+		Name: "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP",
+		Description: "If true, PeerDB fetches update documents in bounded parallel batches outside the change stream. " +
+			"The exception is if the collections already have changeStreamPreAndPostImages enabled, then it will use the " +
+			"post-image supplied in the change stream event, only missing documents are queried.",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
