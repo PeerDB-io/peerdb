@@ -168,6 +168,12 @@ A tuple whose column count differs from its RelationMessage is rejected. Earlier
 decoded a child's tuples with a sibling's column order. Upgrading fixes new changes but does not repair rows
 already written. If a mirror has children with different column orders, resync the affected tables.
 
+**Source schema column.** With `PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN`, mirrors created at
+`InternalVersion_SourceSchemaFromInheritanceChild` or later stamp the replicated rows of plain-table inheritance
+descendants with their own table's schema, in CDC and in the initial snapshot; partition roots and older mirrors
+stamp the mirrored table's schema. Renaming or moving a descendant's schema changes the provenance key, which needs
+a resync of the table.
+
 ### 1.7 LSN Checkpoint Management
 
 **Storage**: Catalog (default) or destination peer (Postgres→Postgres optimization)

@@ -458,7 +458,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name: "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN",
 		Description: "Ingest source schema as column to destination. " +
-			"Useful when multiple tables from source ingest into single table on destination",
+			"Useful when multiple tables from source ingest into single table on destination. " +
+			"In new mirrors, rows of Postgres inheritance descendants carry their own table's schema",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
