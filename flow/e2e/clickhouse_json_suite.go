@@ -108,7 +108,6 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	}
 
 	// source values; the emoji case is dropped on MySQL servers that do not default to utf8mb4
-	// TODO: fix and enable failing test cases
 	jsonTestCases := []jsonColumnTestCase{
 		{
 			desc:  "obj",
