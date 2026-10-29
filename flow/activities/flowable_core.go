@@ -106,6 +106,25 @@ func (a *FlowableActivity) applySchemaDeltas(
 								newCol.Name, newCol.Type, schemaDelta.DstTableName))
 						}
 					}
+
+					if droppedColumns := schemaDelta.GetDroppedColumns(); len(droppedColumns) > 0 {
+						droppedSet := make(map[string]struct{}, len(droppedColumns))
+						for _, droppedCol := range droppedColumns {
+							droppedSet[droppedCol] = struct{}{}
+						}
+						// remove dropped columns from the catalog schema so normalize stops
+						// referencing them; the destination column itself is left untouched
+						remainingColumns := schema.Columns[:0]
+						for _, col := range schema.Columns {
+							if _, dropped := droppedSet[col.Name]; dropped {
+								logger.Info(fmt.Sprintf("removing dropped column '%s' from catalog schema for table %s",
+									col.Name, schemaDelta.DstTableName))
+								continue
+							}
+							remainingColumns = append(remainingColumns, col)
+						}
+						schema.Columns = remainingColumns
+					}
 				} else {
 					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
 				}

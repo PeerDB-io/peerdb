@@ -1483,14 +1483,24 @@ func processRelationMessage[Items model.Items](
 	for _, column := range prevSchema.Columns {
 		// present in previous relation message, but not in current one, so dropped.
 		if _, ok := currRelMap[column.Name]; !ok {
-			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
-				schemaDelta.SrcTableName))
+			// Only the PG type system (PG-to-PG) propagates drops: it removes the column from the
+			// catalog schema so normalize stops referencing it, while leaving the destination column
+			// (and its data) in place.
+			if prevSchema.System == protos.TypeSystem_PG {
+				schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
+				p.logger.Info("Detected dropped column",
+					slog.String("columnName", column.Name),
+					slog.String("relationName", schemaDelta.SrcTableName))
+			} else {
+				p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
+					schemaDelta.SrcTableName))
+			}
 		}
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
+	if len(schemaDelta.AddedColumns) > 0 || len(schemaDelta.DroppedColumns) > 0 {
 		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,

@@ -1515,6 +1515,157 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+// Test_Drop_Column_PG covers dropping a column on the source under the PG type system. The drop is
+// propagated into the catalog schema so normalize stops referencing the column, while the
+// destination column (and its already-synced data) is deliberately preserved.
+func (s PeerFlowE2ETestSuitePG) Test_Drop_Column_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := "test_drop_column_pg"
+	dstTableName := srcTableName + "_dst"
+	quotedSourceTableName := s.attachSchemaSuffix(srcTableName)
+	quotedDestTableName := s.attachSchemaSuffix(dstTableName)
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT,
+			c2 BIGINT
+		);
+	`, quotedSourceTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_drop_column_pg"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(srcTableName),
+				DestinationTableIdentifier: s.attachSchemaSuffix(dstTableName),
+			},
+		},
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize: 100,
+		System:       protos.TypeSystem_PG,
+	}
+
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1,c2) VALUES (1,10)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row with c2 in the source table")
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize initial row", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1,c2") == nil
+	})
+
+	// drop c2 on the source and insert another row.
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN c2`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Dropped column c2 on the source table")
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (2)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted row after dropping c2 in the source table")
+
+	// normalize must continue working against the remaining columns without a 42703 error.
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize after drop", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1") == nil
+	})
+
+	// the destination column is preserved: the pre-drop value is still present and the row inserted
+	// after the drop keeps c2 NULL since normalize no longer writes it.
+	var preDropC2 pgtype.Int8
+	e2e.EnvNoError(s.t, env, s.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf(`SELECT c2 FROM %s WHERE c1 = 1`, quotedDestTableName)).Scan(&preDropC2))
+	e2e.EnvTrue(s.t, env, preDropC2.Valid && preDropC2.Int64 == 10)
+
+	var postDropC2 pgtype.Int8
+	e2e.EnvNoError(s.t, env, s.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf(`SELECT c2 FROM %s WHERE c1 = 2`, quotedDestTableName)).Scan(&postDropC2))
+	e2e.EnvTrue(s.t, env, !postDropC2.Valid)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// Test_Add_Drop_Add_Column_PG covers adding, dropping, then re-adding the same column under the PG
+// type system. Regardless of how the DDL/DML interleaves across sync batches, the net result must
+// converge: the column ends up present and its post-re-add values are normalized.
+func (s PeerFlowE2ETestSuitePG) Test_Add_Drop_Add_Column_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := "test_add_drop_add_column_pg"
+	dstTableName := srcTableName + "_dst"
+	quotedSourceTableName := s.attachSchemaSuffix(srcTableName)
+	quotedDestTableName := s.attachSchemaSuffix(dstTableName)
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 BIGINT
+		);
+	`, quotedSourceTableName))
+	require.NoError(s.t, err)
+
+	flowConnConfig := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_add_drop_add_column_pg"),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(srcTableName),
+				DestinationTableIdentifier: s.attachSchemaSuffix(dstTableName),
+			},
+		},
+		SourceName:   e2e.GeneratePostgresPeer(s.t).Name,
+		MaxBatchSize: 100,
+		System:       protos.TypeSystem_PG,
+	}
+
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1) VALUES (1)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Inserted initial row in the source table")
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "normalize initial row", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1") == nil
+	})
+
+	// add a, drop a, add a back-to-back with no interleaved row events, then a single insert.
+	// Postgres emits one relation message (reflecting the net schema, where a exists) before the
+	// insert, so within a single sync batch the add/drop/add collapses to a net add: no column data
+	// is physically lost on the source, and source and destination agree on a.
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s ADD COLUMN a BIGINT`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s DROP COLUMN a`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		ALTER TABLE %s ADD COLUMN a BIGINT`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %s(c1,a) VALUES (2,20)`, quotedSourceTableName))
+	e2e.EnvNoError(s.t, env, err)
+	s.t.Log("Executed same-batch add/drop/add of column a followed by a single insert")
+
+	// net result: column a is present and the new row is normalized through it, with full equality.
+	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize after add/drop/add", func() bool {
+		return s.comparePGTables(quotedSourceTableName, quotedDestTableName, "id,c1,a") == nil
+	})
+
+	// the value inserted after the collapsed add/drop/add flows through the restored column.
+	var a pgtype.Int8
+	e2e.EnvNoError(s.t, env, s.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf(`SELECT a FROM %s WHERE c1 = 2`, quotedDestTableName)).Scan(&a))
+	e2e.EnvTrue(s.t, env, a.Valid && a.Int64 == 20)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	srcTableName := "pgresync"
 	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
