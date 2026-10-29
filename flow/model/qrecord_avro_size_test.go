@@ -4,10 +4,12 @@ package model
 import (
 	"context"
 	crand "crypto/rand"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"maps"
 	"math/big"
 	"math/rand/v2"
@@ -16,10 +18,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2/ocf"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/avro/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -894,19 +896,20 @@ func writeAvroFileCompressed(
 	require.NoError(t, err)
 	defer file.Close()
 
-	encoder, err := ocf.NewEncoderWithSchema(
-		avroSchema.Schema,
+	encoder, err := ocf.NewWriter(
 		file,
-		ocf.WithCodec(ocf.ZStandard),
-		ocf.WithBlockLength(8192),
-		ocf.WithBlockSize(1<<26),
+		avroSchema.Schema,
+		ocf.WithCodec(ocf.MustZstdCodec(nil, nil)),
+		ocf.WithBlockCount(8192),
+		ocf.WithBlockBytes(1<<26),
 	)
 	require.NoError(t, err)
 	defer encoder.Close()
 
-	avroFieldNames := make([]string, len(avroSchema.Schema.Fields()))
-	for i, field := range avroSchema.Schema.Fields() {
-		avroFieldNames[i] = field.Name()
+	avroFields := avroSchema.Schema.Root().Fields
+	avroFieldNames := make([]string, len(avroFields))
+	for i := range avroFields {
+		avroFieldNames[i] = avroFields[i].Name
 	}
 
 	avroConverter, err := NewQRecordAvroConverter(
@@ -1108,30 +1111,32 @@ func getActualUncompressedSize(t *testing.T, filePath string, avroSchema *QRecor
 	file, err := os.Open(filePath)
 	require.NoError(t, err)
 	defer file.Close()
-	decoder, err := ocf.NewDecoder(file)
+	decoder, err := ocf.NewReader(file)
 	require.NoError(t, err)
+	defer decoder.Close()
 
 	meteredWriter := &MeteredWriter{}
-	encoder, err := ocf.NewEncoderWithSchema(
-		avroSchema.Schema,
+	encoder, err := ocf.NewWriter(
 		meteredWriter,
-		ocf.WithCodec(ocf.Null),
-		ocf.WithBlockLength(8192),
-		ocf.WithBlockSize(1<<26),
+		avroSchema.Schema,
+		ocf.WithBlockCount(8192),
+		ocf.WithBlockBytes(1<<26),
 	)
 	require.NoError(t, err)
 	defer encoder.Close()
 
 	n := 0
-	for decoder.HasNext() {
+	for {
 		var record map[string]any
 		err := decoder.Decode(&record)
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		require.NoError(t, err)
 		err = encoder.Encode(record)
 		require.NoError(t, err)
 		n += 1
 	}
-	require.NoError(t, decoder.Error())
 	assert.Equal(t, numRecords, n)
 
 	err = encoder.Flush()
