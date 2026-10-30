@@ -255,6 +255,7 @@ type sourcePeerInfoForLogging struct {
 	ReplicationMechanism string  `json:"replication_mechanism"` // mysql
 	ServerId             *uint32 `json:"server_id"`             // mysql
 	ReadPreference       string  `json:"read_preference"`       // mongo
+	Topology             string  `json:"topology"`              // mongo
 	ProjectId            string  `json:"project_id"`            // bigquery
 	DatasetId            string  `json:"dataset_id"`            // bigquery
 }
@@ -422,7 +423,7 @@ func LogFlowConfigs(ctx context.Context, flowConfigs []FlowConfigLogEntry) {
 	}
 }
 
-func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant string) {
+func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant string, topology string) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "LogFlowConfigs"))
 	info := &sourcePeerInfoForLogging{
 		PeerName:        peer.Name,
@@ -482,6 +483,7 @@ func LogPeerInfo(ctx context.Context, peer *protos.Peer, version string, variant
 		info.TLSHost = config.MongoConfig.TlsHost
 		info.SshHost = config.MongoConfig.SshConfig.GetHost()
 		info.ReadPreference = config.MongoConfig.ReadPreference.String()
+		info.Topology = topology
 		info.AuthType = config.MongoConfig.AuthType.String()
 		setAwsAuth(config.MongoConfig.AwsAuth)
 	case *protos.Peer_BigqueryConfig:

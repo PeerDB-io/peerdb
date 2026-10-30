@@ -236,6 +236,10 @@ func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
+func (c *MongoConnector) GetTopologyType(ctx context.Context) (string, error) {
+	return peerdb_mongo.GetTopologyType(ctx, c.client)
+}
+
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
 	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
 	if err != nil {

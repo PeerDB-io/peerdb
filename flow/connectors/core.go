@@ -413,6 +413,12 @@ type DatabaseVariantConnector interface {
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
 }
 
+type TopologyTypeConnector interface {
+	Connector
+
+	GetTopologyType(ctx context.Context) (string, error)
+}
+
 type ReplicationMechanismInUseConnector interface {
 	Connector
 
@@ -892,6 +898,8 @@ var (
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
 	_ DatabaseVariantConnector = &connmongo.MongoConnector{}
 	_ DatabaseVariantConnector = &conncockroachdb.CockroachDBConnector{}
+
+	_ TopologyTypeConnector = &connmongo.MongoConnector{}
 
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}
