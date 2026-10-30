@@ -588,8 +588,8 @@ func (a *FlowableActivity) recordSyncMetrics(
 	// global mirror metrics, aligned with event based cdc pipes
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
-	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx,
-		int64(rowCounts.InsertCount.Load()+rowCounts.UpdateCount.Load()+rowCounts.DeleteCount.Load()))
+	a.addRecordsSyncedByOperation(ctx,
+		int64(rowCounts.InsertCount.Load()), int64(rowCounts.UpdateCount.Load()), int64(rowCounts.DeleteCount.Load()))
 }
 
 // queryCDCNormalizeLoop inserts one source table's staged batches

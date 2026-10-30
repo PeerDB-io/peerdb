@@ -518,7 +518,13 @@ func (a *FlowableActivity) syncFlowSharedStream(
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
 			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
-			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
+			var inserts, updates, deletes int64
+			for _, counts := range syncResponse.TableNameRowsMapping {
+				inserts += int64(counts.InsertCount.Load())
+				updates += int64(counts.UpdateCount.Load())
+				deletes += int64(counts.DeleteCount.Load())
+			}
+			a.addRecordsSyncedByOperation(ctx, inserts, updates, deletes)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
 			break
@@ -1278,6 +1284,23 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (a *FlowableActivity) addRecordsSyncedByOperation(ctx context.Context, inserts, updates, deletes int64) {
+	for _, oc := range [...]struct {
+		op    string
+		count int64
+	}{
+		{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
+		{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
+		{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
+	} {
+		if oc.count > 0 {
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
+			)))
+		}
+	}
 }
 
 func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
