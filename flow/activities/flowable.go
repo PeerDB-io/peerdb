@@ -518,7 +518,15 @@ func (a *FlowableActivity) syncFlowSharedStream(
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
 			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
-			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
+			var inserts, updates, deletes int64
+			for _, counts := range syncResponse.TableNameRowsMapping {
+				inserts += int64(counts.InsertCount.Load())
+				updates += int64(counts.UpdateCount.Load())
+				deletes += int64(counts.DeleteCount.Load())
+			}
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, inserts, insertOperationOption)
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, updates, updateOperationOption)
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, deletes, deleteOperationOption)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
 			break
@@ -1644,6 +1652,16 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
 	return nil
+}
+
+var (
+	insertOperationOption = operationTypeOption(otel_metrics.RecordOperationTypeInsert)
+	updateOperationOption = operationTypeOption(otel_metrics.RecordOperationTypeUpdate)
+	deleteOperationOption = operationTypeOption(otel_metrics.RecordOperationTypeDelete)
+)
+
+func operationTypeOption(op string) metric.MeasurementOption {
+	return metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.RecordOperationTypeKey, op)))
 }
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{

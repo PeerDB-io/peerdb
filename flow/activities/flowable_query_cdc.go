@@ -566,15 +566,17 @@ func (a *FlowableActivity) recordSyncMetrics(
 	metricsOptions := metric.WithAttributeSet(attribute.NewSet(dstTableAttr))
 	a.OtelManager.Metrics.QueryCDCFetchedBatchesSizeHistogram.Record(ctx, bytesProcessed, metricsOptions)
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, batchId, metricsOptions)
-	opAndCount := []struct {
-		op    string
-		count int64
+	opAndCount := [...]struct {
+		opOption metric.MeasurementOption
+		op       string
+		count    int64
 	}{
-		{count: int64(rowCounts.InsertCount.Load()), op: "insert"},
-		{count: int64(rowCounts.UpdateCount.Load()), op: "update"},
-		{count: int64(rowCounts.DeleteCount.Load()), op: "delete"},
+		{opOption: insertOperationOption, op: otel_metrics.RecordOperationTypeInsert, count: int64(rowCounts.InsertCount.Load())},
+		{opOption: updateOperationOption, op: otel_metrics.RecordOperationTypeUpdate, count: int64(rowCounts.UpdateCount.Load())},
+		{opOption: deleteOperationOption, op: otel_metrics.RecordOperationTypeDelete, count: int64(rowCounts.DeleteCount.Load())},
 	}
 	for _, oc := range opAndCount {
+		a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, oc.count, oc.opOption)
 		a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
 			dstTableAttr,
 			attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
@@ -588,8 +590,6 @@ func (a *FlowableActivity) recordSyncMetrics(
 	// global mirror metrics, aligned with event based cdc pipes
 	a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesProcessed)
 	a.OtelManager.Metrics.AllFetchedBytesCounter.Add(ctx, bytesProcessed)
-	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx,
-		int64(rowCounts.InsertCount.Load()+rowCounts.UpdateCount.Load()+rowCounts.DeleteCount.Load()))
 }
 
 // queryCDCNormalizeLoop inserts one source table's staged batches
