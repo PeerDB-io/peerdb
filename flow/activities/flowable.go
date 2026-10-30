@@ -1093,8 +1093,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 				flowNames = append(flowNames, entry.FlowConfig.FlowName)
 			}
 
-			version, variant, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
-			telemetry.LogPeerInfo(ctx, peer, version, variant)
+			version, variant, topology, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
+			telemetry.LogPeerInfo(ctx, peer, version, variant, topology)
 			for _, entry := range peerFlowEntries {
 				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
 				if peer.Type == protos.DBType_POSTGRES {
@@ -1119,16 +1119,17 @@ func (a *FlowableActivity) getRuntimeInfo(
 	ctx context.Context,
 	peer *protos.Peer,
 	flowNames []string,
-) (string, string, map[string]string) {
+) (string, string, string, map[string]string) {
 	logger := internal.LoggerFromCtx(ctx)
 	version := "N/A"
 	variant := "N/A"
+	topology := "N/A"
 	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
 
 	conn, err := connectors.GetConnector(ctx, nil, peer)
 	if err != nil {
 		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
-		return version, variant, replicationMechanismInUseByFlow
+		return version, variant, topology, replicationMechanismInUseByFlow
 	}
 	defer conn.Close()
 
@@ -1148,6 +1149,14 @@ func (a *FlowableActivity) getRuntimeInfo(
 			variant = v.String()
 		}
 	}
+	if tc, ok := conn.(connectors.TopologyTypeConnector); ok {
+		if t, err := tc.GetTopologyType(ctx); err != nil {
+			logger.Error("failed to get topology type",
+				slog.String("peer", peer.Name), slog.Any("error", err))
+		} else {
+			topology = t
+		}
+	}
 	if rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector); ok {
 		for _, flowName := range flowNames {
 			mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
@@ -1162,7 +1171,7 @@ func (a *FlowableActivity) getRuntimeInfo(
 		}
 	}
 
-	return version, variant, replicationMechanismInUseByFlow
+	return version, variant, topology, replicationMechanismInUseByFlow
 }
 
 type flowInformation struct {
