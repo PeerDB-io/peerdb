@@ -65,7 +65,6 @@ const (
 	SourceLagGaugeName                      = "source_lag"
 	DestinationLagGaugeName                 = "destination_lag"
 	E2ELagGaugeName                         = "e2e_lag"
-	ServerSideCommitLagGaugeName            = "server_side_commit_lag"
 	NormalizeLagGaugeName                   = "normalize_lag"
 	ErrorEmittedGaugeName                   = "error_emitted"
 	ErrorsEmittedCounterName                = "errors_emitted"
@@ -136,7 +135,6 @@ type Metrics struct {
 	SourceLagGauge                      metric.Int64Gauge
 	DestinationLagGauge                 metric.Int64Gauge
 	E2ELagGauge                         metric.Int64Gauge
-	ServerSideCommitLagGauge            metric.Int64Gauge
 	NormalizeLagGauge                   metric.Int64Gauge
 	ErrorEmittedGauge                   metric.Int64Gauge
 	ErrorsEmittedCounter                metric.Int64Counter
@@ -549,13 +547,6 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 	if om.Metrics.E2ELagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(E2ELagGaugeName),
 		metric.WithUnit("ms"),
 		metric.WithDescription("End-to-end lag in milliseconds from a source event's commit timestamp to destination write"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.ServerSideCommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ServerSideCommitLagGaugeName),
-		metric.WithUnit("us"),
-		metric.WithDescription("Similar to CommitLagGauge, but use source-only timestamps to avoid clock skew"),
 	); err != nil {
 		return err
 	}

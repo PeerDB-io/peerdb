@@ -203,13 +203,6 @@ var _ ChangeStream = (*mockChangeStream)(nil)
 
 type mockMetadataStore struct{ persisted []model.CdcCheckpoint }
 
-func (ms *mockMetadataStore) GetLastOffset(context.Context, string) (model.CdcCheckpoint, error) {
-	if n := len(ms.persisted); n > 0 {
-		return ms.persisted[n-1], nil
-	}
-	return model.CdcCheckpoint{}, nil
-}
-
 func (ms *mockMetadataStore) SetLastOffset(_ context.Context, _ string, off model.CdcCheckpoint) error {
 	ms.persisted = append(ms.persisted, off)
 	return nil
