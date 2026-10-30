@@ -393,12 +393,6 @@ type GetLogRetentionConnector interface {
 	GetLogRetentionHours(ctx context.Context) (float64, error)
 }
 
-type GetServerSideCommitLagConnector interface {
-	Connector
-
-	GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error)
-}
-
 // SourceClockOffsetConnector exposes the source connector's estimated clock offset
 // (source clock minus worker clock).
 type SourceClockOffsetConnector interface {
@@ -881,8 +875,6 @@ var (
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
-
-	_ GetServerSideCommitLagConnector = &connmongo.MongoConnector{}
 
 	_ SourceClockOffsetConnector = &connpostgres.PostgresConnector{}
 	_ SourceClockOffsetConnector = &connmysql.MySqlConnector{}
