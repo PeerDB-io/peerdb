@@ -1,7 +1,10 @@
 package connclickhouse
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/stretchr/testify/require"
@@ -10,6 +13,72 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestRunNormalizePipelineOverlapsCopyAndNormalize(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	firstRangeNormalized := make(chan struct{})
+	var normalizedRanges [][2]int64
+	err := runNormalizePipeline(
+		ctx, 0, 0, 2,
+		func(ctx context.Context, batchID int64) error {
+			if batchID == 2 {
+				select {
+				case <-firstRangeNormalized:
+				case <-ctx.Done():
+					return context.Cause(ctx)
+				}
+			}
+			return nil
+		},
+		func(_ context.Context, startBatchID int64, endBatchID int64) error {
+			normalizedRanges = append(normalizedRanges, [2]int64{startBatchID, endBatchID})
+			if endBatchID == 1 {
+				close(firstRangeNormalized)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][2]int64{{0, 1}, {1, 2}}, normalizedRanges)
+}
+
+func TestRunNormalizePipelineNormalizesAlreadyCopiedRange(t *testing.T) {
+	copyCalled := false
+	var normalizedRanges [][2]int64
+	err := runNormalizePipeline(
+		t.Context(), 2, 5, 5,
+		func(context.Context, int64) error {
+			copyCalled = true
+			return nil
+		},
+		func(_ context.Context, startBatchID int64, endBatchID int64) error {
+			normalizedRanges = append(normalizedRanges, [2]int64{startBatchID, endBatchID})
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.False(t, copyCalled)
+	require.Equal(t, [][2]int64{{2, 5}}, normalizedRanges)
+}
+
+func TestRunNormalizePipelineReturnsCopyError(t *testing.T) {
+	wantErr := errors.New("copy failed")
+	err := runNormalizePipeline(
+		t.Context(), 0, 0, 2,
+		func(_ context.Context, batchID int64) error {
+			if batchID == 2 {
+				return wantErr
+			}
+			return nil
+		},
+		func(context.Context, int64, int64) error {
+			return nil
+		},
+	)
+	require.ErrorIs(t, err, wantErr)
+}
 
 func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	sourceColumns := []*protos.FieldDescription{
