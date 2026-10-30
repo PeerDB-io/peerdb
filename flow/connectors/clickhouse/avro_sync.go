@@ -40,17 +40,27 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
-	stagingTableFunction, err := s.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
-	if err != nil {
-		s.logger.Error("failed to build staging table function",
-			slog.String("avroFilePath", avroFile.FilePath),
-			slog.Any("error", err))
-		return fmt.Errorf("failed to build staging table function: %w", err)
+// CopyStagesToDestination loads all staged files with a single INSERT. Each file becomes its own
+// UNION ALL branch, so ClickHouse reads and decodes them in parallel instead of on one stream.
+func (s *ClickHouseAvroSyncMethod) CopyStagesToDestination(ctx context.Context, avroFiles []utils.AvroFile) error {
+	if len(avroFiles) == 0 {
+		return nil
 	}
 
-	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), stagingTableFunction)
+	selects := make([]string, 0, len(avroFiles))
+	for _, avroFile := range avroFiles {
+		stagingTableFunction, err := s.staging.TableFunctionExpr(ctx, avroFile.FilePath, stagingFormat)
+		if err != nil {
+			s.logger.Error("failed to build staging table function",
+				slog.String("avroFilePath", avroFile.FilePath),
+				slog.Any("error", err))
+			return fmt.Errorf("failed to build staging table function: %w", err)
+		}
+		selects = append(selects, "SELECT * FROM "+stagingTableFunction)
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s %s",
+		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), strings.Join(selects, " UNION ALL "))
 	return s.exec(ctx, query)
 }
 

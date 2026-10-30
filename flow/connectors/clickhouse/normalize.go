@@ -15,6 +15,7 @@ import (
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
@@ -660,22 +661,32 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickHouseConnector) copyAvroStageToDestination(
+// copyAvroStagesRangeToDestination loads batches (startBatchID, endBatchID] into the raw table with one INSERT.
+func (c *ClickHouseConnector) copyAvroStagesRangeToDestination(
 	ctx context.Context,
 	flowJobName string,
-	syncBatchID int64,
+	startBatchID int64,
+	endBatchID int64,
 	env map[string]string,
 	version uint32,
 ) error {
 	avroSyncMethod := c.avroSyncMethod(flowJobName, env, version)
-	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
-	if err != nil {
-		return fmt.Errorf("failed to get avro stage: %w", err)
+	avroFiles := make([]utils.AvroFile, 0, endBatchID-startBatchID)
+	defer func() {
+		for _, avroFile := range avroFiles {
+			avroFile.Cleanup(ctx)
+		}
+	}()
+	for batchID := startBatchID + 1; batchID <= endBatchID; batchID++ {
+		avroFile, err := GetAvroStage(ctx, flowJobName, batchID)
+		if err != nil {
+			return fmt.Errorf("failed to get avro stage: %w", err)
+		}
+		avroFiles = append(avroFiles, avroFile)
 	}
-	defer avroFile.Cleanup(ctx)
 
-	if err := avroSyncMethod.CopyStageToDestination(ctx, avroFile); err != nil {
-		return fmt.Errorf("failed to copy stage to destination: %w", err)
+	if err := avroSyncMethod.CopyStagesToDestination(ctx, avroFiles); err != nil {
+		return fmt.Errorf("failed to copy stages to destination: %w", err)
 	}
 	return nil
 }
@@ -693,9 +704,17 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	c.logger.Info("[clickhouse] pushing s3 data to raw table",
 		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
 
-	for batchID := lastCopiedBatchID + 1; batchID <= endBatchID; batchID++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, batchID, env, version); err != nil {
-			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
+	filesPerInsert, err := internal.PeerDBClickHouseRawCopyFilesPerInsert(ctx, env)
+	if err != nil || filesPerInsert <= 0 {
+		c.logger.Warn("failed to lookup PEERDB_CLICKHOUSE_RAW_COPY_FILES_PER_INSERT, copying 1 file per insert",
+			slog.Any("error", err))
+		filesPerInsert = 1
+	}
+
+	for startBatchID := lastCopiedBatchID; startBatchID < endBatchID; startBatchID += filesPerInsert {
+		batchID := min(startBatchID+filesPerInsert, endBatchID)
+		if err := c.copyAvroStagesRangeToDestination(ctx, flowJobName, startBatchID, batchID, env, version); err != nil {
+			return fmt.Errorf("failed to copy avro stages to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",
 			slog.Int64("batchID", batchID))
