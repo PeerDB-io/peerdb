@@ -400,11 +400,12 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	}
 	if res.TableNameRowsMapping != nil {
 		if err := monitoring.AddCDCBatchTablesForFlow(
-			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping, a.OtelManager,
+			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping,
 		); err != nil {
 			return nil, err
 		}
 	}
+	a.recordCDCBatchMetrics(ctx, res)
 
 	a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second)))
