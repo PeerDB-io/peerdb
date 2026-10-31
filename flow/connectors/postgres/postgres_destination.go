@@ -316,12 +316,7 @@ func (c *PostgresConnector) NormalizeRecords(
 		}
 		normalizeStmtGen.unchangedToastColumnsMap = unchangedToastColumnsMap
 
-		destinationTableNames, err := c.getDistinctTableNamesInBatch(
-			ctx, req.FlowJobName, batchID, req.TableNameSchemaMapping)
-		if err != nil {
-			return model.NormalizeResponse{}, err
-		}
-		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, destinationTableNames, &normalizeStmtGen)
+		rowsAffected, err := c.normalizeBatch(ctx, batchID, req, &normalizeStmtGen)
 		if err != nil {
 			return model.NormalizeResponse{}, err
 		}
@@ -416,7 +411,6 @@ func (c *PostgresConnector) normalizeBatch(
 	ctx context.Context,
 	batchID int64,
 	req *model.NormalizeRecordsRequest,
-	destinationTableNames []string,
 	normalizeStmtGen *normalizeStmtGenerator,
 ) (int, error) {
 	tx, err := c.conn.Begin(ctx)
@@ -425,8 +419,12 @@ func (c *PostgresConnector) normalizeBatch(
 	}
 	defer shared.RollbackTx(tx, c.logger)
 
-	for _, tableName := range destinationTableNames {
-		if schema, ok := normalizeStmtGen.tableSchemaMapping[tableName]; ok && schema.System == protos.TypeSystem_PG {
+	tables, err := c.getBatchTables(ctx, tx, batchID, normalizeStmtGen)
+	if err != nil {
+		return 0, err
+	}
+	for _, table := range tables {
+		if normalizeStmtGen.tableSchemaMapping[table.name].System == protos.TypeSystem_PG {
 			if _, err := tx.Exec(ctx, setSessionReplicaRoleSQL); err != nil {
 				return 0, fmt.Errorf("failed to set session_replication_role to replica: %w", err)
 			}
@@ -434,13 +432,14 @@ func (c *PostgresConnector) normalizeBatch(
 		}
 	}
 
+	normalizeStmtGen.dst = make(map[string]dstTable, len(tables))
 	totalRowsAffected := 0
-	for _, table := range destinationTableNames {
+	for _, table := range tables {
 		rows, err := c.normalizeTable(ctx, tx, batchID, table, normalizeStmtGen)
 		if err != nil {
 			c.logger.Error("error executing normalize statement",
-				slog.Int64("batchID", batchID), slog.String("destinationTableName", table), slog.Any("error", err))
-			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", table, err)
+				slog.Int64("batchID", batchID), slog.String("destinationTableName", table.name), slog.Any("error", err))
+			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", table.name, err)
 		}
 		totalRowsAffected += rows
 	}
