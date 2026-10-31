@@ -27,3 +27,22 @@ func (c *PostgresConnector) getDstTable(ctx context.Context, tx pgx.Tx, table st
 	}
 	return d, nil
 }
+
+func (c *PostgresConnector) normalizeTable(
+	ctx context.Context, tx pgx.Tx, batchID int64, table string, gen *normalizeStmtGenerator,
+) (int, error) {
+	d, err := c.getDstTable(ctx, tx, table)
+	if err != nil {
+		return 0, err
+	}
+	gen.dst[table] = d
+	rows := 0
+	for _, stmt := range gen.generateNormalizeStatements(table) {
+		ct, err := tx.Exec(ctx, stmt, batchID, table)
+		if err != nil {
+			return 0, err
+		}
+		rows += int(ct.RowsAffected())
+	}
+	return rows, nil
+}
