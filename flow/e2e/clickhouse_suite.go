@@ -226,6 +226,98 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_Addition_Column_Settings adds a table with column settings to a running mirror: its CDC rows must
+// land through them, as its initial load does
+func (s ClickHouseSuite) Test_Addition_Column_Settings() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_addition_settings")
+	addedSrcTableName := s.attachSchemaSuffix("test_addition_settings_added")
+	dstTableName := "test_addition_settings_dst"
+	addedDstTableName := "test_addition_settings_added_dst"
+
+	for _, tableName := range []string{srcTableName, addedSrcTableName} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, note TEXT, amount INT)`, tableName)))
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (1, 'snapshot', 10)`, addedSrcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_addition_settings"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (1, 'cdc', 1)`, srcTableName)))
+	EnvWaitForCount(env, s, "cdc into the original table", dstTableName, "id", 1)
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		conn := pgconn.Conn()
+		_, err := conn.Exec(s.t.Context(),
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("ch_addition_settings")))
+		require.NoError(s.t, err)
+
+		EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+			rows, err := conn.Query(s.t.Context(),
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("ch_addition_settings")))
+			require.NoError(s.t, err)
+			defer rows.Close()
+			return !rows.Next()
+		})
+	}
+
+	// the added table renames a column, makes it nullable, and widens another one
+	runID := EnvGetRunID(s.t, env)
+	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSrcTableName,
+			DestinationTableIdentifier: addedDstTableName,
+			ShardingKey:                "id",
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "note", DestinationName: "memo", NullableEnabled: true},
+				{SourceName: "amount", DestinationType: "Int64"},
+			},
+		}},
+	})
+	EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitFor(s.t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != EnvGetRunID(s.t, env)
+	})
+	EnvWaitForCount(env, s, "initial load of the added table", addedDstTableName, "id,memo", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (2, 'cdc', 20), (3, NULL, 30)`, addedSrcTableName)))
+	EnvWaitForCount(env, s, "cdc into the added table", addedDstTableName, "id,memo", 3)
+
+	rows, err := s.GetRows(addedDstTableName, "id,memo,amount")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3)
+	require.Equal(s.t, "snapshot", rows.Records[0][1].Value())
+	require.Equal(s.t, "cdc", rows.Records[1][1].Value())
+	require.Nil(s.t, rows.Records[2][1].Value(), "a NULL lands as NULL in the nullable column")
+	require.Equal(s.t, int64(30), rows.Records[2][2].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Removing one of several source tables feeding a shared destination must keep
 // that destination's raw rows & catalog schema mapping intact, otherwise the
 // surviving source can no longer normalize into it. Disjoint id ranges keep the

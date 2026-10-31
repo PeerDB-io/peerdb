@@ -460,6 +460,99 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_Structured_Ingestion_Table_Addition adds a structured ingestion table to a running mirror: its CDC
+// rows must land through its column settings, as its initial load does
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Table_Addition() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_addition"
+	dstTable := "test_structured_addition_dst"
+	addedSrcTable := "test_structured_addition_added"
+	addedDstTable := "test_structured_addition_added_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+	addedCollection := db.Collection(addedSrcTable)
+	insertMeetings := func(prefix string) {
+		for i := range 5 {
+			res, err := addedCollection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "title", Value: fmt.Sprintf("title_%s_%d", prefix, i)},
+				{Key: "attendees", Value: bson.A{
+					bson.D{{Key: "email", Value: fmt.Sprintf("a_%s_%d", prefix, i)}, {Key: "internal", Value: true}},
+					bson.D{{Key: "email", Value: fmt.Sprintf("b_%s_%d", prefix, i)}, {Key: "internal", Value: false}},
+				}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertMeetings("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := db.Collection(srcTable).InsertOne(t.Context(), bson.D{{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc into the original table", dstTable, "_id", 1)
+
+	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused for table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// the added table renames a column and lands arrays of documents in an array of JSON
+	addedTableMappings := e2e.TableMappings(s, addedSrcTable, addedDstTable)
+	addedTableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	addedTableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "title", DestinationName: "headline", DestinationType: "Nullable(String)"},
+		{SourceName: "attendees", DestinationType: "Array(Nullable(JSON))"},
+	}
+	runID := e2e.EnvGetRunID(t, env)
+	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: addedTableMappings,
+	})
+	e2e.EnvWaitFor(t, env, 4*time.Minute, "adding table", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.EnvWaitFor(t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != e2e.EnvGetRunID(t, env)
+	})
+	e2e.EnvWaitForCount(env, s, "initial load of the added table", addedDstTable, "_id,name", 5)
+
+	insertMeetings("cdc")
+	e2e.EnvWaitForCount(env, s, "cdc into the added table", addedDstTable, "_id,name", 10)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	for _, prefix := range []string{"init", "cdc"} {
+		var headline, secondAttendee string
+		var attendeesLength uint64
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT ifNull(headline, ''), length(attendees), toString(attendees[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, addedDstTable, prefix)).Scan(&headline, &attendeesLength, &secondAttendee))
+		require.Equal(t, "title_"+prefix+"_3", headline)
+		require.Equal(t, uint64(2), attendeesLength)
+		require.JSONEq(t, fmt.Sprintf(`{"email": "b_%s_3", "internal": false}`, prefix), secondAttendee)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 // Test_Structured_Ingestion_Scalars_And_Typed_Arrays covers the destination types the other structured
 // ingestion tests leave out, on both the initial load and CDC: floats, integers widened into floats, booleans,
 // dates, typed arrays of integers, floats and booleans, the scalars mapping to strings, and the ones mapping
