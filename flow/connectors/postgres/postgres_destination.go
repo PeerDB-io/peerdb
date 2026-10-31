@@ -388,11 +388,6 @@ func (c *PostgresConnector) getAlwaysIdentityColumns(ctx context.Context, tables
 	return result, nil
 }
 
-type batchEntry struct {
-	tableName string
-	statement string
-}
-
 func (c *PostgresConnector) normalizeBatch(
 	ctx context.Context,
 	batchID int64,
@@ -416,50 +411,20 @@ func (c *PostgresConnector) normalizeBatch(
 	}
 
 	normalizeStmtGen.dst = make(map[string]dstTable, len(destinationTableNames))
-	for _, destinationTableName := range destinationTableNames {
-		if normalizeStmtGen.dst[destinationTableName], err = c.getDstTable(ctx, tx, destinationTableName); err != nil {
-			return 0, err
-		}
-	}
-
-	batch := &pgx.Batch{}
-	var entries []batchEntry
-	for _, destinationTableName := range destinationTableNames {
-		normalizeStatements := normalizeStmtGen.generateNormalizeStatements(destinationTableName)
-		for _, stmt := range normalizeStatements {
-			batch.Queue(stmt, batchID, destinationTableName)
-			entries = append(entries, batchEntry{tableName: destinationTableName, statement: stmt})
-		}
-	}
-	batch.Queue(
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		batchID, req.FlowJobName,
-	)
-
-	results := tx.SendBatch(ctx, batch)
-	defer results.Close()
-
 	totalRowsAffected := 0
-	for _, entry := range entries {
-		ct, err := results.Exec()
+	for _, table := range destinationTableNames {
+		rows, err := c.normalizeTable(ctx, tx, batchID, table, normalizeStmtGen)
 		if err != nil {
 			c.logger.Error("error executing normalize statement",
-				slog.String("statement", entry.statement),
-				slog.Int64("batchID", batchID),
-				slog.String("destinationTableName", entry.tableName),
-				slog.Any("error", err),
-			)
-			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", entry.tableName, err)
+				slog.Int64("batchID", batchID), slog.String("destinationTableName", table), slog.Any("error", err))
+			return 0, fmt.Errorf("error executing normalize statement for table %s: %w", table, err)
 		}
-		totalRowsAffected += int(ct.RowsAffected())
+		totalRowsAffected += rows
 	}
 
-	if _, err := results.Exec(); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		batchID, req.FlowJobName); err != nil {
 		return 0, fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
-	}
-
-	if err := results.Close(); err != nil {
-		return 0, fmt.Errorf("failed to close batch results: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
