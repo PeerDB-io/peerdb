@@ -3,6 +3,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -10,6 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // Tests for Postgres sources whose mirrored tables have inheritance children or partitions laid out
@@ -320,4 +323,127 @@ func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Via_Root() {
 
 func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Leaf() {
 	s.inhPartitionDivergentLayout(false)
+}
+
+// inhWaitForSourceSchemas waits until the live destination rows are exactly expected, each as "schema id name"
+func (s ClickHouseSuite) inhWaitForSourceSchemas(env WorkflowRun, dstTable string, expected ...string) {
+	s.t.Helper()
+	slices.Sort(expected)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting on source schemas", func() bool {
+		rows, err := s.GetRows(dstTable, "_peerdb_source_schema,id,name")
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		got := make([]string, 0, len(rows.Records))
+		for _, row := range rows.Records {
+			got = append(got, fmt.Sprintf("%v %v %v", row[0].Value(), row[1].Value(), row[2].Value()))
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, expected) {
+			s.t.Logf("expected %v, got %v", expected, got)
+			return false
+		}
+		return true
+	})
+}
+
+// inhChildSchemaAsColumn mirrors a parent whose tenant children reuse each other's keys into one destination table.
+// With the source schema column on, each row carries the schema of the table it is stored in, so the tenants'
+// rows stay apart in the sorting key. fullTable snapshots the parent in one query instead of a range per child.
+func (s ClickHouseSuite) inhChildSchemaAsColumn(name string, fullTable bool) {
+	s.inhRequirePostgres()
+
+	srcTableName := "inh_schema_col_" + name
+	parent := s.attachSchemaSuffix(srcTableName)
+	parentSchema := "e2e_test_" + s.suffix
+	dstTableName := srcTableName + "_dst"
+	flowJobName := s.attachSuffix(srcTableName)
+	schemaA, schemaB := s.inhTenantSchema(name+"a"), s.inhTenantSchema(name+"b")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, parent)
+	s.inhExec(`CREATE TABLE %s.%s (PRIMARY KEY (id)) INHERITS (%s)`, schemaA, srcTableName, parent)
+	s.inhExec(`CREATE TABLE %s.%s (PRIMARY KEY (id)) INHERITS (%s)`, schemaB, srcTableName, parent)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (1, 'p1')`, parent)
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (1, 'a1'), (2, 'a2')`, schemaA, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (1, 'b1'), (2, 'b2')`, schemaB, srcTableName)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+	if fullTable {
+		flowConnConfig.SnapshotNumPartitionsOverride = 1
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	s.inhWaitForSourceSchemas(env, dstTableName,
+		parentSchema+" 1 p1", schemaA+" 1 a1", schemaA+" 2 a2", schemaB+" 1 b1", schemaB+" 2 b2")
+
+	// each change must collapse onto its own tenant's row only
+	s.inhExec(`UPDATE %s.%s SET name = 'a1-upd' WHERE id = 1`, schemaA, srcTableName)
+	s.inhExec(`DELETE FROM %s.%s WHERE id = 2`, schemaB, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (3, 'b3')`, schemaB, srcTableName)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (3, 'p3')`, parent)
+	s.inhWaitForSourceSchemas(env, dstTableName,
+		parentSchema+" 1 p1", parentSchema+" 3 p3", schemaA+" 1 a1-upd", schemaA+" 2 a2", schemaB+" 1 b1", schemaB+" 3 b3")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Inheritance_Child_Schema_As_Column() {
+	s.inhChildSchemaAsColumn("cr", false)
+}
+
+func (s ClickHouseSuite) Test_Inheritance_Child_Schema_As_Column_Full_Table_Snapshot() {
+	s.inhChildSchemaAsColumn("cf", true)
+}
+
+// Test_Inheritance_Child_Schema_As_Column_Old_Version checks that mirrors created before
+// InternalVersion_SourceSchemaFromInheritanceChild keep stamping every row with the mirrored table's schema
+func (s ClickHouseSuite) Test_Inheritance_Child_Schema_As_Column_Old_Version() {
+	s.inhRequirePostgres()
+
+	srcTableName := "inh_schema_col_old"
+	parent := s.attachSchemaSuffix(srcTableName)
+	parentSchema := "e2e_test_" + s.suffix
+	dstTableName := srcTableName + "_dst"
+	flowJobName := s.attachSuffix(srcTableName)
+	schemaA := s.inhTenantSchema("coa")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, name TEXT)`, parent)
+	s.inhExec(`CREATE TABLE %s.%s (PRIMARY KEY (id)) INHERITS (%s)`, schemaA, srcTableName, parent)
+	s.inhExec(`INSERT INTO %s (id, name) VALUES (1, 'p1')`, parent)
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (2, 'a2')`, schemaA, srcTableName)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Version = shared.InternalVersion_SourceSchemaFromInheritanceChild - 1
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true",
+		"PEERDB_FORCE_INTERNAL_VERSION":              strconv.FormatUint(uint64(flowConnConfig.Version), 10),
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	s.inhWaitForSourceSchemas(env, dstTableName, parentSchema+" 1 p1", parentSchema+" 2 a2")
+
+	s.inhExec(`INSERT INTO %s.%s (id, name) VALUES (3, 'a3')`, schemaA, srcTableName)
+	s.inhWaitForSourceSchemas(env, dstTableName, parentSchema+" 1 p1", parentSchema+" 2 a2", parentSchema+" 3 a3")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

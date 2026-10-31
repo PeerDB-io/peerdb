@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -210,4 +211,37 @@ func TestProcessTupleRejectsColumnCountMismatch(t *testing.T) {
 	items, _, err := processTuple(qProcessor{}, p, nil, rel, mapping, nil, "", model.BaseRecord{})
 	require.NoError(t, err)
 	require.Equal(t, 0, items.Len())
+}
+
+func TestSourceSchemaOfInheritanceChild(t *testing.T) {
+	t.Parallel()
+	parentRel := &pglogrepl.RelationMessage{RelationID: inhParentRelID, Namespace: "public", RelationName: "parent"}
+
+	for _, tc := range []struct {
+		name          string
+		version       uint32
+		parentRelKind byte
+		rel           *pglogrepl.RelationMessage
+		expected      string
+	}{
+		{"child", shared.InternalVersion_SourceSchemaFromInheritanceChild, 'r', childARelation(), "tenant_a"},
+		{"parent's own row", shared.InternalVersion_SourceSchemaFromInheritanceChild, 'r', parentRel, "public"},
+		{
+			"child of a mirror created before the version", shared.InternalVersion_SourceSchemaFromInheritanceChild - 1,
+			'r', childARelation(), "public",
+		},
+		{"partition", shared.InternalVersion_SourceSchemaFromInheritanceChild, 'p', childARelation(), "public"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newInheritanceTestCDCSource(t)
+			p.schemaNameForRelID = map[uint32]string{}
+			p.internalVersion = tc.version
+			p.idToRelKindMap[inhParentRelID] = tc.parentRelKind
+
+			schema, err := p.getSourceSchemaForDestinationColumn(tc.rel, inhParentRelID, "public.parent")
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, schema)
+		})
+	}
 }

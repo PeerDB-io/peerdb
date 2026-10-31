@@ -186,8 +186,11 @@ func buildInsertFromTableFunctionQuery(
 		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(dstColName))
 	}
 
-	// Add source schema column if needed
-	if sourceSchemaAsDestinationColumn {
+	// Add source schema column if needed, unless the source already stamped each row, which it does for the rows
+	// of Postgres inheritance descendants
+	if sourceSchemaAsDestinationColumn && !slices.ContainsFunc(config.schema.Fields, func(field types.QField) bool {
+		return field.Name == sourceSchemaColName
+	}) {
 		qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
 		if err != nil {
 			return "", err

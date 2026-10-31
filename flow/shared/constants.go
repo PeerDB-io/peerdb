@@ -48,6 +48,10 @@ const (
 	// Postgres/MySQL: wrap non-object JSON values (scalars, arrays, JSON null) as {"_value": ...} when
 	// PEERDB_CLICKHOUSE_ENABLE_JSON is on, since ClickHouse JSON only accepts objects at the top level
 	InternalVersion_WrapNonObjectJSON
+	// Postgres: with PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN, rows of plain-table inheritance descendants carry
+	// their own schema instead of the mirrored parent's. Gated because the column leads the ClickHouse sorting key,
+	// so changing its value under an existing mirror would stop updates and deletes from collapsing onto synced rows.
+	InternalVersion_SourceSchemaFromInheritanceChild
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

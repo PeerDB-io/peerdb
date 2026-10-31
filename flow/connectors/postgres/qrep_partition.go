@@ -310,7 +310,11 @@ type tableClassification struct {
 	relhassubclass bool
 }
 
-func classifyTable(ctx context.Context, tx pgx.Tx, table string) (tableClassification, error) {
+func classifyTable(
+	ctx context.Context, tx interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}, table string,
+) (tableClassification, error) {
 	var classification tableClassification
 	err := tx.QueryRow(ctx,
 		// We fetch the qualified name from pg_class instead of using the input directly because

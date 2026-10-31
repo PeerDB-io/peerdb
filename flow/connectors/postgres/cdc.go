@@ -199,10 +199,21 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 	}, nil
 }
 
-func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, tableName string) (string, error) {
+// getSourceSchemaForDestinationColumn returns the _peerdb_source_schema of a tuple of rel, routed to mirrored table
+// relID named tableName.
+func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(
+	rel *pglogrepl.RelationMessage, relID uint32, tableName string,
+) (string, error) {
 	if p.schemaNameForRelID == nil {
 		return "", nil
-	} else if schema, ok := p.schemaNameForRelID[relID]; ok {
+	}
+	// rows of a plain table's inheritance descendants carry their own schema, as the snapshot stamps them;
+	// partitions keep the root's, since with publish_via_partition_root their tuples arrive under the root
+	if rel.RelationID != relID && p.idToRelKindMap[relID] == 'r' &&
+		p.internalVersion >= shared.InternalVersion_SourceSchemaFromInheritanceChild {
+		return rel.Namespace, nil
+	}
+	if schema, ok := p.schemaNameForRelID[relID]; ok {
 		return schema, nil
 	}
 
@@ -1209,7 +1220,7 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(rel, relID, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -1266,7 +1277,7 @@ func processUpdateMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(rel, relID, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -1329,7 +1340,7 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(rel, relID, tableName)
 	if err != nil {
 		return nil, err
 	}

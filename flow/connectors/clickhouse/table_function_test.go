@@ -221,3 +221,28 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
 }
+
+// TestBuildInsertFromTableFunctionQuerySourceSchema checks that _peerdb_source_schema is stamped with the snapshotted
+// table's schema, unless the staged rows already carry it, as they do for Postgres inheritance descendants.
+func TestBuildInsertFromTableFunctionQuerySourceSchema(t *testing.T) {
+	config := &insertFromTableFunctionConfig{
+		destinationTable: "t1",
+		schema:           types.QRecordSchema{Fields: []types.QField{{Name: "id", Type: types.QValueKindInt64}}},
+		config: &protos.QRepConfig{
+			Env:            map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"},
+			WatermarkTable: "public.parent",
+		},
+	}
+
+	query, err := buildInsertFromTableFunctionQuery(t.Context(), config, "s3('s3://bucket/key', 'Avro')", nil)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`id`,_peerdb_source_schema) SELECT `id`,'public' FROM s3('s3://bucket/key', 'Avro')", query)
+
+	config.schema.Fields = append(config.schema.Fields, types.QField{Name: sourceSchemaColName, Type: types.QValueKindString})
+	query, err = buildInsertFromTableFunctionQuery(t.Context(), config, "s3('s3://bucket/key', 'Avro')", nil)
+	require.NoError(t, err)
+	require.Equal(t,
+		"INSERT INTO `t1`(`id`,`_peerdb_source_schema`) SELECT `id`,`_peerdb_source_schema` FROM s3('s3://bucket/key', 'Avro')",
+		query)
+}

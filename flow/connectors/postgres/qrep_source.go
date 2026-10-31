@@ -331,7 +331,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, config, dstType, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -342,17 +342,18 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	_catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
-	_dstType protos.DBType,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+	return corePullQRepRecords(c, ctx, config, dstType, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, error) {
@@ -364,6 +365,12 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
+	childSchemaParentOID, err := c.childSchemaParentOID(ctx, config, dstType, parsedSrcTable)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var quotedColumns []string // nil selects every column
 	selectedColumns := "*"
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		// derive columns from the source directly; the catalog schema may be absent
@@ -375,11 +382,19 @@ func corePullQRepRecords(
 		if len(columns) == 0 {
 			return 0, 0, fmt.Errorf("table %s doesn't have queriable columns", parsedSrcTable)
 		}
-		quotedColumns := make([]string, 0, len(columns))
+		quotedColumns = make([]string, 0, len(columns))
 		for _, col := range columns {
 			quotedColumns = append(quotedColumns, common.QuoteIdentifier(col))
 		}
 		selectedColumns = strings.Join(quotedColumns, ",")
+	}
+
+	// queries on the table itself, which also return the rows of its inheritance descendants
+	tableSelect, tableFrom := selectedColumns, parsedSrcTable.String()
+	quotedWatermarkColumn := common.QuoteIdentifier(config.WatermarkColumn)
+	if childSchemaParentOID != 0 {
+		tableSelect, tableFrom, quotedWatermarkColumn = childSchemaTableQuery(
+			childSchemaParentOID, tableFrom, quotedColumns, quotedWatermarkColumn)
 	}
 
 	if partition.FullTablePartition {
@@ -392,13 +407,13 @@ func corePullQRepRecords(
 
 		query := config.Query
 		if query == "" {
-			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.String())
+			query = fmt.Sprintf("SELECT %s FROM %s", tableSelect, tableFrom)
 		}
 		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
 
 	if len(partition.ChildTableRanges) > 0 {
-		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns)
+		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns, childSchemaParentOID != 0)
 	}
 
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -409,7 +424,7 @@ func corePullQRepRecords(
 	queryTemplate := config.Query
 	if queryTemplate == "" {
 		queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
+			tableSelect, tableFrom, quotedWatermarkColumn)
 	}
 	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
@@ -438,7 +453,7 @@ func corePullQRepRecords(
 		}
 		queryTemplate = fmt.Sprintf(
 			"SELECT %s FROM %s WHERE %s IS NULL",
-			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
+			tableSelect, tableFrom, quotedWatermarkColumn,
 		)
 		templateParams = map[string]string{}
 	default:
@@ -484,6 +499,7 @@ func pullChildTableRanges(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 	selectedColumns string,
+	stampChildSchema bool,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
@@ -503,9 +519,13 @@ func pullChildTableRanges(
 			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
 		}
 
+		childSelect := selectedColumns
+		if stampChildSchema {
+			childSelect += "," + utils.QuoteLiteral(parsedChild.Namespace) + "::text AS " + quotedSourceSchemaColumn
+		}
 		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
 		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
-			selectedColumns, parsedChild.String(), quotedWatermarkColumn)
+			childSelect, parsedChild.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{
 			BlockNumber:  child.Start,
@@ -595,4 +615,54 @@ func pullXminRecordStream(
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
 	return numRecords, numBytes, currentSnapshotXmin, nil
+}
+
+var quotedSourceSchemaColumn = common.QuoteIdentifier("_peerdb_source_schema")
+
+// childSchemaParentOID returns the oid of the snapshotted table when its snapshot projects _peerdb_source_schema,
+// so that rows of its inheritance descendants carry their own schema as CDC stamps them, and 0 otherwise, leaving
+// ClickHouse to stamp the table's schema on every row. Partition roots keep the root's schema, as in CDC.
+func (c *PostgresConnector) childSchemaParentOID(
+	ctx context.Context, config *protos.QRepConfig, dstType protos.DBType, table *common.QualifiedTable,
+) (uint32, error) {
+	if dstType != protos.DBType_CLICKHOUSE || config.Query != "" ||
+		config.Version < shared.InternalVersion_SourceSchemaFromInheritanceChild {
+		return 0, nil
+	}
+	if enabled, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env); err != nil || !enabled {
+		return 0, err
+	}
+	tc, err := classifyTable(ctx, c.conn, table.String())
+	if err != nil {
+		return 0, err
+	}
+	if tc.relkind != "r" || !tc.relhassubclass {
+		return 0, nil
+	}
+	return tc.oid, nil
+}
+
+// childSchemaTableQuery returns the select list, FROM clause and watermark column of a query on inheritance parent
+// table that projects each row's own schema. The table is joined on tableoid to a map of its hierarchy's schemas,
+// so column references are qualified. Each schema is looked up by index: a join on pg_class can lead the planner
+// to hash the whole catalog.
+func childSchemaTableQuery(
+	parentOID uint32, table string, quotedColumns []string, quotedWatermarkColumn string,
+) (string, string, string) {
+	selectList := []string{"_peerdb_src.*"}
+	if quotedColumns != nil {
+		selectList = make([]string, 0, len(quotedColumns)+1)
+		for _, col := range quotedColumns {
+			selectList = append(selectList, "_peerdb_src."+col)
+		}
+	}
+	selectList = append(selectList, "_peerdb_map.nspname AS "+quotedSourceSchemaColumn)
+
+	from := fmt.Sprintf("%s AS _peerdb_src LEFT JOIN (WITH RECURSIVE d(oid) AS (SELECT %d::oid"+
+		" UNION SELECT i.inhrelid FROM pg_catalog.pg_inherits i JOIN d ON i.inhparent = d.oid)"+
+		" SELECT d.oid AS relid, (SELECT n.nspname::text FROM pg_catalog.pg_class c"+
+		" JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = d.oid) AS nspname FROM d)"+
+		" AS _peerdb_map ON _peerdb_map.relid = _peerdb_src.tableoid", table, parentOID)
+
+	return strings.Join(selectList, ","), from, "_peerdb_src." + quotedWatermarkColumn
 }
