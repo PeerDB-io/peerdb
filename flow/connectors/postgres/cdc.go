@@ -1296,11 +1296,13 @@ func processUpdateMessage[Items model.Items](
 	   Otherwise, _peerdb_unchanged_toast_columns is set correctly and we fallback to normal unchanged TOAST handling in normalize,
 	   but this doesn't work in connectors where we don't do unchanged TOAST handling in normalize.
 	*/
-	backfilledCols := newItems.UpdateIfNotExists(oldItems)
-	for _, col := range backfilledCols {
-		delete(unchangedToastColumns, col)
-		// we only use _peerdb_data anyway, remove for space optimization
-		oldItems.DeleteColName(col)
+	if msg.OldTupleType == pglogrepl.UpdateMessageTupleTypeOld {
+		backfilledCols := newItems.UpdateIfNotExists(oldItems)
+		for _, col := range backfilledCols {
+			delete(unchangedToastColumns, col)
+			// we only use _peerdb_data anyway, remove for space optimization
+			oldItems.DeleteColName(col)
+		}
 	}
 
 	return &model.UpdateRecord[Items]{
