@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -56,6 +57,7 @@ func newInheritanceTestCDCSource(t *testing.T) *PostgresCDCSource {
 		idToRelKindMap:               map[uint32]byte{inhParentRelID: 'r'},
 		mirroredRelIDs:               []uint32{inhParentRelID},
 		hushWarnUnknownTableDetected: map[uint32]struct{}{},
+		addedColumnCache:             map[string]map[string]struct{}{},
 	}
 }
 
@@ -210,4 +212,31 @@ func TestProcessTupleRejectsColumnCountMismatch(t *testing.T) {
 	items, _, err := processTuple(qProcessor{}, p, nil, rel, mapping, nil, "", model.BaseRecord{})
 	require.NoError(t, err)
 	require.Equal(t, 0, items.Len())
+}
+
+func TestInheritanceChildDDLsAreDeduped(t *testing.T) {
+	t.Parallel()
+	p := newInheritanceTestCDCSource(t)
+	p.otelManager.Metrics.ColumnTypeChangesCounter = noop.Int64Counter{}
+
+	// `new` is already cached
+	p.addedColumnCache["public.parent"] = map[string]struct{}{"new": {}}
+	withAddedCol := func(rel *pglogrepl.RelationMessage) *pglogrepl.RelationMessage {
+		rel.Columns = append(rel.Columns, relColumn("new", pgtype.TextOID))
+		rel.ColumnNum = uint16(len(rel.Columns))
+		return rel
+	}
+	relA, relB := withAddedCol(childARelation()), withAddedCol(childBRelation())
+
+	// each child's ADD COLUMN DDL for `new` is deduped
+	rec, err := processRelationMessage[model.RecordItems](t.Context(), p, 1, relA, inhParentRelID)
+	require.NoError(t, err)
+	require.Nil(t, rec)
+	rec, err = processRelationMessage[model.RecordItems](t.Context(), p, 2, relB, inhParentRelID)
+	require.NoError(t, err)
+	require.Nil(t, rec)
+
+	// a deduped delta must still store each child's relation message, as its tuples are decoded with that layout
+	require.Same(t, relA, p.relationMessageMapping[inhChildARelID])
+	require.Same(t, relB, p.relationMessageMapping[inhChildBRelID])
 }

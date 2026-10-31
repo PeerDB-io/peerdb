@@ -61,6 +61,8 @@ type PostgresCDCSource struct {
 	// relids of the tables in the mirror, the only candidates a child can be remapped to
 	mirroredRelIDs          []uint32
 	publishViaPartitionRoot bool
+	// columns added in this pull, by table. Useful for detecting duplicated ADD COLUMN relation messages from inherited tables
+	addedColumnCache map[string]map[string]struct{}
 
 	// for storing schema delta audit logs to catalog
 	catalogPool                              shared.CatalogPool
@@ -183,6 +185,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		idToRelKindMap:                           idToRelKindMap,
 		mirroredRelIDs:                           mirroredRelIDs,
 		publishViaPartitionRoot:                  publishViaPartitionRoot,
+		addedColumnCache:                         make(map[string]map[string]struct{}),
 		catalogPool:                              cdcConfig.CatalogPool,
 		alerter:                                  alerting.NewAlerter(ctx, cdcConfig.CatalogPool, cdcConfig.OtelManager),
 		otelManager:                              cdcConfig.OtelManager,
@@ -1428,19 +1431,17 @@ func processRelationMessage[Items model.Items](
 		NullableEnabled: prevSchema.NullableEnabled,
 	}
 
-	isAddedColumnAndNotExcluded := func(columnName string) bool {
+	shouldAddColumn := func(columnName string) bool {
 		_, inPrevRel := prevRelMap[columnName]
-		if inPrevRel {
-			return false
-		}
 		_, isExcluded := currRelDstInfo.Exclude[columnName]
-		return !isExcluded
+		_, isDuplicated := p.addedColumnCache[currRelName][columnName]
+		return !inPrevRel && !isExcluded && !isDuplicated
 	}
 
 	addedColumnNames := make([]string, 0)
 	addedColumnTypeOIDs := make([]uint32, 0)
 	for _, column := range currRel.Columns {
-		if isAddedColumnAndNotExcluded(column.Name) {
+		if shouldAddColumn(column.Name) {
 			addedColumnNames = append(addedColumnNames, column.Name)
 			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 		}
@@ -1462,8 +1463,7 @@ func processRelationMessage[Items model.Items](
 	}
 
 	for _, column := range currRel.Columns {
-		// not present in previous relation message, but in current one, so added.
-		if isAddedColumnAndNotExcluded(column.Name) {
+		if shouldAddColumn(column.Name) {
 			catalogInfo := addedColumnCatalogInfo[column.Name]
 			// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
 			qkind := types.QValueKind(currRelMap[column.Name])
@@ -1503,10 +1503,22 @@ func processRelationMessage[Items model.Items](
 				slog.String("sourceMissingValue", sourceMissingValue),
 				slog.String("default", addedColumn.GetDefaultExpr()),
 				slog.String("relationName", schemaDelta.SrcTableName))
+			if p.addedColumnCache[currRelName] == nil {
+				p.addedColumnCache[currRelName] = make(map[string]struct{})
+			}
+			p.addedColumnCache[currRelName][addedColumn.Name] = struct{}{}
 		} else if _, inPrevRel := prevRelMap[column.Name]; !inPrevRel {
-			// Column is added but excluded
-			p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
-				column.Name, schemaDelta.SrcTableName))
+			skipReason := ""
+			if _, isExcluded := currRelDstInfo.Exclude[column.Name]; isExcluded {
+				skipReason = "excluded"
+			} else if _, isDuplicated := p.addedColumnCache[currRelName][column.Name]; isDuplicated {
+				skipReason = "duplicated"
+			}
+			p.logger.Warn("Detected new column, not propagating",
+				slog.String("table", schemaDelta.SrcTableName),
+				slog.String("column", column.Name),
+				slog.String("type", currRelMap[column.Name]),
+				slog.String("reason", skipReason))
 		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
 				prevRelMap[column.Name], currRelMap[column.Name])

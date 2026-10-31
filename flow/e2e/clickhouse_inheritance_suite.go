@@ -75,8 +75,6 @@ func (s ClickHouseSuite) inhRestartReplication(env WorkflowRun, flowJobName stri
 
 // inhWaitForColumn waits until every non-deleted destination row has the expected value of column,
 // keyed by id; ids missing from expected must be NULL
-//
-//nolint:unparam // a helper for column checks on any destination table
 func (s ClickHouseSuite) inhWaitForColumn(env WorkflowRun, dstTable string, column string, expected map[int64]string) {
 	s.t.Helper()
 	EnvWaitFor(s.t, env, 3*time.Minute, "waiting on "+column, func() bool {
@@ -199,6 +197,56 @@ func (s ClickHouseSuite) Test_Inheritance_Divergent_Child_Layouts() {
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc after restart", srcTableName, dstTableName, "id,name,val,n")
 	s.inhWaitForColumn(env, dstTableName, "extra2", map[int64]string{21: "b21-extra2"})
 	s.inhWaitForColumn(env, dstTableName, "extra", map[int64]string{4: "c4-extra-upd", 14: "c14-extra"})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Inheritance_Add_Column_DDL() {
+	s.inhRequirePostgres()
+
+	srcTableName := "inh_add_col"
+	parent := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "inh_add_col_dst"
+	flowJobName := s.attachSuffix("inh_add_col")
+	schemaX, schemaY := s.inhTenantSchema("cx"), s.inhTenantSchema("cy")
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY)`, parent)
+	s.inhExec(`CREATE TABLE %s.%s (PRIMARY KEY (id)) INHERITS (%s)`, schemaX, srcTableName, parent)
+	s.inhExec(`CREATE TABLE %s.%s (PRIMARY KEY (id)) INHERITS (%s)`, schemaY, srcTableName, parent)
+	s.inhExec(`INSERT INTO %s.%s (id) VALUES (1)`, schemaX, srcTableName)
+	s.inhExec(`INSERT INTO %s.%s (id) VALUES (2)`, schemaY, srcTableName)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      flowJobName,
+		TableNameMapping: map[string]string{parent: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	s.inhExec(`BEGIN;
+		ALTER TABLE %[1]s ADD COLUMN note TEXT;
+		INSERT INTO %[2]s.%[4]s (id, note) VALUES (3, 'note3');
+		INSERT INTO %[3]s.%[4]s (id, note) VALUES (4, 'note4');
+		UPDATE %[2]s.%[4]s SET note = 'note1' WHERE id = 1;
+	COMMIT`, parent, schemaX, schemaY, srcTableName)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc after add column", srcTableName, dstTableName, "id")
+	s.inhWaitForColumn(env, dstTableName, "note", map[int64]string{1: "note1", 3: "note3", 4: "note4"})
+
+	var noteDeltas int
+	require.NoError(s.t, s.catalog.QueryRow(s.t.Context(),
+		`SELECT count(*) FROM peerdb_stats.schema_deltas_audit_log l,
+		 jsonb_array_elements(l.delta_info->'added_columns') AS c
+		 WHERE l.flow_job_name = $1 AND c->>'name' = 'note'`, flowJobName).Scan(&noteDeltas))
+	require.Equal(s.t, 1, noteDeltas)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
