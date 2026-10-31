@@ -415,6 +415,13 @@ func (c *PostgresConnector) normalizeBatch(
 		}
 	}
 
+	normalizeStmtGen.dst = make(map[string]dstTable, len(destinationTableNames))
+	for _, destinationTableName := range destinationTableNames {
+		if normalizeStmtGen.dst[destinationTableName], err = c.getDstTable(ctx, tx, destinationTableName); err != nil {
+			return 0, err
+		}
+	}
+
 	batch := &pgx.Batch{}
 	var entries []batchEntry
 	for _, destinationTableName := range destinationTableNames {

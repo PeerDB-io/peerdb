@@ -33,6 +33,7 @@ type normalizeStmtGenerator struct {
 	metadataSchema string
 	// Postgres version 15 introduced MERGE, fallback statements before that
 	supportsMerge bool
+	dst           map[string]dstTable
 }
 
 func (n *normalizeStmtGenerator) overridingClause(dstTable string) string {
