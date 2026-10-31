@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	pullTableProgressLogInterval = 10_000
+	pullTableProgressLogInterval = 50_000
 
 	// Pseudo-columns APPENDS()/CHANGES() add on top of the base table's real
 	// columns. These are metadata, not data columns, and must not be copied into
