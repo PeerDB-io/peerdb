@@ -517,16 +517,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced)
-			var inserts, updates, deletes int64
-			for _, counts := range syncResponse.TableNameRowsMapping {
-				inserts += int64(counts.InsertCount.Load())
-				updates += int64(counts.UpdateCount.Load())
-				deletes += int64(counts.DeleteCount.Load())
-			}
-			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, inserts, insertOperationOption)
-			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, updates, updateOperationOption)
-			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, deletes, deleteOperationOption)
 		}
 		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
 			break
@@ -1662,6 +1652,41 @@ var (
 
 func operationTypeOption(op string) metric.MeasurementOption {
 	return metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.RecordOperationTypeKey, op)))
+}
+
+func (a *FlowableActivity) recordCDCBatchMetrics(ctx context.Context, res *model.SyncResponse) {
+	a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, res.NumRecordsSynced)
+
+	recordPerTable, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil)
+	recordPerTable = recordPerTable && err == nil
+
+	var inserts, updates, deletes int64
+	for destinationTableName, counts := range res.TableNameRowsMapping {
+		tableInserts := int64(counts.InsertCount.Load())
+		tableUpdates := int64(counts.UpdateCount.Load())
+		tableDeletes := int64(counts.DeleteCount.Load())
+		inserts += tableInserts
+		updates += tableUpdates
+		deletes += tableDeletes
+		if recordPerTable {
+			tableAttr := attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName)
+			for _, oc := range [...]struct {
+				op    string
+				count int64
+			}{
+				{op: otel_metrics.RecordOperationTypeInsert, count: tableInserts},
+				{op: otel_metrics.RecordOperationTypeUpdate, count: tableUpdates},
+				{op: otel_metrics.RecordOperationTypeDelete, count: tableDeletes},
+			} {
+				a.OtelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, oc.count, metric.WithAttributeSet(attribute.NewSet(
+					tableAttr, attribute.String(otel_metrics.RecordOperationTypeKey, oc.op),
+				)))
+			}
+		}
+	}
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, inserts, insertOperationOption)
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, updates, updateOperationOption)
+	a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, deletes, deleteOperationOption)
 }
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
