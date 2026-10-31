@@ -55,7 +55,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 		selectedColumnsStr := "*"
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
-			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
+			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns, protos.TypeSystem_Q)
 			if err != nil {
 				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
 			}
