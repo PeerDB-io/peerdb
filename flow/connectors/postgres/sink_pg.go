@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgerrcode"
@@ -79,13 +80,16 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		return 0, 0, err
 	}
 
-	fieldDescriptions := norows.FieldDescriptions()
+	fieldDescriptions := slices.Clone(norows.FieldDescriptions())
+	norows.Close()
+	if err := norows.Err(); err != nil {
+		return 0, 0, err
+	}
 	cols := make([]string, 0, len(fieldDescriptions))
 	for _, fd := range fieldDescriptions {
 		cols = append(cols, fd.Name)
 	}
 	p.SetSchema(cols)
-	norows.Close()
 
 	query, err = sanitize.SanitizeSQL(query, args...)
 	if err != nil {
