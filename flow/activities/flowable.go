@@ -364,6 +364,13 @@ func (a *FlowableActivity) SyncFlow(
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 
+	// config keeps the table mappings the mirror started with, options also the tables added since:
+	// normalize must see the column settings of added tables too
+	if options != nil {
+		config = proto.CloneOf(config)
+		config.TableMappings = options.TableMappings
+	}
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
