@@ -525,8 +525,7 @@ func (v QValueArrayUUID) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueJSON struct {
-	Val     string
-	IsArray bool
+	Val string
 }
 
 func (QValueJSON) Kind() QValueKind {
@@ -538,6 +537,25 @@ func (v QValueJSON) Value() any {
 }
 
 func (v QValueJSON) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+// QValueArrayJSON is a value of an array-of-JSON column (Postgres json[]/jsonb[], and the array kinds other
+// sources infer): one JSON array holding the element documents. The destinations take the array as this one
+// text, Avro stages it as a string and ClickHouse parses it, so it is not carried as a list.
+type QValueArrayJSON struct {
+	Val string
+}
+
+func (QValueArrayJSON) Kind() QValueKind {
+	return QValueKindArrayJSON
+}
+
+func (v QValueArrayJSON) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayJSON) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 

@@ -262,7 +262,7 @@ func TestQValueFromChangefeedJSON(t *testing.T) {
 			"uuid", `"e2cfe34d-4ca8-420b-ae70-64a9a799e282"`, types.QValueKindUUID,
 		},
 		{types.QValueJSON{Val: `{"a": 1}`}, "json", `{"a": 1}`, types.QValueKindJSON},
-		{types.QValueJSON{Val: `[{"a": 1}, null]`, IsArray: true}, "json array", `[{"a": 1}, null]`, types.QValueKindArrayJSON},
+		{types.QValueArrayJSON{Val: `[{"a": 1}, null]`}, "json array", `[{"a": 1}, null]`, types.QValueKindArrayJSON},
 		{
 			types.QValueTimestamp{Val: time.Date(2024, 1, 2, 3, 4, 5, 123456000, time.UTC)},
 			"timestamp", `"2024-01-02T03:04:05.123456"`, types.QValueKindTimestamp,

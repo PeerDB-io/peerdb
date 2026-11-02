@@ -314,6 +314,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		}
 	case types.QValueKindJSON:
 		newqv = types.QValueJSON{Val: lua.LVAsString(val)}
+	case types.QValueKindArrayJSON:
+		newqv = types.QValueArrayJSON{Val: lua.LVAsString(val)}
 	case types.QValueKindArrayFloat32:
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = types.QValueArrayFloat32{

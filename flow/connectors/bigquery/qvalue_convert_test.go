@@ -649,8 +649,7 @@ func TestQValueFromBigQueryValue(t *testing.T) {
 			f := qfield(bigquery.JSONFieldType, true, 0, 0)
 			v, err := convert(f, []bigquery.Value{`{"n":18446744073709551615}`, `[1,true]`})
 			require.NoError(t, err)
-			jsonValue := v.(types.QValueJSON)
-			assert.True(t, jsonValue.IsArray)
+			jsonValue := v.(types.QValueArrayJSON)
 			assert.JSONEq(t, `[{"n":18446744073709551615},[1,true]]`, jsonValue.Val)
 		})
 

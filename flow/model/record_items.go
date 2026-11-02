@@ -118,6 +118,12 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 			} else {
 				jsonStruct[col] = v.Val
 			}
+		case types.QValueArrayJSON:
+			if opts.ClearValuesOverBytes > 0 && len(v.Val) > opts.ClearValuesOverBytes {
+				jsonStruct[col] = "[]"
+			} else {
+				jsonStruct[col] = v.Val
+			}
 		case types.QValueHStore:
 			hstoreVal := v.Val
 
