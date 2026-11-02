@@ -216,7 +216,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// Use idempotent validation that skips mirror existence check
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
-		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true, false); err != nil {
+		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true, !connectionConfigsCore.Resync); err != nil {
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
@@ -698,8 +698,6 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
-// validateTableResync checks a table-level resync against the catalog config and validates the
-// new table settings the same way the workflow will use them: a snapshot-only resync of those tables.
 func (h *FlowRequestHandler) validateTableResync(
 	ctx context.Context,
 	flowName string,
