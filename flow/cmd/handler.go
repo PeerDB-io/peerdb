@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -471,10 +472,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 				return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err))
 			}
 		}
-		for _, tm := range cdcUpdate.AdditionalTables {
-			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
-		}
-		for _, tm := range cdcUpdate.ResyncTables {
+		tablesToNormalize := slices.Concat(cdcUpdate.AdditionalTables, cdcUpdate.ResyncTables)
+		for _, tm := range tablesToNormalize {
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 		if len(cdcUpdate.ResyncTables) > 0 {
