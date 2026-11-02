@@ -7,8 +7,11 @@ import (
 	"slices"
 	"strings"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -46,6 +49,10 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		if err != nil {
 			return err
 		}
+	}
+
+	if err := checkNativeJSONSetting(ctx, cfg.Env, c.chVersion); err != nil {
+		return err
 	}
 
 	destinationTables := make([]string, 0, len(cfg.TableMappings))
@@ -161,6 +168,24 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// checkNativeJSONSetting rejects a mirror that turns PEERDB_CLICKHOUSE_ENABLE_JSON on against a ClickHouse
+// without the native JSON type, which would otherwise silently fall back to String columns.
+func checkNativeJSONSetting(ctx context.Context, env map[string]string, chVersion *chproto.Version) error {
+	enabled, err := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
+	if enabled && !qvalue.NativeJSONTypeSupported(chVersion) {
+		version := "unknown"
+		if chVersion != nil {
+			version = chVersion.String()
+		}
+		return fmt.Errorf("PEERDB_CLICKHOUSE_ENABLE_JSON needs ClickHouse 25.3 or newer for the native JSON type, "+
+			"the destination runs %s; turn the setting off to map JSON columns to String", version)
 	}
 	return nil
 }
