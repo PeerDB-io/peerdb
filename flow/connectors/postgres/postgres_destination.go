@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -393,6 +394,12 @@ func (c *PostgresConnector) normalizeBatch(
 	for _, entry := range entries {
 		ct, err := results.Exec()
 		if err != nil {
+			var prepErr pgx.ErrPreprocessingBatch
+			if errors.As(err, &prepErr) {
+				if i := slices.IndexFunc(entries, func(e batchEntry) bool { return e.statement == prepErr.SQL() }); i >= 0 {
+					entry = entries[i]
+				}
+			}
 			c.logger.Error("error executing normalize statement",
 				slog.String("statement", entry.statement),
 				slog.Int64("batchID", batchID),
