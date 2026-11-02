@@ -451,7 +451,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		Port:                  uint16(config.Port),
 		User:                  config.User,
 		Password:              config.Password,
-		Logger:                internal.SlogLoggerFromCtx(ctx),
+		Logger:                slog.New(binlogLogHandler{internal.SlogLoggerFromCtx(ctx).Handler()}),
 		Dialer:                c.Dialer(),
 		DisableRetrySync:      true,
 		UseDecimal:            true,
@@ -463,6 +463,32 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		EventCacheCount:       eventCacheCount,
 		RowsEventDecodeFunc:   decodeRowsEvent,
 	}, c.ssh.IsActive()), nil
+}
+
+// go-mysql logs GTID sets with slog.Any, but their map keys cannot be encoded
+// as JSON. Render them in the same textual format used by our checkpoints.
+type binlogLogHandler struct {
+	slog.Handler
+}
+
+func (h binlogLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	formatted := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	record.Attrs(func(attr slog.Attr) bool {
+		if gset, ok := attr.Value.Any().(mysql.GTIDSet); ok {
+			attr = slog.String(attr.Key, gset.String())
+		}
+		formatted.AddAttrs(attr)
+		return true
+	})
+	return h.Handler.Handle(ctx, formatted)
+}
+
+func (h binlogLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return binlogLogHandler{h.Handler.WithAttrs(attrs)}
+}
+
+func (h binlogLogHandler) WithGroup(name string) slog.Handler {
+	return binlogLogHandler{h.Handler.WithGroup(name)}
 }
 
 var errBinlogSyncerClosing = errors.New("binlog syncer is closing")

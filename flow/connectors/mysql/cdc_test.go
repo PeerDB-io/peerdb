@@ -1,10 +1,15 @@
 package connmysql
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"testing"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -22,6 +27,41 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestBinlogGTIDLogging(t *testing.T) {
+	const checkpoint = "7c42a891-6bd3-4e05-9f28-a1d67e3bc450:1-11327012574:11327012576-11327125818"
+	gset, err := mysql.ParseGTIDSet(mysql.MySQLFlavor, checkpoint)
+	require.NoError(t, err)
+
+	var output bytes.Buffer
+	logger := slog.New(binlogLogHandler{slog.NewJSONHandler(&output, nil)}).
+		With("flowName", "test-mirror").WithGroup("replication")
+	dialErr := errors.New("stop before connecting")
+	syncer := replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
+		ServerID: 1000,
+		Flavor:   mysql.MySQLFlavor,
+		Logger:   logger,
+		Dialer: func(context.Context, string, string) (net.Conn, error) {
+			return nil, dialErr
+		},
+	})
+	defer syncer.Close()
+	// Exercise go-mysql's actual log call without needing a running database.
+	output.Reset()
+	_, err = syncer.StartSyncGTID(gset)
+	require.ErrorIs(t, err, dialErr)
+
+	var entry struct {
+		Message     string            `json:"msg"`
+		FlowName    string            `json:"flowName"`
+		Replication map[string]string `json:"replication"`
+	}
+	require.NoError(t, json.NewDecoder(&output).Decode(&entry))
+	require.Equal(t, "begin to sync binlog from GTID set", entry.Message)
+	require.Equal(t, "test-mirror", entry.FlowName)
+	require.Equal(t, checkpoint, entry.Replication["GTID set"])
+	require.Equal(t, checkpoint, gset.String())
+}
 
 func TestCheckTableMapForCompressedColumns(t *testing.T) {
 	// id (normal), b (blob compressed, 140), v (varchar compressed, 141)
