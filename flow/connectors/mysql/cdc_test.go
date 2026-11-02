@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
@@ -640,4 +641,87 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 			require.Equal(t, tc.want, collectOnlineSchemaMigrationCounts(t, ctx, reader))
 		})
 	}
+}
+
+func TestMysqlPullMetricsSourceLag(t *testing.T) {
+	metrics := newMysqlPullMetrics(2 * time.Second)
+	require.Equal(t, int64(noSourceLag), metrics.sourceLagMillis.Load())
+	record := func(timestamp uint32, receivedAt int64) {
+		metrics.recordSourceEventLag(&replication.BinlogEvent{
+			Header: &replication.EventHeader{Timestamp: timestamp},
+			Event:  &replication.XIDEvent{},
+		}, time.Unix(receivedAt, 0))
+	}
+	record(100, 100)
+	record(200, 205)
+	record(300, 301)
+	record(0, 400)
+	require.Equal(t, int64(7000), metrics.sourceLagMillis.Load())
+	metrics.recordSourceEventLag(&replication.BinlogEvent{Event: &replication.HeartbeatEvent{}}, time.Unix(500, 0))
+	require.Zero(t, metrics.sourceLagMillis.Load())
+	metrics.recordSourceEventLag(&replication.BinlogEvent{
+		Header: &replication.EventHeader{Timestamp: 600},
+		Event:  &replication.GTIDEvent{ImmediateCommitTimestamp: 600_500_000},
+	}, time.Unix(601, 0))
+	require.Equal(t, int64(2500), metrics.sourceLagMillis.Load())
+}
+
+func TestMysqlPullMetricsFlush(t *testing.T) {
+	ctx := t.Context()
+	om, reader := newMetricsTestOtelManager(t)
+	var err error
+	om.Metrics.SourceLagGauge, err = om.Meter.Int64Gauge("source_lag")
+	require.NoError(t, err)
+	om.Metrics.LatestConsumedLogEventGauge, err = om.Meter.Int64Gauge("latest_consumed")
+	require.NoError(t, err)
+	for name, counter := range map[string]*metric.Int64Counter{
+		"charsets":    &om.Metrics.UsedMySQLCharsetsCounter,
+		"fetched":     &om.Metrics.FetchedBytesCounter,
+		"all_fetched": &om.Metrics.AllFetchedBytesCounter,
+		"receive":     &om.Metrics.CDCReceiveTimeCounter,
+		"process":     &om.Metrics.CDCProcessTimeCounter,
+		"add_record":  &om.Metrics.CDCAddRecordTimeCounter,
+	} {
+		*counter, err = om.Meter.Int64Counter(name)
+		require.NoError(t, err)
+	}
+	metrics := newMysqlPullMetrics(0)
+	metrics.recordUsedCharset("utf8mb4", "not_transcoded")
+	metrics.recordUsedCharset("utf8mb4", "not_transcoded")
+	metrics.fetchedBytes.Add(100)
+	metrics.totalFetchedBytes.Add(100)
+	metrics.allFetchedBytes.Add(200)
+	metrics.receiveTime.Add(3)
+	metrics.processTime.Add(4)
+	metrics.addRecordTime.Add(5)
+	metrics.sourceLagMillis.Store(1500)
+	metrics.latestConsumedTimestamp.Store(123)
+	metrics.flush(ctx, om)
+	// A final flush after the interval must not double-count the same observations.
+	metrics.flush(ctx, om)
+	var result metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &result))
+	values := make(map[string]int64)
+	for _, scope := range result.ScopeMetrics {
+		for _, measurement := range scope.Metrics {
+			switch data := measurement.Data.(type) {
+			case metricdata.Sum[int64]:
+				for _, point := range data.DataPoints {
+					values[measurement.Name] += point.Value
+				}
+			case metricdata.Gauge[int64]:
+				for _, point := range data.DataPoints {
+					values[measurement.Name] = point.Value
+				}
+			}
+		}
+	}
+	require.Equal(t, map[string]int64{
+		"charsets": 2, "fetched": 100, "all_fetched": 200,
+		"receive": 3, "process": 4, "add_record": 5,
+		"source_lag": 1500, "latest_consumed": 123,
+	}, values)
+	require.Equal(t, int64(100), metrics.totalFetchedBytes.Load())
+	require.Equal(t, int64(noSourceLag), metrics.sourceLagMillis.Load())
+	require.Zero(t, metrics.latestConsumedTimestamp.Load())
 }
