@@ -119,8 +119,9 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				jsonStruct[col] = v.Val
 			}
 		case types.QValueArrayJSON:
+			// the same oversize guard as QValueJSON, with the placeholder arrays had when they were QValueJSON
 			if opts.ClearValuesOverBytes > 0 && len(v.Val) > opts.ClearValuesOverBytes {
-				jsonStruct[col] = "[]"
+				jsonStruct[col] = "{}"
 			} else {
 				jsonStruct[col] = v.Val
 			}
