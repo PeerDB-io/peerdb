@@ -394,8 +394,7 @@ func (c *PostgresConnector) normalizeBatch(
 	for _, entry := range entries {
 		ct, err := results.Exec()
 		if err != nil {
-			var prepErr pgx.ErrPreprocessingBatch
-			if errors.As(err, &prepErr) {
+			if prepErr, ok := errors.AsType[pgx.ErrPreprocessingBatch](err); ok {
 				if i := slices.IndexFunc(entries, func(e batchEntry) bool { return e.statement == prepErr.SQL() }); i >= 0 {
 					entry = entries[i]
 				}
