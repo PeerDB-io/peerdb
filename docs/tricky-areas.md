@@ -40,8 +40,9 @@ mirror after creation pass either way.
 
 **Why it is tricky.** `InternalVersion_*` constants freeze behaviour at creation and only resync moves a mirror
 forward. Flags record destination capabilities at creation and resync keeps them. Dynamic settings are read
-whenever code asks, and in ClickPipes their defaults are set outside this repo. Mixing the three changes what a
-running mirror writes.
+whenever code asks. A decision about what a mirror writes has to come from the mechanism with the right
+lifetime; taking it from a run-time setting instead of a stored version or flag can change the output of a
+mirror that is already running.
 
 **What to watch for in a PR.**
 
