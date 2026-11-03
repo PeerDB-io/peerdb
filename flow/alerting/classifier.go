@@ -48,6 +48,7 @@ const (
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 	MongoInvalidResumeToken              = "Invalid resume token"
+	MongoTooManyCursorsOpened            = "Cannot open a new cursor since too many cursors are already opened"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -1012,6 +1013,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
+		case 2: // BadValue
+			// DocumentDB reports open-cursor limit as BadValue, recovers once cursors are released
+			if mongoCmdErr.HasErrorMessage(MongoTooManyCursorsOpened) {
+				return ErrorRetryRecoverable, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 6: // HostUnreachable
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 9: // FailedToParse
