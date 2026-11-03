@@ -52,6 +52,4 @@ mirror that is already running.
   test that creates a mirror at the previous version and checks the old output is unchanged.
 - Flags re-detected outside creation, or a flag that stores a decision rather than a capability. Resync must fix a
   mirror without changing compatibility.
-- A setting read inside a loop or activity, where two paths that must agree could read it at different moments,
-  or a lookup error turned into a default.
 
