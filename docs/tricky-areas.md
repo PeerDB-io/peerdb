@@ -38,8 +38,9 @@ mirror after creation pass either way.
 
 ## Per-mirror behaviour: versions, flags, settings
 
-**Why it is tricky.** `InternalVersion_*` constants freeze behaviour at creation and only resync moves a mirror
-forward. Flags record destination capabilities at creation and resync keeps them. Dynamic settings are read
+**Why it is tricky.** `InternalVersion_*` constants pin behaviour per mirror. The version is set at creation from
+`PEERDB_FORCE_INTERNAL_VERSION`, which defaults to the latest, and set again only when a completed or failed
+mirror is resynced by recreation; a resync of a running mirror keeps it. Flags record destination capabilities at creation and resync keeps them. Dynamic settings are read
 whenever code asks. A decision about what a mirror writes has to come from the mechanism with the right
 lifetime; taking it from a run-time setting instead of a stored version or flag can change the output of a
 mirror that is already running.
