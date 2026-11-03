@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
@@ -133,6 +134,37 @@ type ChangeStream interface {
 
 type changeStreamWrapper struct {
 	*mongo.ChangeStream
+	client *mongo.Client
+	logger log.Logger
+}
+
+func (w *changeStreamWrapper) Next(ctx context.Context) bool {
+	cursorID := w.ChangeStream.ID()
+	if w.ChangeStream.Next(ctx) {
+		return true
+	}
+	// The driver treats context errors as resumable, so it closes the cursor with the
+	// already expired context before trying to resume. That killCursors never reaches
+	// the server, yet the cursor ID is zeroed, making a later Close a no-op. The cursor
+	// stays open server-side, which on DocumentDB (capped cursors per instance) ends in
+	// "Cannot open a new cursor since too many cursors are already opened".
+	if cursorID != 0 && w.ChangeStream.ID() == 0 && w.Err() != nil {
+		w.killCursor(cursorID)
+	}
+	return false
+}
+
+func (w *changeStreamWrapper) killCursor(cursorID int64) {
+	killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// client.Watch opens a cluster-wide change stream, whose cursor lives in admin.$cmd.aggregate
+	if err := w.client.Database("admin").RunCommand(killCtx, bson.D{
+		{Key: "killCursors", Value: "$cmd.aggregate"},
+		{Key: "cursors", Value: bson.A{cursorID}},
+	}).Err(); err != nil {
+		w.logger.Warn("[mongo] failed to kill change stream cursor",
+			slog.Int64("cursorId", cursorID), slog.Any("error", err))
+	}
 }
 
 func (w *changeStreamWrapper) Current() bson.Raw {

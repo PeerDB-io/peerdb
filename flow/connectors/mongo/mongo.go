@@ -94,7 +94,7 @@ func NewMongoConnector(ctx context.Context, env map[string]string, config *proto
 		if err != nil {
 			return nil, err
 		}
-		return &changeStreamWrapper{ChangeStream: cs}, nil
+		return &changeStreamWrapper{ChangeStream: cs, client: mc.client, logger: mc.logger}, nil
 	}
 
 	sshTunnel, err := utils.NewSSHTunnel(ctx, config.SshConfig)
