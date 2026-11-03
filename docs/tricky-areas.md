@@ -41,10 +41,11 @@ mirror after creation pass either way.
 
 **Why it is tricky.** `InternalVersion_*` constants pin behaviour per mirror. The version is set at creation from
 `PEERDB_FORCE_INTERNAL_VERSION`, which defaults to the latest, and set again only when a completed or failed
-mirror is resynced by recreation; a resync of a running mirror keeps it. Flags record destination capabilities at creation and resync keeps them. Dynamic settings resolve from the mirror's env, then the catalog, then the process environment. A value found in
-the env is a per-mirror override and never changes; a value resolved further down is pinned into that env map
-for the rest of the activity unless the setting's apply mode is immediate, so an accessor call is not a live
-read. A decision about what a mirror writes has to come from the mechanism with the right
+mirror is resynced by recreation; a resync of a running mirror keeps it. Flags record destination capabilities at creation and resync keeps them. Dynamic settings resolve from the mirror's env, then the catalog, then the process environment. Unless the
+setting's apply mode is immediate, the resolved value is written back into whichever env map was passed in, and
+that map's lifetime decides how long it sticks: at creation it is `cfg.Env`, so the value is persisted with the
+mirror; in an activity it is a per-call copy. Env entries change only through an explicit config-update signal.
+An accessor call is therefore not a live read. A decision about what a mirror writes has to come from the mechanism with the right
 lifetime; taking it from a run-time setting instead of a stored version or flag can change the output of a
 mirror that is already running.
 
