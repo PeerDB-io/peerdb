@@ -21,10 +21,11 @@ repeating them.
 copies of its configuration across every `ContinueAsNew`: `cfg *protos.FlowConnectionConfigsCore`, the config
 the mirror was created with, and `state *cdc_state.CDCFlowWorkflowState`, whose `SyncFlowOptions` holds the live
 table mappings, batch size and idle timeout. A `CDCFlowConfigUpdate` signal, sent by the `FlowStateChange` API
-when a user adds tables or changes settings, updates `state` only. The workflow then writes a merged snapshot
+when a user adds tables or changes settings, writes table mappings, batch size, idle timeout and snapshot
+settings into `state`, and only env overrides and the BigQuery query-CDC config into `cfg`. The workflow then writes a merged snapshot
 to `flows.config_proto` in the catalog. The running workflow does not read it back; it becomes the starting
 config only when a new workflow is created from the mirror, on resync by recreation or after a cancelled table
-addition. `cfg` keeps the creation-time values until a resync. Activities such as `SyncFlow` receive both, code reads either copy, and tests that never change a
+addition. Every other `cfg` field keeps its creation-time value until a resync. Activities such as `SyncFlow` receive both, code reads either copy, and tests that never change a
 mirror after creation pass either way.
 
 **What to watch for in a PR.**
