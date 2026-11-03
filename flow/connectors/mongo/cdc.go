@@ -143,11 +143,8 @@ func (w *changeStreamWrapper) Next(ctx context.Context) bool {
 	if w.ChangeStream.Next(ctx) {
 		return true
 	}
-	// The driver treats context errors as resumable, so it closes the cursor with the
-	// already expired context before trying to resume. That killCursors never reaches
-	// the server, yet the cursor ID is zeroed, making a later Close a no-op. The cursor
-	// stays open server-side, which on DocumentDB (capped cursors per instance) ends in
-	// "Cannot open a new cursor since too many cursors are already opened".
+	// On context timeout the driver closes the cursor with the expired context, so
+	// killCursors never reaches the server and the cursor leaks. Kill it explicitly.
 	if cursorID != 0 && w.ChangeStream.ID() == 0 && w.Err() != nil {
 		w.killCursor(cursorID)
 	}
@@ -157,7 +154,7 @@ func (w *changeStreamWrapper) Next(ctx context.Context) bool {
 func (w *changeStreamWrapper) killCursor(cursorID int64) {
 	killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// client.Watch opens a cluster-wide change stream, whose cursor lives in admin.$cmd.aggregate
+	// cluster-wide change stream cursors live in admin.$cmd.aggregate
 	if err := w.client.Database("admin").RunCommand(killCtx, bson.D{
 		{Key: "killCursors", Value: "$cmd.aggregate"},
 		{Key: "cursors", Value: bson.A{cursorID}},
