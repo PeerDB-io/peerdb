@@ -31,6 +31,7 @@ can read the stale one and still pass every test that never changes a mirror aft
 - A new field on `CDCFlowConfigUpdate` with no home in `state` and in `updateFlowConfigWithLatestSettings`.
 - A per-table or per-column setting tested only through mirror creation. A table added to a running mirror is
   loaded with its own mappings but replicated with the parent's, so only CDC sees the stale copy.
+- A new path that operates on config but doesn't sync it to catalog, or updates catalog but not the workflow state
 
 ---
 
