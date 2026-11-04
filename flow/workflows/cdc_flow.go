@@ -167,7 +167,7 @@ func processCDCFlowConfigUpdate(
 			// The API validates against the catalog config, re-check against workflow state.
 			// Returning an error here would fail the whole mirror, so skip the resync instead.
 			if err := internal.ValidateResyncTables(state.SyncFlowOptions.TableMappings, flowConfigUpdate); err != nil {
-				logger.Warn("skipping invalid table resync", slog.Any("error", err))
+				alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("skipping invalid table resync: %v", err))
 				flowConfigUpdate.ResyncTables = nil
 				tablesAreResynced = false
 			}
@@ -546,14 +546,7 @@ func processTableResyncs(
 		// The original tables are untouched until the final swap, so keep the old mappings
 		// and resume CDC instead of failing the whole mirror.
 		logger.Error("table resync failed, keeping existing tables", slog.Any("error", childErr))
-		alertCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: time.Minute,
-			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-		})
-		_ = workflow.ExecuteActivity(alertCtx, flowable.Alert, &protos.AlertInput{
-			FlowName: cfg.FlowJobName,
-			Message:  fmt.Sprintf("table resync failed, existing tables kept: %v", childErr),
-		}).Get(alertCtx, nil)
+		alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("table resync failed, existing tables kept: %v", childErr))
 		return nextRunNone, nil
 	}
 
@@ -562,6 +555,18 @@ func processTableResyncs(
 	applyResyncedTableMappings(state.SyncFlowOptions, resyncTables, result)
 	logger.Info("tables resynced", slog.Int("tableCount", len(resyncTables)))
 	return nextRunNone, nil
+}
+
+// alertFlowError raises a flow error alert without failing the workflow.
+func alertFlowError(ctx workflow.Context, flowName string, message string) {
+	alertCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	})
+	_ = workflow.ExecuteActivity(alertCtx, flowable.Alert, &protos.AlertInput{
+		FlowName: flowName,
+		Message:  message,
+	}).Get(alertCtx, nil)
 }
 
 func processTableRemovals(
