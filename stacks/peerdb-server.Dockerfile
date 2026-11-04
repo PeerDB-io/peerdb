@@ -15,6 +15,9 @@ ARG BUILD_MODE="release"
 RUN apk add --no-cache build-base pkgconfig curl unzip openssl-dev openssl-libs-static
 WORKDIR /root/nexus
 COPY scripts /root/scripts
+# Optional extra CA for downloads below (local dev behind a TLS-intercepting proxy, see Tiltfile)
+RUN --mount=type=secret,id=extra_ca_cert \
+  if [ -f /run/secrets/extra_ca_cert ]; then cat /run/secrets/extra_ca_cert >> /etc/ssl/certs/ca-certificates.crt; fi
 RUN /root/scripts/install-protobuf.sh
 COPY --from=planner /root/nexus/recipe.json .
 ARG CARGO_FLAGS=""

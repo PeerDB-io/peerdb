@@ -34,19 +34,47 @@ docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
+# Optional settings for machines that reach the internet only through an HTTP(S) proxy,
+# such as sandboxed VMs. Set them in the environment or in .env (see .env.example).
+def dev_env(var_name):
+    return os.getenv(var_name) or resolve_env(var_name, '')
+
+# PEERDB_DEV_BUILD_PROXY=1: the docker CLI passes the `proxies` section of the Docker config
+# to builds, but Tilt builds through the Docker API, which does not. Pass it explicitly.
+build_proxy_args = {}
+if dev_env('PEERDB_DEV_BUILD_PROXY') in ('1', 'true'):
+    docker_config_dir = os.getenv('DOCKER_CONFIG') or os.getenv('HOME') + '/.docker'
+    docker_proxies = read_json(docker_config_dir + '/config.json', {}).get('proxies', {}).get('default', {})
+    for key, arg_names in [('httpProxy', ['HTTP_PROXY', 'http_proxy']), ('httpsProxy', ['HTTPS_PROXY', 'https_proxy']), ('noProxy', ['NO_PROXY', 'no_proxy'])]:
+        if docker_proxies.get(key):
+            for arg_name in arg_names:
+                build_proxy_args[arg_name] = docker_proxies[key]
+
+def with_build_proxy(build_args):
+    merged = dict(build_proxy_args)
+    merged.update(build_args)
+    return merged
+
+# PEERDB_DEV_EXTRA_CA_CERT=/abs/path/ca.crt: an extra CA to trust for downloads in the nexus
+# build and the pgvector install, e.g. the CA of a TLS-intercepting proxy.
+nexus_build_extra = {}
+extra_ca_cert = dev_env('PEERDB_DEV_EXTRA_CA_CERT')
+if extra_ca_cert:
+    nexus_build_extra['secret'] = 'id=extra_ca_cert,src=' + extra_ca_cert
+
 docker_build('flow-api', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
     only=['flow/', 'stacks/flow.Dockerfile'],
     ignore=flow_ignore,
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
+    build_args=with_build_proxy({'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')}),
 )
 
 docker_build('flow-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
+    build_args=with_build_proxy({'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')}),
     ignore=flow_ignore,
 )
 
@@ -54,7 +82,7 @@ docker_build('flow-snapshot-worker', '.',
     dockerfile='stacks/flow.Dockerfile',
     target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
     only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
+    build_args=with_build_proxy({'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')}),
     ignore=flow_ignore,
 )
 
@@ -62,15 +90,17 @@ if not ci:
     docker_build('peerdb', '.',
         dockerfile='stacks/peerdb-server.Dockerfile',
         only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
-        build_args={
+        build_args=with_build_proxy({
             'BUILD_MODE': 'debug',
             'CARGO_FLAGS': '--no-default-features --features mysql',
-        },
+        }),
+        **nexus_build_extra
     )
 
     docker_build('peerdb-ui', '.',
         dockerfile='stacks/peerdb-ui.Dockerfile',
         target='dev',
+        build_args=build_proxy_args,
         only=['ui/', 'stacks/peerdb-ui.Dockerfile', 'stacks/ui/'],
     )
 
