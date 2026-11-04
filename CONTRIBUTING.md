@@ -35,3 +35,7 @@ CI selects Tilt-tagged tests by package. E2e packages map to source jobs as foll
 | `mongo_clickhouse`, `switchboard_mongo` | `mongo_clickhouse` |
 | `cockroachdb_clickhouse` | `cockroachdb_clickhouse` |
 | `bigquery_clickhouse` | `bigquery_clickhouse` |
+
+## Tricky areas
+
+[`docs/tricky-areas.md`](docs/tricky-areas.md) lists the tricky areas of the codebase, what to watch for in a PR and the traps we have hit. Read it for the area you are changing, and add a bullet when you learn something new.
