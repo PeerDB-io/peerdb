@@ -175,32 +175,41 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 // without table UUIDs (Ordinary engine) are left out.
 func (c *ClickHouseConnector) GetTableUUIDs(ctx context.Context, tableNames []string) (map[string]string, error) {
 	tableUUIDs := make(map[string]string, len(tableNames))
-	for _, tableName := range tableNames {
-		tableUUID, err := c.getTableUUID(ctx, tableName)
-		if err != nil {
-			return nil, err
+	queryTables := make([]string, 0, min(len(tableNames), 200))
+	for chunk := range slices.Chunk(tableNames, 200) {
+		queryTables = queryTables[:0]
+		for _, tableName := range chunk {
+			queryTables = append(queryTables, peerdb_clickhouse.QuoteLiteral(tableName))
 		}
-		if tableUUID != "" {
-			tableUUIDs[tableName] = tableUUID
+		if err := c.storeTableUUIDs(ctx, queryTables, tableUUIDs); err != nil {
+			return nil, err
 		}
 	}
 	return tableUUIDs, nil
 }
 
-// getTableUUID returns the UUID of the table, or "" if it doesn't exist or has no UUID.
-func (c *ClickHouseConnector) getTableUUID(ctx context.Context, tableName string) (string, error) {
-	var tableUUID string
-	if err := c.queryRow(ctx, fmt.Sprintf(
-		"SELECT toString(any(uuid)) FROM system.tables WHERE database = %s AND name = %s",
+func (c *ClickHouseConnector) storeTableUUIDs(ctx context.Context, queryTables []string, tableUUIDs map[string]string) error {
+	rows, err := c.query(ctx, fmt.Sprintf(
+		"SELECT name, toString(uuid) FROM system.tables WHERE database = %s AND name IN (%s) AND uuid != toUUID(%s)",
 		peerdb_clickhouse.QuoteLiteral(c.Config.Database),
-		peerdb_clickhouse.QuoteLiteral(tableName),
-	)).Scan(&tableUUID); err != nil {
-		return "", fmt.Errorf("failed to get uuid of table %s: %w", tableName, err)
+		strings.Join(queryTables, ","),
+		peerdb_clickhouse.QuoteLiteral(uuid.Nil.String()),
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get table uuids: %w", err)
 	}
-	if tableUUID == uuid.Nil.String() {
-		return "", nil
+	defer rows.Close()
+	for rows.Next() {
+		var tableName, tableUUID string
+		if err := rows.Scan(&tableName, &tableUUID); err != nil {
+			return fmt.Errorf("failed to scan table uuid: %w", err)
+		}
+		tableUUIDs[tableName] = tableUUID
 	}
-	return tableUUID, nil
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read table uuids: %w", err)
+	}
+	return nil
 }
 
 // dropExchangedTable drops a table that was swapped out by EXCHANGE TABLES, along with
@@ -424,11 +433,11 @@ func (c *ClickHouseConnector) RenameTables(
 		}
 
 		if originalTableExists && renameRequest.CurrentTableUuid != "" {
-			originalTableUUID, err := c.getTableUUID(ctx, renameRequest.NewName)
+			originalTableUUIDs, err := c.GetTableUUIDs(ctx, []string{renameRequest.NewName})
 			if err != nil {
 				return nil, err
 			}
-			if originalTableUUID == renameRequest.CurrentTableUuid {
+			if originalTableUUIDs[renameRequest.NewName] == renameRequest.CurrentTableUuid {
 				// A previous attempt already exchanged the tables and failed before dropping the old one,
 				// which now sits under CurrentName. Exchanging again would swap the old table back in.
 				c.logger.Info("tables already exchanged by a previous attempt, dropping the old table",

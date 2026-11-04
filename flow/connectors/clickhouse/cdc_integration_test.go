@@ -88,7 +88,7 @@ func TestRenameTablesSkipsAlreadyExchangedTable(t *testing.T) {
 	defer conn.Close()
 
 	for _, tc := range []struct {
-		name               string
+		name                string
 		exchangedPreviously bool
 	}{
 		{name: "first attempt", exchangedPreviously: false},
