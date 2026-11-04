@@ -16,8 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-// The downscope package reports STS token exchange failures as a plain formatted string,
-// so the status code has to be recovered from the message.
+// downscope returns token exchange failures as an untyped string.
 var downscopeExchangeErrorRe = regexp.MustCompile(`(?s)^downscope: unable to exchange token, (\d{3}): (.*)$`)
 
 func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketName string, prefix string) (*auth.Token, error) {
@@ -43,8 +42,7 @@ func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketNa
 	return token, nil
 }
 
-// wrapDownscopeError converts a token exchange failure into a googleapi.Error carrying the HTTP status,
-// so it can be classified like any other GCS API error.
+// wrapDownscopeError extracts the HTTP status into a googleapi.Error for classification.
 func wrapDownscopeError(err error) error {
 	m := downscopeExchangeErrorRe.FindStringSubmatch(err.Error())
 	if m == nil {
