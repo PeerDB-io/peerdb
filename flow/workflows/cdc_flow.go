@@ -498,13 +498,11 @@ func processTableResyncs(
 
 	var result *CDCFlowWorkflowResult
 	var childErr error
-	childDone := false
 	selector.AddFuture(childFuture, func(f workflow.Future) {
 		childErr = f.Get(childCtx, &result)
-		childDone = true
 	})
 
-	for !childDone {
+	for result == nil {
 		selector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 			if state.ActiveSignal == model.ResyncSignal {
@@ -516,13 +514,13 @@ func processTableResyncs(
 		if err := ctx.Err(); err != nil {
 			return nextRunNone, err
 		}
-	}
-	if childErr != nil {
-		// The original tables are untouched until the final swap, so keep the old mappings
-		// and resume CDC instead of failing the whole mirror.
-		logger.Error("table resync failed, keeping existing tables", slog.Any("error", childErr))
-		alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("table resync failed, existing tables kept: %v", childErr))
-		return nextRunNone, nil
+		if childErr != nil {
+			// The original tables are untouched until the final swap, so keep the old mappings
+			// and resume CDC instead of failing the whole mirror.
+			logger.Error("table resync failed, keeping existing tables", slog.Any("error", childErr))
+			alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("table resync failed, existing tables kept: %v", childErr))
+			return nextRunNone, nil
+		}
 	}
 
 	// Refresh the source table IDs discovered by SetupFlow. This matters when a
