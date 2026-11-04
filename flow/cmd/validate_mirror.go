@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -219,6 +220,45 @@ func (h *FlowRequestHandler) checkTableMappings(
 		}
 	}
 
+	return nil
+}
+
+// checkAdditionalTables validates the tables added to an existing mirror. It connects to the source only
+// when an added table enables delete pre-images.
+func (h *FlowRequestHandler) checkAdditionalTables(
+	ctx context.Context, flowJobName string, additionalTables []*protos.TableMapping,
+) APIError {
+	i := slices.IndexFunc(additionalTables, func(tm *protos.TableMapping) bool {
+		return tm.MongoConfig.GetDeletePreimage()
+	})
+	if i == -1 {
+		return nil
+	}
+
+	cfg, err := h.getFlowConfigFromCatalog(ctx, flowJobName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+	}
+	peer, err := connectors.LoadPeer(ctx, h.pool, cfg.SourceName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to load source peer %s: %w", cfg.SourceName, err))
+	}
+	if peer.GetMongoConfig() == nil {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("table %s declares MongoDB settings but source peer %s is not MongoDB",
+				additionalTables[i].SourceTableIdentifier, peer.Name))
+	}
+
+	srcConn, srcClose, err := connectors.GetAs[*connmongo.MongoConnector](ctx, cfg.Env, peer)
+	if err != nil {
+		return NewFailedPreconditionApiError(fmt.Errorf("failed to create source connector: %w", err))
+	}
+	defer srcClose(ctx)
+
+	if err := srcConn.ValidateAdditionalTables(ctx, additionalTables); err != nil {
+		return NewFailedPreconditionApiError(
+			fmt.Errorf("failed to validate source connector %s: %w", cfg.SourceName, err))
+	}
 	return nil
 }
 
