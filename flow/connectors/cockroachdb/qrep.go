@@ -382,7 +382,7 @@ func (c *CockroachDBConnector) mapRowToQRecord(
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal json array for %s: %w", fd.Name, err)
 			}
-			record[i] = types.QValueJSON{Val: string(arrayVal), IsArray: true}
+			record[i] = types.QValueArrayJSON{Val: string(arrayVal)}
 		default:
 			var value any
 			if dt, ok := typeMap.TypeForOID(fd.DataTypeOID); ok {

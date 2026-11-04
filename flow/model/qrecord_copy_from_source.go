@@ -169,16 +169,13 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 		case types.QValueArrayNumeric:
 			values[i] = constructArray(v.Val)
 		case types.QValueJSON:
-			if v.IsArray {
-				var arrayJ []any
-				if err := json.Unmarshal([]byte(v.Val), &arrayJ); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
-				}
-
-				values[i] = arrayJ
-			} else {
-				values[i] = v.Val
+			values[i] = v.Val
+		case types.QValueArrayJSON:
+			var arrayJ []any
+			if err := json.Unmarshal([]byte(v.Val), &arrayJ); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
 			}
+			values[i] = arrayJ
 		// And so on for the other types...
 		default:
 			return nil, fmt.Errorf("unsupported value type %T", qValue)

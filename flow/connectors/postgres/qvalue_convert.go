@@ -517,7 +517,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if wrapNonObjectJSON {
 			doc = qvalue.WrapNonObjectJSON(doc)
 		}
-		return types.QValueJSON{Val: doc, IsArray: false}, nil
+		return types.QValueJSON{Val: doc}, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		if valArr, ok := value.([]preMarshalledJson); ok {
 			// value is an array of pre-marshalled JSON documents; incrementally marshal
@@ -538,13 +538,13 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				}
 			}
 			builder.WriteByte(']')
-			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil
+			return types.QValueArrayJSON{Val: builder.String()}, nil
 		}
 		doc, err := parseJSON(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
 		}
-		return types.QValueJSON{Val: doc, IsArray: true}, nil
+		return types.QValueArrayJSON{Val: doc}, nil
 	case types.QValueKindInt16:
 		intVal := value.(int16)
 		return types.QValueInt16{Val: intVal}, nil

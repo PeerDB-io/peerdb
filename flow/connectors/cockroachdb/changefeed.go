@@ -406,7 +406,7 @@ func qvalueFromChangefeedJSON(field types.QField, raw json.RawMessage) (types.QV
 	case types.QValueKindJSON:
 		return types.QValueJSON{Val: string(raw)}, nil
 	case types.QValueKindArrayJSON:
-		return types.QValueJSON{Val: string(raw), IsArray: true}, nil
+		return types.QValueArrayJSON{Val: string(raw)}, nil
 	case types.QValueKindTimestamp:
 		v, err := parseWithString(raw, parseChangefeedTimestamp)
 		if err != nil {

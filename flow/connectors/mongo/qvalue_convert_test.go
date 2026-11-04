@@ -802,7 +802,7 @@ func TestQValueFromBsonValue(t *testing.T) {
 		{
 			desc:     "Array",
 			input:    bson.A{int32(1), "two", 3.0, nil, bson.D{{Key: "k", Value: true}}},
-			expected: types.QValueJSON{Val: `[1,"two",3.0,null,{"k":true}]`, IsArray: true},
+			expected: types.QValueJSON{Val: `[1,"two",3.0,null,{"k":true}]`},
 		},
 		{
 			desc:     "Object",
@@ -993,7 +993,7 @@ func TestTypedArraysFromBson(t *testing.T) {
 			{
 				types.QValueKindArrayJSON,
 				bson.A{bson.D{{Key: "k", Value: int64(1)}}, nil, bson.D{}},
-				types.QValueJSON{Val: `[{"k":1},null,{}]`, IsArray: true},
+				types.QValueArrayJSON{Val: `[{"k":1},null,{}]`},
 			},
 		} {
 			t.Run(string(test.kind), func(t *testing.T) {
@@ -1023,7 +1023,7 @@ func TestTypedArraysFromBson(t *testing.T) {
 		for _, kind := range []types.QValueKind{types.QValueKindArrayJSON, types.QValueKindArrayJSONB} {
 			values, err := converter.QValueFromBsonValue(documents, kind)
 			require.NoError(t, err)
-			require.Equal(t, types.QValueJSON{Val: `[{"k":1},[1,"two"],{}]`, IsArray: true}, values)
+			require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},[1,"two"],{}]`}, values)
 		}
 
 		// a scalar element maps to its own kind, not JSON
@@ -1034,14 +1034,14 @@ func TestTypedArraysFromBson(t *testing.T) {
 		// an empty array of JSON is the empty JSON array
 		empty, err := converter.QValueFromBsonValue(rawArrayValueOf(t, bson.A{}), types.QValueKindArrayJSON)
 		require.NoError(t, err)
-		require.Equal(t, types.QValueJSON{Val: "[]", IsArray: true}, empty)
+		require.Equal(t, types.QValueArrayJSON{Val: "[]"}, empty)
 	})
 
 	t.Run("any other destination kind keeps the whole array as JSON", func(t *testing.T) {
 		for _, kind := range []types.QValueKind{types.QValueKindJSON, ""} {
 			asJSON, err := converter.QValueFromBsonValue(rawArrayValueOf(t, bson.A{int32(1), int64(2)}), kind)
 			require.NoError(t, err)
-			require.Equal(t, types.QValueJSON{Val: "[1,2]", IsArray: true}, asJSON)
+			require.Equal(t, types.QValueJSON{Val: "[1,2]"}, asJSON)
 		}
 	})
 
