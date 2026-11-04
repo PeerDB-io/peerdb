@@ -268,6 +268,37 @@ func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 	}
 }
 
+func TestClickHouseAvroDateOutOfRangeShouldBeDestinationModified(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrValueIsOutOfRangeOfDataType),
+		//nolint:lll
+		Message: `Input value -1224 exceeds the range of type Date, which is [0, 65535]: (in file/uri clickpipes-svc-3bd17e20-1032-4251-bcf3-6d49358a5e4f/clone_mirror_f8d0710c__40e5__4879__b39e__3d93f745477f_public_boughed_46e3147e_4925_4580_b822_b908137eb985/clone_mirror_f8d0710c__40e5__4879__b39e__3d93f745477f_public_boughed_46e3147e_4925_4580_b822_b908137eb985/37800a62-d8c4-4c11-97e4-d7aa76ff8cc3.000000.avro): While executing AvroRowInputFormat: While executing ReadFromObjectStorage`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
+		exceptions.NewClickHouseQRepSyncError(
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{}), "boughed", "default")))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrValueIsOutOfRangeOfDataType)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseAvroDate32OutOfRangeShouldBeOther(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrValueIsOutOfRangeOfDataType),
+		Message: `Input value -44641 exceeds the range of type Date32, which is [-25567, 120529]: While executing AvroRowInputFormat`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
+		exceptions.NewClickHouseQRepSyncError(
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{}), "boughed", "default")))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrValueIsOutOfRangeOfDataType)),
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 	// Simulate an Avro decimal error
 	err := &clickhouse.Exception{
