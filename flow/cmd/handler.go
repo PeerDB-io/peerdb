@@ -721,11 +721,6 @@ func (h *FlowRequestHandler) validateTableResync(
 	config.Resync = true
 	config.DoInitialSnapshot = true
 	config.InitialSnapshotOnly = true
-	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
-		return NewInternalApiError(err)
-	} else {
-		config.Version = internalVersion
-	}
 	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false, true)
 	return apiErr
 }
