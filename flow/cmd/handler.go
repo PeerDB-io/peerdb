@@ -710,6 +710,12 @@ func (h *FlowRequestHandler) validateTableResync(
 	if err := internal.ValidateResyncTables(config.TableMappings, cdcUpdate); err != nil {
 		return NewInvalidArgumentApiError(err)
 	}
+	if sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env); err != nil {
+		return NewInternalApiError(err)
+	} else if sourceSchemaAsDestinationColumn {
+		return NewInvalidArgumentApiError(
+			errors.New("table resync is not supported when PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN is enabled"))
+	}
 
 	config.TableMappings = cdcUpdate.ResyncTables
 	config.Resync = true
