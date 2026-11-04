@@ -2047,6 +2047,31 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	return nil
 }
 
+// SkipPendingNormalizeForTables moves the per-table normalize watermark of the given tables to the last
+// sync batch, so normalize skips them for every batch synced so far.
+func (a *FlowableActivity) SkipPendingNormalizeForTables(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, cfg.FlowJobName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to get last sync batch id: %w", err))
+	}
+
+	for _, tm := range tableMappings {
+		if err := pgMetadata.SetLastNormalizedBatchIDForTable(
+			ctx, cfg.FlowJobName, tm.DestinationTableIdentifier, syncBatchID,
+		); err != nil {
+			return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		}
+	}
+	return nil
+}
+
 func (a *FlowableActivity) RemoveTablesFromCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,
