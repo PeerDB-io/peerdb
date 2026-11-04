@@ -225,31 +225,6 @@ func applyQueryCDCConfigUpdate(cfg *protos.FlowConnectionConfigsCore, update *pr
 	cfg.GetBigqueryCdcConfig().QueryCdc = proto.CloneOf(update)
 }
 
-// applyResyncedTableMappings swaps in the new mappings of resynced tables and replaces their source
-// table IDs with the ones SetupFlow found during the resync.
-func applyResyncedTableMappings(
-	syncFlowOptions *protos.SyncFlowOptions,
-	resyncTables []*protos.TableMapping,
-	resyncResult *CDCFlowWorkflowResult,
-) {
-	resyncedSources := make(map[string]struct{}, len(resyncTables))
-	resyncMappingsBySource := make(map[string]*protos.TableMapping, len(resyncTables))
-	for _, table := range resyncTables {
-		resyncedSources[table.SourceTableIdentifier] = struct{}{}
-		resyncMappingsBySource[table.SourceTableIdentifier] = table
-	}
-	maps.DeleteFunc(syncFlowOptions.SrcTableIdNameMapping, func(_ uint32, source string) bool {
-		_, resynced := resyncedSources[source]
-		return resynced
-	})
-	maps.Copy(syncFlowOptions.SrcTableIdNameMapping, resyncResult.SyncFlowOptions.SrcTableIdNameMapping)
-	for idx, table := range syncFlowOptions.TableMappings {
-		if replacement, ok := resyncMappingsBySource[table.SourceTableIdentifier]; ok {
-			syncFlowOptions.TableMappings[idx] = proto.CloneOf(replacement)
-		}
-	}
-}
-
 func applyEnvUpdate(env map[string]string, updatedEnv map[string]string, removedEnv []string) map[string]string {
 	if len(updatedEnv) > 0 {
 		if env == nil {
@@ -555,6 +530,31 @@ func processTableResyncs(
 	applyResyncedTableMappings(state.SyncFlowOptions, resyncTables, result)
 	logger.Info("tables resynced", slog.Int("tableCount", len(resyncTables)))
 	return nextRunNone, nil
+}
+
+// applyResyncedTableMappings swaps in the new mappings of resynced tables and replaces their source
+// table IDs with the ones SetupFlow found during the resync.
+func applyResyncedTableMappings(
+	syncFlowOptions *protos.SyncFlowOptions,
+	resyncTables []*protos.TableMapping,
+	resyncResult *CDCFlowWorkflowResult,
+) {
+	resyncedSources := make(map[string]struct{}, len(resyncTables))
+	resyncMappingsBySource := make(map[string]*protos.TableMapping, len(resyncTables))
+	for _, table := range resyncTables {
+		resyncedSources[table.SourceTableIdentifier] = struct{}{}
+		resyncMappingsBySource[table.SourceTableIdentifier] = table
+	}
+	maps.DeleteFunc(syncFlowOptions.SrcTableIdNameMapping, func(_ uint32, source string) bool {
+		_, resynced := resyncedSources[source]
+		return resynced
+	})
+	maps.Copy(syncFlowOptions.SrcTableIdNameMapping, resyncResult.SyncFlowOptions.SrcTableIdNameMapping)
+	for idx, table := range syncFlowOptions.TableMappings {
+		if replacement, ok := resyncMappingsBySource[table.SourceTableIdentifier]; ok {
+			syncFlowOptions.TableMappings[idx] = proto.CloneOf(replacement)
+		}
+	}
 }
 
 // alertFlowError raises a flow error alert without failing the workflow.
