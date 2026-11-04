@@ -701,9 +701,6 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	return nil
 }
 
-// resolveClickHouseColumnType returns the ClickHouse type for a source column, preferring the
-// configured destination type. Both the normalized table DDL and the normalize query use it,
-// so the type a column is created with and the type it is extracted as never diverge.
 func resolveClickHouseColumnType(
 	ctx context.Context,
 	column *protos.FieldDescription,
