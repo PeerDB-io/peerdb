@@ -337,7 +337,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name: "PEERDB_CLICKHOUSE_RAW_COPY_FILES_PER_INSERT",
+		Name: "PEERDB_GROUP_NORMALIZE_RAW_INSERT_PARALLELISM",
 		Description: "Number of staged batch files loaded into the ClickHouse raw table by a single INSERT during normalize. " +
 			"Each file is read by its own stream, so values above 1 parallelize reading and decoding Avro",
 		DefaultValue:     "1",
@@ -988,8 +988,8 @@ func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING")
 }
 
-func PeerDBClickHouseRawCopyFilesPerInsert(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_CLICKHOUSE_RAW_COPY_FILES_PER_INSERT")
+func PeerDBGroupNormalizeRawInsertParallelism(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE_RAW_INSERT_PARALLELISM")
 }
 
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {

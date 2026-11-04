@@ -704,9 +704,9 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	c.logger.Info("[clickhouse] pushing s3 data to raw table",
 		slog.Int64("batchID", lastCopiedBatchID), slog.Int64("endBatchID", endBatchID))
 
-	filesPerInsert, err := internal.PeerDBClickHouseRawCopyFilesPerInsert(ctx, env)
+	filesPerInsert, err := internal.PeerDBGroupNormalizeRawInsertParallelism(ctx, env)
 	if err != nil || filesPerInsert <= 0 {
-		c.logger.Warn("failed to lookup PEERDB_CLICKHOUSE_RAW_COPY_FILES_PER_INSERT, copying 1 file per insert",
+		c.logger.Warn("failed to lookup PEERDB_GROUP_NORMALIZE_RAW_INSERT_PARALLELISM, copying 1 file per insert",
 			slog.Any("error", err))
 		filesPerInsert = 1
 	}
