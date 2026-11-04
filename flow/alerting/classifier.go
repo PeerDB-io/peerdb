@@ -1286,6 +1286,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
 			}
+			//nolint:lll
+			// PeerDB maps dates to Date32, so a Date column that rejects a value outside 1970-2149 was set by the user:
+			// https://github.com/ClickHouse/ClickHouse/blob/abbc002369b8bf2b54abbf54dd02a662a685c4db/src/Processors/Formats/Impl/AvroRowInputFormat.cpp#L380-L389
+			if strings.Contains(chException.Message, "exceeds the range of type Date, ") {
+				return ErrorNotifyDestinationModified, chErrorInfo
+			}
 		case chproto.ErrBadArguments:
 			if ClickHouseDecimalInsertRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
