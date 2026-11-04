@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,15 +95,16 @@ func TestRawValueKeyDistinguishesTypes(t *testing.T) {
 
 func TestGroupLookupQueries(t *testing.T) {
 	compound := "region" + keyFieldSeparator + "_id"
-	var requests []*documentLookupRequest
-	for range lookupQueryBatchSize + 1 {
-		requests = append(requests, &documentLookupRequest{sourceTable: "app.orders", keyFields: idOnlyKeyFields})
+	requests := make(map[documentLookupKey]*documentLookupRequest)
+	add := func(request *documentLookupRequest) {
+		requests[documentLookupKey{sourceTable: request.sourceTable, key: strconv.Itoa(len(requests))}] = request
 	}
-	requests = append(requests,
-		&documentLookupRequest{sourceTable: "app.users", keyFields: idOnlyKeyFields},
-		&documentLookupRequest{sourceTable: "app.orders", keyFields: compound},
-		&documentLookupRequest{sourceTable: "app.orders", keyFields: compound},
-	)
+	for range lookupQueryBatchSize + 1 {
+		add(&documentLookupRequest{sourceTable: "app.orders", keyFields: idOnlyKeyFields})
+	}
+	add(&documentLookupRequest{sourceTable: "app.users", keyFields: idOnlyKeyFields})
+	add(&documentLookupRequest{sourceTable: "app.orders", keyFields: compound})
+	add(&documentLookupRequest{sourceTable: "app.orders", keyFields: compound})
 
 	queries := groupLookupRequests(requests)
 
