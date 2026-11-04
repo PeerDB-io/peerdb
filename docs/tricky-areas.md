@@ -49,4 +49,6 @@ changes the output of a running mirror.
 
 - A change to what is written for a column type that existing mirrors use, without a new `InternalVersion_*` gate
   and a test for a mirror at the previous version.
+- Carefully thread all transformations the column value goes through, as it can change at different layers.
+  Changes that are bugfixes (replacing nonsensical data with something more reasonable) are okay without a bump.
 - Flags re-detected outside creation, or a flag that stores a decision rather than a capability.
