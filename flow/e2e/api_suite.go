@@ -35,6 +35,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	pconv "github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -1943,6 +1944,13 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	if _, ok := s.source.(*MongoSource); ok {
 		s.t.Skip("column settings don't apply to Mongo's fixed _id/doc destination schema")
 	}
+	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("column exclusion requires binlog_row_metadata, not supported by this mysql version")
+		}
+	}
 
 	ctx := s.t.Context()
 	resyncSource := AttachSchema(s, "table_resync_orders")
@@ -2151,6 +2159,13 @@ func (s APITestSuite) TestTableLevelResyncRejectsInvalidRequest() {
 func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	if _, ok := s.source.(*MongoSource); ok {
 		s.t.Skip("column settings don't apply to Mongo's fixed _id/doc destination schema")
+	}
+	if mySource, isMysql := s.source.(*MySqlSource); isMysql {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata)
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			s.t.Skip("column exclusion requires binlog_row_metadata, not supported by this mysql version")
+		}
 	}
 
 	ctx := s.t.Context()
