@@ -428,6 +428,11 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			},
 		}
 
+		renameOpts, err := recordRenameTableUUIDs(ctx, renameOpts)
+		if err != nil {
+			return err
+		}
+
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Minute,
 			HeartbeatTimeout:    time.Minute,

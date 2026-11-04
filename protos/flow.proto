@@ -235,6 +235,9 @@ message FlowConnectionConfigsCore {
 message RenameTableOption {
   string current_name = 1;
   string new_name = 2;
+  // UUID of current_name recorded before RenameTables runs, so a retried rename can tell
+  // whether the swap already happened. Empty when the destination has no table UUIDs.
+  string current_table_uuid = 3;
 }
 
 message RenameTablesInput {

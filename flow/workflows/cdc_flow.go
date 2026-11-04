@@ -953,6 +953,12 @@ func startSetupAndSnapshot(
 			}
 		}
 
+		renameOpts, err := recordRenameTableUUIDs(ctx, renameOpts)
+		if err != nil {
+			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+			return nextRunNone, err
+		}
+
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 12 * time.Hour,
 			HeartbeatTimeout:    time.Minute,

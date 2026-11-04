@@ -12,6 +12,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -168,6 +169,70 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	}
 
 	return res, nil
+}
+
+// GetTableUUIDs returns the UUIDs of the given tables. Tables that don't exist or live in a database
+// without table UUIDs (Ordinary engine) are left out.
+func (c *ClickHouseConnector) GetTableUUIDs(ctx context.Context, tableNames []string) (map[string]string, error) {
+	tableUUIDs := make(map[string]string, len(tableNames))
+	for _, tableName := range tableNames {
+		tableUUID, err := c.getTableUUID(ctx, tableName)
+		if err != nil {
+			return nil, err
+		}
+		if tableUUID != "" {
+			tableUUIDs[tableName] = tableUUID
+		}
+	}
+	return tableUUIDs, nil
+}
+
+// getTableUUID returns the UUID of the table, or "" if it doesn't exist or has no UUID.
+func (c *ClickHouseConnector) getTableUUID(ctx context.Context, tableName string) (string, error) {
+	var tableUUID string
+	if err := c.queryRow(ctx, fmt.Sprintf(
+		"SELECT toString(any(uuid)) FROM system.tables WHERE database = %s AND name = %s",
+		peerdb_clickhouse.QuoteLiteral(c.Config.Database),
+		peerdb_clickhouse.QuoteLiteral(tableName),
+	)).Scan(&tableUUID); err != nil {
+		return "", fmt.Errorf("failed to get uuid of table %s: %w", tableName, err)
+	}
+	if tableUUID == uuid.Nil.String() {
+		return "", nil
+	}
+	return tableUUID, nil
+}
+
+// dropExchangedTable drops a table that was swapped out by EXCHANGE TABLES, along with
+// its shard table when it is a Distributed table.
+func (c *ClickHouseConnector) dropExchangedTable(ctx context.Context, tableName string) error {
+	onCluster := c.onCluster()
+	dropTableSQLWithCHSetting := dropTableIfExistsSQL +
+		chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
+	var shardTable string
+	if c.Config.Cluster != "" {
+		var err error
+		shardTable, err = c.getDistributedShardTable(ctx, tableName)
+		if err != nil {
+			c.logger.Warn("could not resolve shard table for exchanged distributed table, old shard may be left behind",
+				slog.String("table", tableName), slog.Any("error", err))
+			shardTable = ""
+		}
+	}
+	if err := c.execWithLogging(ctx,
+		fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(tableName), onCluster),
+	); err != nil {
+		return fmt.Errorf("unable to drop exchanged table %s: %w", tableName, err)
+	}
+	if shardTable != "" {
+		if err := c.execWithLogging(ctx,
+			fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(shardTable), onCluster),
+		); err != nil {
+			return fmt.Errorf("unable to drop orphaned shard table %s: %w", shardTable, err)
+		}
+		c.logger.Info("dropped orphaned shard table after resync exchange", slog.String("shardTable", shardTable))
+	}
+	return nil
 }
 
 // getDistributedShardTable queries the Distributed table engine definition from system.tables
@@ -358,19 +423,24 @@ func (c *ClickHouseConnector) RenameTables(
 			return nil, fmt.Errorf("unable to check if table %s exists: %w", renameRequest.NewName, err)
 		}
 
-		if originalTableExists {
-			// Before swapping, resolve the shard table that the original Distributed table currently points to.
-			// After the EXCHANGE the Distributed table is dropped, leaving that shard orphaned unless we drop it explicitly.
-			var originalShardTable string
-			if c.Config.Cluster != "" {
-				originalShardTable, err = c.getDistributedShardTable(ctx, renameRequest.NewName)
-				if err != nil {
-					c.logger.Warn("could not resolve shard table for original distributed table, old shard may be left behind",
-						slog.String("table", renameRequest.NewName), slog.Any("error", err))
-					originalShardTable = ""
-				}
+		if originalTableExists && renameRequest.CurrentTableUuid != "" {
+			originalTableUUID, err := c.getTableUUID(ctx, renameRequest.NewName)
+			if err != nil {
+				return nil, err
 			}
+			if originalTableUUID == renameRequest.CurrentTableUuid {
+				// A previous attempt already exchanged the tables and failed before dropping the old one,
+				// which now sits under CurrentName. Exchanging again would swap the old table back in.
+				c.logger.Info("tables already exchanged by a previous attempt, dropping the old table",
+					slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
+				if err := c.dropExchangedTable(ctx, renameRequest.CurrentName); err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
 
+		if originalTableExists {
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",
@@ -379,19 +449,8 @@ func (c *ClickHouseConnector) RenameTables(
 				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
 					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 			); err == nil {
-				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
-				); err != nil {
-					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
-				}
-				// Drop the original shard table that is now orphaned after the Distributed table was exchanged and dropped.
-				if originalShardTable != "" {
-					if err := c.execWithLogging(ctx,
-						fmt.Sprintf(dropTableSQLWithCHSetting, peerdb_clickhouse.QuoteIdentifier(originalShardTable), onCluster),
-					); err != nil {
-						return nil, fmt.Errorf("unable to drop orphaned shard table %s: %w", originalShardTable, err)
-					}
-					c.logger.Info("dropped orphaned shard table after resync exchange", slog.String("shardTable", originalShardTable))
+				if err := c.dropExchangedTable(ctx, renameRequest.CurrentName); err != nil {
+					return nil, err
 				}
 			} else if ex, ok := errors.AsType[*clickhouse.Exception](err); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
 				// move on to the fallback code if unimplemented, in all other error codes / types return,

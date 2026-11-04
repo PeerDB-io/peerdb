@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -84,4 +85,21 @@ func getClickHouseInitialLoadAllowNonEmptyTables(wCtx workflow.Context, logger l
 		return false
 	}
 	return allow
+}
+
+// recordRenameTableUUIDs fills in the UUIDs of the tables to be renamed, so that a retried
+// RenameTables can skip swaps that already happened instead of swapping the old tables back.
+func recordRenameTableUUIDs(ctx workflow.Context, renameOpts *protos.RenameTablesInput) (*protos.RenameTablesInput, error) {
+	recordCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: time.Minute,
+		},
+	})
+	var recordedOpts *protos.RenameTablesInput
+	if err := workflow.ExecuteActivity(recordCtx, flowable.RecordRenameTableUUIDs, renameOpts).
+		Get(recordCtx, &recordedOpts); err != nil {
+		return nil, fmt.Errorf("failed to record table uuids for rename: %w", err)
+	}
+	return recordedOpts, nil
 }
