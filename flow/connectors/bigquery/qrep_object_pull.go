@@ -439,13 +439,15 @@ func (c *BigQueryConnector) maxWatermarkValue(
 	it, err := c.client.Query(fmt.Sprintf("SELECT MAX(TIMESTAMP(%s)) AS wm FROM %s",
 		quotedIdentifier(watermarkColumn), dsTable.stringQuoted())).Read(ctx)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to query max watermark for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
+		return time.Time{}, fmt.Errorf("failed to query max watermark for table %s: %w", sourceTableIdentifier,
+			exceptions.NewBigQueryError(err))
 	}
 	var row struct {
 		Wm bigquery.NullTimestamp `bigquery:"wm"`
 	}
 	if err := it.Next(&row); err != nil {
-		return time.Time{}, fmt.Errorf("failed to read max watermark for table %s: %w", sourceTableIdentifier, exceptions.NewBigQueryError(err))
+		return time.Time{}, fmt.Errorf("failed to read max watermark for table %s: %w", sourceTableIdentifier,
+			exceptions.NewBigQueryError(err))
 	}
 	if !row.Wm.Valid {
 		return c.currentBigQueryTimestamp(ctx)
