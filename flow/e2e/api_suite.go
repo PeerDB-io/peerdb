@@ -1889,65 +1889,6 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	s.waitForFlowDropped(env, flowConnConfig.FlowJobName)
 }
 
-// startTableResyncMirror creates a ClickHouse mirror through the API and waits for it to reach CDC.
-func (s APITestSuite) startTableResyncMirror(
-	flowJobName string, tableMappings []*protos.TableMapping,
-) (WorkflowRun, *protos.FlowConnectionConfigs) {
-	ctx := s.t.Context()
-	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:   flowJobName,
-		TableMappings: tableMappings,
-		Destination:   s.ch.Peer().Name,
-	}
-	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConfig.DoInitialSnapshot = true
-
-	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-
-	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
-	require.NoError(s.t, err)
-	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
-	return env, flowConfig
-}
-
-func (s APITestSuite) pauseMirror(env WorkflowRun, flowJobName string) {
-	_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        flowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
-	})
-	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
-	})
-}
-
-func (s APITestSuite) requestTableResync(flowJobName string, resyncTables ...*protos.TableMapping) error {
-	_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        flowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
-		FlowConfigUpdate: &protos.FlowConfigUpdate{
-			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
-				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: resyncTables},
-			},
-		},
-	})
-	return err
-}
-
-// resyncTablesAndWait resyncs the given tables of a paused mirror and waits for CDC to resume.
-func (s APITestSuite) resyncTablesAndWait(env WorkflowRun, flowJobName string, resyncTables ...*protos.TableMapping) {
-	require.NoError(s.t, s.requestTableResync(flowJobName, resyncTables...))
-	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
-	})
-}
-
 type chTableInfo struct {
 	// column name to ClickHouse type
 	columns      map[string]string
@@ -1999,8 +1940,8 @@ func (s APITestSuite) requireCatalogTableMapping(flowJobName string, expected *p
 // TestTableLevelResyncUpdatesTableSettings resyncs one of two tables with a new ordering key, partition
 // expression, nullable column, widened column type and an excluded column; the other table must be untouched.
 func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
-	if _, ok := s.source.(*PostgresSource); !ok {
-		s.t.Skip("table-level resync test uses a Postgres source")
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("column settings don't apply to Mongo's fixed _id/doc destination schema")
 	}
 
 	ctx := s.t.Context()
@@ -2017,9 +1958,27 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	}
 
 	oldOrdering := []*protos.ColumnSetting{{SourceName: "id", Ordering: 1}}
-	env, flowConfig := s.startTableResyncMirror("table_level_resync_"+s.suffix, []*protos.TableMapping{
-		{SourceTableIdentifier: resyncSource, DestinationTableIdentifier: resyncDestination, Columns: oldOrdering},
-		{SourceTableIdentifier: retainedSource, DestinationTableIdentifier: retainedDestination, Columns: oldOrdering},
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_" + s.suffix,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: resyncSource, DestinationTableIdentifier: resyncDestination, Columns: oldOrdering},
+			{SourceTableIdentifier: retainedSource, DestinationTableIdentifier: retainedDestination, Columns: oldOrdering},
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	EnvWaitForEqualTablesWithNames(env, s.ch, "initial selected table", "table_resync_orders",
 		resyncDestination, "id,customer_id,val,amount,note")
@@ -2040,21 +1999,19 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 		require.Equal(s.t, "String", info.columns["note"])
 	}
 
-	s.pauseMirror(env, flowConfig.FlowJobName)
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
 
 	// This row must be picked up by the fresh table snapshot even though the main
 	// CDC loop is paused.
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
 		"INSERT INTO %s(id, customer_id, val, amount, note) VALUES (2, 20, 'during-pause', 200, 'n2')", resyncSource)))
-
-	// An invalid resync request is rejected by the API and leaves the mirror paused.
-	err = s.requestTableResync(flowConfig.FlowJobName, &protos.TableMapping{
-		SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
-		DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
-	})
-	require.Error(s.t, err)
-	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
-	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
 
 	newMapping := proto.CloneOf(flowConfig.TableMappings[0])
 	newMapping.Columns = []*protos.ColumnSetting{
@@ -2065,7 +2022,19 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	}
 	newMapping.Exclude = []string{"note"}
 	newMapping.PartitionByExpr = "customer_id % 4"
-	s.resyncTablesAndWait(env, flowConfig.FlowJobName, newMapping)
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: []*protos.TableMapping{newMapping}},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	EnvWaitForEqualTablesWithNames(env, s.ch, "selected table after resync", "table_resync_orders",
 		resyncDestination, "id,customer_id,val")
 
@@ -2112,11 +2081,76 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// TestTableLevelResyncRejectsInvalidRequest checks that the API rejects a resync of a table
+// that is not part of the mirror and leaves the mirror paused.
+func (s APITestSuite) TestTableLevelResyncRejectsInvalidRequest() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("test uses a SQL source")
+	}
+
+	ctx := s.t.Context()
+	source := AttachSchema(s, "table_resync_invalid")
+	destination := AddSuffix(s, "table_resync_invalid")
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", source)))
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'a')", source)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_invalid_" + s.suffix,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: source, DestinationTableIdentifier: destination},
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// An invalid resync request is rejected by the API and leaves the mirror paused.
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: []*protos.TableMapping{{
+					SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
+					DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
+				}}},
+			},
+		},
+	})
+	require.Error(s.t, err)
+	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(s.t, env)
+}
+
 // TestTableLevelResyncRevertsColumnSettings goes the other way: a nullable column becomes non-nullable,
 // a type override is dropped, and a previously excluded column is brought back.
 func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
-	if _, ok := s.source.(*PostgresSource); !ok {
-		s.t.Skip("table-level resync test uses a Postgres source")
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("column settings don't apply to Mongo's fixed _id/doc destination schema")
 	}
 
 	ctx := s.t.Context()
@@ -2127,15 +2161,33 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
 		"INSERT INTO %s(id, val, amount, note) VALUES (1, 'a', 1, 'n1'), (2, NULL, 2, 'n2')", source)))
 
-	env, flowConfig := s.startTableResyncMirror("table_level_resync_revert_"+s.suffix, []*protos.TableMapping{{
-		SourceTableIdentifier:      source,
-		DestinationTableIdentifier: destination,
-		Columns: []*protos.ColumnSetting{
-			{SourceName: "val", NullableEnabled: true},
-			{SourceName: "amount", DestinationType: "Int64"},
-		},
-		Exclude: []string{"note"},
-	}})
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_revert_" + s.suffix,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      source,
+			DestinationTableIdentifier: destination,
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "val", NullableEnabled: true},
+				{SourceName: "amount", DestinationType: "Int64"},
+			},
+			Exclude: []string{"note"},
+		}},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	EnvWaitForEqualTablesWithNames(env, s.ch, "initial table", "table_resync_revert", destination, "id,val")
 
 	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
@@ -2147,12 +2199,31 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	require.Equal(s.t, "Int64", before.columns["amount"])
 	require.NotContains(s.t, before.columns, "note")
 
-	s.pauseMirror(env, flowConfig.FlowJobName)
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
 	newMapping := &protos.TableMapping{
 		SourceTableIdentifier:      source,
 		DestinationTableIdentifier: destination,
 	}
-	s.resyncTablesAndWait(env, flowConfig.FlowJobName, newMapping)
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: []*protos.TableMapping{newMapping}},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	EnvWaitForEqualTablesWithNames(env, s.ch, "table after resync", "table_resync_revert", destination, "id,amount")
 
 	after := s.getCHTableInfo(ch, destination)
