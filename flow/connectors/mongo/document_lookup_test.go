@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,15 +95,16 @@ func TestRawValueKeyDistinguishesTypes(t *testing.T) {
 
 func TestGroupLookupQueries(t *testing.T) {
 	compound := "region" + keyFieldSeparator + "_id"
-	var requests []*documentLookupRequest
-	for range lookupQueryBatchSize + 1 {
-		requests = append(requests, &documentLookupRequest{sourceTable: "app.orders", keyFields: idOnlyKeyFields})
+	requests := make(map[documentLookupKey]*documentLookupRequest)
+	add := func(request *documentLookupRequest) {
+		requests[documentLookupKey{sourceTable: request.sourceTable, key: strconv.Itoa(len(requests))}] = request
 	}
-	requests = append(requests,
-		&documentLookupRequest{sourceTable: "app.users", keyFields: idOnlyKeyFields},
-		&documentLookupRequest{sourceTable: "app.orders", keyFields: compound},
-		&documentLookupRequest{sourceTable: "app.orders", keyFields: compound},
-	)
+	for range lookupQueryBatchSize + 1 {
+		add(&documentLookupRequest{sourceTable: "app.orders", keyFields: idOnlyKeyFields})
+	}
+	add(&documentLookupRequest{sourceTable: "app.users", keyFields: idOnlyKeyFields})
+	add(&documentLookupRequest{sourceTable: "app.orders", keyFields: compound})
+	add(&documentLookupRequest{sourceTable: "app.orders", keyFields: compound})
 
 	queries := groupLookupRequests(requests)
 
@@ -175,4 +177,39 @@ func TestDocumentKeyOfMatchesRequestKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, requestKey(&documentLookupRequest{documentKey: nullElements}), documentKeyOf(missing, fields),
 		"a missing shard key field matches a null documentKey value")
+}
+
+func TestDecodeEventLeavesMissingPostImageNil(t *testing.T) {
+	// With fullDocument: "whenAvailable", an update whose pre-image is missing carries fullDocument: null.
+	// It must decode to nil, because the lookup only fetches updates without a document.
+	raw, err := bson.Marshal(bson.D{
+		{Key: "operationType", Value: "update"},
+		{Key: "documentKey", Value: bson.D{{Key: "_id", Value: int32(1)}}},
+		{Key: "fullDocument", Value: nil},
+	})
+	require.NoError(t, err)
+	var changeEvent ChangeEvent
+	require.NoError(t, decodeEvent(raw, &changeEvent))
+	require.Nil(t, changeEvent.FullDocument)
+}
+
+func TestHydrateUpdateEventsSkipsUpdatesWithPostImage(t *testing.T) {
+	document, err := bson.Marshal(bson.D{{Key: "_id", Value: int32(1)}, {Key: "v", Value: 2}})
+	require.NoError(t, err)
+	postImage := bson.Raw(document)
+	documentKey, err := bson.Marshal(bson.D{{Key: "_id", Value: int32(1)}})
+	require.NoError(t, err)
+	events := []encodedMongoEvent{{
+		operationType:     operationTypeUpdate,
+		sourceTableName:   "db.coll",
+		documentKey:       documentKey,
+		maybeFullDocument: &postImage,
+		clusterTime:       bson.Timestamp{T: 1, I: 1},
+	}}
+
+	// The connector has no client, so any lookup query would fail: every update already has its document.
+	fetched, err := (&MongoConnector{clientUpdateLookup: true}).hydrateUpdateEvents(t.Context(), events)
+	require.NoError(t, err)
+	require.Zero(t, fetched)
+	require.Equal(t, &postImage, events[0].maybeFullDocument)
 }

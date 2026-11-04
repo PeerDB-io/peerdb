@@ -50,7 +50,6 @@ const (
 
 // hydrateUpdateEvents hydrates the update events' `fullDocument` field using client-side lookup.
 func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encodedMongoEvent) (int64, error) {
-	var requests []*documentLookupRequest
 	requestsMap := make(map[documentLookupKey]*documentLookupRequest)
 	for i := range events {
 		event := &events[i]
@@ -85,10 +84,13 @@ func (c *MongoConnector) hydrateUpdateEvents(ctx context.Context, events []encod
 			keyFields:         strings.Join(fields, keyFieldSeparator),
 		}
 		requestsMap[key] = request
-		requests = append(requests, request)
 	}
 
-	groupedRequests := groupLookupRequests(requests)
+	if len(requestsMap) == 0 {
+		return 0, nil
+	}
+
+	groupedRequests := groupLookupRequests(requestsMap)
 
 	pref := protoToReadPref[c.config.ReadPreference]
 	var fetchedSize atomic.Int64
@@ -164,7 +166,7 @@ func (c *MongoConnector) batchLookup(
 
 // groupLookupRequests splits requests by source table and key fields into queries of up to
 // lookupQueryBatchSize requests.
-func groupLookupRequests(requests []*documentLookupRequest) [][]*documentLookupRequest {
+func groupLookupRequests(requests map[documentLookupKey]*documentLookupRequest) [][]*documentLookupRequest {
 	type batchKey struct{ sourceTable, keyFields string }
 	var groupedRequests [][]*documentLookupRequest
 	batches := make(map[batchKey][]*documentLookupRequest)

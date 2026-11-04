@@ -455,11 +455,15 @@ func (c *MongoConnector) PullRecords(
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
 
+	// By default, the change stream looks up each update's document server-side.
+	fullDocumentMode := options.UpdateLookup
 	if c.clientUpdateLookup {
-		changeStreamOpts.SetFullDocument(options.Default)
-	} else {
-		changeStreamOpts.SetFullDocument(options.UpdateLookup)
+		// Collections with changeStreamPreAndPostImages get the post-image for free. Updates without one
+		// (option disabled, or pre-image expired) arrive with fullDocument: null and are looked up client-side.
+		fullDocumentMode = options.WhenAvailable
 	}
+	changeStreamOpts.SetFullDocument(fullDocumentMode)
+	c.logger.Info("[mongo] change stream full document mode", slog.String("mode", string(fullDocumentMode)))
 
 	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
 		// whenAvailable, never required: a pre-image can be missing even for a collection that has
@@ -519,7 +523,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}()
 
-	var recordCount uint32
+	var recordCount, updatesWithoutPostImage uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	var receiveTime, processTime, parallelProcessTime, addRecordTime atomic.Int64
 	pullStart := time.Now()
@@ -543,6 +547,10 @@ func (c *MongoConnector) PullRecords(
 			slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+		if updatesWithoutPostImage > 0 {
+			c.logger.Info("[mongo] update events without a post-image were looked up client-side",
+				slog.Uint64("count", uint64(updatesWithoutPostImage)))
+		}
 	}()
 	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
 	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
@@ -811,6 +819,9 @@ func (c *MongoConnector) PullRecords(
 			destinationTableName: destinationTableName,
 			commitTimeNanos:      commitTimeNanos,
 			clusterTime:          changeEvent.ClusterTime,
+		}
+		if c.clientUpdateLookup && event.operationType == operationTypeUpdate && event.maybeFullDocument == nil {
+			updatesWithoutPostImage++
 		}
 		switch event.operationType {
 		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:
