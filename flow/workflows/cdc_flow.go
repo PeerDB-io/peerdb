@@ -39,6 +39,8 @@ const (
 	nextRunCDC
 	// nextRunDrop continues-as-new into DropFlowWorkflow(state.DropFlowInput).
 	nextRunDrop
+	// nextRunPause keeps the mirror paused after a config update instead of resuming it.
+	nextRunPause
 )
 
 func GetUUID(ctx workflow.Context) string {
@@ -161,6 +163,7 @@ func processCDCFlowConfigUpdate(
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
 	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
 	tablesAreResynced := len(flowConfigUpdate.ResyncTables) > 0
+	stayPaused := false
 	if tablesAreAdded || tablesAreRemoved || tablesAreResynced {
 		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 		if tablesAreResynced {
@@ -201,7 +204,9 @@ func processCDCFlowConfigUpdate(
 				logger.Error("failed to process table resyncs", slog.Any("error", err))
 				return nextRunNone, err
 			}
-			if next != nextRunNone {
+			// a failed resync still has to persist the additions/removals above, so pause only at the end
+			stayPaused = next == nextRunPause
+			if next != nextRunNone && !stayPaused {
 				return next, nil
 			}
 		}
@@ -215,6 +220,9 @@ func processCDCFlowConfigUpdate(
 
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
+	if stayPaused {
+		return nextRunPause, nil
+	}
 	return nextRunNone, nil
 }
 
@@ -444,8 +452,8 @@ func processTableAdditions(
 // processTableResyncs resyncs the tables in FlowConfigUpdate.ResyncTables while the mirror is paused.
 // A snapshot-only child CDCFlowWorkflow with Resync=true snapshots them into "_resync" tables, then
 // RenameTables swaps those in for the originals. On success the new mappings replace the old ones in
-// SyncFlowOptions, and CDC resumes from the same slot. If the child fails, the original tables and
-// mappings are kept and an alert is raised instead of failing the mirror.
+// SyncFlowOptions, and CDC resumes from the same slot. If the child fails, the old mappings are kept,
+// an alert is raised and the mirror stays paused, since some tables may already have been swapped.
 func processTableResyncs(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -515,12 +523,32 @@ func processTableResyncs(
 			return nextRunNone, err
 		}
 		if childErr != nil {
-			// The original tables are untouched until the final swap, so keep the old mappings
-			// and resume CDC instead of failing the whole mirror.
-			logger.Error("table resync failed, keeping existing tables", slog.Any("error", childErr))
-			alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("table resync failed, existing tables kept: %v", childErr))
-			return nextRunNone, nil
+			// RenameTables swaps tables one by one, so a failure can leave some of them swapped. Resuming
+			// would normalize into those with the old column list, so stay paused until resync is retried.
+			alertFlowError(ctx, cfg.FlowJobName,
+				fmt.Sprintf("table resync failed, mirror kept paused, retry the resync before resuming: %v", childErr))
+			return nextRunPause, nil
 		}
+	}
+
+	// Pending raw rows of resynced tables are already covered by the snapshot, and normalizing them
+	// into the new tables would overwrite snapshot rows using a stale column set, so drop them.
+	rawTableCleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+		WaitForCancellation: true,
+	})
+	if err := workflow.ExecuteActivity(rawTableCleanupCtx, flowable.RemoveTablesFromRawTable, cfg, resyncTables).
+		Get(rawTableCleanupCtx, nil); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nextRunNone, ctxErr
+		}
+		// The tables are already swapped but the mappings are not, so stay paused like a failed child.
+		alertFlowError(ctx, cfg.FlowJobName,
+			fmt.Sprintf("table resync raw table cleanup failed, mirror kept paused, retry the resync before resuming: %v", err))
+		return nextRunPause, nil
 	}
 
 	// Refresh the source table IDs discovered by SetupFlow. This matters when a
@@ -757,8 +785,12 @@ func handlePaused(
 				return next, err
 			}
 			logger.Info("wiping flow state after state update processing")
-			// processing a config update always resumes the mirror
 			state.FlowConfigUpdate = nil
+			if next == nextRunPause {
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
+				continue
+			}
+			// processing a config update resumes the mirror
 			state.ActiveSignal = model.NoopSignal
 		}
 	}
