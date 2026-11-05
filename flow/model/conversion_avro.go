@@ -25,7 +25,6 @@ type QRecordAvroConverter struct {
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
 	NullMismatchTracker      *NullMismatchTracker
-	record                   map[string]any
 }
 
 func NewQRecordAvroConverter(
@@ -54,7 +53,6 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-// Convert returns a map that is reused by the next call, encode it before converting another record
 func (qac *QRecordAvroConverter) Convert(
 	ctx context.Context,
 	env map[string]string,
@@ -64,12 +62,7 @@ func (qac *QRecordAvroConverter) Convert(
 	format internal.BinaryFormat,
 	calcSize bool,
 ) (map[string]any, int64, error) {
-	if qac.record == nil {
-		qac.record = make(map[string]any, len(qrecord))
-	} else {
-		clear(qac.record)
-	}
-	m := qac.record
+	m := make(map[string]any, len(qrecord))
 	s := int64(0)
 	for idx, val := range qrecord {
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
