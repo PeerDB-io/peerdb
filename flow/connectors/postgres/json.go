@@ -50,10 +50,6 @@ func createExtendedJSONUnmarshaler() jsoniter.API {
 // like a string or byte slice.
 type preMarshalledJson []byte
 
-// jsonNullLiteral is the pre-marshalled JSON null literal, used to keep a JSON
-// null distinguishable from a SQL NULL.
-var jsonNullLiteral = preMarshalledJson("null")
-
 func reencodeWithRelaxedNumbers(input io.Reader, sizeHint int) (preMarshalledJson, error) {
 	// We use a jsontext Encoder and Decoder to walk through the input and
 	// convert any numbers that fail to parse as a float into a string instead.

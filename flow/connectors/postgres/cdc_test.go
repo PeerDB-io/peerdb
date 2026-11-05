@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
@@ -27,11 +28,37 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 	flags := []string{shared.Flag_ClickHouseJSONSupported}
 	version := shared.InternalVersion_Latest
 
-	require.True(t, shouldWrapNonObjectJSON(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
-	require.True(t, shouldWrapNonObjectJSON(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
-	require.False(t, shouldWrapNonObjectJSON(textDomainOID, "t", customTypes, flags, version, true, nil))
-	require.False(t, shouldWrapNonObjectJSON(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
-	require.False(t, shouldWrapNonObjectJSON(jsonbDomainOID, "j", nil, flags, version, true, nil))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
+	require.True(t, shouldWrapJSONColumn(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(textDomainOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(jsonbDomainOID, "j", nil, flags, version, true, nil))
+}
+
+// TestShouldWrapNonObjectJSONArrays checks that json[]/jsonb[] columns take the array gate: their elements wrap
+// for an explicit Array(JSON) or Array(Nullable(JSON)) destination type from InternalVersion_WrapJSONArrayElements
+// on, and never without one, as the column is then a String.
+func TestShouldWrapNonObjectJSONArrays(t *testing.T) {
+	t.Parallel()
+
+	flags := []string{shared.Flag_ClickHouseJSONSupported}
+	latest := shared.InternalVersion_Latest
+	before := shared.InternalVersion_WrapJSONArrayElements - 1
+	arrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(JSON)"}}
+	nullableArrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(Nullable(JSON))"}}
+	stringOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "String"}}
+
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONArrayOID, "j", nil, flags, latest, true, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, nullableArrayOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, before, true, arrayOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, stringOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.TextArrayOID, "j", nil, flags, latest, true, arrayOverride))
+	// a domain over jsonb[] is left alone: the snapshot path reads it as text
+	const jsonbArrayDomainOID uint32 = 70003
+	domains := map[uint32]pkg_pg.CustomDataType{jsonbArrayDomainOID: {Name: "jdocs", BaseOID: pgtype.JSONBArrayOID}}
+	require.False(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, arrayOverride))
 }
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {

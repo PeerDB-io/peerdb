@@ -375,13 +375,19 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-// shouldWrapNonObjectJSON reports whether the values of a json/jsonb column, or of a domain over one, are
-// wrapped for the destination. Other columns never wrap, so the gate is only consulted for those types.
-func shouldWrapNonObjectJSON(
+// shouldWrapJSONColumn reports whether the values of a json/jsonb column, or of a domain over one, are
+// wrapped for the destination, and whether the elements of a json[]/jsonb[] column are. Other columns never
+// wrap, so the gate is only consulted for those types. A domain over json[]/jsonb[] is left alone: the snapshot
+// reads such a column as text, so its elements cannot be wrapped on both paths alike.
+func shouldWrapJSONColumn(
 	oid uint32, name string, customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	flags []string, version uint32, nativeJSONEnabled bool, columns []*protos.ColumnSetting,
 ) bool {
-	if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
+	switch oid {
+	case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
+		return qvalue.ShouldWrapJSONArrayElements(flags, version, model.ExplicitDestinationType(columns, name))
+	case pgtype.JSONOID, pgtype.JSONBOID:
+	default:
 		// a domain is decoded as its base type, so it wraps like the base type
 		oid, _ = pkg_pg.ResolveDataType(oid, 0, customTypeMapping)
 		if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
@@ -519,32 +525,51 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 		return types.QValueJSON{Val: doc}, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-		if valArr, ok := value.([]preMarshalledJson); ok {
-			// value is an array of pre-marshalled JSON documents; incrementally marshal
-			// the array instead of round-tripping the whole array through json.Marshal.
-			var builder strings.Builder
-			builder.WriteByte('[')
-			for i, elem := range valArr {
-				if i > 0 {
-					builder.WriteByte(',')
-				}
+		// the elements are spliced into one JSON array as they are, wrapped for an Array(JSON) destination
+		var builder strings.Builder
+		builder.WriteByte('[')
+		writeElement := func(i int, elem string) {
+			if i > 0 {
+				builder.WriteByte(',')
+			}
+			if elem == "" {
 				// A NULL array element, as opposed to a JSON null one, still has to
 				// occupy its slot for the array to stay well-formed.
-				if len(elem) == 0 {
-					elem = jsonNullLiteral
-				}
-				if _, err := builder.Write(elem); err != nil {
-					return nil, fmt.Errorf("failed to write JSON array element: %w", err)
-				}
+				builder.WriteString("null")
+				return
 			}
-			builder.WriteByte(']')
-			return types.QValueArrayJSON{Val: builder.String()}, nil
+			if wrapNonObjectJSON {
+				// Array(JSON) only takes objects; a wrapped JSON null is stored as {}
+				elem = qvalue.WrapNonObjectJSON(elem)
+			}
+			builder.WriteString(elem)
 		}
-		doc, err := parseJSON(value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
+		switch valArr := value.(type) {
+		case []preMarshalledJson:
+			for i, elem := range valArr {
+				writeElement(i, shared.UnsafeFastReadOnlyBytesToString(elem))
+			}
+		case []any:
+			for i, elem := range valArr {
+				var doc string
+				if elem != nil {
+					var err error
+					if doc, err = parseJSON(elem); err != nil {
+						return nil, fmt.Errorf("failed to parse JSON array element: %w", err)
+					}
+				}
+				writeElement(i, doc)
+			}
+		default:
+			// not a shape the decoders produce; keep it as the JSON rendering of whatever it is, unwrapped, as before
+			doc, err := parseJSON(value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse JSON array: %w", err)
+			}
+			return types.QValueArrayJSON{Val: doc}, nil
 		}
-		return types.QValueArrayJSON{Val: doc}, nil
+		builder.WriteByte(']')
+		return types.QValueArrayJSON{Val: builder.String()}, nil
 	case types.QValueKindInt16:
 		intVal := value.(int16)
 		return types.QValueInt16{Val: intVal}, nil

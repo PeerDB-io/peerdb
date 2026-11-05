@@ -444,6 +444,17 @@ func destinationJSONMatches(
 func jsonBatchesMatch(
 	jsonColumns []string, sourceNullLandsAs *string, wrapNonObjects bool,
 ) func(*testing.T, *model.QRecordBatch, *model.QRecordBatch) bool {
+	return jsonColumnsMatch(jsonColumns, func(t *testing.T, label string, _ int, src types.QValue, dst types.QValue) bool {
+		t.Helper()
+		return destinationJSONMatches(t, label, src, dst, sourceNullLandsAs, wrapNonObjects)
+	})
+}
+
+// jsonColumnsMatch returns a batch comparison over tables selected as "id" followed by columns: the ids must line
+// up row by row, and cellMatches decides each other cell, given its row index.
+func jsonColumnsMatch(
+	columns []string, cellMatches func(t *testing.T, label string, rowIdx int, src types.QValue, dst types.QValue) bool,
+) func(*testing.T, *model.QRecordBatch, *model.QRecordBatch) bool {
 	return func(t *testing.T, src *model.QRecordBatch, dst *model.QRecordBatch) bool {
 		t.Helper()
 		if len(dst.Records) != len(src.Records) {
@@ -455,10 +466,10 @@ func jsonBatchesMatch(
 				t.Logf("row %d: id %v != %v", rowIdx, srcRow[0].Value(), dst.Records[rowIdx][0].Value())
 				return false
 			}
-			for jsonColIdx, column := range jsonColumns {
+			for jsonColIdx, column := range columns {
 				colIdx := jsonColIdx + 1 // column 0 is id
 				label := fmt.Sprintf("row %d %s", rowIdx, column)
-				if !destinationJSONMatches(t, label, srcRow[colIdx], dst.Records[rowIdx][colIdx], sourceNullLandsAs, wrapNonObjects) {
+				if !cellMatches(t, label, rowIdx, srcRow[colIdx], dst.Records[rowIdx][colIdx]) {
 					return false
 				}
 			}
@@ -620,4 +631,294 @@ func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
+}
+
+// Tests for Postgres json[]/jsonb[] columns with an Array(JSON) or Array(Nullable(JSON)) destination type.
+
+// Test_JSON_CH_Array_Override: an Array(JSON) override gets wrapped elements.
+func (s ClickHouseSuite) Test_JSON_CH_Array_Override() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_override",
+		overrideType:       "Array(JSON)",
+		expectedColumnType: "Array(JSON)",
+	})
+}
+
+// Test_JSON_CH_Array_OverrideNullable: an Array(Nullable(JSON)) override keeps SQL NULL elements as NULL.
+func (s ClickHouseSuite) Test_JSON_CH_Array_OverrideNullable() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_override_nullable",
+		overrideType:       "Array(Nullable(JSON))",
+		expectedColumnType: "Array(Nullable(JSON))",
+	})
+}
+
+// Test_JSON_CH_Array_OverrideNullable_ClassicReader: the same with fast JSON processing off.
+func (s ClickHouseSuite) Test_JSON_CH_Array_OverrideNullable_ClassicReader() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:                     "test_json_arr_nullable_classic",
+		overrideType:                  "Array(Nullable(JSON))",
+		disableFastProcessJSONColumns: true,
+		expectedColumnType:            "Array(Nullable(JSON))",
+	})
+}
+
+// Test_JSON_CH_Array_NoOverride: without an override the column stays String, even with native JSON on.
+func (s ClickHouseSuite) Test_JSON_CH_Array_NoOverride() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_no_override",
+		nativeJSON:         true,
+		expectedColumnType: "String",
+	})
+}
+
+// Test_JSON_CH_Array_Override_OldMirror: a mirror from before the version keeps elements unwrapped.
+func (s ClickHouseSuite) Test_JSON_CH_Array_Override_OldMirror() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_override_old",
+		overrideType:       "Array(JSON)",
+		oldMirror:          true,
+		expectedColumnType: "Array(JSON)",
+	})
+}
+
+// jsonArrayMirrorConfig parameterizes testJSONArrayColumns.
+type jsonArrayMirrorConfig struct {
+	tableName          string
+	expectedColumnType string
+	// overrideType, when set, is given to every array column as its destination type through the column settings
+	overrideType string
+	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON
+	nativeJSON bool
+	// oldMirror pins the mirror to the version before InternalVersion_WrapJSONArrayElements
+	oldMirror bool
+	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
+	// takes the unmarshal/marshal path instead of the token walk
+	disableFastProcessJSONColumns bool
+}
+
+// jsonArrayTestCase is one json[]/jsonb[] value. elements are the JSON documents of the Postgres array, nil for a
+// SQL NULL element; isNull makes the whole column SQL NULL. wantElements is what Array(JSON) holds, spelled out
+// rather than derived with the production wrap helper; wantNullableElements is what Array(Nullable(JSON)) holds,
+// set only where it differs.
+type jsonArrayTestCase struct {
+	desc                 string
+	elements             []*string
+	wantElements         []string
+	wantNullableElements []string
+	isNull               bool
+}
+
+// allElementsAreObjects reports whether every element is an object document, so that the destination holds the
+// elements as they are whether or not they were wrapped.
+func (tc jsonArrayTestCase) allElementsAreObjects() bool {
+	for _, elem := range tc.elements {
+		if elem == nil || !strings.HasPrefix(strings.TrimSpace(*elem), "{") {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonDoc(s string) *string { return &s }
+
+func jsonArrayTestCases() []jsonArrayTestCase {
+	return []jsonArrayTestCase{
+		{
+			desc:         "objects",
+			elements:     []*string{jsonDoc(`{"a": 1}`), jsonDoc(`{"b": {"c": [1, 2]}, "s": "x"}`)},
+			wantElements: []string{`{"a": 1}`, `{"b": {"c": [1, 2]}, "s": "x"}`},
+		},
+		{
+			desc:         "empty object",
+			elements:     []*string{jsonDoc(`{}`)},
+			wantElements: []string{`{}`},
+		},
+		{
+			desc:         "scalars",
+			elements:     []*string{jsonDoc(`"text"`), jsonDoc(`42`), jsonDoc(`true`), jsonDoc(`-1.5`), jsonDoc(`""`)},
+			wantElements: []string{`{"_value":"text"}`, `{"_value":42}`, `{"_value":true}`, `{"_value":-1.5}`, `{"_value":""}`},
+		},
+		{
+			desc:         "string starting with a brace",
+			elements:     []*string{jsonDoc(`"{not an object"`)},
+			wantElements: []string{`{"_value":"{not an object"}`},
+		},
+		{
+			desc:         "nested arrays",
+			elements:     []*string{jsonDoc(`[1, 2]`), jsonDoc(`[[3], {"k": "v"}]`), jsonDoc(`[]`)},
+			wantElements: []string{`{"_value":[1, 2]}`, `{"_value":[[3], {"k": "v"}]}`, `{"_value":[]}`},
+		},
+		{
+			desc:                 "null element",
+			elements:             []*string{jsonDoc(`{"a": 1}`), nil, jsonDoc(`"s"`)},
+			wantElements:         []string{`{"a": 1}`, `{}`, `{"_value":"s"}`},
+			wantNullableElements: []string{`{"a": 1}`, `null`, `{"_value":"s"}`},
+		},
+		{
+			desc:         "json null element",
+			elements:     []*string{jsonDoc(`null`), jsonDoc(`{"a": 1}`)},
+			wantElements: []string{`{}`, `{"a": 1}`},
+		},
+		{
+			desc:                 "all null elements",
+			elements:             []*string{nil, nil},
+			wantElements:         []string{},
+			wantNullableElements: []string{`null`, `null`},
+		},
+		{
+			desc:         "unicode and escapes",
+			elements:     []*string{jsonDoc(`{"k": "日本語 🚀 \"q\" \\ \n"}`), jsonDoc(`"é\ttab"`)},
+			wantElements: []string{`{"k": "日本語 🚀 \"q\" \\ \n"}`, `{"_value":"é\ttab"}`},
+		},
+		{
+			desc:         "empty array",
+			elements:     []*string{},
+			wantElements: []string{},
+		},
+		{
+			desc:         "sql null column",
+			isNull:       true,
+			wantElements: []string{},
+		},
+	}
+}
+
+// sqlLiteral renders the case as a Postgres array literal of the given element type, json or jsonb.
+func (tc jsonArrayTestCase) sqlLiteral(elementType string) string {
+	if tc.isNull {
+		return "NULL"
+	}
+	elems := make([]string, len(tc.elements))
+	for i, elem := range tc.elements {
+		if elem == nil {
+			elems[i] = "NULL"
+		} else {
+			elems[i] = "'" + strings.ReplaceAll(*elem, "'", "''") + "'::" + elementType
+		}
+	}
+	return fmt.Sprintf("ARRAY[%s]::%s[]", strings.Join(elems, ", "), elementType)
+}
+
+func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
+	if _, isPostgres := s.source.(*PostgresSource); !isPostgres {
+		s.t.Skip("json arrays only exist on postgres")
+	}
+
+	srcTableName := cfg.tableName
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := cfg.tableName + "_dst"
+	arrayColumns := []string{"json_arr", "jsonb_arr"}
+	cases := jsonArrayTestCases()
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json_arr JSON[], jsonb_arr JSONB[])`, srcFullName)))
+	insertCases := func() {
+		for _, tc := range cases {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json_arr, jsonb_arr) VALUES (%s, %s)`,
+				srcFullName, tc.sqlLiteral("json"), tc.sqlLiteral("jsonb"))), tc.desc)
+		}
+	}
+	insertCases()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(cfg.tableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON)}
+	if cfg.overrideType != "" {
+		for _, column := range arrayColumns {
+			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
+				&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
+		}
+	}
+	if cfg.oldMirror {
+		flowConnConfig.Version = shared.InternalVersion_WrapJSONArrayElements - 1
+		flowConnConfig.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(uint64(flowConnConfig.Version), 10)
+	}
+	if cfg.disableFastProcessJSONColumns {
+		flowConnConfig.Env["PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS"] = "false"
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// a wrong type never changes, so fail now rather than after the row wait times out
+	for _, column := range arrayColumns {
+		columnType, err := s.GetColumnType(dstTableName, column)
+		if err != nil || columnType != cfg.expectedColumnType {
+			env.Cancel(s.t.Context())
+		}
+		require.NoError(s.t, err)
+		require.Equal(s.t, cfg.expectedColumnType, columnType, "unexpected type for column %s.%s", dstTableName, column)
+	}
+
+	cols := "id," + strings.Join(arrayColumns, ",")
+	// rows are ordered by id and the cases were inserted in order, once per load, so row i is cases[i % len(cases)]
+	rowsMatch := jsonColumnsMatch(arrayColumns, func(t *testing.T, label string, rowIdx int, _ types.QValue, dst types.QValue) bool {
+		t.Helper()
+		tc := cases[rowIdx%len(cases)]
+		return destinationJSONArrayMatches(t, label+" ("+tc.desc+")", tc, dst, cfg.expectedColumnType, !cfg.oldMirror)
+	})
+	if cfg.expectedColumnType == "String" {
+		// a String column holds the source array text as it is, and '' for a SQL NULL array
+		emptyString := ""
+		rowsMatch = jsonBatchesMatch(arrayColumns, &emptyString, false)
+	}
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, cols, rowsMatch)
+
+	insertCases()
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare cdc", srcTableName, dstTableName, cols, rowsMatch)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// destinationJSONArrayMatches checks one Array(JSON) or Array(Nullable(JSON)) cell against its test case's
+// wantElements.
+func destinationJSONArrayMatches(
+	t *testing.T, label string, tc jsonArrayTestCase, dst types.QValue, columnType string, elementsWrapped bool,
+) bool {
+	t.Helper()
+	dstArray, ok := dst.(types.QValueArrayJSON)
+	if !ok {
+		t.Logf("%s: expected an Array(JSON) value, got %T", label, dst)
+		return false
+	}
+	var dstElements []json.RawMessage
+	if err := json.Unmarshal([]byte(dstArray.Val), &dstElements); err != nil {
+		t.Logf("%s: invalid destination JSON array %s: %v", label, truncateForLog(dstArray.Val), err)
+		return false
+	}
+	wantElements := tc.wantElements
+	if columnType == "Array(Nullable(JSON))" && tc.wantNullableElements != nil {
+		wantElements = tc.wantNullableElements
+	}
+	if !elementsWrapped {
+		// A mirror from before InternalVersion_WrapJSONArrayElements ships the elements as they are. What
+		// ClickHouse makes of a non-object element in Array(JSON) ({} or dropped) is its own business and differs
+		// by version, so only pin that nothing was wrapped and that an array of objects arrives as it is.
+		if strings.Contains(dstArray.Val, `"_value"`) {
+			t.Logf("%s: elements wrapped on an old mirror: %s", label, truncateForLog(dstArray.Val))
+			return false
+		}
+		if !tc.allElementsAreObjects() {
+			return true
+		}
+	}
+	if len(dstElements) != len(wantElements) {
+		t.Logf("%s: %d elements, want %d: %s", label, len(dstElements), len(wantElements), truncateForLog(dstArray.Val))
+		return false
+	}
+	for i, want := range wantElements {
+		if !destinationJSONMatches(t, fmt.Sprintf("%s element %d", label, i),
+			types.QValueJSON{Val: want}, types.QValueJSON{Val: string(dstElements[i])}, nil, false) {
+			return false
+		}
+	}
+	return true
 }
