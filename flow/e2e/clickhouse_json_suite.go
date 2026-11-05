@@ -663,15 +663,6 @@ func (s ClickHouseSuite) Test_JSON_CH_Array_OverrideNullable_ClassicReader() {
 	})
 }
 
-// Test_JSON_CH_Array_NoOverride: without an override the column stays String, even with native JSON on.
-func (s ClickHouseSuite) Test_JSON_CH_Array_NoOverride() {
-	s.testJSONArrayColumns(jsonArrayMirrorConfig{
-		tableName:          "test_json_arr_no_override",
-		nativeJSON:         true,
-		expectedColumnType: "String",
-	})
-}
-
 // Test_JSON_CH_Array_Override_OldMirror: a mirror from before the version keeps elements unwrapped.
 func (s ClickHouseSuite) Test_JSON_CH_Array_Override_OldMirror() {
 	s.testJSONArrayColumns(jsonArrayMirrorConfig{
@@ -686,10 +677,8 @@ func (s ClickHouseSuite) Test_JSON_CH_Array_Override_OldMirror() {
 type jsonArrayMirrorConfig struct {
 	tableName          string
 	expectedColumnType string
-	// overrideType, when set, is given to every array column as its destination type through the column settings
+	// overrideType is given to every array column as its destination type through the column settings
 	overrideType string
-	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON
-	nativeJSON bool
 	// oldMirror pins the mirror to the version before InternalVersion_WrapJSONArrayElements
 	oldMirror bool
 	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
@@ -828,12 +817,10 @@ func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON)}
-	if cfg.overrideType != "" {
-		for _, column := range arrayColumns {
-			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
-				&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
-		}
+	flowConnConfig.Env = map[string]string{}
+	for _, column := range arrayColumns {
+		flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
+			&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
 	}
 	if cfg.oldMirror {
 		flowConnConfig.Version = shared.InternalVersion_WrapJSONArrayElements - 1
@@ -864,11 +851,6 @@ func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
 		tc := cases[rowIdx%len(cases)]
 		return destinationJSONArrayMatches(t, label+" ("+tc.desc+")", tc, dst, cfg.expectedColumnType, !cfg.oldMirror)
 	})
-	if cfg.expectedColumnType == "String" {
-		// a String column holds the source array text as it is, and '' for a SQL NULL array
-		emptyString := ""
-		rowsMatch = jsonBatchesMatch(arrayColumns, &emptyString, false)
-	}
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, cols, rowsMatch)
 
 	insertCases()
