@@ -954,6 +954,7 @@ func startSetupAndSnapshot(
 	}
 	setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 	setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
+	defer func() { waitForCancellation(ctx, setupFlowFuture) }()
 
 	var setupFlowOutput *protos.SetupFlowOutput
 	var setupFlowError error
@@ -998,6 +999,7 @@ func startSetupAndSnapshot(
 	// during any operation that triggers another snapshot (INCLUDING add tables).
 	// this could fail for very weird Temporal resets
 	snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+	defer func() { waitForCancellation(ctx, snapshotFlowFuture) }()
 	var snapshotDone bool
 	var snapshotError error
 	setupSnapshotSelector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
@@ -1063,11 +1065,13 @@ func startSetupAndSnapshot(
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 12 * time.Hour,
 			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval: 1 * time.Minute,
 			},
 		})
 		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		defer func() { waitForCancellation(ctx, renameTablesFuture) }()
 		var renameTablesDone bool
 		var renameTablesError error
 		setupSnapshotSelector.AddFuture(renameTablesFuture, func(f workflow.Future) {
