@@ -525,51 +525,57 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 		return types.QValueJSON{Val: doc}, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-		// the elements are spliced into one JSON array as they are, wrapped for an Array(JSON) destination
-		var builder strings.Builder
-		builder.WriteByte('[')
-		writeElement := func(i int, elem string) {
-			if i > 0 {
-				builder.WriteByte(',')
-			}
-			if elem == "" {
+		if valArr, ok := value.([]preMarshalledJson); ok {
+			// value is an array of pre-marshalled JSON documents; incrementally marshal
+			// the array instead of round-tripping the whole array through json.Marshal.
+			var builder strings.Builder
+			builder.WriteByte('[')
+			for i, elem := range valArr {
+				if i > 0 {
+					builder.WriteByte(',')
+				}
 				// A NULL array element, as opposed to a JSON null one, still has to
 				// occupy its slot for the array to stay well-formed.
-				builder.WriteString("null")
-				return
-			}
-			if wrapNonObjectJSON {
-				// Array(JSON) only takes objects; a wrapped JSON null is stored as {}
-				elem = qvalue.WrapNonObjectJSON(elem)
-			}
-			builder.WriteString(elem)
-		}
-		switch valArr := value.(type) {
-		case []preMarshalledJson:
-			for i, elem := range valArr {
-				writeElement(i, shared.UnsafeFastReadOnlyBytesToString(elem))
-			}
-		case []any:
-			for i, elem := range valArr {
-				var doc string
-				if elem != nil {
-					var err error
-					if doc, err = parseJSON(elem); err != nil {
-						return nil, fmt.Errorf("failed to parse JSON array element: %w", err)
-					}
+				if len(elem) == 0 {
+					elem = jsonNullLiteral
+				} else if wrapNonObjectJSON {
+					// Array(JSON) only takes objects; a wrapped JSON null is stored as {}
+					builder.WriteString(qvalue.WrapNonObjectJSON(shared.UnsafeFastReadOnlyBytesToString(elem)))
+					continue
 				}
-				writeElement(i, doc)
+				if _, err := builder.Write(elem); err != nil {
+					return nil, fmt.Errorf("failed to write JSON array element: %w", err)
+				}
 			}
-		default:
-			// not a shape the decoders produce; keep it as the JSON rendering of whatever it is, unwrapped, as before
-			doc, err := parseJSON(value)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse JSON array: %w", err)
-			}
-			return types.QValueArrayJSON{Val: doc}, nil
+			builder.WriteByte(']')
+			return types.QValueArrayJSON{Val: builder.String()}, nil
 		}
-		builder.WriteByte(']')
-		return types.QValueArrayJSON{Val: builder.String()}, nil
+		if valArr, ok := value.([]any); ok && wrapNonObjectJSON {
+			// the classic reader hands over decoded elements, so each is marshalled on its own to be wrapped
+			var builder strings.Builder
+			builder.WriteByte('[')
+			for i, elem := range valArr {
+				if i > 0 {
+					builder.WriteByte(',')
+				}
+				if elem == nil {
+					builder.Write(jsonNullLiteral)
+					continue
+				}
+				doc, err := parseJSON(elem)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse JSON array element: %w", err)
+				}
+				builder.WriteString(qvalue.WrapNonObjectJSON(doc))
+			}
+			builder.WriteByte(']')
+			return types.QValueArrayJSON{Val: builder.String()}, nil
+		}
+		doc, err := parseJSON(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
+		}
+		return types.QValueArrayJSON{Val: doc}, nil
 	case types.QValueKindInt16:
 		intVal := value.(int16)
 		return types.QValueInt16{Val: intVal}, nil
