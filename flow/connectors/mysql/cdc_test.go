@@ -494,7 +494,8 @@ func TestShouldReportColumnTypeChange(t *testing.T) {
 		{"maria inet to string", types.QValueKindINET, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, true},
 		// Bytes on the wire for a non-uuid/inet schema kind is a real change.
 		{"maria string to bytes", types.QValueKindString, types.QValueKindBytes, protos.MySqlFlavor_MYSQL_MARIA, true},
-		// A MariaDB JSON column is the LONGTEXT it is stored in on the wire: benign, suppressed.
+		// MariaDB stores a JSON column as LONGTEXT, so the binlog reports it as a string: expected, not a change.
+		// The same pair on MySQL, or the reverse direction on MariaDB, is still reported.
 		{"maria json as string", types.QValueKindJSON, types.QValueKindString, protos.MySqlFlavor_MYSQL_MARIA, false},
 		{"mysql json as string", types.QValueKindJSON, types.QValueKindString, protos.MySqlFlavor_MYSQL_MYSQL, true},
 		{"maria string to json", types.QValueKindString, types.QValueKindJSON, protos.MySqlFlavor_MYSQL_MARIA, true},

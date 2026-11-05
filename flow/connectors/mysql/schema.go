@@ -126,7 +126,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		qkind = mariaDBJSONKind(qkind, columnName, jsonColumns)
+		qkind = mariaDBJSONKind(qkind, columnName, columnType, jsonColumns)
 		columns = append(columns, &protos.ColumnsItem{
 			Name:     columnName,
 			Type:     columnType,

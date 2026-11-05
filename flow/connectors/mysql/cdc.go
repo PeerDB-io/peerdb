@@ -220,14 +220,16 @@ func (c *MySqlConnector) GetTableSchema(
 // strings.
 func (c *MySqlConnector) mariaDBJSONColumns(
 	ctx context.Context, schema string, table string, version uint32,
-) (map[string]struct{}, error) {
+) ([]string, error) {
 	if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA || version < shared.InternalVersion_MariaDBJSONColumns {
 		return nil, nil
 	}
-	// older servers store a JSON column as a plain LONGTEXT, and may lack information_schema.check_constraints
-	if cmp, err := c.CompareServerVersion(ctx, mysql_validation.MariaDBMinVersionForJSONCheck); err != nil {
+	cmp, err := c.CompareServerVersion(ctx, mysql_validation.MariaDBMinVersionForJSONCheck)
+	if err != nil {
 		return nil, err
-	} else if cmp < 0 {
+	}
+	if cmp < 0 {
+		// before 10.4.3 a column declared JSON is a plain LONGTEXT, with no check to find
 		return nil, nil
 	}
 	rs, err := c.Execute(ctx, fmt.Sprintf(`
@@ -237,17 +239,14 @@ func (c *MySqlConnector) mariaDBJSONColumns(
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the check constraints of %s.%s: %w", schema, table, err)
 	}
-	var columns map[string]struct{}
+	var columns []string
 	for idx := range rs.RowNumber() {
 		clause, err := rs.GetString(idx, 0)
 		if err != nil {
 			return nil, err
 		}
 		if column, ok := jsonValidCheckColumn(clause); ok {
-			if columns == nil {
-				columns = make(map[string]struct{})
-			}
-			columns[column] = struct{}{}
+			columns = append(columns, column)
 		}
 	}
 	return columns, nil
@@ -333,7 +332,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind = mariaDBJSONKind(qkind, columnName, jsonColumns)
+		qkind = mariaDBJSONKind(qkind, columnName, dataType, jsonColumns)
 
 		column := &protos.FieldDescription{
 			Name:         columnName,

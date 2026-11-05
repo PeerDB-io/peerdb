@@ -657,14 +657,6 @@ func QValueFromMysqlRowEvent(
 			}
 			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
-			if mytype != mysql.MYSQL_TYPE_JSON {
-				// a MariaDB VARCHAR or CHAR with a json_valid check, in the column's own charset
-				decoded, err := decodeMySQLString(enc, val)
-				if err != nil {
-					return nil, err
-				}
-				val = decoded
-			}
 			if wrapNonObjectJSON {
 				val = qvalue.WrapNonObjectJSON(val)
 			}

@@ -226,8 +226,7 @@ func TestQValueFromMysql_WrapNonObjectJSON(t *testing.T) {
 }
 
 // TestQValueFromMysql_MariaDBJSONKeepsText covers a MariaDB JSON column, which is a LONGTEXT on the wire:
-// neither path compacts the text, the row-event path decodes the column's charset as it does for any
-// string, and both still wrap non-object documents when asked.
+// neither path compacts the text, and both still wrap non-object documents when asked.
 func TestQValueFromMysql_MariaDBJSONKeepsText(t *testing.T) {
 	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_BLOB}}
 	logger := log.NewStructuredLogger(nil)
@@ -258,26 +257,4 @@ func TestQValueFromMysql_MariaDBJSONKeepsText(t *testing.T) {
 			require.Equal(t, want, got.(types.QValueJSON).Val, "cdc in=%q wrap=%v", tc.in, wrap)
 		}
 	}
-
-	// the row-event path transcodes a non-utf8mb4 LONGTEXT, while MySQL's own JSON type is always utf8mb4
-	// and ignores the column charset; compared as text because the spacing has to survive too
-	utf8Text := `{"k": "café"}`
-	latin1 := []byte(`{"k": "caf` + "\xe9" + `"}`)
-	got, err := QValueFromMysqlRowEvent(ev, 0, nil, nil, types.QValueKindJSON, latin1,
-		mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
-	require.NoError(t, err)
-	require.Equal(t, utf8Text, got.(types.QValueJSON).Val)
-
-	// a VARCHAR arrives from the binlog as a Go string rather than bytes
-	varcharEv := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_VARCHAR}}
-	got, err = QValueFromMysqlRowEvent(varcharEv, 0, nil, nil, types.QValueKindJSON, string(latin1),
-		mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
-	require.NoError(t, err)
-	require.Equal(t, utf8Text, got.(types.QValueJSON).Val)
-
-	jsonEv := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_JSON}}
-	got, err = QValueFromMysqlRowEvent(jsonEv, 0, nil, nil, types.QValueKindJSON, []byte(utf8Text),
-		mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
-	require.NoError(t, err)
-	require.Equal(t, utf8Text, got.(types.QValueJSON).Val)
 }

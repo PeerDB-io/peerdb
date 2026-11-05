@@ -15,7 +15,8 @@ import (
 
 // TestMariaDBJSONColumnsTypedAsJSON checks that schema discovery types a MariaDB column declared JSON, which
 // the server stores as LONGTEXT with a json_valid check, as JSON, along with a LONGTEXT that carries the same
-// check by hand, while a plain LONGTEXT stays a string and mirrors below the version keep the old typing.
+// check by hand, while a VARCHAR with the check and a plain LONGTEXT stay strings and mirrors below the
+// version keep the old typing.
 func TestMariaDBJSONColumnsTypedAsJSON(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -29,7 +30,7 @@ func TestMariaDBJSONColumnsTypedAsJSON(t *testing.T) {
 	table := db + ".jt"
 	_, err := connector.Execute(ctx, fmt.Sprintf(
 		"CREATE TABLE %s (id INT PRIMARY KEY, j JSON, k LONGTEXT CHECK (json_valid(k)), "+
-			"t LONGTEXT, b LONGBLOB)", table))
+			"v VARCHAR(100) CHECK (json_valid(v)), t LONGTEXT, b LONGBLOB)", table))
 	require.NoError(t, err)
 
 	kindsAt := func(version uint32) map[string]types.QValueKind {
@@ -47,6 +48,7 @@ func TestMariaDBJSONColumnsTypedAsJSON(t *testing.T) {
 	kinds := kindsAt(shared.InternalVersion_Latest)
 	require.Equal(t, types.QValueKindJSON, kinds["j"])
 	require.Equal(t, types.QValueKindJSON, kinds["k"])
+	require.Equal(t, types.QValueKindString, kinds["v"], "only LONGTEXT, which MariaDB's JSON alias creates, is promoted")
 	require.Equal(t, types.QValueKindString, kinds["t"])
 	require.Equal(t, types.QValueKindBytes, kinds["b"])
 
