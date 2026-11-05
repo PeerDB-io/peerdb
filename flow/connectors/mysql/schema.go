@@ -88,7 +88,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
-	jsonColumns, err := c.mariaDBJSONColumns(ctx, schema, table, version)
+	jsonColumns, err := c.getMariaDBJSONColumns(ctx, schema, table, version)
 	if err != nil {
 		return nil, err
 	}

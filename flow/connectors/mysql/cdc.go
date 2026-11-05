@@ -214,11 +214,11 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
-// mariaDBJSONColumns returns the columns of a MariaDB table that carry a json_valid check constraint, which is
+// getMariaDBJSONColumns returns the columns of a MariaDB table that carry a json_valid check constraint, which is
 // how MariaDB stores a column declared JSON: as LONGTEXT with that check. Empty for MySQL, whose JSON type
 // needs no check, and for mirrors below InternalVersion_MariaDBJSONColumns, which keep typing such columns as
 // strings.
-func (c *MySqlConnector) mariaDBJSONColumns(
+func (c *MySqlConnector) getMariaDBJSONColumns(
 	ctx context.Context, schema string, table string, version uint32,
 ) ([]string, error) {
 	if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA || version < shared.InternalVersion_MariaDBJSONColumns {
@@ -297,7 +297,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
-	jsonColumns, err := c.mariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
+	jsonColumns, err := c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
 	if err != nil {
 		return nil, err
 	}

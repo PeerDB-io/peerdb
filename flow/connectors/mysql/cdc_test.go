@@ -528,7 +528,7 @@ func TestJSONValidCheckColumn(t *testing.T) {
 	}
 }
 
-func TestMariaDBJSONColumnsSkipsOldServers(t *testing.T) {
+func TestGetMariaDBJSONColumnsSkipsOldServers(t *testing.T) {
 	t.Parallel()
 
 	// no connection: reaching the check_constraints query would fail
@@ -536,7 +536,7 @@ func TestMariaDBJSONColumnsSkipsOldServers(t *testing.T) {
 		config:        &protos.MySqlConfig{Flavor: protos.MySqlFlavor_MYSQL_MARIA},
 		serverVersion: "10.4.2-MariaDB",
 	}
-	columns, err := c.mariaDBJSONColumns(t.Context(), "db", "t", shared.InternalVersion_Latest)
+	columns, err := c.getMariaDBJSONColumns(t.Context(), "db", "t", shared.InternalVersion_Latest)
 	require.NoError(t, err)
 	require.Nil(t, columns)
 }
