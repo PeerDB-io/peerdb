@@ -26,10 +26,24 @@ type normalizeStmtGenerator struct {
 	unchangedToastColumnsMap map[string][]string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
+	// destination table -> GENERATED ALWAYS AS IDENTITY columns, which need
+	// OVERRIDING SYSTEM VALUE on insert and can't be updated to a non-default value
+	alwaysIdentityColumns map[string][]string
 	// Postgres metadata schema
 	metadataSchema string
 	// Postgres version 15 introduced MERGE, fallback statements before that
 	supportsMerge bool
+}
+
+func (n *normalizeStmtGenerator) overridingClause(dstTable string) string {
+	if len(n.alwaysIdentityColumns[dstTable]) > 0 {
+		return " OVERRIDING SYSTEM VALUE"
+	}
+	return ""
+}
+
+func (n *normalizeStmtGenerator) isAlwaysIdentity(dstTable string, column string) bool {
+	return slices.Contains(n.alwaysIdentityColumns[dstTable], column)
 }
 
 func (n *normalizeStmtGenerator) columnTypeToPg(schema *protos.TableSchema, column *protos.FieldDescription) string {
@@ -113,10 +127,16 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, columnCount)
 	for _, column := range normalizedTableSchema.Columns {
+		if n.isAlwaysIdentity(dstTableName, column.Name) {
+			continue
+		}
 		quotedCol := common.QuoteIdentifier(column.Name)
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	}
-	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
+	conflictAction := "NOTHING"
+	if len(updateColumnsSQLArray) > 0 {
+		conflictAction = "UPDATE SET " + strings.Join(updateColumnsSQLArray, ",")
+	}
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
 		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
@@ -136,8 +156,8 @@ func (n *normalizeStmtGenerator) generateFallbackStatements(
 	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
-		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
-		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
+		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, n.overridingClause(dstTableName), flattenedCastsSQL,
+		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), conflictAction)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(slices.Collect(maps.Values(primaryKeyColumnCasts)), ","), n.metadataSchema,
 		n.rawTableName, deleteUpdate, deleteWhereClauseSQL)
@@ -207,7 +227,14 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		insertValuesSQLArray = append(insertValuesSQLArray, "src."+quotedCol)
 	}
 
-	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames, unchangedToastColumns)
+	updatableColumnNames := make([]string, 0, columnCount)
+	for i, column := range normalizedTableSchema.Columns {
+		if !n.isAlwaysIdentity(dstTableName, column.Name) {
+			updatableColumnNames = append(updatableColumnNames, quotedColumnNames[i])
+		}
+	}
+	updateStatementsforToastCols := n.generateUpdateStatements(updatableColumnNames, unchangedToastColumns)
+	overriding := n.overridingClause(dstTableName)
 	// append synced_at column
 	if n.peerdbCols.SyncedAtColName != "" {
 		quotedColumnNames = append(quotedColumnNames, common.QuoteIdentifier(n.peerdbCols.SyncedAtColName))
@@ -222,8 +249,8 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
-			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s) VALUES(%s)",
-				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
+			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type=2) THEN INSERT (%s)%s VALUES(%s)",
+				softDeleteInsertColumnsSQL, overriding, softDeleteInsertValuesSQL))
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
 
@@ -254,6 +281,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			selectExprsSQL,
 			strings.Join(primaryKeySelectSQLArray, " AND "),
 			insertColumnsSQL,
+			overriding,
 			insertValuesSQL,
 			updateStringToastCols,
 			conflictPart,
@@ -268,6 +296,7 @@ func (n *normalizeStmtGenerator) generateMergeStatement(
 			selectExprsSQL,
 			strings.Join(primaryKeySelectSQLArray, " AND "),
 			insertColumnsSQL,
+			overriding,
 			insertValuesSQL,
 			updateStringToastCols,
 			conflictPart,
@@ -305,10 +334,13 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string, u
 		}
 
 		quotedCols := utils.QuoteLiteral(cols)
-		ssep := strings.Join(tmpArray, ",")
+		action := "DO NOTHING"
+		if len(tmpArray) > 0 {
+			action = "UPDATE SET " + strings.Join(tmpArray, ",")
+		}
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=%s
-			THEN UPDATE SET %s`, quotedCols, ssep)
+			THEN %s`, quotedCols, action)
 		updateStmts = append(updateStmts, updateStmt)
 
 		// generates update statements for the case where updates and deletes happen in the same branch
