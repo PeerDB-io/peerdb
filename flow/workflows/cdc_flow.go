@@ -519,8 +519,8 @@ func processTableResyncs(
 			}
 			return nextRunDrop, nil
 		}
-		if err := ctx.Err(); err != nil {
-			return nextRunNone, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nextRunNone, ctxErr
 		}
 		if childErr != nil {
 			// RenameTables swaps tables one by one, so a failure can leave some of them swapped. Resuming
