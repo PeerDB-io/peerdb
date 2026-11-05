@@ -585,6 +585,10 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 							qe.logger.Error("[pg_query_executor] failed to unmarshal json array element", slog.Any("error", err))
 							return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
 						}
+						if arr[j] == nil {
+							// a JSON null element decodes to nil like a SQL NULL element; keep it a document
+							arr[j] = json.RawMessage("null")
+						}
 					} else {
 						arr[j] = nil
 					}
@@ -628,7 +632,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
-			shouldWrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
+			shouldWrapJSONColumn(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

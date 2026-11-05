@@ -37,3 +37,17 @@ func ShouldWrapNonObjectJSON(flags []string, version uint32, nativeJSONEnabled b
 		return false
 	}
 }
+
+// ShouldWrapJSONArrayElements is ShouldWrapNonObjectJSON for the elements of a json[]/jsonb[] column, which only
+// land in Array(JSON) or Array(Nullable(JSON)) through an explicit destination type.
+func ShouldWrapJSONArrayElements(flags []string, version uint32, destinationType string) bool {
+	if version < shared.InternalVersion_WrapJSONArrayElements {
+		return false
+	}
+	switch destinationType {
+	case "Array(JSON)", "Array(Nullable(JSON))":
+		return slices.Contains(flags, shared.Flag_ClickHouseJSONSupported)
+	default:
+		return false
+	}
+}
