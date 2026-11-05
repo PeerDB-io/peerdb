@@ -388,7 +388,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if wait := queryCDCPollWait(
 			state.LastAttemptAt, state.LastSyncedAt, time.Now(), syncInterval, syncSchedule,
 		); wait > 0 && !catchingUp {
-			logger.Info("[cdc] waiting before next poll", slog.Duration("wait", wait))
+			logger.Info("[cdc] waiting before next poll", slog.String("wait", wait.String()))
 			if err := waitOrDone(ctx, wait); err != nil {
 				return err
 			}
@@ -499,7 +499,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			return a.Alerter.LogFlowError(ctx, flowName, fatalErr)
 		}
 		if pollSkipped {
-			logger.Info("[cdc] waiting for checkpoint to clear safety lag", slog.Duration("wait", safetyLagWait))
+			logger.Info("[cdc] waiting for checkpoint to clear safety lag", slog.String("wait", safetyLagWait.String()))
 			if err := waitOrDone(ctx, safetyLagWait); err != nil {
 				return err
 			}
@@ -517,7 +517,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 				wasLagging = true
 			}
 			retryWait = queryCDCRetryWait(retryWait, retryCadence)
-			logger.Info("[cdc] waiting before retrying failed poll", slog.Duration("wait", retryWait))
+			logger.Info("[cdc] waiting before retrying failed poll", slog.String("wait", retryWait.String()))
 			if err := waitOrDone(ctx, retryWait); err != nil {
 				return err
 			}
