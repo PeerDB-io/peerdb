@@ -1927,17 +1927,6 @@ func (s APITestSuite) getCHTableInfo(ch clickhouse_driver.Conn, table string) ch
 	return info
 }
 
-func (s APITestSuite) requireCatalogTableMapping(flowJobName string, expected *protos.TableMapping) {
-	catalogConfig, err := s.loadConfigFromCatalog(s.t.Context(), flowJobName)
-	require.NoError(s.t, err)
-	idx := slices.IndexFunc(catalogConfig.TableMappings, func(tm *protos.TableMapping) bool {
-		return tm.SourceTableIdentifier == expected.SourceTableIdentifier
-	})
-	require.GreaterOrEqual(s.t, idx, 0)
-	require.True(s.t, proto.Equal(expected, catalogConfig.TableMappings[idx]),
-		"updated table mapping should be persisted in the catalog")
-}
-
 // TestTableLevelResyncUpdatesTableSettings resyncs one of two tables with a new ordering key, partition
 // expression, nullable column, widened column type and an excluded column; the other table must be untouched.
 func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
@@ -2063,7 +2052,14 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	)).Scan(&oldResyncTableCount))
 	require.Zero(s.t, oldResyncTableCount, "the exchanged old table should be dropped")
 
-	s.requireCatalogTableMapping(flowConfig.FlowJobName, newMapping)
+	catalogConfig, err := s.loadConfigFromCatalog(ctx, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	idx := slices.IndexFunc(catalogConfig.TableMappings, func(tm *protos.TableMapping) bool {
+		return tm.SourceTableIdentifier == newMapping.SourceTableIdentifier
+	})
+	require.GreaterOrEqual(s.t, idx, 0)
+	require.True(s.t, proto.Equal(newMapping, catalogConfig.TableMappings[idx]),
+		"updated table mapping should be persisted in the catalog")
 
 	// Both the rebuilt and untouched tables must continue receiving CDC. The NULL only round-trips
 	// into the rebuilt table, where val is now Nullable.
@@ -2246,7 +2242,14 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 	require.Equal(s.t, "String", after.columns["val"])
 	require.Equal(s.t, "Int32", after.columns["amount"])
 	require.Equal(s.t, "String", after.columns["note"])
-	s.requireCatalogTableMapping(flowConfig.FlowJobName, newMapping)
+	catalogConfig, err := s.loadConfigFromCatalog(ctx, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	idx := slices.IndexFunc(catalogConfig.TableMappings, func(tm *protos.TableMapping) bool {
+		return tm.SourceTableIdentifier == newMapping.SourceTableIdentifier
+	})
+	require.GreaterOrEqual(s.t, idx, 0)
+	require.True(s.t, proto.Equal(newMapping, catalogConfig.TableMappings[idx]),
+		"updated table mapping should be persisted in the catalog")
 
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
 		"INSERT INTO %s(id, val, amount, note) VALUES (3, NULL, 3, 'n3')", source)))
