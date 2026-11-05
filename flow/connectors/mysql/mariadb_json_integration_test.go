@@ -13,27 +13,40 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// TestMariaDBJSONColumnsTypedAsJSON checks that schema discovery types a MariaDB column declared JSON, which
-// the server stores as LONGTEXT with a json_valid check, as JSON, along with a LONGTEXT that carries the same
-// check by hand, while a VARCHAR with the check and a plain LONGTEXT stay strings and mirrors below the
-// version keep the old typing.
+// TestMariaDBJSONColumnsTypedAsJSON checks schema discovery against a real MariaDB table. MariaDB stores a
+// column declared JSON as a LONGTEXT with a json_valid check, and discovery should type exactly those
+// columns as JSON, on new mirrors only.
 func TestMariaDBJSONColumnsTypedAsJSON(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	connector := newTestConnector(t, ctx)
 	if connector.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-		t.Skip("MariaDB only; MySQL has a JSON type that needs no check constraint")
+		t.Skip("MariaDB only; MySQL has a real JSON type")
 	}
 
 	db := testDBName("mariajson")
 	createTestDB(t, ctx, connector, db)
-	table := db + ".jt"
-	_, err := connector.Execute(ctx, fmt.Sprintf(
-		"CREATE TABLE %s (id INT PRIMARY KEY, j JSON, k LONGTEXT CHECK (json_valid(k)), "+
-			"v VARCHAR(100) CHECK (json_valid(v)), t LONGTEXT, b LONGBLOB)", table))
+	table := db + ".json_columns"
+	_, err := connector.Execute(ctx, fmt.Sprintf(`CREATE TABLE %s (
+		id               INT PRIMARY KEY,
+		declared_json    JSON,
+		checked_longtext LONGTEXT CHECK (json_valid(checked_longtext)),
+		checked_varchar  VARCHAR(100) CHECK (json_valid(checked_varchar)),
+		plain_longtext   LONGTEXT,
+		plain_blob       LONGBLOB)`, table))
 	require.NoError(t, err)
 
-	kindsAt := func(version uint32) map[string]types.QValueKind {
+	// the type each column should get on a new mirror
+	want := map[string]types.QValueKind{
+		"id":               types.QValueKindInt32,
+		"declared_json":    types.QValueKindJSON,   // MariaDB turns it into a LONGTEXT with a json_valid check
+		"checked_longtext": types.QValueKindJSON,   // the same column written by hand
+		"checked_varchar":  types.QValueKindString, // only LONGTEXT, which MariaDB's JSON alias creates, is promoted
+		"plain_longtext":   types.QValueKindString, // no check
+		"plain_blob":       types.QValueKindBytes,
+	}
+
+	discovered := func(t *testing.T, version uint32) map[string]types.QValueKind {
 		t.Helper()
 		schemas, err := connector.GetTableSchema(ctx, nil, version, protos.TypeSystem_Q,
 			[]*protos.TableMapping{{SourceTableIdentifier: table}})
@@ -45,26 +58,23 @@ func TestMariaDBJSONColumnsTypedAsJSON(t *testing.T) {
 		return kinds
 	}
 
-	kinds := kindsAt(shared.InternalVersion_Latest)
-	require.Equal(t, types.QValueKindJSON, kinds["j"])
-	require.Equal(t, types.QValueKindJSON, kinds["k"])
-	require.Equal(t, types.QValueKindString, kinds["v"], "only LONGTEXT, which MariaDB's JSON alias creates, is promoted")
-	require.Equal(t, types.QValueKindString, kinds["t"])
-	require.Equal(t, types.QValueKindBytes, kinds["b"])
+	t.Run("new mirror", func(t *testing.T) {
+		require.Equal(t, want, discovered(t, shared.InternalVersion_Latest))
+	})
 
-	// a mirror created before the change keeps typing the JSON column as a string
-	old := kindsAt(shared.InternalVersion_MariaDBJSONColumns - 1)
-	require.Equal(t, types.QValueKindString, old["j"])
-	require.Equal(t, types.QValueKindString, old["k"])
+	t.Run("mirror created before the change keeps String", func(t *testing.T) {
+		kinds := discovered(t, shared.InternalVersion_MariaDBJSONColumns-1)
+		require.Equal(t, types.QValueKindString, kinds["declared_json"])
+		require.Equal(t, types.QValueKindString, kinds["checked_longtext"])
+	})
 
-	// the column listing the UI uses agrees with the schema
-	columns, err := connector.GetColumns(ctx, shared.InternalVersion_Latest, db, "jt")
-	require.NoError(t, err)
-	listed := make(map[string]string)
-	for _, column := range columns.Columns {
-		listed[column.Name] = column.Qkind
-	}
-	require.Equal(t, string(types.QValueKindJSON), listed["j"])
-	require.Equal(t, string(types.QValueKindJSON), listed["k"])
-	require.Equal(t, string(types.QValueKindString), listed["t"])
+	t.Run("UI column listing agrees", func(t *testing.T) {
+		columns, err := connector.GetColumns(ctx, shared.InternalVersion_Latest, db, "json_columns")
+		require.NoError(t, err)
+		listed := make(map[string]types.QValueKind)
+		for _, column := range columns.Columns {
+			listed[column.Name] = types.QValueKind(column.Qkind)
+		}
+		require.Equal(t, want, listed)
+	})
 }
