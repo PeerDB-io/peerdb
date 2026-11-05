@@ -531,21 +531,21 @@ func processTableResyncs(
 		}
 	}
 
-	// Pending rows of resynced tables are already covered by the snapshot, and normalizing them
-	// into the new tables would overwrite snapshot rows using a stale column set, so drop them.
-	// The watermark also covers batches not yet copied from S3 into the raw table.
-	rawTableCleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	cleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
 		WaitForCancellation: true,
 	})
-	err := workflow.ExecuteActivity(rawTableCleanupCtx, flowable.SkipPendingNormalizeForTables, cfg, resyncTables).
-		Get(rawTableCleanupCtx, nil)
+	// skip normalization for not yet normalized batches of resynced tables
+	err := workflow.ExecuteActivity(cleanupCtx, flowable.SkipPendingNormalizeForTables, cfg, resyncTables).
+		Get(cleanupCtx, nil)
+	// Pending rows of resynced tables are already covered by the snapshot, and normalizing them
+	// into the new tables would overwrite snapshot rows using a stale column set, so drop them.
 	if err == nil {
-		err = workflow.ExecuteActivity(rawTableCleanupCtx, flowable.RemoveTablesFromRawTable, cfg, resyncTables).
-			Get(rawTableCleanupCtx, nil)
+		err = workflow.ExecuteActivity(cleanupCtx, flowable.RemoveTablesFromRawTable, cfg, resyncTables).
+			Get(cleanupCtx, nil)
 	}
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
