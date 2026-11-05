@@ -170,7 +170,7 @@ func processCDCFlowConfigUpdate(
 			// The API validates against the catalog config, re-check against workflow state.
 			// Returning an error here would fail the whole mirror, so skip the resync instead.
 			if err := internal.ValidateResyncTables(state.SyncFlowOptions.TableMappings, flowConfigUpdate); err != nil {
-				alertFlowError(ctx, cfg.FlowJobName, fmt.Sprintf("skipping invalid table resync: %v", err))
+				alertFlowError(ctx, logger, cfg.FlowJobName, fmt.Sprintf("skipping invalid table resync: %v", err))
 				flowConfigUpdate.ResyncTables = nil
 				tablesAreResynced = false
 			}
@@ -525,7 +525,7 @@ func processTableResyncs(
 		if childErr != nil {
 			// RenameTables swaps tables one by one, so a failure can leave some of them swapped. Resuming
 			// would normalize into those with the old column list, so stay paused until resync is retried.
-			alertFlowError(ctx, cfg.FlowJobName,
+			alertFlowError(ctx, logger, cfg.FlowJobName,
 				fmt.Sprintf("table resync failed, mirror kept paused, retry the resync before resuming: %v", childErr))
 			return nextRunPause, nil
 		}
@@ -552,7 +552,7 @@ func processTableResyncs(
 			return nextRunNone, ctxErr
 		}
 		// The tables are already swapped but the mappings are not, so stay paused like a failed child.
-		alertFlowError(ctx, cfg.FlowJobName,
+		alertFlowError(ctx, logger, cfg.FlowJobName,
 			fmt.Sprintf("table resync raw table cleanup failed, mirror kept paused, retry the resync before resuming: %v", err))
 		return nextRunPause, nil
 	}
@@ -590,15 +590,18 @@ func applyResyncedTableMappings(
 }
 
 // alertFlowError raises a flow error alert without failing the workflow.
-func alertFlowError(ctx workflow.Context, flowName string, message string) {
+func alertFlowError(ctx workflow.Context, logger log.Logger, flowName string, message string) {
 	alertCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
-	_ = workflow.ExecuteActivity(alertCtx, flowable.Alert, &protos.AlertInput{
+	if err := workflow.ExecuteActivity(alertCtx, flowable.Alert, &protos.AlertInput{
 		FlowName: flowName,
 		Message:  message,
-	}).Get(alertCtx, nil)
+	}).Get(alertCtx, nil); err != nil {
+		logger.Error("failed to raise flow error alert",
+			slog.String("alertMessage", message), slog.Any("error", err))
+	}
 }
 
 func processTableRemovals(
