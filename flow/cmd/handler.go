@@ -723,11 +723,8 @@ func (h *FlowRequestHandler) validateTableResync(
 			errors.New("table resync is not supported when PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN is enabled"))
 	}
 
-	config.TableMappings = cdcUpdate.ResyncTables
-	config.Resync = true
-	config.DoInitialSnapshot = true
-	config.InitialSnapshotOnly = true
-	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false, true)
+	resyncConfig := internal.BuildTableResyncConfig(pconv.FlowConnectionConfigsToCore(config), cdcUpdate.ResyncTables)
+	_, apiErr := h.validateCDCMirrorImpl(ctx, resyncConfig, false, true)
 	return apiErr
 }
 

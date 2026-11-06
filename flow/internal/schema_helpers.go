@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -133,4 +134,18 @@ func ValidateResyncTables(currentTableMappings []*protos.TableMapping, update *p
 		}
 	}
 	return nil
+}
+
+// BuildTableResyncConfig builds the config of the snapshot-only child mirror that resyncs the given tables.
+// The API validates a table resync with the same config, so both always agree, e.g. on the mirror version.
+func BuildTableResyncConfig(
+	base *protos.FlowConnectionConfigsCore,
+	resyncTables []*protos.TableMapping,
+) *protos.FlowConnectionConfigsCore {
+	cfg := proto.CloneOf(base)
+	cfg.TableMappings = resyncTables
+	cfg.Resync = true
+	cfg.DoInitialSnapshot = true
+	cfg.InitialSnapshotOnly = true
+	return cfg
 }

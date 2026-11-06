@@ -469,11 +469,7 @@ func processTableResyncs(
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 	resyncTablesUUID := GetUUID(ctx)
 	childID := GetChildWorkflowID(resyncTablesCDCFlowPrefix, cfg.FlowJobName, resyncTablesUUID)
-	resyncCfg := proto.CloneOf(cfg)
-	resyncCfg.DoInitialSnapshot = true
-	resyncCfg.InitialSnapshotOnly = true
-	resyncCfg.TableMappings = resyncTables
-	resyncCfg.Resync = true
+	resyncCfg := internal.BuildTableResyncConfig(cfg, resyncTables)
 	if state.SnapshotNumRowsPerPartition > 0 {
 		resyncCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
 	}
