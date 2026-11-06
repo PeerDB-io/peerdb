@@ -713,6 +713,14 @@ func (h *FlowRequestHandler) validateTableResync(
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 	}
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("unable to get destination peer type: %w", err))
+	}
+	if dstType != protos.DBType_CLICKHOUSE {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("table resync is only supported for ClickHouse destinations, got %s", dstType))
+	}
 	if err := internal.ValidateResyncTables(config.TableMappings, cdcUpdate); err != nil {
 		return NewInvalidArgumentApiError(err)
 	}
