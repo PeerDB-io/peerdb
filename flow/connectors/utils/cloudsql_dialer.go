@@ -77,6 +77,9 @@ func getCloudSQLDialer(ctx context.Context) (*cloudsqlconn.Dialer, error) {
 		cloudsqlconn.WithIAMAuthNCredentials(apiCredentials, loginCredentials),
 		// lets the host be a DNS name with a TXT record pointing to the instance connection name
 		cloudsqlconn.WithDNSResolver(),
+		// on by default since v1.26.0; would export connector metrics into the customer's
+		// Cloud SQL project using our workload identity
+		cloudsqlconn.WithBuiltInMetrics(false),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Cloud SQL dialer: %w", err)
