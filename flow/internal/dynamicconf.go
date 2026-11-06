@@ -472,7 +472,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
-		TargetForSetting: protos.DynconfTarget_POSTGRES,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",

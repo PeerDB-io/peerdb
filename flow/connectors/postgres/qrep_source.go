@@ -528,15 +528,15 @@ func pullChildTableRanges(
 			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
 		}
 
-		selectList := selectedColumns
+		childSelectedColumns := selectedColumns
 		if shouldProjectChildSchema {
-			selectList += ", " + utils.QuoteLiteral(parsedChild.Namespace) + "::text AS " +
+			childSelectedColumns += ", " + utils.QuoteLiteral(parsedChild.Namespace) + "::text AS " +
 				common.QuoteIdentifier(sourceSchemaColumnName)
 		}
 
 		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
 		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
-			selectList, parsedChild.String(), quotedWatermarkColumn)
+			childSelectedColumns, parsedChild.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{
 			BlockNumber:  child.Start,
