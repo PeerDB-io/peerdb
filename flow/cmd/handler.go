@@ -486,6 +486,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 	}
 
+	configUpdateSignaled := false
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&
 		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion
 		//  where the config is updated but the flow is not reflecting those changes since it's already completed/failed
@@ -493,6 +494,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			currState != protos.FlowStatus_STATUS_TERMINATING &&
 			currState != protos.FlowStatus_STATUS_FAILED &&
 			currState != protos.FlowStatus_STATUS_COMPLETED) {
+		configUpdateSignaled = true
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
@@ -522,7 +524,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
 			if currState == protos.FlowStatus_STATUS_PAUSED {
-				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				// A paused mirror resumes on its own once it has processed the config update. Resuming it here
+				// as well could skip the update, or resume the mirror after a table resync failed.
+				if !configUpdateSignaled {
+					changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				}
 				if changeErr == nil {
 					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
 					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resume signaled")
