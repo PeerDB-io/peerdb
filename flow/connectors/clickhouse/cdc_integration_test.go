@@ -73,3 +73,67 @@ func TestCreateRawTableHasTTL(t *testing.T) {
 		})
 	}
 }
+
+func TestRenameTablesSkipsAlreadyExchangedTable(t *testing.T) {
+	// NewClickHouseConnector requires a staging bucket; RenameTables itself doesn't use it.
+	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", "dummy-bucket-for-rename-test")
+	ctx := t.Context()
+	conn, err := NewClickHouseConnector(ctx, nil, &protos.ClickhouseConfig{
+		Host:       testutil.ClickHouseTestHost(),
+		Port:       testutil.ClickHouseTestPort(),
+		Database:   "default",
+		DisableTls: true,
+	})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	for _, tc := range []struct {
+		name                string
+		exchangedPreviously bool
+	}{
+		{name: "first attempt", exchangedPreviously: false},
+		{name: "retry after exchange", exchangedPreviously: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tableName := fmt.Sprintf("test_rename_exchanged_%d", time.Now().UnixNano())
+			resyncTableName := tableName + "_resync"
+			for table, value := range map[string]string{tableName: "old", resyncTableName: "new"} {
+				require.NoError(t, conn.execWithLogging(ctx, fmt.Sprintf(
+					"CREATE TABLE %s (value String) ENGINE = MergeTree ORDER BY value", peerdb_clickhouse.QuoteIdentifier(table))))
+				require.NoError(t, conn.execWithLogging(ctx, fmt.Sprintf(
+					"INSERT INTO %s VALUES (%s)", peerdb_clickhouse.QuoteIdentifier(table), peerdb_clickhouse.QuoteLiteral(value))))
+				t.Cleanup(func() {
+					_ = conn.execWithLogging(ctx, "DROP TABLE IF EXISTS "+peerdb_clickhouse.QuoteIdentifier(table))
+				})
+			}
+
+			tableUUIDs, err := conn.GetTableUUIDs(ctx, []string{resyncTableName})
+			require.NoError(t, err)
+			require.NotEmpty(t, tableUUIDs[resyncTableName])
+
+			if tc.exchangedPreviously {
+				// a previous RenameTables attempt exchanged the tables, then failed before dropping the old one
+				require.NoError(t, conn.execWithLogging(ctx, fmt.Sprintf("EXCHANGE TABLES %s AND %s",
+					peerdb_clickhouse.QuoteIdentifier(tableName), peerdb_clickhouse.QuoteIdentifier(resyncTableName))))
+			}
+
+			_, err = conn.RenameTables(ctx, &protos.RenameTablesInput{
+				RenameTableOptions: []*protos.RenameTableOption{{
+					CurrentName:      resyncTableName,
+					NewName:          tableName,
+					CurrentTableUuid: tableUUIDs[resyncTableName],
+				}},
+			})
+			require.NoError(t, err)
+
+			resyncTableExists, err := conn.checkIfTableExists(ctx, "default", resyncTableName)
+			require.NoError(t, err)
+			require.False(t, resyncTableExists)
+
+			var value string
+			require.NoError(t, conn.queryRow(ctx,
+				"SELECT value FROM "+peerdb_clickhouse.QuoteIdentifier(tableName)).Scan(&value))
+			require.Equal(t, "new", value)
+		})
+	}
+}

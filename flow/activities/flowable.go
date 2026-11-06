@@ -1813,6 +1813,39 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	return renameOutput, nil
 }
 
+// RecordRenameTableUUIDs returns the rename input with the UUID of each table to be renamed filled in.
+// It runs as a separate activity so that RenameTables retries compare against the UUIDs from before
+// any swap. Destinations without table UUIDs get the input back unchanged.
+func (a *FlowableActivity) RecordRenameTableUUIDs(
+	ctx context.Context,
+	config *protos.RenameTablesInput,
+) (*protos.RenameTablesInput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	conn, connClose, err := connectors.GetByNameAs[connectors.TableUUIDsConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return config, nil
+		}
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get table uuids connector: %w", err))
+	}
+	defer connClose(ctx)
+
+	tableNames := make([]string, 0, len(config.RenameTableOptions))
+	for _, option := range config.RenameTableOptions {
+		tableNames = append(tableNames, option.CurrentName)
+	}
+	tableUUIDs, err := conn.GetTableUUIDs(ctx, tableNames)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get table uuids: %w", err))
+	}
+
+	config = proto.CloneOf(config)
+	for _, option := range config.RenameTableOptions {
+		option.CurrentTableUuid = tableUUIDs[option.CurrentName]
+	}
+	return config, nil
+}
+
 func (a *FlowableActivity) updateTableSchemaMappingForResync(
 	ctx context.Context,
 	renameOptions []*protos.RenameTableOption,

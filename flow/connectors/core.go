@@ -375,6 +375,13 @@ type RenameTablesConnector interface {
 	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
 }
 
+type TableUUIDsConnector interface {
+	Connector
+
+	// GetTableUUIDs returns the UUIDs of the given tables, leaving out tables without one.
+	GetTableUUIDs(context.Context, []string) (map[string]string, error)
+}
+
 type RenameTablesWithSoftDeleteConnector interface {
 	Connector
 
@@ -849,6 +856,7 @@ var (
 	_ RenameTablesWithSoftDeleteConnector = &connbigquery.BigQueryConnector{}
 	_ RenameTablesWithSoftDeleteConnector = &connpostgres.PostgresConnector{}
 	_ RenameTablesConnector               = &connclickhouse.ClickHouseConnector{}
+	_ TableUUIDsConnector                 = &connclickhouse.ClickHouseConnector{}
 
 	_ RawTableConnector = &connclickhouse.ClickHouseConnector{}
 	_ RawTableConnector = &connbigquery.BigQueryConnector{}
