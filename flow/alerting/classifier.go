@@ -306,6 +306,11 @@ var (
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
+	// DocumentDB caps open cursors per instance by instance class (30 on t3/t4g.medium)
+	// https://docs.aws.amazon.com/documentdb/latest/devguide/limits.html#limits.instance
+	ErrorNotifyTooManyCursorsOpened = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_CURSORS_OPENED", action: NotifyUser,
+	}
 	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
 	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
 	ErrorNotifyBigQueryTimeTravelExceeded = ErrorClass{
@@ -1014,9 +1019,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
 		case 2: // BadValue
-			// DocumentDB reports open-cursor limit as BadValue, recovers once cursors are released
+			// DocumentDB reports open-cursor limit as BadValue
 			if mongoCmdErr.HasErrorMessage(MongoTooManyCursorsOpened) {
-				return ErrorRetryRecoverable, mongoErrorInfo
+				return ErrorNotifyTooManyCursorsOpened, mongoErrorInfo
 			}
 			return ErrorOther, mongoErrorInfo
 		case 6: // HostUnreachable
