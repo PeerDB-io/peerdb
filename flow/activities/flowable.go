@@ -2072,6 +2072,52 @@ func (a *FlowableActivity) SkipPendingNormalizeForTables(
 	return nil
 }
 
+// CleanupCancelledTableResync removes catalog leftovers of a cancelled table resync: snapshot stats of
+// "_resync" tables and their table_schema_mapping rows. The "_resync" destination tables are
+// left in place, the next resync of those tables replaces them.
+func (a *FlowableActivity) CleanupCancelledTableResync(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	resyncTableNames := make([]string, 0, len(tableMappings))
+	for _, tm := range tableMappings {
+		// skip tables resynced in place, their rows belong to the live table
+		if resyncTable := internal.CDCResyncDestinationTable(tm); resyncTable != tm.DestinationTableIdentifier {
+			resyncTableNames = append(resyncTableNames, resyncTable)
+		}
+	}
+
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to begin cleanup of cancelled resync: %w", err))
+	}
+	defer shared.RollbackTx(tx, internal.LoggerFromCtx(ctx))
+
+	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.qrep_partitions qp
+		WHERE EXISTS (
+			SELECT 1 FROM peerdb_stats.qrep_runs qr
+			WHERE qr.flow_name = qp.flow_name AND qr.run_uuid = qp.run_uuid
+			AND qr.parent_mirror_name = $1 AND qr.destination_table = ANY($2)
+		)`, cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup qrep_partitions: %w", err))
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs
+		WHERE parent_mirror_name = $1 AND destination_table = ANY($2)`,
+		cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup qrep_runs: %w", err))
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name = $1 AND table_name = ANY($2)",
+		cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup table_schema_mapping: %w", err))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to commit cleanup of cancelled resync: %w", err))
+	}
+	return nil
+}
+
 func (a *FlowableActivity) RemoveTablesFromCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigsCore,

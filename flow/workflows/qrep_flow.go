@@ -179,6 +179,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 func (q *QRepFlowExecution) initializeRun(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    5 * time.Second,
 			BackoffCoefficient: 2.,
@@ -202,6 +203,7 @@ func (q *QRepFlowExecution) getPartitions(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
@@ -227,6 +229,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        10 * time.Second,
 			BackoffCoefficient:     2.,
@@ -280,6 +283,7 @@ func (q *QRepFlowExecution) processPartitions(
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
 	partitionWorkflows := make([]workflow.Future, 0, len(batches))
+	defer func() { waitForCancellation(ctx, partitionWorkflows...) }()
 	for i, parts := range batches {
 		future := q.startChildWorkflow(ctx, &protos.QRepPartitionBatch{
 			Partitions: parts,
@@ -318,6 +322,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,

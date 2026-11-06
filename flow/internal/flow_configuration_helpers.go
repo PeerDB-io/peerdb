@@ -44,3 +44,12 @@ func ApplySnapshotConfigOverrides(config *protos.FlowConnectionConfigsCore, upda
 		config.SnapshotNumTablesInParallel = update.SnapshotNumTablesInParallel
 	}
 }
+
+// CDCResyncDestinationTable returns the table a CDC resync snapshots into before swapping it in.
+// Null engine tables are resynced in place, without a "_resync" table.
+func CDCResyncDestinationTable(tm *protos.TableMapping) string {
+	if tm.Engine == protos.TableEngine_CH_ENGINE_NULL {
+		return tm.DestinationTableIdentifier
+	}
+	return tm.DestinationTableIdentifier + shared.CDCResyncTableSuffix
+}
