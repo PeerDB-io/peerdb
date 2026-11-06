@@ -25,7 +25,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-const ctidColumnName = "ctid"
+const (
+	ctidColumnName         = "ctid"
+	sourceSchemaColumnName = "_peerdb_source_schema"
+)
 
 type QRepPullSink interface {
 	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, int64, error)
@@ -331,7 +334,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, dstType, partition, &RecordStreamSink{
+	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
 		QRecordStream:   stream,
 		DestinationType: dstType,
 	})
@@ -342,18 +345,17 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	_catalogPool shared.CatalogPool,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
-	dstType protos.DBType,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, dstType, partition, stream)
+	return corePullQRepRecords(c, ctx, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
 	config *protos.QRepConfig,
-	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 ) (int64, int64, error) {
@@ -365,15 +367,7 @@ func corePullQRepRecords(
 		return 0, 0, fmt.Errorf("unable to parse source table: %w", err)
 	}
 
-	sourceSchema, err := c.snapshotSourceSchemaFor(ctx, config, dstType, parsedSrcTable)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	// selectedColumns reads one table of the hierarchy (child ranges); tableColumns is the same list for the
-	// generated queries on the mirrored table itself, qualified when the source schema projection adds a FROM item
 	selectedColumns := "*"
-	tableColumns := "*"
 	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		// derive columns from the source directly; the catalog schema may be absent
 		// (e.g. resync/table-addition renames the destination) and isn't needed here
@@ -389,7 +383,6 @@ func corePullQRepRecords(
 			quotedColumns = append(quotedColumns, common.QuoteIdentifier(col))
 		}
 		selectedColumns = strings.Join(quotedColumns, ",")
-		tableColumns = sourceSchema.tableColumns(columns)
 	}
 
 	if partition.FullTablePartition {
@@ -402,14 +395,17 @@ func corePullQRepRecords(
 
 		query := config.Query
 		if query == "" {
-			query = fmt.Sprintf("SELECT %s FROM %s",
-				sourceSchema.tableSelectList(tableColumns), sourceSchema.fromClause(parsedSrcTable.String()))
+			query = fmt.Sprintf("SELECT %s FROM %s", selectedColumns, parsedSrcTable.String())
 		}
 		return executor.ExecuteQueryIntoSink(ctx, sink, query)
 	}
 
 	if len(partition.ChildTableRanges) > 0 {
-		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns, sourceSchema)
+		projectChildSchema, err := c.shouldProjectChildSchema(ctx, config, parsedSrcTable)
+		if err != nil {
+			return 0, 0, err
+		}
+		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns, projectChildSchema)
 	}
 
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -420,8 +416,7 @@ func corePullQRepRecords(
 	queryTemplate := config.Query
 	if queryTemplate == "" {
 		queryTemplate = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			sourceSchema.tableSelectList(tableColumns), sourceSchema.fromClause(parsedSrcTable.String()),
-			sourceSchema.watermarkColumn(common.QuoteIdentifier(config.WatermarkColumn)))
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn))
 	}
 	templateParams := map[string]string{"start": "$1", "end": "$2"}
 
@@ -450,8 +445,7 @@ func corePullQRepRecords(
 		}
 		queryTemplate = fmt.Sprintf(
 			"SELECT %s FROM %s WHERE %s IS NULL",
-			sourceSchema.tableSelectList(tableColumns), sourceSchema.fromClause(parsedSrcTable.String()),
-			sourceSchema.watermarkColumn(common.QuoteIdentifier(config.WatermarkColumn)),
+			selectedColumns, parsedSrcTable.String(), common.QuoteIdentifier(config.WatermarkColumn),
 		)
 		templateParams = map[string]string{}
 	default:
@@ -488,6 +482,23 @@ func corePullQRepRecords(
 	return numRecords, numBytes, nil
 }
 
+func (c *PostgresConnector) shouldProjectChildSchema(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	table *common.QualifiedTable,
+) (bool, error) {
+	if enabled, err := internal.PeerDBPostgresSourceSchemaFromInheritanceChild(ctx, config.Env); err != nil || !enabled {
+		return false, err
+	}
+	var isInheritanceParent bool
+	if err := c.conn.QueryRow(ctx,
+		"SELECT relkind = 'r' AND relhassubclass FROM pg_catalog.pg_class WHERE oid = $1::regclass", table.String(),
+	).Scan(&isInheritanceParent); err != nil {
+		return false, fmt.Errorf("failed to check whether %s is an inheritance parent: %w", table, err)
+	}
+	return isInheritanceParent, nil
+}
+
 // pullChildTableRanges executes one query per ChildTableRange entry,
 // building a query directly for each child table, and accumulates results.
 func pullChildTableRanges(
@@ -497,7 +508,7 @@ func pullChildTableRanges(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 	selectedColumns string,
-	sourceSchema snapshotSourceSchema,
+	shouldProjectChildSchema bool,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
@@ -517,10 +528,15 @@ func pullChildTableRanges(
 			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
 		}
 
+		selectList := selectedColumns
+		if shouldProjectChildSchema {
+			selectList += ", " + utils.QuoteLiteral(parsedChild.Namespace) + "::text AS " +
+				common.QuoteIdentifier(sourceSchemaColumnName)
+		}
+
 		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
-		// Ranges of deeper descendants get their own schema too.
 		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
-			sourceSchema.childSelectList(selectedColumns, parsedChild.Namespace), parsedChild.String(), quotedWatermarkColumn)
+			selectList, parsedChild.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{
 			BlockNumber:  child.Start,
