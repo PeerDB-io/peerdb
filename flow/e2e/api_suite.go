@@ -2085,8 +2085,6 @@ func (s APITestSuite) TestTableLevelResyncUpdatesTableSettings() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// TestTableLevelResyncRejectsInvalidRequest checks that the API rejects a resync of a table
-// that is not part of the mirror and leaves the mirror paused.
 func (s APITestSuite) TestTableLevelResyncRejectsInvalidRequest() {
 	if _, ok := s.source.(*MongoSource); ok {
 		s.t.Skip("test uses a SQL source")
@@ -2098,25 +2096,117 @@ func (s APITestSuite) TestTableLevelResyncRejectsInvalidRequest() {
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", source)))
 	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'a')", source)))
 
+	// Each case runs against its own mirror, so mirror-level settings like env only apply to that case.
+	for i, tc := range []struct {
+		name string
+		env  map[string]string
+		// mapping returns the table to resync, given the mirror's table mappings.
+		mapping  func(mirrorMappings []*protos.TableMapping) *protos.TableMapping
+		errorMsg string
+	}{
+		{
+			name: "table outside mirror",
+			mapping: func([]*protos.TableMapping) *protos.TableMapping {
+				return &protos.TableMapping{
+					SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
+					DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
+				}
+			},
+			errorMsg: "is not part of the mirror",
+		},
+		{
+			name: "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN enabled",
+			env:  map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"},
+			mapping: func(mirrorMappings []*protos.TableMapping) *protos.TableMapping {
+				return proto.CloneOf(mirrorMappings[0])
+			},
+			errorMsg: "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN",
+		},
+	} {
+		connectionGen := FlowConnectionGenerationConfig{
+			FlowJobName: fmt.Sprintf("table_level_resync_invalid_%d_%s", i, s.suffix),
+			TableMappings: []*protos.TableMapping{
+				{SourceTableIdentifier: source, DestinationTableIdentifier: fmt.Sprintf("%s_%d", destination, i)},
+			},
+			Destination: s.ch.Peer().Name,
+		}
+		flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+		flowConfig.DoInitialSnapshot = true
+		flowConfig.Env = tc.env
+
+		response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+		require.NoError(s.t, err, tc.name)
+		require.NotNil(s.t, response, tc.name)
+
+		temporalClient := NewTemporalClient(s.t)
+		env, err := GetPeerflow(ctx, s.catalog, temporalClient, flowConfig.FlowJobName)
+		require.NoError(s.t, err, tc.name)
+		SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+		EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+		})
+
+		_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+			FlowJobName:        flowConfig.FlowJobName,
+			RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+		})
+		require.NoError(s.t, err, tc.name)
+		EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+		})
+
+		// Invalid resync requests are rejected by the API and leave the mirror paused.
+		_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+			FlowJobName:        flowConfig.FlowJobName,
+			RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+			FlowConfigUpdate: &protos.FlowConfigUpdate{
+				Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+					CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+						ResyncTables: []*protos.TableMapping{tc.mapping(flowConfig.TableMappings)},
+					},
+				},
+			},
+		})
+		require.Error(s.t, err, tc.name)
+		require.Equal(s.t, codes.InvalidArgument, status.Code(err), tc.name)
+		require.ErrorContains(s.t, err, tc.errorMsg, tc.name)
+		require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t), tc.name)
+
+		env.Cancel(ctx)
+		RequireEnvCanceled(s.t, env)
+	}
+}
+
+// TestTableLevelResyncRejectsNonClickHouseDestination checks that the API rejects table-level resync
+// for a mirror whose destination is not ClickHouse, and leaves the mirror paused.
+func (s APITestSuite) TestTableLevelResyncRejectsNonClickHouseDestination() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("uses the ancillary Postgres peer as destination, only started for Postgres sources")
+	}
+
+	ctx := s.t.Context()
+	source := AttachSchema(s, "table_resync_non_ch")
+	destination := AttachSchema(s, "table_resync_non_ch_dst")
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", source)))
+
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName: "table_level_resync_invalid_" + s.suffix,
+		FlowJobName: "table_level_resync_non_ch_" + s.suffix,
 		TableMappings: []*protos.TableMapping{
 			{SourceTableIdentifier: source, DestinationTableIdentifier: destination},
 		},
-		Destination: s.ch.Peer().Name,
+		Destination: s.pg.GeneratePeer(s.t).Name,
 	}
 	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConfig.DoInitialSnapshot = true
 
 	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := NewTemporalClient(s.t)
-	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	temporalClient := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, temporalClient, flowConfig.FlowJobName)
 	require.NoError(s.t, err)
 	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
-	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to enter CDC", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
@@ -2129,21 +2219,20 @@ func (s APITestSuite) TestTableLevelResyncRejectsInvalidRequest() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
-	// An invalid resync request is rejected by the API and leaves the mirror paused.
 	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
 		FlowConfigUpdate: &protos.FlowConfigUpdate{
 			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
-				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResyncTables: []*protos.TableMapping{{
-					SourceTableIdentifier:      AttachSchema(s, "table_resync_missing"),
-					DestinationTableIdentifier: AddSuffix(s, "table_resync_missing"),
-				}}},
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					ResyncTables: []*protos.TableMapping{proto.CloneOf(flowConfig.TableMappings[0])},
+				},
 			},
 		},
 	})
 	require.Error(s.t, err)
 	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(s.t, err, "only supported for ClickHouse destinations")
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
 
 	env.Cancel(ctx)
@@ -2263,6 +2352,158 @@ func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {
 		clickhouse.QuoteIdentifier(destination))).Scan(&emptyVals, &notes))
 	require.Equal(s.t, uint64(2), emptyVals)
 	require.Equal(s.t, []string{"n1", "n2", "n3"}, notes)
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(s.t, env)
+}
+
+// TestTableLevelResyncSkipsPendingBatches pauses a mirror while normalize of the resynced table is stuck,
+// so it has synced but not normalized batches both in the raw table and still in S3 stages. After the
+// resync those batches must not be normalized into the new table, but still be normalized into the
+// other table.
+func (s APITestSuite) TestTableLevelResyncSkipsPendingBatches() {
+	if _, ok := s.source.(*MongoSource); ok {
+		s.t.Skip("test uses a SQL source")
+	}
+	if s.ch.cluster {
+		s.t.Skip("slow materialized view helper is not cluster-aware")
+	}
+
+	ctx := s.t.Context()
+	resyncSource := AttachSchema(s, "table_resync_pending_a")
+	retainedSource := AttachSchema(s, "table_resync_pending_b")
+	resyncDestination := AddSuffix(s, "table_resync_pending_a")
+	retainedDestination := AddSuffix(s, "table_resync_pending_b")
+	for _, table := range []string{resyncSource, retainedSource} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", table)))
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'initial')", table)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_pending_" + s.suffix,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: resyncSource, DestinationTableIdentifier: resyncDestination},
+			{SourceTableIdentifier: retainedSource, DestinationTableIdentifier: retainedDestination},
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+	// one record per batch, so every insert below is its own batch
+	flowConfig.MaxBatchSize = 1
+	flowConfig.IdleTimeoutSeconds = 1
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial resynced table", "table_resync_pending_a", resyncDestination, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial retained table", "table_resync_pending_b", retainedDestination, "id,val")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+
+	getBatchIDs := func() (int64, int64) {
+		var syncBatchID, normalizeBatchID pgtype.Int8
+		require.NoError(s.t, s.catalog.QueryRow(ctx,
+			"SELECT sync_batch_id, normalize_batch_id FROM metadata_last_sync_state WHERE job_name = $1",
+			flowConfig.FlowJobName,
+		).Scan(&syncBatchID, &normalizeBatchID))
+		return syncBatchID.Int64, normalizeBatchID.Int64
+	}
+	rawTable := s.ch.connector.GetRawTableName(flowConfig.FlowJobName)
+	countRawRows := func(maxBatchID int64) uint64 {
+		var count uint64
+		require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+			"SELECT count() FROM %s WHERE _peerdb_destination_table_name = %s AND _peerdb_batch_id <= %d",
+			clickhouse.QuoteIdentifier(rawTable), clickhouse.QuoteLiteral(resyncDestination), maxBatchID,
+		)).Scan(&count))
+		return count
+	}
+
+	// Block normalize of the resynced table. The first batch is copied into the raw table before
+	// normalize gets stuck on its INSERT, later batches stay in S3 stages.
+	cleanupSlowInsert, err := s.ch.CreateSlowInsertViaMV(resyncDestination, 600)
+	require.NoError(s.t, err)
+	cleanupSlowInsertOnce := sync.OnceFunc(cleanupSlowInsert)
+	defer cleanupSlowInsertOnce()
+
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val) VALUES (2, 'raw-table')", resyncSource)))
+	EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert into resynced table to be stuck", func() bool {
+		var count uint64
+		err := ch.QueryRow(ctx, fmt.Sprintf(
+			`SELECT count() FROM system.processes WHERE current_database = currentDatabase() AND query ILIKE '%s'`,
+			"INSERT INTO%"+resyncDestination+"%")).Scan(&count)
+		return err == nil && count > 0
+	})
+	rawTableBatchID, _ := getBatchIDs()
+	require.Equal(s.t, uint64(1), countRawRows(rawTableBatchID))
+
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val) VALUES (3, 's3-stage')", resyncSource)))
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val) VALUES (2, 'pending')", retainedSource)))
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for batches synced after normalize got stuck", func() bool {
+		syncBatchID, _ := getBatchIDs()
+		return syncBatchID >= rawTableBatchID+2
+	})
+
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+	cleanupSlowInsertOnce()
+	syncBatchAtPause, normalizeBatchAtPause := getBatchIDs()
+	require.Less(s.t, normalizeBatchAtPause, syncBatchAtPause, "mirror must be paused with pending batches")
+
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					ResyncTables: []*protos.TableMapping{proto.CloneOf(flowConfig.TableMappings[0])},
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for table-level resync to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Normalize only runs after a new batch is synced, which also normalizes the pending batches.
+	require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf(
+		"INSERT INTO %s(id, val) VALUES (4, 'after-resync')", resyncSource)))
+	EnvWaitFor(s.t, env, 5*time.Minute, "wait for pending batches to be normalized", func() bool {
+		_, normalizeBatchID := getBatchIDs()
+		return normalizeBatchID > syncBatchAtPause
+	})
+	EnvWaitForEqualTablesWithNames(env, s.ch, "resynced table after resync", "table_resync_pending_a", resyncDestination, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "retained table after resync", "table_resync_pending_b", retainedDestination, "id,val")
+
+	// Snapshot rows have _peerdb_version 0, normalized CDC rows have their commit timestamp. Rows 2 and 3
+	// must only come from the resync snapshot, not from the pending batches; row 4 comes from CDC.
+	var pendingRowsNormalized, cdcRowsNormalized uint64
+	require.NoError(s.t, ch.QueryRow(ctx, fmt.Sprintf(
+		"SELECT countIf(_peerdb_version > 0 AND id < 4), countIf(_peerdb_version > 0 AND id = 4) FROM %s FINAL",
+		clickhouse.QuoteIdentifier(resyncDestination))).Scan(&pendingRowsNormalized, &cdcRowsNormalized))
+	require.Zero(s.t, pendingRowsNormalized, "pending batches must not be normalized into the resynced table")
+	require.Equal(s.t, uint64(1), cdcRowsNormalized, "CDC after the resync must be normalized into the resynced table")
+	require.Zero(s.t, countRawRows(rawTableBatchID), "pending raw rows of the resynced table must be removed")
 
 	env.Cancel(ctx)
 	RequireEnvCanceled(s.t, env)
