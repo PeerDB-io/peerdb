@@ -1,0 +1,4528 @@
+{
+  "bigquery": {
+    "name": "golden_dst_table",
+    "type": "record",
+    "fields": [
+      {
+        "name": "invalid_nn",
+        "type": "string"
+      },
+      {
+        "name": "float32_nn",
+        "type": "double"
+      },
+      {
+        "name": "float64_nn",
+        "type": "double"
+      },
+      {
+        "name": "int8_nn",
+        "type": "long"
+      },
+      {
+        "name": "int16_nn",
+        "type": "long"
+      },
+      {
+        "name": "int32_nn",
+        "type": "long"
+      },
+      {
+        "name": "int64_nn",
+        "type": "long"
+      },
+      {
+        "name": "int256_nn",
+        "type": {
+          "name": "int256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "uint8_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint16_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint32_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint256_nn",
+        "type": {
+          "name": "uint256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "bool_nn",
+        "type": "boolean"
+      },
+      {
+        "name": "qchar_nn",
+        "type": "string"
+      },
+      {
+        "name": "string_nn",
+        "type": "string"
+      },
+      {
+        "name": "enum_nn",
+        "type": "string"
+      },
+      {
+        "name": "uint16enum_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64set_nn",
+        "type": "long"
+      },
+      {
+        "name": "timestamp_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "timestamptz_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "date_nn",
+        "type": {
+          "type": "int",
+          "logicalType": "date"
+        }
+      },
+      {
+        "name": "time_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "timetz_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "interval_nn",
+        "type": "string"
+      },
+      {
+        "name": "bytes_nn",
+        "type": "bytes"
+      },
+      {
+        "name": "uuid_nn",
+        "type": {
+          "type": "string",
+          "logicalType": "uuid"
+        }
+      },
+      {
+        "name": "json_nn",
+        "type": "string"
+      },
+      {
+        "name": "jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "hstore_nn",
+        "type": "string"
+      },
+      {
+        "name": "geography_nn",
+        "type": "string"
+      },
+      {
+        "name": "geometry_nn",
+        "type": "string"
+      },
+      {
+        "name": "point_nn",
+        "type": "string"
+      },
+      {
+        "name": "cidr_nn",
+        "type": "string"
+      },
+      {
+        "name": "inet_nn",
+        "type": "string"
+      },
+      {
+        "name": "macaddr_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_float32_nn",
+        "type": {
+          "type": "array",
+          "items": "float"
+        }
+      },
+      {
+        "name": "array_float64_nn",
+        "type": {
+          "type": "array",
+          "items": "double"
+        }
+      },
+      {
+        "name": "array_int16_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int32_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int64_nn",
+        "type": {
+          "type": "array",
+          "items": "long"
+        }
+      },
+      {
+        "name": "array_string_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_enum_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_date_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "int",
+            "logicalType": "date"
+          }
+        }
+      },
+      {
+        "name": "array_time_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        }
+      },
+      {
+        "name": "array_interval_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamp_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_timestamptz_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_bool_nn",
+        "type": {
+          "type": "array",
+          "items": "boolean"
+        }
+      },
+      {
+        "name": "array_json_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_uuid_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        }
+      },
+      {
+        "name": "numeric_0_0_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_18_4_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 18,
+          "scale": 4
+        }
+      },
+      {
+        "name": "numeric_76_38_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_90_10_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 10
+        }
+      },
+      {
+        "name": "array_numeric_0_0_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_18_4_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        }
+      },
+      {
+        "name": "array_numeric_76_38_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_90_10_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        }
+      },
+      {
+        "name": "invalid_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "float32_n",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "float64_n",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "int8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int256_n",
+        "type": [
+          "null",
+          "int256"
+        ]
+      },
+      {
+        "name": "uint8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint256_n",
+        "type": [
+          "null",
+          "uint256"
+        ]
+      },
+      {
+        "name": "bool_n",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      {
+        "name": "qchar_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "string_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "enum_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uint16enum_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64set_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "timestamp_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "timestamptz_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "date_n",
+        "type": [
+          "null",
+          {
+            "type": "int",
+            "logicalType": "date"
+          }
+        ]
+      },
+      {
+        "name": "time_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "timetz_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "interval_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "bytes_n",
+        "type": [
+          "null",
+          "bytes"
+        ]
+      },
+      {
+        "name": "uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        ]
+      },
+      {
+        "name": "json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "hstore_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geography_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geometry_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "point_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "cidr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "inet_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "macaddr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_float32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "float"
+          }
+        ]
+      },
+      {
+        "name": "array_float64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "double"
+          }
+        ]
+      },
+      {
+        "name": "array_int16_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "long"
+          }
+        ]
+      },
+      {
+        "name": "array_string_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_enum_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_date_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "int",
+              "logicalType": "date"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_time_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "time-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_interval_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamp_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_timestamptz_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_bool_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "array_json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "logicalType": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "name": "numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        ]
+      },
+      {
+        "name": "numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 10
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "clickhouse": {
+    "name": "golden_dst_table",
+    "type": "record",
+    "fields": [
+      {
+        "name": "invalid_nn_0",
+        "type": "string"
+      },
+      {
+        "name": "float32_nn_1",
+        "type": "float"
+      },
+      {
+        "name": "float64_nn_2",
+        "type": "double"
+      },
+      {
+        "name": "int8_nn_3",
+        "type": "long"
+      },
+      {
+        "name": "int16_nn_4",
+        "type": "long"
+      },
+      {
+        "name": "int32_nn_5",
+        "type": "long"
+      },
+      {
+        "name": "int64_nn_6",
+        "type": "long"
+      },
+      {
+        "name": "int256_nn_7",
+        "type": {
+          "name": "int256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "uint8_nn_8",
+        "type": "long"
+      },
+      {
+        "name": "uint16_nn_9",
+        "type": "long"
+      },
+      {
+        "name": "uint32_nn_10",
+        "type": "long"
+      },
+      {
+        "name": "uint64_nn_11",
+        "type": "long"
+      },
+      {
+        "name": "uint256_nn_12",
+        "type": {
+          "name": "uint256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "bool_nn_13",
+        "type": "boolean"
+      },
+      {
+        "name": "qchar_nn_14",
+        "type": "string"
+      },
+      {
+        "name": "string_nn_15",
+        "type": "string"
+      },
+      {
+        "name": "enum_nn_16",
+        "type": "string"
+      },
+      {
+        "name": "uint16enum_nn_17",
+        "type": "long"
+      },
+      {
+        "name": "uint64set_nn_18",
+        "type": "long"
+      },
+      {
+        "name": "timestamp_nn_19",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "timestamptz_nn_20",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "date_nn_21",
+        "type": {
+          "type": "int",
+          "logicalType": "date"
+        }
+      },
+      {
+        "name": "time_nn_22",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "timetz_nn_23",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "interval_nn_24",
+        "type": "string"
+      },
+      {
+        "name": "bytes_nn_25",
+        "type": "bytes"
+      },
+      {
+        "name": "uuid_nn_26",
+        "type": {
+          "type": "string",
+          "logicalType": "uuid"
+        }
+      },
+      {
+        "name": "json_nn_27",
+        "type": "string"
+      },
+      {
+        "name": "jsonb_nn_28",
+        "type": "string"
+      },
+      {
+        "name": "hstore_nn_29",
+        "type": "string"
+      },
+      {
+        "name": "geography_nn_30",
+        "type": "string"
+      },
+      {
+        "name": "geometry_nn_31",
+        "type": "string"
+      },
+      {
+        "name": "point_nn_32",
+        "type": "string"
+      },
+      {
+        "name": "cidr_nn_33",
+        "type": "string"
+      },
+      {
+        "name": "inet_nn_34",
+        "type": "string"
+      },
+      {
+        "name": "macaddr_nn_35",
+        "type": "string"
+      },
+      {
+        "name": "array_float32_nn_36",
+        "type": {
+          "type": "array",
+          "items": "float"
+        }
+      },
+      {
+        "name": "array_float64_nn_37",
+        "type": {
+          "type": "array",
+          "items": "double"
+        }
+      },
+      {
+        "name": "array_int16_nn_38",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int32_nn_39",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int64_nn_40",
+        "type": {
+          "type": "array",
+          "items": "long"
+        }
+      },
+      {
+        "name": "array_string_nn_41",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_enum_nn_42",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_date_nn_43",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "int",
+            "logicalType": "date"
+          }
+        }
+      },
+      {
+        "name": "array_time_nn_44",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        }
+      },
+      {
+        "name": "array_interval_nn_45",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamp_nn_46",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_timestamptz_nn_47",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_bool_nn_48",
+        "type": {
+          "type": "array",
+          "items": "boolean"
+        }
+      },
+      {
+        "name": "array_json_nn_49",
+        "type": "string"
+      },
+      {
+        "name": "array_jsonb_nn_50",
+        "type": "string"
+      },
+      {
+        "name": "array_uuid_nn_51",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        }
+      },
+      {
+        "name": "numeric_0_0_nn_52",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 76,
+          "scale": 38
+        }
+      },
+      {
+        "name": "numeric_18_4_nn_53",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 18,
+          "scale": 4
+        }
+      },
+      {
+        "name": "numeric_76_38_nn_54",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 76,
+          "scale": 38
+        }
+      },
+      {
+        "name": "numeric_90_10_nn_55",
+        "type": "string"
+      },
+      {
+        "name": "array_numeric_0_0_nn_56",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        }
+      },
+      {
+        "name": "array_numeric_18_4_nn_57",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        }
+      },
+      {
+        "name": "array_numeric_76_38_nn_58",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        }
+      },
+      {
+        "name": "array_numeric_90_10_nn_59",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "invalid_n_60",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "float32_n_61",
+        "type": [
+          "null",
+          "float"
+        ]
+      },
+      {
+        "name": "float64_n_62",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "int8_n_63",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int16_n_64",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int32_n_65",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int64_n_66",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int256_n_67",
+        "type": [
+          "null",
+          "int256"
+        ]
+      },
+      {
+        "name": "uint8_n_68",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint16_n_69",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint32_n_70",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64_n_71",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint256_n_72",
+        "type": [
+          "null",
+          "uint256"
+        ]
+      },
+      {
+        "name": "bool_n_73",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      {
+        "name": "qchar_n_74",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "string_n_75",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "enum_n_76",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uint16enum_n_77",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64set_n_78",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "timestamp_n_79",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "timestamptz_n_80",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "date_n_81",
+        "type": [
+          "null",
+          {
+            "type": "int",
+            "logicalType": "date"
+          }
+        ]
+      },
+      {
+        "name": "time_n_82",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "timetz_n_83",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "interval_n_84",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "bytes_n_85",
+        "type": [
+          "null",
+          "bytes"
+        ]
+      },
+      {
+        "name": "uuid_n_86",
+        "type": [
+          "null",
+          {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        ]
+      },
+      {
+        "name": "json_n_87",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "jsonb_n_88",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "hstore_n_89",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geography_n_90",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geometry_n_91",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "point_n_92",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "cidr_n_93",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "inet_n_94",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "macaddr_n_95",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_float32_n_96",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "float"
+          }
+        ]
+      },
+      {
+        "name": "array_float64_n_97",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "double"
+          }
+        ]
+      },
+      {
+        "name": "array_int16_n_98",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int32_n_99",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int64_n_100",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "long"
+          }
+        ]
+      },
+      {
+        "name": "array_string_n_101",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_enum_n_102",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_date_n_103",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "int",
+              "logicalType": "date"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_time_n_104",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "time-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_interval_n_105",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamp_n_106",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_timestamptz_n_107",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_bool_n_108",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "array_json_n_109",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_jsonb_n_110",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_uuid_n_111",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "logicalType": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "name": "numeric_0_0_n_112",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        ]
+      },
+      {
+        "name": "numeric_18_4_n_113",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        ]
+      },
+      {
+        "name": "numeric_76_38_n_114",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        ]
+      },
+      {
+        "name": "numeric_90_10_n_115",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_numeric_0_0_n_116",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 76,
+              "scale": 38
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_18_4_n_117",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_76_38_n_118",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 76,
+              "scale": 38
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_90_10_n_119",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      }
+    ]
+  },
+  "clickhouse_numeric_as_string_base64": {
+    "name": "golden_dst_table",
+    "type": "record",
+    "fields": [
+      {
+        "name": "invalid_nn_0",
+        "type": "string"
+      },
+      {
+        "name": "float32_nn_1",
+        "type": "float"
+      },
+      {
+        "name": "float64_nn_2",
+        "type": "double"
+      },
+      {
+        "name": "int8_nn_3",
+        "type": "long"
+      },
+      {
+        "name": "int16_nn_4",
+        "type": "long"
+      },
+      {
+        "name": "int32_nn_5",
+        "type": "long"
+      },
+      {
+        "name": "int64_nn_6",
+        "type": "long"
+      },
+      {
+        "name": "int256_nn_7",
+        "type": {
+          "name": "int256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "uint8_nn_8",
+        "type": "long"
+      },
+      {
+        "name": "uint16_nn_9",
+        "type": "long"
+      },
+      {
+        "name": "uint32_nn_10",
+        "type": "long"
+      },
+      {
+        "name": "uint64_nn_11",
+        "type": "long"
+      },
+      {
+        "name": "uint256_nn_12",
+        "type": {
+          "name": "uint256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "bool_nn_13",
+        "type": "boolean"
+      },
+      {
+        "name": "qchar_nn_14",
+        "type": "string"
+      },
+      {
+        "name": "string_nn_15",
+        "type": "string"
+      },
+      {
+        "name": "enum_nn_16",
+        "type": "string"
+      },
+      {
+        "name": "uint16enum_nn_17",
+        "type": "long"
+      },
+      {
+        "name": "uint64set_nn_18",
+        "type": "long"
+      },
+      {
+        "name": "timestamp_nn_19",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "timestamptz_nn_20",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "date_nn_21",
+        "type": {
+          "type": "int",
+          "logicalType": "date"
+        }
+      },
+      {
+        "name": "time_nn_22",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "timetz_nn_23",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "interval_nn_24",
+        "type": "string"
+      },
+      {
+        "name": "bytes_nn_25",
+        "type": "string"
+      },
+      {
+        "name": "uuid_nn_26",
+        "type": {
+          "type": "string",
+          "logicalType": "uuid"
+        }
+      },
+      {
+        "name": "json_nn_27",
+        "type": "string"
+      },
+      {
+        "name": "jsonb_nn_28",
+        "type": "string"
+      },
+      {
+        "name": "hstore_nn_29",
+        "type": "string"
+      },
+      {
+        "name": "geography_nn_30",
+        "type": "string"
+      },
+      {
+        "name": "geometry_nn_31",
+        "type": "string"
+      },
+      {
+        "name": "point_nn_32",
+        "type": "string"
+      },
+      {
+        "name": "cidr_nn_33",
+        "type": "string"
+      },
+      {
+        "name": "inet_nn_34",
+        "type": "string"
+      },
+      {
+        "name": "macaddr_nn_35",
+        "type": "string"
+      },
+      {
+        "name": "array_float32_nn_36",
+        "type": {
+          "type": "array",
+          "items": "float"
+        }
+      },
+      {
+        "name": "array_float64_nn_37",
+        "type": {
+          "type": "array",
+          "items": "double"
+        }
+      },
+      {
+        "name": "array_int16_nn_38",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int32_nn_39",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int64_nn_40",
+        "type": {
+          "type": "array",
+          "items": "long"
+        }
+      },
+      {
+        "name": "array_string_nn_41",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_enum_nn_42",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_date_nn_43",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "int",
+            "logicalType": "date"
+          }
+        }
+      },
+      {
+        "name": "array_time_nn_44",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        }
+      },
+      {
+        "name": "array_interval_nn_45",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamp_nn_46",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_timestamptz_nn_47",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_bool_nn_48",
+        "type": {
+          "type": "array",
+          "items": "boolean"
+        }
+      },
+      {
+        "name": "array_json_nn_49",
+        "type": "string"
+      },
+      {
+        "name": "array_jsonb_nn_50",
+        "type": "string"
+      },
+      {
+        "name": "array_uuid_nn_51",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        }
+      },
+      {
+        "name": "numeric_0_0_nn_52",
+        "type": "string"
+      },
+      {
+        "name": "numeric_18_4_nn_53",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 18,
+          "scale": 4
+        }
+      },
+      {
+        "name": "numeric_76_38_nn_54",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 76,
+          "scale": 38
+        }
+      },
+      {
+        "name": "numeric_90_10_nn_55",
+        "type": "string"
+      },
+      {
+        "name": "array_numeric_0_0_nn_56",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_numeric_18_4_nn_57",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        }
+      },
+      {
+        "name": "array_numeric_76_38_nn_58",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        }
+      },
+      {
+        "name": "array_numeric_90_10_nn_59",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "invalid_n_60",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "float32_n_61",
+        "type": [
+          "null",
+          "float"
+        ]
+      },
+      {
+        "name": "float64_n_62",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "int8_n_63",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int16_n_64",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int32_n_65",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int64_n_66",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int256_n_67",
+        "type": [
+          "null",
+          "int256"
+        ]
+      },
+      {
+        "name": "uint8_n_68",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint16_n_69",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint32_n_70",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64_n_71",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint256_n_72",
+        "type": [
+          "null",
+          "uint256"
+        ]
+      },
+      {
+        "name": "bool_n_73",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      {
+        "name": "qchar_n_74",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "string_n_75",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "enum_n_76",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uint16enum_n_77",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64set_n_78",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "timestamp_n_79",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "timestamptz_n_80",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "date_n_81",
+        "type": [
+          "null",
+          {
+            "type": "int",
+            "logicalType": "date"
+          }
+        ]
+      },
+      {
+        "name": "time_n_82",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "timetz_n_83",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "interval_n_84",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "bytes_n_85",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uuid_n_86",
+        "type": [
+          "null",
+          {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        ]
+      },
+      {
+        "name": "json_n_87",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "jsonb_n_88",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "hstore_n_89",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geography_n_90",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geometry_n_91",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "point_n_92",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "cidr_n_93",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "inet_n_94",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "macaddr_n_95",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_float32_n_96",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "float"
+          }
+        ]
+      },
+      {
+        "name": "array_float64_n_97",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "double"
+          }
+        ]
+      },
+      {
+        "name": "array_int16_n_98",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int32_n_99",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int64_n_100",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "long"
+          }
+        ]
+      },
+      {
+        "name": "array_string_n_101",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_enum_n_102",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_date_n_103",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "int",
+              "logicalType": "date"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_time_n_104",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "time-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_interval_n_105",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamp_n_106",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_timestamptz_n_107",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_bool_n_108",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "array_json_n_109",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_jsonb_n_110",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_uuid_n_111",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "logicalType": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "name": "numeric_0_0_n_112",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "numeric_18_4_n_113",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        ]
+      },
+      {
+        "name": "numeric_76_38_n_114",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 76,
+            "scale": 38
+          }
+        ]
+      },
+      {
+        "name": "numeric_90_10_n_115",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_numeric_0_0_n_116",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_18_4_n_117",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_76_38_n_118",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 76,
+              "scale": 38
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_90_10_n_119",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      }
+    ]
+  },
+  "s3": {
+    "name": "golden_dst_table",
+    "type": "record",
+    "fields": [
+      {
+        "name": "invalid_nn",
+        "type": "string"
+      },
+      {
+        "name": "float32_nn",
+        "type": "float"
+      },
+      {
+        "name": "float64_nn",
+        "type": "double"
+      },
+      {
+        "name": "int8_nn",
+        "type": "long"
+      },
+      {
+        "name": "int16_nn",
+        "type": "long"
+      },
+      {
+        "name": "int32_nn",
+        "type": "long"
+      },
+      {
+        "name": "int64_nn",
+        "type": "long"
+      },
+      {
+        "name": "int256_nn",
+        "type": {
+          "name": "int256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "uint8_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint16_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint32_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint256_nn",
+        "type": {
+          "name": "uint256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "bool_nn",
+        "type": "boolean"
+      },
+      {
+        "name": "qchar_nn",
+        "type": "string"
+      },
+      {
+        "name": "string_nn",
+        "type": "string"
+      },
+      {
+        "name": "enum_nn",
+        "type": "string"
+      },
+      {
+        "name": "uint16enum_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64set_nn",
+        "type": "long"
+      },
+      {
+        "name": "timestamp_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "timestamptz_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "timestamp-micros"
+        }
+      },
+      {
+        "name": "date_nn",
+        "type": {
+          "type": "int",
+          "logicalType": "date"
+        }
+      },
+      {
+        "name": "time_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "timetz_nn",
+        "type": {
+          "type": "long",
+          "logicalType": "time-micros"
+        }
+      },
+      {
+        "name": "interval_nn",
+        "type": "string"
+      },
+      {
+        "name": "bytes_nn",
+        "type": "bytes"
+      },
+      {
+        "name": "uuid_nn",
+        "type": {
+          "type": "string",
+          "logicalType": "uuid"
+        }
+      },
+      {
+        "name": "json_nn",
+        "type": "string"
+      },
+      {
+        "name": "jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "hstore_nn",
+        "type": "string"
+      },
+      {
+        "name": "geography_nn",
+        "type": "string"
+      },
+      {
+        "name": "geometry_nn",
+        "type": "string"
+      },
+      {
+        "name": "point_nn",
+        "type": "string"
+      },
+      {
+        "name": "cidr_nn",
+        "type": "string"
+      },
+      {
+        "name": "inet_nn",
+        "type": "string"
+      },
+      {
+        "name": "macaddr_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_float32_nn",
+        "type": {
+          "type": "array",
+          "items": "float"
+        }
+      },
+      {
+        "name": "array_float64_nn",
+        "type": {
+          "type": "array",
+          "items": "double"
+        }
+      },
+      {
+        "name": "array_int16_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int32_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int64_nn",
+        "type": {
+          "type": "array",
+          "items": "long"
+        }
+      },
+      {
+        "name": "array_string_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_enum_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_date_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "int",
+            "logicalType": "date"
+          }
+        }
+      },
+      {
+        "name": "array_time_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        }
+      },
+      {
+        "name": "array_interval_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamp_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_timestamptz_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        }
+      },
+      {
+        "name": "array_bool_nn",
+        "type": {
+          "type": "array",
+          "items": "boolean"
+        }
+      },
+      {
+        "name": "array_json_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_uuid_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        }
+      },
+      {
+        "name": "numeric_0_0_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_18_4_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 18,
+          "scale": 4
+        }
+      },
+      {
+        "name": "numeric_76_38_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_90_10_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 10
+        }
+      },
+      {
+        "name": "array_numeric_0_0_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_18_4_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        }
+      },
+      {
+        "name": "array_numeric_76_38_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_90_10_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        }
+      },
+      {
+        "name": "invalid_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "float32_n",
+        "type": [
+          "null",
+          "float"
+        ]
+      },
+      {
+        "name": "float64_n",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "int8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int256_n",
+        "type": [
+          "null",
+          "int256"
+        ]
+      },
+      {
+        "name": "uint8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint256_n",
+        "type": [
+          "null",
+          "uint256"
+        ]
+      },
+      {
+        "name": "bool_n",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      {
+        "name": "qchar_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "string_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "enum_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uint16enum_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64set_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "timestamp_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "timestamptz_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "timestamp-micros"
+          }
+        ]
+      },
+      {
+        "name": "date_n",
+        "type": [
+          "null",
+          {
+            "type": "int",
+            "logicalType": "date"
+          }
+        ]
+      },
+      {
+        "name": "time_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "timetz_n",
+        "type": [
+          "null",
+          {
+            "type": "long",
+            "logicalType": "time-micros"
+          }
+        ]
+      },
+      {
+        "name": "interval_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "bytes_n",
+        "type": [
+          "null",
+          "bytes"
+        ]
+      },
+      {
+        "name": "uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        ]
+      },
+      {
+        "name": "json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "hstore_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geography_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geometry_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "point_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "cidr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "inet_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "macaddr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_float32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "float"
+          }
+        ]
+      },
+      {
+        "name": "array_float64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "double"
+          }
+        ]
+      },
+      {
+        "name": "array_int16_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "long"
+          }
+        ]
+      },
+      {
+        "name": "array_string_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_enum_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_date_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "int",
+              "logicalType": "date"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_time_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "time-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_interval_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamp_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_timestamptz_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "long",
+              "logicalType": "timestamp-micros"
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_bool_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "array_json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "logicalType": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "name": "numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        ]
+      },
+      {
+        "name": "numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 10
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "snowflake": {
+    "name": "golden_dst_table",
+    "type": "record",
+    "fields": [
+      {
+        "name": "invalid_nn",
+        "type": "string"
+      },
+      {
+        "name": "float32_nn",
+        "type": "float"
+      },
+      {
+        "name": "float64_nn",
+        "type": "double"
+      },
+      {
+        "name": "int8_nn",
+        "type": "long"
+      },
+      {
+        "name": "int16_nn",
+        "type": "long"
+      },
+      {
+        "name": "int32_nn",
+        "type": "long"
+      },
+      {
+        "name": "int64_nn",
+        "type": "long"
+      },
+      {
+        "name": "int256_nn",
+        "type": {
+          "name": "int256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "uint8_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint16_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint32_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint256_nn",
+        "type": {
+          "name": "uint256",
+          "type": "fixed",
+          "size": 32
+        }
+      },
+      {
+        "name": "bool_nn",
+        "type": "boolean"
+      },
+      {
+        "name": "qchar_nn",
+        "type": "string"
+      },
+      {
+        "name": "string_nn",
+        "type": "string"
+      },
+      {
+        "name": "enum_nn",
+        "type": "string"
+      },
+      {
+        "name": "uint16enum_nn",
+        "type": "long"
+      },
+      {
+        "name": "uint64set_nn",
+        "type": "long"
+      },
+      {
+        "name": "timestamp_nn",
+        "type": "string"
+      },
+      {
+        "name": "timestamptz_nn",
+        "type": "string"
+      },
+      {
+        "name": "date_nn",
+        "type": "string"
+      },
+      {
+        "name": "time_nn",
+        "type": "string"
+      },
+      {
+        "name": "timetz_nn",
+        "type": "string"
+      },
+      {
+        "name": "interval_nn",
+        "type": "string"
+      },
+      {
+        "name": "bytes_nn",
+        "type": "bytes"
+      },
+      {
+        "name": "uuid_nn",
+        "type": {
+          "type": "string",
+          "logicalType": "uuid"
+        }
+      },
+      {
+        "name": "json_nn",
+        "type": "string"
+      },
+      {
+        "name": "jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "hstore_nn",
+        "type": "string"
+      },
+      {
+        "name": "geography_nn",
+        "type": "string"
+      },
+      {
+        "name": "geometry_nn",
+        "type": "string"
+      },
+      {
+        "name": "point_nn",
+        "type": "string"
+      },
+      {
+        "name": "cidr_nn",
+        "type": "string"
+      },
+      {
+        "name": "inet_nn",
+        "type": "string"
+      },
+      {
+        "name": "macaddr_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_float32_nn",
+        "type": {
+          "type": "array",
+          "items": "float"
+        }
+      },
+      {
+        "name": "array_float64_nn",
+        "type": {
+          "type": "array",
+          "items": "double"
+        }
+      },
+      {
+        "name": "array_int16_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int32_nn",
+        "type": {
+          "type": "array",
+          "items": "int"
+        }
+      },
+      {
+        "name": "array_int64_nn",
+        "type": {
+          "type": "array",
+          "items": "long"
+        }
+      },
+      {
+        "name": "array_string_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_enum_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_date_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_time_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_interval_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamp_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_timestamptz_nn",
+        "type": {
+          "type": "array",
+          "items": "string"
+        }
+      },
+      {
+        "name": "array_bool_nn",
+        "type": {
+          "type": "array",
+          "items": "boolean"
+        }
+      },
+      {
+        "name": "array_json_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_jsonb_nn",
+        "type": "string"
+      },
+      {
+        "name": "array_uuid_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        }
+      },
+      {
+        "name": "numeric_0_0_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_18_4_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 18,
+          "scale": 4
+        }
+      },
+      {
+        "name": "numeric_76_38_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 20
+        }
+      },
+      {
+        "name": "numeric_90_10_nn",
+        "type": {
+          "type": "bytes",
+          "logicalType": "decimal",
+          "precision": 38,
+          "scale": 10
+        }
+      },
+      {
+        "name": "array_numeric_0_0_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_18_4_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        }
+      },
+      {
+        "name": "array_numeric_76_38_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        }
+      },
+      {
+        "name": "array_numeric_90_10_nn",
+        "type": {
+          "type": "array",
+          "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        }
+      },
+      {
+        "name": "invalid_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "float32_n",
+        "type": [
+          "null",
+          "float"
+        ]
+      },
+      {
+        "name": "float64_n",
+        "type": [
+          "null",
+          "double"
+        ]
+      },
+      {
+        "name": "int8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "int256_n",
+        "type": [
+          "null",
+          "int256"
+        ]
+      },
+      {
+        "name": "uint8_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint16_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint32_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint256_n",
+        "type": [
+          "null",
+          "uint256"
+        ]
+      },
+      {
+        "name": "bool_n",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      {
+        "name": "qchar_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "string_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "enum_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "uint16enum_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "uint64set_n",
+        "type": [
+          "null",
+          "long"
+        ]
+      },
+      {
+        "name": "timestamp_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "timestamptz_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "date_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "time_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "timetz_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "interval_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "bytes_n",
+        "type": [
+          "null",
+          "bytes"
+        ]
+      },
+      {
+        "name": "uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "string",
+            "logicalType": "uuid"
+          }
+        ]
+      },
+      {
+        "name": "json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "hstore_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geography_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "geometry_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "point_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "cidr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "inet_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "macaddr_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_float32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "float"
+          }
+        ]
+      },
+      {
+        "name": "array_float64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "double"
+          }
+        ]
+      },
+      {
+        "name": "array_int16_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int32_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "int"
+          }
+        ]
+      },
+      {
+        "name": "array_int64_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "long"
+          }
+        ]
+      },
+      {
+        "name": "array_string_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_enum_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_date_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_time_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_interval_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamp_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_timestamptz_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "string"
+          }
+        ]
+      },
+      {
+        "name": "array_bool_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "array_json_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_jsonb_n",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "array_uuid_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "logicalType": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "name": "numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 18,
+            "scale": 4
+          }
+        ]
+      },
+      {
+        "name": "numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 20
+          }
+        ]
+      },
+      {
+        "name": "numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 38,
+            "scale": 10
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_0_0_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_18_4_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_76_38_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "array_numeric_90_10_n",
+        "type": [
+          "null",
+          {
+            "type": "array",
+            "items": {
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 38,
+              "scale": 10
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
