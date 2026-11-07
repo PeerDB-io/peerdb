@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/go-mysql-org/go-mysql/replication"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/japanese"
@@ -15,6 +18,8 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/encoding/unicode/utf32"
 	"golang.org/x/text/transform"
+
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 )
 
 // charsetsNoTranscode lists the MySQL character sets whose stored bytes are
@@ -73,14 +78,39 @@ const (
 	tableMapEnumSetCollation
 )
 
+type usedCharsetMetricKey struct {
+	charset string
+	status  string
+}
+
+// usedCharsetMetricOptions holds one attribute option per charset and status. The metric is recorded for
+// every character column of every TABLE_MAP event, too often to build an attribute set each time.
+var usedCharsetMetricOptions sync.Map // usedCharsetMetricKey -> metric.AddOption
+
+func usedCharsetMetricOption(charset string, status string) metric.AddOption {
+	key := usedCharsetMetricKey{charset: charset, status: status}
+	if option, ok := usedCharsetMetricOptions.Load(key); ok {
+		return option.(metric.AddOption)
+	}
+	option, _ := usedCharsetMetricOptions.LoadOrStore(key, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("charset", charset),
+		attribute.String("status", status),
+	)))
+	return option.(metric.AddOption)
+}
+
 // collationEncoding resolves a MySQL collation id (as carried in binlog
 // TABLE_MAP metadata) to the x/text encoding needed to convert that column's
 // bytes to UTF-8.
 func (c *MySqlConnector) collationEncoding(
-	ctx context.Context, collationID uint64, recordUsedCharset func(charset, status string),
+	ctx context.Context, collationID uint64, otelManager *otel_metrics.OtelManager,
 ) (encoding.Encoding, error) {
 	if collationID == 0 {
 		return nil, nil
+	}
+
+	recordUsedCharsetMetrics := func(ctx context.Context, charset string, status string) {
+		otelManager.Metrics.UsedMySQLCharsetsCounter.Add(ctx, 1, usedCharsetMetricOption(charset, status))
 	}
 
 	charset, err := c.charsetForCollation(ctx, collationID)
@@ -96,15 +126,15 @@ func (c *MySqlConnector) collationEncoding(
 	}
 
 	if _, skip := charsetsNoTranscode[charset]; skip {
-		recordUsedCharset(charset, "not_transcoded")
+		recordUsedCharsetMetrics(ctx, charset, "not_transcoded")
 		return nil, nil
 	}
 	if enc, ok := mysqlCharsetEncodings[charset]; ok {
-		recordUsedCharset(charset, "transcoded")
+		recordUsedCharsetMetrics(ctx, charset, "transcoded")
 		return enc, nil
 	}
 
-	recordUsedCharset(charset, "unsupported")
+	recordUsedCharsetMetrics(ctx, charset, "unsupported")
 	c.warnCharsetOnce(charset, func() {
 		c.logger.Warn("unsupported MySQL character set on CDC path, passing bytes through untranscoded",
 			slog.String("charset", charset), slog.Uint64("collationID", collationID))
@@ -118,10 +148,10 @@ func (c *MySqlConnector) tableMapColumnEncodings(
 	tableMap *replication.TableMapEvent,
 	enumMap map[int][]string,
 	setMap map[int][]string,
-	recordUsedCharset func(charset, status string),
+	otelManager *otel_metrics.OtelManager,
 ) ([]encoding.Encoding, error) {
 	colEncodings, err := c.appendTableMapColumnEncodings(
-		ctx, recordUsedCharset,
+		ctx, otelManager,
 		tableMap, tableMapCharacterCollation, tableMap.DefaultCharset, tableMap.ColumnCharset,
 		nil, nil, nil,
 	)
@@ -129,7 +159,7 @@ func (c *MySqlConnector) tableMapColumnEncodings(
 		return nil, err
 	}
 	colEncodings, err = c.appendTableMapColumnEncodings(
-		ctx, recordUsedCharset,
+		ctx, otelManager,
 		tableMap, tableMapEnumSetCollation, tableMap.EnumSetDefaultCharset, tableMap.EnumSetColumnCharset,
 		enumMap, setMap, colEncodings,
 	)
@@ -141,7 +171,7 @@ func (c *MySqlConnector) tableMapColumnEncodings(
 
 func (c *MySqlConnector) appendTableMapColumnEncodings(
 	ctx context.Context,
-	recordUsedCharset func(charset, status string),
+	otelManager *otel_metrics.OtelManager,
 	tableMap *replication.TableMapEvent,
 	collationType tableMapCollationType,
 	defaultCharset []uint64,
@@ -165,7 +195,7 @@ func (c *MySqlConnector) appendTableMapColumnEncodings(
 			collationID := tableMapDefaultCollation(defaultCharset, collationPos, defaultCollation)
 			var err error
 			colEncodings, err = c.appendTableMapColumnEncoding(
-				ctx, recordUsedCharset, tableMap, collationType, colIdx, collationID, enumMap, setMap, colEncodings,
+				ctx, otelManager, tableMap, collationType, colIdx, collationID, enumMap, setMap, colEncodings,
 			)
 			if err != nil {
 				return nil, err
@@ -190,7 +220,7 @@ func (c *MySqlConnector) appendTableMapColumnEncodings(
 
 			var err error
 			colEncodings, err = c.appendTableMapColumnEncoding(
-				ctx, recordUsedCharset, tableMap, collationType, colIdx, columnCharset[collationPos],
+				ctx, otelManager, tableMap, collationType, colIdx, columnCharset[collationPos],
 				enumMap, setMap, colEncodings,
 			)
 			if err != nil {
@@ -228,7 +258,7 @@ func tableMapIncludesCollation(
 
 func (c *MySqlConnector) appendTableMapColumnEncoding(
 	ctx context.Context,
-	recordUsedCharset func(charset, status string),
+	otelManager *otel_metrics.OtelManager,
 	tableMap *replication.TableMapEvent,
 	collationType tableMapCollationType,
 	colIdx int,
@@ -237,7 +267,7 @@ func (c *MySqlConnector) appendTableMapColumnEncoding(
 	setMap map[int][]string,
 	colEncodings []encoding.Encoding,
 ) ([]encoding.Encoding, error) {
-	enc, err := c.collationEncoding(ctx, collationID, recordUsedCharset)
+	enc, err := c.collationEncoding(ctx, collationID, otelManager)
 	if err != nil {
 		return nil, err
 	}
