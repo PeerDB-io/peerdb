@@ -434,6 +434,15 @@ func (h *FlowRequestHandler) shutdownFlow(
 	return nil
 }
 
+func terminationSignalRequest(req *protos.FlowStateChangeRequest) *protos.FlowStateChangeRequest {
+	if req.RequestedFlowState != protos.FlowStatus_STATUS_TERMINATED {
+		return req
+	}
+	signalReq := proto.Clone(req).(*protos.FlowStateChangeRequest)
+	signalReq.RequestedFlowState = protos.FlowStatus_STATUS_TERMINATING
+	return signalReq
+}
+
 func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
@@ -562,7 +571,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 				case protos.FlowStatus_STATUS_FAILED:
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 				default:
-					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(
+						ctx, h.temporalClient, workflowID, "", terminationSignalRequest(req))
 				}
 				if changeErr == nil {
 					telemetry.LogActivityTerminateFlow(ctx, req.FlowJobName)
