@@ -13,6 +13,8 @@ repeating them.
 |---|---|
 | [Mirror config vs workflow state](#mirror-config-vs-workflow-state) | `flow/workflows/`, `flow/activities/flowable.go`, `flow/activities/flowable_core.go`, `protos/flow.proto` |
 | [Per-mirror behaviour: versions, flags, settings](#per-mirror-behaviour-versions-flags-settings) | `flow/shared/constants.go`, `flow/internal/dynamicconf.go`, `flow/cmd/handler.go`, `flow/cmd/validate_mirror.go`, `flow/connectors/clickhouse/validate.go` |
+| [Temporal signal handling](#temporal-signal-handling) | `flow/workflows/cdc_flow.go`, `flow/workflows/drop_flow.go`, `flow/model/signals.go` |
+| [Schema changes](#schema-changes) | `flow/activities/flowable_core.go`, `flow/model/cdc_stream.go`, `flow/internal/catalog_schema.go`, `flow/connectors/postgres/cdc.go`, `flow/connectors/mysql/cdc.go`, `flow/connectors/clickhouse/` |
 
 ---
 
@@ -52,3 +54,59 @@ changes the output of a running mirror.
 - Carefully thread all transformations the column value goes through, as it can change at different layers.
   Changes that are bugfixes (replacing nonsensical data with something more reasonable) are okay without a bump.
 - Flags re-detected outside creation, or a flag that stores a decision rather than a capability.
+
+---
+
+## Temporal signal handling
+
+**Why it is tricky.** Pause, resume, terminate and resync requests can arrive while a workflow waits for an
+activity or child workflow. The workflow must continue to handle the requests that it supports in that phase.
+An interrupting request needs the correct state, even if the current operation is only partly complete.
+For this guidance, small catalog interactions such as status updates or logging do not count as long waits.
+
+**What to watch for in a PR.**
+
+- When you add or move a long-running activity or child workflow, check which requests need handling during the wait.
+  For example, snapshot and table-edit operations handle terminate/resync requests while they wait for completion.
+  A direct `.Get()` on new work can delay those requests until the work finishes.
+- Before continuing as new, wait for cancellation to finish. Then process pending signals for the last time.
+  For example, `startCDC` cancels `SyncFlow`, waits for it, then drains pending signals.
+  Draining means processing the signals that are already waiting.
+  Put new long waits before that drain. This order lets the workflow handle requests that arrive during the wait.
+- If an operation changes state that may be used by termination or resync, check that state before the operation completes.
+  For example, table edits prepare the intended mappings before they handle signals.
+  Thus, an interrupting resync includes added tables and excludes removed tables.
+- If you add work between a decision and its action, check whether signals can change that decision.
+  For example, during resync cleanup, a terminate request means the workflow must fully remove the mirror instead of restarting it.
+  `DropFlowWorkflow` checks for this request again and completes the necessary catalog cleanup.
+- When you add state changes through signals, prevent pause/resume requests from overriding termination or resync.
+  For example, `FlowSignalHandler` applies pause only to a running signal state. It applies resume only to a paused signal state.
+
+---
+
+## Schema changes
+
+**Why it is tricky.** PeerDB passes schema changes from the source connector through Pull, Sync, catalog updates,
+and Normalize. These stages overlap and keep different views of schema and progress. Receiving a change,
+applying destination DDL, updating the catalog, and saving a checkpoint are separate steps. Review the complete
+path when changing one of them.
+
+**What to watch for in a PR.**
+
+- When changing how schema changes are detected or passed between stages, follow them through to destination DDL
+  and catalog updates. Check batches with no rows, excluded columns, and repeated changes. For example, MySQL
+  can emit DDL without row changes to carry it through the usual batch path.
+- When reading schema information, check which stage produced it and which records will use it. The latest
+  source schema can be ahead of Pull. Sync can update the catalog while Normalize uses an earlier copy of the
+  schema. Writing that copy back can erase Sync's changes. A refresh must not make an unprocessed change appear
+  complete or overwrite another stage's changes.
+- When moving a schema update or checkpoint, trace what happens if the next step fails. Check what the retry
+  reads, repeats, and skips. For example, one table can finish Normalize and save its progress while another
+  table in the batch fails. Any associated schema update must remain recoverable.
+- When changing catalog schemas, apply the specific change to the current catalog state.
+  `ReadModifyWriteTableSchemasToCatalog` provides this pattern. Pass the columns to add or remove, rather than
+  a replacement schema captured earlier.
+- When recovering from a schema mismatch, check whether recovery changes the replicated data. For example:
+  When recovering from a missing destination column, do not silently stop replicating that column. Check whether
+  it still exists in the source and whether the mirror configuration includes it. Apply the same care to types,
+  nullability, and defaults, including their effect on existing rows.

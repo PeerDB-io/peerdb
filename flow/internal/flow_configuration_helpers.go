@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
+	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -25,6 +27,25 @@ func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flow
 	}
 
 	return &cfgFromDB, nil
+}
+
+func UpdateCDCConfigInCatalog(ctx context.Context, pool shared.CatalogPool,
+	logger log.Logger, cfg *protos.FlowConnectionConfigsCore,
+) error {
+	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
+
+	cfgBytes, err := proto.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
+	if _, err := pool.Exec(ctx, "UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2", cfgBytes, cfg.FlowJobName); err != nil {
+		logger.Error("failed to update catalog", slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
+		return fmt.Errorf("failed to update catalog: %w", err)
+	}
+
+	logger.Info("synced state to catalog: updated config_proto in flows", slog.String("flowName", cfg.FlowJobName))
+	return nil
 }
 
 func ApplySnapshotConfigOverrides(config *protos.FlowConnectionConfigsCore, update *protos.CDCFlowConfigUpdate) {
