@@ -2703,6 +2703,81 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// A batch synced right before SyncFlow restarts must get normalized
+// even if the source has no further changes to trigger another sync
+func (s ClickHouseSuite) Test_Normalize_Synced_Batch_After_Restart() {
+	srcTableName := "test_normalize_after_restart"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_normalize_after_restart_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			ky TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_normalize_after_restart"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	rawTableName := s.connector.GetRawTableName(flowConnConfig.FlowJobName)
+	fakeRawTableName := rawTableName + "_fake"
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("RENAME TABLE %s TO %s%s",
+		clickhouse.QuoteIdentifier(rawTableName), clickhouse.QuoteIdentifier(fakeRawTableName), onCluster)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id, ky) VALUES (1, 'one'), (2, 'two')`, srcFullName)))
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for batch to sync", func() bool {
+		var syncBatchID pgtype.Int8
+		if err := s.catalog.QueryRow(s.t.Context(),
+			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
+			flowConnConfig.FlowJobName).Scan(&syncBatchID); err != nil {
+			return false
+		}
+		return syncBatchID.Valid && syncBatchID.Int64 == 1
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
+		errorCount, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "failed to normalize records",
+		)
+		return err == nil && errorCount > 0
+	})
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("RENAME TABLE %s TO %s%s",
+		clickhouse.QuoteIdentifier(fakeRawTableName), clickhouse.QuoteIdentifier(rawTableName), onCluster)))
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "resuming", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	EnvWaitForEqualTablesWithNames(env, s, "synced batch normalized after restart", srcTableName, dstTableName, "id,ky")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Geometric_Types() {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
@@ -4142,7 +4217,7 @@ func (s ClickHouseSuite) Test_Sync_Error_Cancels_InProgress_Normalize() {
 	// set an invalid s3 access key which will trigger a sync error
 	peer := s.Peer()
 	peer.GetClickhouseConfig().S3 = proto.CloneOf(peer.GetClickhouseConfig().S3)
-	peer.GetClickhouseConfig().S3.SecretAccessKey = proto.String("bad")
+	peer.GetClickhouseConfig().S3.SecretAccessKey = new("bad")
 	CreatePeer(s.t, peer)
 
 	lastErrorBefore := EnvGetWorkflowState(s.t, env).LastError
