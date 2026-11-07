@@ -1398,14 +1398,15 @@ func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMongoTooManyCursorsOpenedShouldBeRecoverable(t *testing.T) {
+func TestMongoTooManyCursorsOpenedShouldNotifyUser(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
 		Code:    2,
 		Message: "Cannot open a new cursor since too many cursors are already opened",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyTooManyCursorsOpened, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "Unexpected error action")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "2",
