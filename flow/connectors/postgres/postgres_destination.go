@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -208,13 +209,24 @@ func syncRecordsCore[Items model.Items](
 	if err := c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx); err != nil {
 		return nil, err
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGSyncCommitBefore); err != nil {
+		return nil, err
+	}
 	// transaction commits
 	if err := syncRecordsTx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGSyncCommitAfter); err != nil {
 		return nil, err
 	}
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+	if len(req.Records.SchemaDeltas) > 0 {
+		if err := testhooks.Failpoint(ctx, testhooks.PGSyncDDLAfter); err != nil {
+			return nil, err
+		}
 	}
 
 	return &model.SyncResponse{
@@ -412,8 +424,14 @@ func (c *PostgresConnector) normalizeBatch(
 		return 0, fmt.Errorf("failed to close batch results: %w", err)
 	}
 
+	if err := testhooks.Failpoint(ctx, testhooks.PGNormalizeCommitBefore); err != nil {
+		return 0, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("failed to commit normalize transaction: %w", err)
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGNormalizeCommitAfter); err != nil {
+		return 0, err
 	}
 
 	return totalRowsAffected, nil
