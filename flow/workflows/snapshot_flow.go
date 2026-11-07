@@ -106,6 +106,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	stagingPathOverride string,
 	mapping *protos.TableMapping,
+	schemaReconciled bool,
 	sourcePeerType protos.DBType,
 	destinationPeerType protos.DBType,
 ) error {
@@ -197,6 +198,20 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
+	// the destination's catalog schema was reconciled with the source table after the snapshot was exported:
+	// select only its columns, the destination may lack columns added to the source table since
+	// Version the extra schema load so histories without it keep their original command sequence.
+	var selectedColumns []string
+	if schemaReconciled && workflow.GetVersion(ctx, "snapshot-catalog-columns", workflow.DefaultVersion, 1) != workflow.DefaultVersion {
+		if err := initTableSchema(); err != nil {
+			return err
+		}
+		selectedColumns = make([]string, 0, len(tableSchema.Columns))
+		for _, col := range tableSchema.Columns {
+			selectedColumns = append(selectedColumns, col.Name)
+		}
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,
@@ -225,6 +240,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Version:                    s.config.Version,
 		Flags:                      s.config.Flags,
 		StructuredIngestionConfig:  mapping.StructuredIngestionConfig,
+		SelectedColumns:            selectedColumns,
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
@@ -245,7 +261,9 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	getParallelLoadKeyForTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		// also reads source table schemas, which SetupFlow gets an hour for
+		StartToCloseTimeout: time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -278,7 +296,9 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, stagingPathOverride, v, sourcePeerType, destinationPeerType); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, stagingPathOverride, v,
+			res.TableSchemaReconciledMapping[source], sourcePeerType, destinationPeerType,
+		); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			return err
 		}

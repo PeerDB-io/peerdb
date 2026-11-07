@@ -530,6 +530,10 @@ message QRepConfig {
   bool add_null_partition = 32; // internal
   // Structured ingestion settings of the replicated table, unset for tables that do not use it.
   StructuredIngestionTableConfig structured_ingestion_config = 33;
+  // Columns of the destination table's catalog schema: an initial snapshot selects those the source table has,
+  // in order, instead of every column of the table.
+  // Set only for Postgres sources whose schema was reconciled after the snapshot was exported.
+  repeated string selected_columns = 34; // internal
 }
 
 message ChildTableRange {
@@ -780,6 +784,9 @@ message GetDefaultPartitionKeyForTablesInput {
 
 message GetDefaultPartitionKeyForTablesOutput {
   map<string, string> table_default_partition_key_mapping = 1;
+  // source table -> whether its destination's catalog schema was reconciled with it,
+  // so its snapshot selects only columns of that schema; absent for tables whose snapshot selects every column
+  map<string, bool> table_schema_reconciled_mapping = 2;
 }
 
 message GetFlowInfoToCancelFromCatalogOutput {
