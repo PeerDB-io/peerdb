@@ -32,6 +32,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -511,6 +512,9 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 	// Resume pending batches even if the source stays quiet after restart.
 	progress := newSyncNormalizeProgress(lastSyncBatchID, lastNormBatchID)
+	if err := testhooks.Failpoint(ctx, testhooks.CDCStartupAfter); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)

@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -92,11 +93,17 @@ func (c *ClickHouseConnector) SyncQueryCDC(
 	if numRecords == 0 {
 		return rowCounts, nil
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.QCDCSyncStageFilesAfter); err != nil {
+		return nil, err
+	}
 
 	if err := SetQueryCDCAvroStage(
 		ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, req.BatchID, avroFiles, rowCounts,
 	); err != nil {
 		return nil, fmt.Errorf("failed to set table avro stage: %w", err)
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.QCDCSyncSetStageAfter); err != nil {
+		return nil, err
 	}
 
 	return rowCounts, nil
@@ -167,7 +174,13 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 				return nil, fmt.Errorf("failed to insert into %s for batch %d file %d/%d: %w",
 					req.TableMapping.DestinationTableIdentifier, batchID, fileIdx+1, len(avroFiles), err)
 			}
+			if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizeInsertFileAfter); err != nil {
+				return nil, err
+			}
 			avroFile.Cleanup(ctx)
+			if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizeFileCleanupAfter); err != nil {
+				return nil, err
+			}
 
 			remainingFiles := avroFiles[fileIdx+1:]
 			if len(remainingFiles) > 0 {
@@ -176,10 +189,18 @@ func (c *ClickHouseConnector) NormalizeQueryCDC(
 					return nil, fmt.Errorf("failed to checkpoint batch %d after file %d/%d: %w",
 						batchID, fileIdx+1, len(avroFiles), err)
 				}
-			} else if err := DeleteQueryCDCAvroStage(
-				ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID,
-			); err != nil {
-				return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
+				if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizeStageCheckpointAfter); err != nil {
+					return nil, err
+				}
+			} else {
+				if err := DeleteQueryCDCAvroStage(
+					ctx, req.FlowJobName, req.TableMapping.SourceTableIdentifier, batchID,
+				); err != nil {
+					return nil, fmt.Errorf("failed to delete table avro stage for batch %d: %w", batchID, err)
+				}
+				if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizeDeleteStageAfter); err != nil {
+					return nil, err
+				}
 			}
 		}
 

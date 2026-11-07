@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -286,8 +287,20 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
+		hasSchemaDeltas := len(recordBatchSync.SchemaDeltas) > 0
+		if hasSchemaDeltas {
+			if err := testhooks.Failpoint(ctx, testhooks.CDCSchemaOnlyDDLAfter); err != nil {
+				return nil, err
+			}
+		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		if err := a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas); err != nil {
+			return nil, err
+		}
+		if hasSchemaDeltas {
+			return nil, testhooks.Failpoint(ctx, testhooks.CDCSchemaOnlyCatalogSchemaAfter)
+		}
+		return nil, nil
 	}
 
 	var res *model.SyncResponse
@@ -372,6 +385,9 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.CDCSyncSourceOffsetAfter); err != nil {
+		return nil, err
+	}
 
 	var firstRowReceivedAt, firstRowCommitTime *time.Time
 	if receivedAt, commitTime, ok := recordBatchPull.FirstRowTimes(); ok {
@@ -413,16 +429,25 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
+	if len(res.TableSchemaDeltas) > 0 {
+		if err := testhooks.Failpoint(ctx, testhooks.CDCSyncCatalogSchemaAfter); err != nil {
+			return nil, err
+		}
+	}
 
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(new("normalizing"))
 		progress.RecordSyncedBatch(res.CurrentSyncBatchID)
+		if err := testhooks.Failpoint(ctx, testhooks.CDCSyncPublishSyncedAfter); err != nil {
+			return nil, err
+		}
 		if res.CurrentSyncBatchID-progress.NormalizedBatchID() >= normBufferSize {
 			logger.Warn("sync waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
 				slog.Int64("normalizeBatchID", progress.NormalizedBatchID()),
 				slog.Int64("normBufferSize", normBufferSize))
-			if err := progress.WaitForNormalizeCatchup(ctx, normBufferSize); err != nil {
+			backpressureGap := func() { testhooks.Pausepoint(ctx, testhooks.CDCSyncBackpressureGap) }
+			if err := progress.WaitForNormalizeCatchup(ctx, normBufferSize, backpressureGap); err != nil {
 				return nil, err
 			}
 			logger.Info("done waiting on normalize backpressure",
@@ -764,7 +789,13 @@ func (a *FlowableActivity) startNormalize(
 
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
+		if err := testhooks.Failpoint(ctx, testhooks.CDCNormalizePublishNormalizedBefore); err != nil {
+			return err
+		}
 		progress.RecordNormalizedBatch(res.EndBatchID)
+		if err := testhooks.Failpoint(ctx, testhooks.CDCNormalizePublishNormalizedAfter); err != nil {
+			return err
+		}
 		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, res.EndBatchID,
 			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 		if res.EndBatchID >= batchID {
@@ -806,7 +837,7 @@ func (a *FlowableActivity) normalizeLoop(
 
 	for {
 		normalizeWaiting.Store(true)
-		targetBatchID, err := progress.WaitForUnnormalizedBatch(ctx)
+		targetBatchID, err := progress.WaitForUnnormalizedBatch(ctx, func() { testhooks.Pausepoint(ctx, testhooks.CDCNormalizeIdleGap) })
 		if err != nil {
 			logger.Info("[normalize-loop] context closed")
 			return

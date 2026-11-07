@@ -59,7 +59,7 @@ func (p *syncNormalizeProgress) NormalizedBatchID() int64 {
 	return p.normalizedBatchID
 }
 
-func (p *syncNormalizeProgress) WaitForUnnormalizedBatch(ctx context.Context) (int64, error) {
+func (p *syncNormalizeProgress) WaitForUnnormalizedBatch(ctx context.Context, gapHooks ...func()) (int64, error) {
 	for {
 		p.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -75,6 +75,9 @@ func (p *syncNormalizeProgress) WaitForUnnormalizedBatch(ctx context.Context) (i
 		// A later update closes this channel, so it wakes us even if select starts afterward.
 		progressChanged := p.progressChanged
 		p.mu.Unlock()
+		for _, hook := range gapHooks {
+			hook()
+		}
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -83,7 +86,7 @@ func (p *syncNormalizeProgress) WaitForUnnormalizedBatch(ctx context.Context) (i
 	}
 }
 
-func (p *syncNormalizeProgress) WaitForNormalizeCatchup(ctx context.Context, backpressureThreshold int64) error {
+func (p *syncNormalizeProgress) WaitForNormalizeCatchup(ctx context.Context, backpressureThreshold int64, gapHooks ...func()) error {
 	for {
 		p.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -96,6 +99,9 @@ func (p *syncNormalizeProgress) WaitForNormalizeCatchup(ctx context.Context, bac
 		}
 		progressChanged := p.progressChanged
 		p.mu.Unlock()
+		for _, hook := range gapHooks {
+			hook()
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
