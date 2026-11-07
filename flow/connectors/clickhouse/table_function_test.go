@@ -221,3 +221,55 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
 }
+
+// TestBuildInsertFromTableFunctionQuerySourceSchema checks who supplies _peerdb_source_schema:
+// when the source projected the column, the insert copies it from the file; otherwise the insert
+// adds the watermark table's schema.
+func TestBuildInsertFromTableFunctionQuerySourceSchema(t *testing.T) {
+	const tableFunctionExpr = "s3('s3://bucket/key', 'Avro')"
+	settingOn := map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+	settingOff := map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"}
+	projectedFields := types.QRecordSchema{Fields: []types.QField{
+		{Name: "id", Type: types.QValueKindInt64},
+		{Name: sourceSchemaColName, Type: types.QValueKindString},
+	}}
+	sourceFields := types.QRecordSchema{Fields: []types.QField{
+		{Name: "id", Type: types.QValueKindInt64},
+	}}
+
+	for _, tc := range []struct {
+		name     string
+		env      map[string]string
+		schema   types.QRecordSchema
+		expected string
+	}{
+		{
+			name:     "setting on + projected",
+			env:      settingOn,
+			schema:   projectedFields,
+			expected: "INSERT INTO `t1`(`id`,`_peerdb_source_schema`) SELECT `id`,`_peerdb_source_schema` FROM " + tableFunctionExpr,
+		},
+		{
+			name:     "setting on + not projected",
+			env:      settingOn,
+			schema:   sourceFields,
+			expected: "INSERT INTO `t1`(`id`,_peerdb_source_schema) SELECT `id`,'public' FROM " + tableFunctionExpr,
+		},
+		{
+			name:     "setting off",
+			env:      settingOff,
+			schema:   sourceFields,
+			expected: "INSERT INTO `t1`(`id`) SELECT `id` FROM " + tableFunctionExpr,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			query, err := buildInsertFromTableFunctionQuery(t.Context(), &insertFromTableFunctionConfig{
+				destinationTable: "t1",
+				schema:           tc.schema,
+				config:           &protos.QRepConfig{Env: tc.env, WatermarkTable: "public.parent"},
+			}, tableFunctionExpr, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, query)
+		})
+	}
+}

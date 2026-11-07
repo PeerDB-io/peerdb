@@ -25,7 +25,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-const ctidColumnName = "ctid"
+const (
+	ctidColumnName         = "ctid"
+	sourceSchemaColumnName = "_peerdb_source_schema"
+)
 
 type QRepPullSink interface {
 	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, int64, error)
@@ -398,7 +401,11 @@ func corePullQRepRecords(
 	}
 
 	if len(partition.ChildTableRanges) > 0 {
-		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns)
+		projectChildSchema, err := c.shouldProjectChildSchema(ctx, config, parsedSrcTable)
+		if err != nil {
+			return 0, 0, err
+		}
+		return pullChildTableRanges(c, ctx, config, partition, sink, selectedColumns, projectChildSchema)
 	}
 
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
@@ -475,6 +482,23 @@ func corePullQRepRecords(
 	return numRecords, numBytes, nil
 }
 
+func (c *PostgresConnector) shouldProjectChildSchema(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	table *common.QualifiedTable,
+) (bool, error) {
+	if enabled, err := internal.PeerDBPostgresSourceSchemaFromInheritanceChild(ctx, config.Env); err != nil || !enabled {
+		return false, err
+	}
+	var isInheritanceParent bool
+	if err := c.conn.QueryRow(ctx,
+		"SELECT relkind = 'r' AND relhassubclass FROM pg_catalog.pg_class WHERE oid = $1::regclass", table.String(),
+	).Scan(&isInheritanceParent); err != nil {
+		return false, fmt.Errorf("failed to check whether %s is an inheritance parent: %w", table, err)
+	}
+	return isInheritanceParent, nil
+}
+
 // pullChildTableRanges executes one query per ChildTableRange entry,
 // building a query directly for each child table, and accumulates results.
 func pullChildTableRanges(
@@ -484,6 +508,7 @@ func pullChildTableRanges(
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
 	selectedColumns string,
+	shouldProjectChildSchema bool,
 ) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
@@ -503,9 +528,15 @@ func pullChildTableRanges(
 			return 0, 0, fmt.Errorf("failed to parse child table %s: %w", child.Table, err)
 		}
 
+		childSelectedColumns := selectedColumns
+		if shouldProjectChildSchema {
+			childSelectedColumns += ", " + utils.QuoteLiteral(parsedChild.Namespace) + "::text AS " +
+				common.QuoteIdentifier(sourceSchemaColumnName)
+		}
+
 		// ONLY excludes rows from child tables, ensuring we don't double-count inherited rows.
 		query := fmt.Sprintf("SELECT %s FROM ONLY %s WHERE %s BETWEEN $1 AND $2",
-			selectedColumns, parsedChild.String(), quotedWatermarkColumn)
+			childSelectedColumns, parsedChild.String(), quotedWatermarkColumn)
 
 		rangeStart := pgtype.TID{
 			BlockNumber:  child.Start,

@@ -474,6 +474,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_POSTGRES_SOURCE_SCHEMA_FROM_INHERITANCE_CHILD",
+		Description: "Experimental. Effective only with PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN and " +
+			"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES enabled, rows of " +
+			"inheritance child tables propagate their own table's schema instead of the root table's. ",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",
 		Description:      "Ingest additional metadata fields",
 		DefaultValue:     "false",
@@ -1105,6 +1115,18 @@ func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool,
 
 func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBPostgresSourceSchemaFromInheritanceChild(ctx context.Context, env map[string]string) (bool, error) {
+	for _, required := range []func(context.Context, map[string]string) (bool, error){
+		PeerDBSourceSchemaAsDestinationColumn,
+		PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables,
+	} {
+		if enabled, err := required(ctx, env); err != nil || !enabled {
+			return false, err
+		}
+	}
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_SOURCE_SCHEMA_FROM_INHERITANCE_CHILD")
 }
 
 func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {

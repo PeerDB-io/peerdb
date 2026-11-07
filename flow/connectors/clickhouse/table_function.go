@@ -149,6 +149,7 @@ func buildInsertFromTableFunctionQuery(
 	if err != nil {
 		return "", err
 	}
+	sourceSchemaColExists := false
 
 	selectedColumnNames := make([]string, 0, len(config.schema.Fields))
 	insertedColumnNames := make([]string, 0, len(config.schema.Fields))
@@ -160,6 +161,9 @@ func buildInsertFromTableFunctionQuery(
 		excluded := slices.Contains(config.excludedColumns, colName)
 		if excluded {
 			continue
+		}
+		if !sourceSchemaColExists && colName == sourceSchemaColName {
+			sourceSchemaColExists = true
 		}
 
 		sourceFieldName := colName
@@ -187,7 +191,7 @@ func buildInsertFromTableFunctionQuery(
 	}
 
 	// Add source schema column if needed
-	if sourceSchemaAsDestinationColumn {
+	if sourceSchemaAsDestinationColumn && !sourceSchemaColExists {
 		qualifiedTable, err := common.ParseTableIdentifier(config.config.WatermarkTable)
 		if err != nil {
 			return "", err
