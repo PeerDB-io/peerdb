@@ -1,78 +1,51 @@
 name: tilt-flow
 run-name: 'tilt-flow: ${{ inputs.run_label }} [services: ${{ inputs.ancillary_services }}]'
 
-# Tilt orchestrated e2e tests flow.
+# Runs fault-injection e2e tests against a Tilt stack whose flow-worker has
+# PEERDB_TEST_HOOKS=true. Failed tests are rerun by .github/scripts/fault-run.sh.
 #
 # This workflow can be triggered manually (workflow_dispatch) or reused by another
-# workflow (workflow_call, e.g. flow.yml): choose package lists and the
-# ancillary services they need.
+# workflow (workflow_call, e.g. flow.yml).
 on:
   workflow_dispatch:
     inputs: &tilt_flow_inputs
       test_packages:
-        description: Space-separated Tilt test package patterns relative to flow/.
+        description: >-
+          Space-separated package:parallelism pairs relative to flow/, e.g.
+          ./e2e/postgres_clickhouse:4. Each package runs in its own go test process.
         type: string
-        required: false
-        default: ./e2e/postgres_clickhouse/...
-      pkg_test_packages:
-        description: Space-separated Tilt test package patterns relative to flow/pkg/.
+        required: true
+      test_run:
+        description: The go test -run pattern selecting the tests.
         type: string
-        required: false
-        default: ''
+        required: true
+      results_name:
+        description: Suffix of the fault-results-<name> artifact.
+        type: string
+        required: true
       ancillary_services:
         description: >-
           Space-separated ancillary Tilt resources to start before the test.
         type: string
         required: false
-        default: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 postgres
+        default: postgres clickhouse
       checkout_ref:
         description: >-
           Git ref or SHA to check out. Leave empty to use the triggering event's
-          default; callers running on pull_request_target must pass the PR head
-          SHA explicitly, or the base branch gets tested instead of the PR.
-        type: string
-        required: false
-        default: ''
-      test_env:
-        description: >-
-          Newline-separated KEY=VALUE pairs exported into the test run's
-          environment.
+          default.
         type: string
         required: false
         default: ''
       run_label:
         description: >-
-          Short label identifying this run's version/flavor combination; used in
-          the artifact name and the test-results combination id.
+          Short label identifying this run; used in the artifact names.
         type: string
         required: false
         default: ''
       # The <db>_image inputs pin the docker images of the ancillary DBs.
-      # When empty, default to last combination declared at flow.yml
-      # following scripts/generate-test-environment.sh's defaults.
+      # When empty, default to scripts/generate-test-environment.sh's defaults.
       postgres_image:
         description: Docker image for the postgres/postgres2 ancillary services (POSTGRES_IMAGE).
-        type: string
-        required: false
-        default: ''
-      mysql_gtid_image:
-        description: Docker image for the mysql-gtid ancillary service (MYSQL_GTID_IMAGE).
-        type: string
-        required: false
-        default: ''
-      mysql_pos_image:
-        description: >-
-          Docker image for the mysql-pos ancillary service (MYSQL_POS_IMAGE).
-        type: string
-        required: false
-        default: ''
-      mariadb_image:
-        description: Docker image for the mariadb ancillary service (MARIADB_IMAGE).
-        type: string
-        required: false
-        default: ''
-      mongodb_image:
-        description: Docker image for the mongodb ancillary service (MONGODB_IMAGE).
         type: string
         required: false
         default: ''
@@ -83,83 +56,21 @@ on:
         type: string
         required: false
         default: ''
-      cockroachdb_image:
-        description: Docker image for the cockroachdb ancillary service (COCKROACHDB_IMAGE).
-        type: string
-        required: false
-        default: ''
-  # Reuse the exact same inputs when invoked from another workflow. The o11y
-  # secrets are optional: a caller can pass them explicitly or via
-  # `secrets: inherit`; when absent, test-results ingestion is skipped.
   workflow_call:
     inputs: *tilt_flow_inputs
     secrets:
-      # AWS-backed test wiring: the OIDC role the runner assumes, the bucket
-      # for the ClickHouse S3 IAM role test (s3_iam_role_test.go), and the
-      # role/host/username targets the RDS IAM auth tests connect to
-      # (rds_test.go).
-      FLOW_TESTS_AWS_ROLE_ARN:
-        required: false
-      FLOW_TESTS_AWS_S3_BUCKET_NAME:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY:
-        required: false
-      FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL:
-        required: false
-      CI_O11Y_TARGET_API_KEY_ID:
-        required: false
-      CI_O11Y_TARGET_API_KEY_SECRET:
-        required: false
-      CI_O11Y_TARGET_QUERY_ENDPOINT:
-        required: false
-      # Cloud-destination test credentials, used by the BigQuery/PubSub,
-      # Snowflake, GCS and EventHubs suites.
+      # BigQuery source credentials for the bigquery_clickhouse fault workload.
       GCP_GH_CI_PKEY:
-        required: false
-      SNOWFLAKE_GH_CI_PKEY:
-        required: false
-      GCS_CREDS:
-        required: false
-      EH_CREDS:
-        required: false
-      AZURE_TENANT_ID:
-        required: false
-      AZURE_CLIENT_ID:
-        required: false
-      AZURE_CLIENT_SECRET:
-        required: false
-      AZURE_SUBSCRIPTION_ID:
         required: false
 
 permissions:
-  # id-token: OIDC role assumption in the Configure AWS credentials step
-  # (RDS IAM auth tests).
-  id-token: write
   contents: read
 
 concurrency:
-  # Keyed per PR (falling back to the ref) and per input combination, so the
-  # matrix fan-out from flow.yml doesn't cancel its own sibling jobs, and fork
-  # PRs (pull_request_target runs on the base ref) don't collide with pushes
-  # to main.
-  #
-  # - Consecutive commits in a PR branch cancel their builds.
-  # - Consecutive commits in main do not cancel each other's runs.
-  #
-  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}-${{ inputs.postgres_image }}-${{ inputs.mysql_gtid_image }}-${{ inputs.mysql_pos_image }}-${{ inputs.mariadb_image }}-${{ inputs.mongodb_image }}-${{ inputs.clickhouse_image }}-${{ inputs.cockroachdb_image }}-${{ github.event_name == 'push' && github.sha || '' }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  # Keyed per PR (falling back to the ref) and per run label, so the matrix
+  # fan-out from flow.yml doesn't cancel its own sibling jobs.
+  group: tilt-flow-${{ github.event.pull_request.number || github.ref }}-${{ inputs.run_label }}
+  cancel-in-progress: true
 
 env:
   # Tells the Tiltfile to skip services the tests don't use (nexus, UI).
@@ -180,54 +91,37 @@ env:
   MIN_RECOVERY_TIME: "3"
   MAX_RECOVERY_TIME: "5"
   # Ancillary DB image pins consumed by scripts/generate-test-environment.sh, which the
-  # Tiltfile runs on `tilt up`. Empty values fall back to the script's
-  # defaults.
-  POSTGRES_IMAGE: ${{ inputs.postgres_image }}
-  MYSQL_GTID_IMAGE: ${{ inputs.mysql_gtid_image }}
-  MYSQL_POS_IMAGE: ${{ inputs.mysql_pos_image }}
-  MARIADB_IMAGE: ${{ inputs.mariadb_image }}
-  MONGODB_IMAGE: ${{ inputs.mongodb_image }}
-  CLICKHOUSE_IMAGE: ${{ inputs.clickhouse_image }}
-  COCKROACHDB_IMAGE: ${{ inputs.cockroachdb_image }}
-  # If OTEL is present in the list of services, we enable it
-  # to be used in the PeerDB services.
-  ENABLE_OTEL_METRICS: ${{ contains(inputs.ancillary_services, 'otel-collector') && 'true' || 'false' }}
-  # Bucket for the ClickHouse S3 IAM role test (s3_iam_role_test.go); the
-  # temporary AWS credentials that go with it are set on the Run tests step.
-  FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
-  # RDS IAM auth test targets (rds_test.go)
-  FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
-  FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
-  FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
-  FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY }}
-  FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
-  FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
-  FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY }}
-  FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
+  # Tiltfile runs on `tilt up`. The script's own defaults read the flow_test matrix
+  # from flow.yml, which this branch removed, so every image it checks is pinned here,
+  # even for services these jobs never start. Values match main's flow.yml defaults.
+  POSTGRES_IMAGE: ${{ inputs.postgres_image || 'imresamu/postgis:18-3.5-alpine' }}
+  CLICKHOUSE_IMAGE: ${{ inputs.clickhouse_image || 'clickhouse/clickhouse-server:latest' }}
+  MYSQL_GTID_IMAGE: mysql:9.5
+  MYSQL_POS_IMAGE: mysql:5.7
+  MARIADB_IMAGE: mariadb:lts-ubi9
+  MONGODB_IMAGE: mongo:8.2.12
+  COCKROACHDB_IMAGE: cockroachdb/cockroach:v26.2.5
+  ENABLE_OTEL_METRICS: "false"
 
 jobs:
   tilt:
     runs-on: ubuntu-latest-64-core
-    timeout-minutes: 60
+    # Tilt startup (~15 min) + the test step's 120 min + log capture and upload.
+    timeout-minutes: 150
     steps:
       - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1
         with:
           expand-composite-actions: true
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          # Empty = the event's default checkout; callers on pull_request_target
-          # pass the PR head SHA here.
+          # Empty = the event's default checkout.
           ref: ${{ inputs.checkout_ref }}
-          # checkout refuses fork code under pull_request_target unless opted in;
-          # flow.yml's external-contributor environment gate is the human review.
-          allow-unsafe-pr-checkout: true
 
-      # Combination id for test-results ingestion steps
       - name: Compute run identity
         id: run-identity
         env:
           RUN_LABEL: ${{ inputs.run_label }}
-          RAW_IDENTITY: "${{ inputs.test_packages }} ${{ inputs.pkg_test_packages }} ${{ inputs.postgres_image }} ${{ inputs.mysql_gtid_image }} ${{ inputs.mysql_pos_image }} ${{ inputs.mariadb_image }} ${{ inputs.mongodb_image }} ${{ inputs.clickhouse_image }} ${{ inputs.cockroachdb_image }}"
+          RAW_IDENTITY: "${{ inputs.test_run }}"
         run: |
           label="${RUN_LABEL:-$RAW_IDENTITY}"
           suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
@@ -249,25 +143,12 @@ jobs:
           setup_only: true
           github_token: ${{ github.token }}
 
-      - name: install lib-geos and pg_dump
+      - name: install lib-geos
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-          # Add PGDG apt repo for latest PostgreSQL client packages
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          # libgeos-dev: geometry support; retry: used by the test-results
-          # ingestion composite action's upload backoff.
-          sudo apt-get install -y libgeos-dev retry
-          # pg_dump must be >= the server major version; install v18 so it
-          # can dump PG 16, 17, and 18 (backward compatible).
-          sudo apt-get install -y postgresql-client-18
-          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
+          sudo apt-get install -y libgeos-dev
 
       - run: go mod download
         working-directory: ./flow
@@ -284,6 +165,9 @@ jobs:
           if [ ! -f .env ]; then
             cp .env.example .env
           fi
+          # Tilt passes this to the flow-worker through docker-compose-dev.yml,
+          # and the tests read it from .env too.
+          echo "PEERDB_TEST_HOOKS=true" >> .env
           # The test launchers run `go test` on the host (Tilt local_resource),
           # but .env points the DBs at host.docker.internal. Map that name to the
           # loopback so the host can reach the docker-compose published ports.
@@ -483,8 +367,6 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
-      # Credentials for the cloud-destination suites (BigQuery/PubSub via the
-      # GCP service account, Snowflake, GCS, EventHubs).
       - name: setup gcp service account
         id: gcp-service-account
         uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
@@ -492,196 +374,25 @@ jobs:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
-      - name: Configure Cloud SQL IAM smoke test
-        env:
-          # instance connection names: the Cloud SQL connector resolves the instance, its IP and its server CA itself
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES: "custom-program-353117:us-central1:db-integrations-testing-peerdb"
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES: "github-ci@custom-program-353117.iam"
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL: "custom-program-353117:us-central1:db-integrations-testing-peerdb-mysql"
-          # MySQL IAM users are the service account email without @project.iam.gserviceaccount.com
-          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL: "github-ci"
-        run: |
-          credentials_file="${{ github.workspace }}/bq_service_account.json"
-          if ! jq -e '
-            .client_email == "github-ci@custom-program-353117.iam.gserviceaccount.com" and
-            (.auth_type // .type) == "service_account" and
-            ([.project_id, .private_key_id, .private_key, .token_uri] | all(type == "string" and length > 0))
-          ' "$credentials_file" >/dev/null; then
-            echo "::error::GCP_GH_CI_PKEY must contain complete service account credentials for github-ci."
-            exit 1
-          fi
-          umask 077
-          adc_file="$RUNNER_TEMP/cloudsql-github-ci-adc.json"
-          jq '. + {type: "service_account"}' "$credentials_file" > "$adc_file"
-
-          {
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL"
-            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL"
-            echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file"
-          } >> "$GITHUB_ENV"
-
-      - name: setup snowflake credentials
-        id: sf-credentials
-        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
-        with:
-          name: "snowflake_creds.json"
-          json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
-
-      - name: setup GCS credentials
-        id: gcs-credentials
-        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
-        with:
-          name: "gcs_creds.json"
-          json: ${{ secrets.GCS_CREDS }}
-
-      - name: setup Eventhubs credentials
-        id: eventhubs-credentials
-        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
-        with:
-          name: "eh_creds.json"
-          json: ${{ secrets.EH_CREDS }}
-
-      # Temporary AWS credentials for the RDS IAM auth and ClickHouse S3 IAM
-      # role tests, assumed via OIDC. The tests read them as
-      # FLOW_TESTS_RDS_IAM_AUTH_AWS_* / FLOW_TESTS_AWS_*
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
-        id: setup-aws
-        with:
-          audience: sts.amazonaws.com
-          aws-region: us-west-2
-          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
-          mask-aws-account-id: true
-          output-credentials: true
-
-      # The RDS IAM auth tests verify TLS against AWS's RDS root CAs
-      # trust them system-wide.
-      - name: Setup AWS CA Certs
-        env:
-          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/aws-global-bundle.pem" "$URL"
-          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- "$RUNNER_TEMP/aws-global-bundle.pem" '/-----BEGIN CERTIFICATE-----/' '{*}'
-          sudo update-ca-certificates
-
-      - name: Select tests
-        env:
-          TEST_PACKAGES: ${{ inputs.test_packages }}
-          PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
-        run: bash .github/scripts/select-flow-tests.sh
-
-      # Run selected Tilt-tagged tests on the host against Tilt.
-      - name: Run tests
+      - name: Run fault tests
         working-directory: ./flow
+        # Bounded below the job timeout so the result and log uploads still run.
+        timeout-minutes: 120
         env:
-          PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
-          TEST_ENV: ${{ inputs.test_env }}
+          FAULT_PACKAGES: ${{ inputs.test_packages }}
+          FAULT_RUN: ${{ inputs.test_run }}
+          FAULT_OUT: ../logs/fault
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
-          TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
-          TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
-          TEST_EH_CREDS: ${{ github.workspace }}/eh_creds.json
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # Temporary AWS credentials for the RDS IAM auth tests, minted by the
-          # setup-aws step; their targets come from the workflow-level
-          # FLOW_TESTS_RDS_IAM_AUTH_* env.
-          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
-          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
-          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
-          # Same minted credentials for the ClickHouse S3 IAM role test
-          # (s3_iam_role_test.go).
-          FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
-          FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
-          FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
-        run: |
-          # Disable errexit so we can capture both gotestsum exit codes and still
-          # emit coverage for the artifact upload; keep nounset.
-          set +e -u
+        run: bash ../.github/scripts/fault-run.sh
 
-          # The Configure AWS credentials step exports real AWS_* variables into
-          # the job env. Drop them so the tests fall back to the minio values in
-          # .env (godotenv never overrides variables already present in the
-          # process environment); the IAM tests get the real credentials via
-          # the FLOW_TESTS_* copies above instead.
-          #
-          # AWS_DEFAULT_REGION (us-west-2, from the setup-aws step) is kept:
-          # the IAM tests blank AWS_REGION and rely on the SDK falling back to
-          # it for the real-AWS region — without it the S3 hostname is built
-          # with an empty region ("<bucket>.s3..amazonaws.com"). The minio
-          # suites are unaffected because AWS_REGION from .env outranks it.
-          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION
-
-          # Per-run test environment overrides (e.g. the MySQL flavor under
-          # test). Exported before gotestsum runs: the tests' .env auto-load
-          # (godotenv) never overrides variables already present in the
-          # process environment, so these take precedence.
-          while IFS= read -r override; do
-            [ -n "$override" ] || continue
-            echo "test env override: $override"
-            export "$override"
-          done < <(printf '%s\n' "$TEST_ENV")
-
-          # Write coverage OUTSIDE the flow/ tree. `tilt up` keeps live-watching
-          # flow/ for the whole job (the flow images use docker_build only=['flow/']),
-          # so writing coverage into flow/coverage during the run would trigger Tilt
-          # to rebuild flow-worker/flow-api/flow-snapshot-worker mid-test, knocking
-          # them back to in_progress. $RUNNER_TEMP is outside the repo, so it's never
-          # watched.
-          coverdir="$RUNNER_TEMP/gocoverdir"
-          mkdir -p "$coverdir" ../logs
-
-          selectiondir="$RUNNER_TEMP/test-selection"
-          COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
-          COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
-
-          run_selected_tests() {
-            local label="$1" junitfile="$2" timeout="$3"
-            shift 3
-            local package test_name regex previous_package=''
-            local names=() pkgs=()
-
-            # Selection rows are sorted by package, so adjacent rows share
-            # one package entry in the go test arguments.
-            while IFS=$'\t' read -r package test_name; do
-              names+=("$test_name")
-              if [ "$package" != "$previous_package" ]; then
-                pkgs+=("$package")
-                previous_package="$package"
-              fi
-            done < "$selectiondir/$label-selected.tsv" || return 1
-            if [ ${#pkgs[@]} -eq 0 ]; then
-              echo "$label selection: 0 packages"
-              return 0
-            fi
-            regex="^($(printf '%s\n' "${names[@]}" | sort -u | paste -sd'|' -))$"
-            echo "$label selection: ${#pkgs[@]} packages, $(printf '%s\n' "${names[@]}" | sort -u | wc -l) tests"
-            for package in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$package"; done
-            gotestsum --format standard-quiet --no-color --junitfile "$junitfile" -- \
-              -tags tilt "$@" -p 32 "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
-              -args -test.gocoverdir="$coverdir"
-          }
-
-          run_selected_tests flow ../logs/test-results.xml 1200s "${COVERFLAGS_FLOW[@]}"
-          flow_rc=$?
-
-          pkg_rc=0
-          if [ -n "$PKG_TEST_PACKAGES" ]; then
-            (
-              cd pkg || exit 1
-              run_selected_tests pkg ../../logs/pkg-test-results.xml 300s "${COVERFLAGS_PKG[@]}"
-            )
-            pkg_rc=$?
-          fi
-
-          # Emit coverage even on test failure so the uploaded artifact always has data.
-          go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
-          if [ "$flow_rc" -ne 0 ] || [ "$pkg_rc" -ne 0 ]; then
-            exit 1
-          fi
+      - name: Upload fault results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fault-results-${{ inputs.results_name }}
+          path: logs/fault/
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Capture Tilt state and service logs on failure
         if: failure()
@@ -725,26 +436,5 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tilt-flow-logs-${{ steps.run-identity.outputs.suffix }}
-          path: |
-            logs/
-            coverage.out
+          path: logs/
           retention-days: 30
-
-      - name: Ingest tests results for analysis
-        if: success() || failure()
-        uses: ./.github/actions/ingest-test-results
-        with:
-          combination-id: "tilt-${{ steps.run-identity.outputs.suffix }}"
-          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
-          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
-          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}
-
-      - name: Ingest pkg tests results for analysis
-        if: (success() || failure()) && inputs.pkg_test_packages != ''
-        uses: ./.github/actions/ingest-test-results
-        with:
-          combination-id: "tilt-pkg-${{ steps.run-identity.outputs.suffix }}"
-          test-results-file: logs/pkg-test-results.xml
-          o11y-api-key-id: ${{ secrets.CI_O11Y_TARGET_API_KEY_ID }}
-          o11y-api-key-secret: ${{ secrets.CI_O11Y_TARGET_API_KEY_SECRET }}
-          o11y-query-endpoint: ${{ secrets.CI_O11Y_TARGET_QUERY_ENDPOINT }}

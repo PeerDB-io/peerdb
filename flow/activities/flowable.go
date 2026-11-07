@@ -32,6 +32,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -515,6 +516,9 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		logger.Info("resuming normalize of batches synced before restart",
 			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
 		normRequests.Update(lastSyncBatchID)
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.CDCStartupAfter); err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
