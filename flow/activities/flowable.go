@@ -37,7 +37,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
@@ -490,8 +489,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 
 	normDone := make(chan struct{})
-	normRequests := concurrency.NewLastChan()
-	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
 		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
@@ -501,7 +498,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 	if lastNormBatchID > 0 {
 		normalizingBatchID.Store(lastNormBatchID)
-		normResponses.Update(lastNormBatchID)
 	}
 	lastSyncBatchID, err := getLastSyncBatchID(
 		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
@@ -510,12 +506,11 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	if lastSyncBatchID > lastNormBatchID {
-		// Batches synced before a restart would otherwise wait for the next sync to request normalize,
-		// which may never come if the source goes quiet
 		logger.Info("resuming normalize of batches synced before restart",
 			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
-		normRequests.Update(lastSyncBatchID)
 	}
+	// Resume pending batches even if the source stays quiet after restart.
+	progress := newSyncNormalizeProgress(lastSyncBatchID, lastNormBatchID)
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -534,7 +529,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	defer cancelNormCtx()
 	go func() {
 		defer close(normDone)
-		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normCtx, logger, config, progress, &normalizingBatchID, &normalizeWaiting)
 	}()
 
 	var syncErr error
@@ -545,10 +540,10 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		var syncResponse *model.SyncResponse
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				progress, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+				progress, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil && ctx.Err() == nil {
@@ -569,8 +564,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 
 	syncState.Store(new("cleanup"))
 	cancelNormCtx()
-	normRequests.Close()
-	normResponses.Close()
 	<-normDone
 
 	if shutDown.Load() {
@@ -594,8 +587,7 @@ func (a *FlowableActivity) pullAndSync(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
@@ -631,7 +623,7 @@ func (a *FlowableActivity) pullAndSync(
 		}
 	}
 	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+		progress, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -642,15 +634,14 @@ func (a *FlowableActivity) pullAndSyncPg(
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+		progress, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
