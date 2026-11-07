@@ -197,6 +197,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
+	// internal.SnapshotProjectsSourceSchema is evaluated from this config by both the source and the destination
+	// connector; it depends on SourceType, Query, Env and Version, so keep all four set here
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourceName:                 s.config.SourceName,

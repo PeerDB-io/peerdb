@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -220,4 +221,121 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 			"CAST(`as_bare_json_required`, 'JSON'),CAST(`untouched`, 'Nullable(JSON)') "+
 			"FROM s3('s3://bucket/key', 'Avro')",
 		query)
+}
+
+// TestBuildInsertFromTableFunctionQuerySourceSchema checks who supplies _peerdb_source_schema: under the snapshot
+// gate the Postgres source projects it per row and the insert reads it from the staged file, otherwise the insert
+// stamps the watermark table's schema as a literal, as before.
+func TestBuildInsertFromTableFunctionQuerySourceSchema(t *testing.T) {
+	const tableFunctionExpr = "s3('s3://bucket/key', 'Avro')"
+	settingOn := map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+	withSourceSchema := types.QRecordSchema{Fields: []types.QField{
+		{Name: "id", Type: types.QValueKindInt64},
+		{Name: sourceSchemaColName, Type: types.QValueKindString},
+	}}
+	withoutSourceSchema := types.QRecordSchema{Fields: []types.QField{
+		{Name: "id", Type: types.QValueKindInt64},
+	}}
+	gated := func() *protos.QRepConfig {
+		return &protos.QRepConfig{
+			Env:            settingOn,
+			Version:        shared.InternalVersion_SourceSchemaFromInheritanceChild,
+			SourceType:     protos.DBType_POSTGRES,
+			WatermarkTable: "public.parent",
+		}
+	}
+
+	for _, tc := range []struct {
+		name            string
+		config          func() *protos.QRepConfig
+		schema          types.QRecordSchema
+		columnNameMap   map[string]string
+		excludedColumns []string
+		expected        string
+		expectedErr     string
+	}{
+		{
+			name:     "projected by the source",
+			config:   gated,
+			schema:   withSourceSchema,
+			expected: "INSERT INTO `t1`(`id`,`_peerdb_source_schema`) SELECT `id`,`_peerdb_source_schema` FROM " + tableFunctionExpr,
+		},
+		{
+			name:          "projected by the source, staged field names",
+			config:        gated,
+			schema:        withSourceSchema,
+			columnNameMap: map[string]string{"id": "id_0", sourceSchemaColName: "_peerdb_source_schema_1"},
+			expected: "INSERT INTO `t1`(`id`,`_peerdb_source_schema`) SELECT `id_0`,`_peerdb_source_schema_1` FROM " +
+				tableFunctionExpr,
+		},
+		{
+			name:            "projected by the source, despite an exclusion of the same name",
+			config:          gated,
+			schema:          withSourceSchema,
+			excludedColumns: []string{sourceSchemaColName},
+			expected:        "INSERT INTO `t1`(`id`,`_peerdb_source_schema`) SELECT `id`,`_peerdb_source_schema` FROM " + tableFunctionExpr,
+		},
+		{
+			name:        "projection missing",
+			config:      gated,
+			schema:      withoutSourceSchema,
+			expectedErr: "snapshot of public.parent is missing column _peerdb_source_schema",
+		},
+		{
+			name: "mirror created before the internal version",
+			config: func() *protos.QRepConfig {
+				c := gated()
+				c.Version = shared.InternalVersion_SourceSchemaFromInheritanceChild - 1
+				return c
+			},
+			schema:   withoutSourceSchema,
+			expected: "INSERT INTO `t1`(`id`,_peerdb_source_schema) SELECT `id`,'public' FROM " + tableFunctionExpr,
+		},
+		{
+			name: "custom query",
+			config: func() *protos.QRepConfig {
+				c := gated()
+				c.Query = "SELECT * FROM public.parent"
+				return c
+			},
+			schema:   withoutSourceSchema,
+			expected: "INSERT INTO `t1`(`id`,_peerdb_source_schema) SELECT `id`,'public' FROM " + tableFunctionExpr,
+		},
+		{
+			name: "non-Postgres source",
+			config: func() *protos.QRepConfig {
+				c := gated()
+				c.SourceType = protos.DBType_BIGQUERY
+				return c
+			},
+			schema:   withoutSourceSchema,
+			expected: "INSERT INTO `t1`(`id`,_peerdb_source_schema) SELECT `id`,'public' FROM " + tableFunctionExpr,
+		},
+		{
+			name: "setting off",
+			config: func() *protos.QRepConfig {
+				c := gated()
+				c.Env = map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"}
+				return c
+			},
+			schema:   withoutSourceSchema,
+			expected: "INSERT INTO `t1`(`id`) SELECT `id` FROM " + tableFunctionExpr,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			query, err := buildInsertFromTableFunctionQuery(t.Context(), &insertFromTableFunctionConfig{
+				destinationTable: "t1",
+				schema:           tc.schema,
+				columnNameMap:    tc.columnNameMap,
+				excludedColumns:  tc.excludedColumns,
+				config:           tc.config(),
+			}, tableFunctionExpr, nil)
+			if tc.expectedErr != "" {
+				require.ErrorContains(t, err, tc.expectedErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, query)
+		})
+	}
 }
