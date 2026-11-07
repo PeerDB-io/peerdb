@@ -22,6 +22,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
+// sourceDiagnosticsTimeout bounds a whole diagnostics report, including checks sampled several times
+const sourceDiagnosticsTimeout = 5 * time.Minute
+
 func redactProto(message proto.Message) {
 	message.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		if fd.Kind() == protoreflect.MessageKind {
@@ -101,6 +104,39 @@ func (h *FlowRequestHandler) GetPeerType(
 	return &protos.PeerTypeResponse{
 		PeerType: peer.Type.String(),
 	}, nil
+}
+
+// GetSourceDiagnostics runs read-only diagnostic checks against a source peer.
+// Peers without diagnostics support return an empty report.
+func (h *FlowRequestHandler) GetSourceDiagnostics(
+	ctx context.Context,
+	req *protos.PeerInfoRequest,
+) (*protos.SourceDiagnosticsResponse, APIError) {
+	ctx, cancelCtx := context.WithTimeout(ctx, sourceDiagnosticsTimeout)
+	defer cancelCtx()
+	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
+	if err != nil {
+		var errNotFound *exceptions.NotFoundError
+		if errors.As(err, &errNotFound) {
+			return nil, NewNotFoundApiError(err)
+		}
+		return nil, NewInternalApiError(fmt.Errorf("failed to load peer: %w", err))
+	}
+
+	diagConn, diagClose, err := connectors.GetAs[connectors.SourceDiagnosticsConnector](ctx, nil, peer)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return &protos.SourceDiagnosticsResponse{}, nil
+		}
+		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source diagnostics connector: %w", err))
+	}
+	defer diagClose(ctx)
+
+	checks, err := diagConn.SourceDiagnostics(ctx)
+	if err != nil {
+		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to run source diagnostics: %w", err))
+	}
+	return &protos.SourceDiagnosticsResponse{Checks: checks}, nil
 }
 
 func (h *FlowRequestHandler) ListPeers(

@@ -271,6 +271,23 @@ message PeerTypeResponse {
   string peer_type = 1;
 }
 
+message SourceDiagnosticsRun {
+  string ran_at = 1;
+  repeated string response = 2;
+  string error = 3;
+}
+
+message SourceDiagnosticsCheck {
+  string name = 1;
+  string description = 2;
+  string query = 3;
+  repeated SourceDiagnosticsRun result = 4;
+}
+
+message SourceDiagnosticsResponse {
+  repeated SourceDiagnosticsCheck checks = 1;
+}
+
 message PeerListItem {
   string name = 1;
   peerdb_peers.DBType type = 2;
@@ -832,6 +849,12 @@ service FlowService {
   rpc GetPeerType(PeerInfoRequest) returns (PeerTypeResponse) {
     option (google.api.http) = {
       get : "/v1/peers/type/{peer_name}"
+    };
+  }
+
+  rpc GetSourceDiagnostics(PeerInfoRequest) returns (SourceDiagnosticsResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/diagnostics/{peer_name}"
     };
   }
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
