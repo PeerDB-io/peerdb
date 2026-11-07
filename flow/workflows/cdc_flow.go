@@ -183,9 +183,48 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
+	if len(flowConfigUpdate.ColumnsUpdate) > 0 {
+		logger.Info("processing column updates", slog.Any("columnsUpdate", flowConfigUpdate.ColumnsUpdate))
+		if err := processColumnsUpdate(ctx, logger, cfg, state); err != nil {
+			logger.Error("failed to process column updates", slog.Any("error", err))
+			return nextRunNone, err
+		}
+	}
+
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nextRunNone, nil
+}
+
+// processColumnsUpdate adds new columns to the destination tables, the catalog schema and the table mappings.
+// Runs while the mirror is paused, so no sync observes a half-applied change.
+func processColumnsUpdate(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+) error {
+	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
+
+	updateColumnsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 10 * time.Second,
+			MaximumAttempts: 3,
+		},
+		WaitForCancellation: true,
+	})
+	var updatedMappings []*protos.TableMapping
+	if err := workflow.ExecuteActivity(
+		updateColumnsCtx,
+		flowable.UpdateTableColumns,
+		cfg, state.SyncFlowOptions.TableMappings, state.FlowConfigUpdate.ColumnsUpdate,
+	).Get(ctx, &updatedMappings); err != nil {
+		return fmt.Errorf("failed to update table columns: %w", err)
+	}
+
+	state.SyncFlowOptions.TableMappings = updatedMappings
+	return nil
 }
 
 func applyQueryCDCConfigUpdate(cfg *protos.FlowConnectionConfigsCore, update *protos.QueryCdcConfig) {
