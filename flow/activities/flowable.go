@@ -91,6 +91,28 @@ func getInitialNormalizeBatchID(
 	return pgMetadata.GetLastNormalizeBatchID(ctx, flowName)
 }
 
+func getLastSyncBatchID(
+	ctx context.Context,
+	logger log.Logger,
+	catalogPool shared.CatalogPool,
+	env map[string]string,
+	destinationName string,
+	destinationType protos.DBType,
+	flowName string,
+) (int64, error) {
+	if destinationType == protos.DBType_POSTGRES {
+		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get postgres destination connector for sync state: %w", err)
+		}
+		defer dstClose(ctx)
+		return dstPgConn.GetLastSyncBatchID(ctx, flowName)
+	}
+
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, catalogPool)
+	return pgMetadata.GetLastSyncBatchID(ctx, flowName)
+}
+
 func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
@@ -480,6 +502,19 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	if lastNormBatchID > 0 {
 		normalizingBatchID.Store(lastNormBatchID)
 		normResponses.Update(lastNormBatchID)
+	}
+	lastSyncBatchID, err := getLastSyncBatchID(
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	if lastSyncBatchID > lastNormBatchID {
+		// Batches synced before a restart would otherwise wait for the next sync to request normalize,
+		// which may never come if the source goes quiet
+		logger.Info("resuming normalize of batches synced before restart",
+			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
+		normRequests.Update(lastSyncBatchID)
 	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
