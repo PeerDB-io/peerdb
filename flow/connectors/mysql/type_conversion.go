@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -109,9 +110,37 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 	if schemaKind == wireKind {
 		return false
 	}
+	// MariaDB stores a JSON column as LONGTEXT with a json_valid check, so the binlog reports it as a string
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA && schemaKind == types.QValueKindJSON && wireKind == types.QValueKindString {
+		return false
+	}
 	if flavor == protos.MySqlFlavor_MYSQL_MARIA && wireKind == types.QValueKindBytes &&
 		(schemaKind == types.QValueKindUUID || schemaKind == types.QValueKindINET) {
 		return false
 	}
 	return true
+}
+
+// jsonValidCheckColumn returns the column a MariaDB check constraint validates as JSON. MariaDB renders the
+// check of a column declared JSON as json_valid("col"), double-quoted because the connector's session runs
+// in ANSI mode.
+func jsonValidCheckColumn(checkClause string) (string, bool) {
+	column, ok := strings.CutPrefix(checkClause, `json_valid("`)
+	if !ok {
+		return "", false
+	}
+	column, ok = strings.CutSuffix(column, `")`)
+	if !ok || column == "" || strings.Contains(column, `"`) {
+		return "", false
+	}
+	return column, true
+}
+
+// mariaDBJSONKind types a LONGTEXT column as JSON when MariaDB backs it with a json_valid check, which is what
+// MariaDB's JSON alias creates.
+func mariaDBJSONKind(qkind types.QValueKind, column string, columnType string, jsonColumns []string) types.QValueKind {
+	if qkind == types.QValueKindString && strings.EqualFold(columnType, "longtext") && slices.Contains(jsonColumns, column) {
+		return types.QValueKindJSON
+	}
+	return qkind
 }
