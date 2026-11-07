@@ -1,0 +1,120 @@
+name: Flow fault-injection tests
+
+# Any base branch: the PR 1 and PR 2 drafts target their code branches.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Budget, per shard job (one Tilt stack on a 64-core runner):
+# - 607 generated cases over 30 shards is about 20 cases per job: 10-11 PG->CH,
+#   6-7 PG->PG, 3-4 BQ->CH.
+# - Each package runs in its own go test process, with -parallel 4/3/2, so a job
+#   runs at most 9 mirrors at once and each package needs about 3 rounds.
+# - A green case takes 2-4 minutes, a red one 12-15 (several 5-minute liveness
+#   waits). A first attempt takes about 25 minutes, 45 if most cases are red.
+# - fault-run.sh reruns failures twice, all of a package's failures in parallel,
+#   about 15 minutes per rerun. No rerun starts after minute 60.
+# - So the test step takes 55-105 minutes; it is capped at 120 and the job at 150,
+#   which includes about 15 minutes of Tilt startup.
+jobs:
+  # The shard count lives in Go (testhooks.Shards); read it so the matrix cannot drift.
+  shards:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.shards.outputs.matrix }}
+      expected: ${{ steps.shards.outputs.expected }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: flow/internal/testhooks/cases.go
+          sparse-checkout-cone-mode: false
+      - id: shards
+        run: |
+          total="$(sed -n 's/^const Shards = \([0-9][0-9]*\)$/\1/p' flow/internal/testhooks/cases.go)"
+          if [ -z "$total" ]; then
+            echo "::error::const Shards not found in flow/internal/testhooks/cases.go"
+            exit 1
+          fi
+          shards="$(seq -f '%02g' 0 $((total - 1)))"
+          echo "matrix=$(printf '%s\n' "$shards" | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+          echo "expected=$(printf '%s\n' "$shards" | tr '\n' ' ')known" >> "$GITHUB_OUTPUT"
+
+  fault_shard:
+    name: fault shard ${{ matrix.shard }}
+    needs: [shards]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.shards.outputs.matrix) }}
+    uses: ./.github/workflows/tilt-flow.yml
+    with:
+      run_label: fault-${{ matrix.shard }}
+      results_name: ${{ matrix.shard }}
+      test_run: ^TestFaultShard$/^${{ matrix.shard }}$
+      test_packages: ./e2e/postgres_clickhouse:4 ./e2e/postgres_postgres:3 ./e2e/bigquery_clickhouse:2
+    secrets: inherit
+
+  # The hand-written known failures: 7 PG->CH, 4 PG->PG and 2 BQ->CH tests, all
+  # expected red on main. They run at once (13 mirrors) so each attempt takes
+  # one round of about 15 minutes.
+  fault_known:
+    name: fault known failures
+    uses: ./.github/workflows/tilt-flow.yml
+    with:
+      run_label: fault-known
+      results_name: known
+      test_run: ^(TestPeerFlowE2ETestSuitePG_CH|TestPeerFlowE2ETestSuitePG|TestBigQueryClickhouseSuite)$/^Test_FaultKnown_
+      test_packages: ./e2e/postgres_clickhouse:7 ./e2e/postgres_postgres:4 ./e2e/bigquery_clickhouse:2
+    secrets: inherit
+
+  comment:
+    name: fault results comment
+    needs: [shards, fault_shard, fault_known]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            .github/scripts/fault_results.py
+            flow/e2e/fault_known.go
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: fault-results-*
+          path: fault-results
+      - name: Post or update the PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EXPECTED_RESULTS: ${{ needs.shards.outputs.expected }}
+        run: |
+          set -euo pipefail
+          mkdir -p fault-results
+          mkdir -p fault-summary
+          python3 .github/scripts/fault_results.py comment fault-results > fault-summary/comment.md
+          python3 .github/scripts/fault_results.py failing-cases fault-results > fault-summary/failing-cases.txt
+          cat fault-summary/comment.md >> "$GITHUB_STEP_SUMMARY"
+          marker='<!-- fault-injection-results -->'
+          id="$(gh api --method GET "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)"
+          payload="$(jq -n --rawfile body fault-summary/comment.md '{body: $body}')"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" --input - <<< "$payload" > /dev/null
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" --input - <<< "$payload" > /dev/null
+          fi
+      - name: Upload the results summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fault-summary
+          path: fault-summary/
+          retention-days: 30

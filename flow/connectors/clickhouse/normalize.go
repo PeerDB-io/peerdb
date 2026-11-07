@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -427,6 +428,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, lastNormBatchID, endBatchID, req.Env, req.Version); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.CHNormalizeCopyStagesAfter); err != nil {
+		return model.NormalizeResponse{}, err
+	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
@@ -512,6 +516,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						slog.Any("error", err))
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", q.table, err)
 				}
+				if err := testhooks.Failpoint(errCtx, testhooks.CHNormalizeInsertAfter); err != nil {
+					return err
+				}
 
 				c.logger.Info("[clickhouse] set last normalized batch id for table",
 					slog.String("table", q.table),
@@ -520,6 +527,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int("parallelWorker", i))
 				if err := c.SetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, q.table, endBatchID); err != nil {
 					return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
+				}
+				if err := testhooks.Failpoint(errCtx, testhooks.CHNormalizeTableBatchIDAfter); err != nil {
+					return err
 				}
 
 				c.logger.Info("executed INSERT command to ClickHouse",
@@ -592,11 +602,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Any("cause", context.Cause(errCtx)))
 				return context.Cause(errCtx)
 			}
+			if err := testhooks.Failpoint(ctx, testhooks.CHNormalizeEnqueueAfter); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 
 	if err := group.Wait(); err != nil {
+		return model.NormalizeResponse{}, err
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.CHNormalizeBatchIDBefore); err != nil {
 		return model.NormalizeResponse{}, err
 	}
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {

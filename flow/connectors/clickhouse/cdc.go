@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -135,15 +136,26 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
+	if err := testhooks.Failpoint(ctx, testhooks.CHSyncRawStageBefore); err != nil {
+		return nil, err
+	}
 	avroSyncer := c.avroSyncMethod(req.FlowJobName, req.Env, req.Version)
 	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, stream, req.FlowJobName, syncBatchID)
 	if err != nil {
+		return nil, err
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.CHSyncRawStageAfter); err != nil {
 		return nil, err
 	}
 	warnings := numericTruncator.Warnings()
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, req.Flags); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+	if len(req.Records.SchemaDeltas) > 0 {
+		if err := testhooks.Failpoint(ctx, testhooks.CHSyncDDLAfter); err != nil {
+			return nil, err
+		}
 	}
 
 	return &model.SyncResponse{
@@ -164,6 +176,9 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 
 	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint, res.TableSchemaDeltas); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
+		return nil, err
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.CHSyncFinishBatchAfter); err != nil {
 		return nil, err
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -215,7 +216,13 @@ func syncRecordsCore[Items model.Items](
 	if err := c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx); err != nil {
 		return nil, err
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGSyncCommitBefore); err != nil {
+		return nil, err
+	}
 	if err := syncRecordsTx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGSyncCommitAfter); err != nil {
 		return nil, err
 	}
 
@@ -241,11 +248,17 @@ func (c *PostgresConnector) prepareSyncSchema(ctx context.Context, flowName stri
 	if err := c.replayTableSchemaDeltas(ctx, ddlConn, deltas); err != nil {
 		return fmt.Errorf("failed to sync schema changes: %w", err)
 	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGSyncDDLAfter); err != nil {
+		return err
+	}
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return err
 	}
-	return internal.ApplySchemaDeltasToCatalog(ctx, catalogPool, flowName, deltas)
+	if err := internal.ApplySchemaDeltasToCatalog(ctx, catalogPool, flowName, deltas); err != nil {
+		return err
+	}
+	return testhooks.Failpoint(ctx, testhooks.CDCSyncCatalogSchemaAfter)
 }
 
 func (c *PostgresConnector) NormalizeRecords(
@@ -434,8 +447,14 @@ func (c *PostgresConnector) normalizeBatch(
 		return 0, fmt.Errorf("failed to close batch results: %w", err)
 	}
 
+	if err := testhooks.Failpoint(ctx, testhooks.PGNormalizeCommitBefore); err != nil {
+		return 0, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("failed to commit normalize transaction: %w", err)
+	}
+	if err := testhooks.Failpoint(ctx, testhooks.PGNormalizeCommitAfter); err != nil {
+		return 0, err
 	}
 
 	return totalRowsAffected, nil
