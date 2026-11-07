@@ -709,7 +709,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
+	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent, receivedAt time.Time) {
 		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
 			// A heartbeat means there is currently no source change event to lag behind.
 			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
@@ -734,9 +734,9 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		if timestampMicros > 0 {
+			// receipt time, so inner events of a compressed transaction don't add AddRecord backpressure to the lag
 			otelManager.Metrics.SourceLagGauge.Record(ctx,
-				time.Now().UTC().Add(mysqlClockOffset).
-					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
+				receivedAt.Add(mysqlClockOffset).Sub(time.UnixMicro(timestampMicros)).Milliseconds())
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
@@ -768,7 +768,7 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
-		recordSourceEventLag(ctx, event)
+		recordSourceEventLag(ctx, event, lastEventAt)
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
