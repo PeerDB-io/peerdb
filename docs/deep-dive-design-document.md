@@ -152,11 +152,20 @@ relation IDs from the mirrored parent:
 childToParentRelIDMapping map[uint32]uint32  // child relid → parent relid
 ```
 
-`getChildToParentRelIDMap()` builds the map when a pull starts and `checkIfUnknownTableInherits()` extends it
-when an unknown relation ID appears, ensuring child events are attributed to the parent's table mapping. Both
-use the same rule: the candidates are mirrored tables with a qualifying relkind, and the one with the lowest
-`pg_inherits.inhseqno` wins, so a child of several mirrored tables always goes to the same one. Only direct
-children are remapped; deeper descendants are not replicated by CDC although the initial snapshot includes them.
+`getChildToParentRelIDMap()` builds the map when a pull starts and `checkIfUnknownTableInherits()` extends it when
+an unknown relation ID appears, so that a descendant's events are attributed to a mirrored ancestor's table
+mapping. Both walk `pg_inherits` with the same rule, and every traversed parent needs a qualifying relkind. A
+mirrored table is remapped only through a mirrored direct parent, the one with the lowest `pg_inherits.inhseqno`.
+Any other relation goes to its nearest mirrored ancestor through unmirrored intermediates, with ties broken by
+depth and then by the `inhseqno` path read upwards. At depth one this is the lowest `inhseqno`, so a descendant of
+several mirrored tables always goes to the same one, and inheritance and partition trees are followed to any
+depth, as the initial snapshot reads them.
+
+**Overlapping mirrors.** A relation under more than one mirrored table (a mirrored table under another one, or
+multiple inheritance) is in the snapshot scope of each, while CDC sends its changes to at most one. Replication
+setup and table additions record a flow warning naming the mirrors whose snapshots include it and the one whose
+mapping receives its changes, or saying that CDC does not replicate them. A mirrored table `INHERIT`ed into
+another mirrored table after a pull started keeps its own changes until the next pull rebuilds the map.
 
 **Column layouts are per relation.** A child's tuples follow the child's own column order, which can differ from
 the parent's and from its siblings (`ALTER TABLE ... INHERIT` only requires matching names and types, and a
