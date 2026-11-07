@@ -41,6 +41,8 @@ x-flow-worker-env: &flow-worker-env
   # Auto-create topics for Kafka/PubSub test mirrors (the legacy CI set this on
   # the host-run worker); only queue mirrors read it.
   PEERDB_QUEUE_FORCE_TOPIC_CREATION: true
+  # Enables flow/internal/testhooks fault injection for fault-injection e2e tests.
+  PEERDB_TEST_HOOKS: ${PEERDB_TEST_HOOKS:-false}
   # For the below 2 cert and key variables,
   # paste as base64 encoded strings.
   TEMPORAL_CLIENT_CERT:
