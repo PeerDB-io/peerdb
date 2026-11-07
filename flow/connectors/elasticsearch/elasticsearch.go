@@ -298,7 +298,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	if err := esc.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+	if err := esc.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint, req.Records.SchemaDeltas); err != nil {
 		return nil, err
 	}
 

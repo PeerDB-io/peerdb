@@ -61,62 +61,6 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 	return tableNameSchemaMapping, nil
 }
 
-func (a *FlowableActivity) applySchemaDeltas(
-	ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	logger := internal.LoggerFromCtx(ctx)
-
-	dstTableNamesInDeltas := make([]string, 0, len(schemaDeltas))
-	for _, schemaDelta := range schemaDeltas {
-		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
-	}
-
-	if err := internal.ReadModifyWriteTableSchemasToCatalog(
-		ctx,
-		a.CatalogPool,
-		logger,
-		config.FlowJobName,
-		dstTableNamesInDeltas,
-		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-			// deep copy to avoid mutating input
-			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
-			for tableName, schema := range schemas {
-				if schema == nil {
-					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
-				}
-				schemasCopy[tableName] = proto.CloneOf(schema)
-			}
-
-			for _, schemaDelta := range schemaDeltas {
-				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
-					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-					for _, col := range schema.GetColumns() {
-						columnNames[col.Name] = struct{}{}
-					}
-					for _, newCol := range schemaDelta.GetAddedColumns() {
-						// only add columns that don't already exist
-						if _, exists := columnNames[newCol.Name]; !exists {
-							schema.Columns = append(schema.Columns, newCol)
-							columnNames[newCol.Name] = struct{}{}
-						} else {
-							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-								newCol.Name, newCol.Type, schemaDelta.DstTableName))
-						}
-					}
-				} else {
-					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
-				}
-			}
-			return schemasCopy, nil
-		},
-	); err != nil {
-		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
-	}
-	return nil
-}
-
 func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
@@ -288,7 +232,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		return nil, internal.ApplySchemaDeltasToCatalog(ctx, a.CatalogPool, flowName, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -410,11 +354,6 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second)))
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
-
-	syncState.Store(new("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
-		return nil, err
-	}
 
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(new("normalizing"))
