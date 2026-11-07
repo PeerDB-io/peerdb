@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
@@ -55,7 +56,8 @@ func TestProcessMessageInvalidMessage(t *testing.T) {
 		WALData: []byte{'S', 0, 1, 0, 1 /*arbitrary bytes*/},
 	}
 
-	rec, err := processMessage(t.Context(), p, batch, xld, xld.WALStart, 0, qProcessor{}, map[string]struct{}{})
+	rec, err := processMessage(t.Context(), p, batch, xld, xld.WALStart, 0, qProcessor{}, map[string]struct{}{},
+		internal.LoggerFromCtx(t.Context()))
 	require.Nil(t, rec)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error parsing logical message (msgType=\"S\", walStart=0/1)")
