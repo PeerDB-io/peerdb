@@ -1751,7 +1751,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 					fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
 			}
 
-			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("Resync completed for %d tables", len(config.RenameTableOptions)))
 			return renameOutput, nil
 		}
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
@@ -1784,7 +1784,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync with soft-delete completed for all tables")
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+		fmt.Sprintf("Resync with soft-delete completed for %d tables", len(config.RenameTableOptions)))
 	return renameOutput, nil
 }
 
@@ -2018,6 +2019,31 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		NormalizeBatchId:      normBatchID,
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return nil
+}
+
+// SkipPendingNormalizeForTables moves the per-table normalize watermark of the given tables to the last
+// sync batch, so normalize skips them for every batch synced so far.
+func (a *FlowableActivity) SkipPendingNormalizeForTables(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, cfg.FlowJobName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to get last sync batch id: %w", err))
+	}
+
+	for _, tm := range tableMappings {
+		if err := pgMetadata.SetLastNormalizedBatchIDForTable(
+			ctx, cfg.FlowJobName, tm.DestinationTableIdentifier, syncBatchID,
+		); err != nil {
+			return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		}
 	}
 	return nil
 }
