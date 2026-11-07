@@ -647,8 +647,7 @@ func (c *MySqlConnector) PullRecords(
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
-	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
-	var receiveTime, processTime, addRecordTime atomic.Int64
+	var totalFetchedBytes atomic.Int64
 	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
@@ -667,19 +666,7 @@ func (c *MySqlConnector) PullRecords(
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 
-	defer func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
-	}()
 	shutdown := common.Interval(ctx, time.Minute, func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
 		c.logger.Info("[mysql] pulling records",
 			slog.Uint64("records", uint64(recordCount)),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
@@ -701,12 +688,12 @@ func (c *MySqlConnector) PullRecords(
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		addStart := time.Now()
-		processTime.Add(int64(addStart.Sub(processStart)))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, int64(addStart.Sub(processStart)))
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 			return err
 		}
 		processStart = time.Now()
-		addRecordTime.Add(int64(processStart.Sub(addStart)))
+		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
 			resetTimeout(req.IdleTimeout)
 		}
@@ -722,7 +709,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
+	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent, receivedAt time.Time) {
 		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
 			// A heartbeat means there is currently no source change event to lag behind.
 			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
@@ -747,9 +734,9 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		if timestampMicros > 0 {
+			// receipt time, so inner events of a compressed transaction don't add AddRecord backpressure to the lag
 			otelManager.Metrics.SourceLagGauge.Record(ctx,
-				time.Now().UTC().Add(mysqlClockOffset).
-					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
+				receivedAt.Add(mysqlClockOffset).Sub(time.UnixMicro(timestampMicros)).Milliseconds())
 		}
 	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
@@ -781,7 +768,7 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
-		recordSourceEventLag(ctx, event)
+		recordSourceEventLag(ctx, event, lastEventAt)
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
@@ -914,7 +901,7 @@ func (c *MySqlConnector) PullRecords(
 					return e
 				}
 				eventSize := int64(len(event.RawData))
-				fetchedBytes.Add(eventSize)
+				otelManager.Metrics.FetchedBytesCounter.Add(ctx, eventSize)
 				totalFetchedBytes.Add(eventSize)
 				otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
 				inTx = true
@@ -1122,7 +1109,7 @@ func (c *MySqlConnector) PullRecords(
 		if err == nil {
 			receiveStart := time.Now()
 			event, err = mystream.GetEvent(timeoutCtx)
-			receiveTime.Add(int64(time.Since(receiveStart)))
+			otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, int64(time.Since(receiveStart)))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1170,7 +1157,7 @@ func (c *MySqlConnector) PullRecords(
 		lastEventAt = time.Now()
 		processStart = lastEventAt
 
-		allFetchedBytes.Add(int64(len(event.RawData)))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.TransactionPayloadEvent:
@@ -1186,7 +1173,7 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
-		processTime.Add(int64(time.Since(processStart)))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, int64(time.Since(processStart)))
 	}
 	return nil
 }

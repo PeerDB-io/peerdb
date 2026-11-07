@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/go-mysql-org/go-mysql/replication"
 	"go.opentelemetry.io/otel/attribute"
@@ -77,6 +78,27 @@ const (
 	tableMapEnumSetCollation
 )
 
+type usedCharsetMetricKey struct {
+	charset string
+	status  string
+}
+
+// usedCharsetMetricOptions holds one attribute option per charset and status. The metric is recorded for
+// every character column of every TABLE_MAP event, too often to build an attribute set each time.
+var usedCharsetMetricOptions sync.Map // usedCharsetMetricKey -> metric.AddOption
+
+func usedCharsetMetricOption(charset string, status string) metric.AddOption {
+	key := usedCharsetMetricKey{charset: charset, status: status}
+	if option, ok := usedCharsetMetricOptions.Load(key); ok {
+		return option.(metric.AddOption)
+	}
+	option, _ := usedCharsetMetricOptions.LoadOrStore(key, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("charset", charset),
+		attribute.String("status", status),
+	)))
+	return option.(metric.AddOption)
+}
+
 // collationEncoding resolves a MySQL collation id (as carried in binlog
 // TABLE_MAP metadata) to the x/text encoding needed to convert that column's
 // bytes to UTF-8.
@@ -88,12 +110,7 @@ func (c *MySqlConnector) collationEncoding(
 	}
 
 	recordUsedCharsetMetrics := func(ctx context.Context, charset string, status string) {
-		otelManager.Metrics.UsedMySQLCharsetsCounter.Add(ctx, 1,
-			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String("charset", charset),
-				attribute.String("status", status),
-			)),
-		)
+		otelManager.Metrics.UsedMySQLCharsetsCounter.Add(ctx, 1, usedCharsetMetricOption(charset, status))
 	}
 
 	charset, err := c.charsetForCollation(ctx, collationID)
