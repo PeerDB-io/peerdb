@@ -80,8 +80,14 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
+	if err := s.connector.ReplayTableSchemaDeltas(
+		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
+	); err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+
 	lastCP := req.Records.GetLastCheckpoint()
-	if err := s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP); err != nil {
+	if err := s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
 
@@ -97,12 +103,6 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	s.connector.logger.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
-
-	if err := s.connector.ReplayTableSchemaDeltas(
-		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil,
-	); err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
 
 	return &model.SyncResponse{
 		LastSyncedCheckpoint: lastCP,

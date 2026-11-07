@@ -412,7 +412,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 		return nil, err
 	}
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 

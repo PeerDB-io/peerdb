@@ -162,7 +162,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	}
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint, res.TableSchemaDeltas); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}

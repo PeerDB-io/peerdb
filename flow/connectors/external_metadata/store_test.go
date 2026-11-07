@@ -3,6 +3,7 @@
 package connmetadata
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 func TestInitializeQueryCDCReplicationState(t *testing.T) {
@@ -145,4 +147,62 @@ func TestOffloadRestoreSensitivePartitionRanges(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFinishBatchSavesSchemaChangesWithCheckpoint(t *testing.T) {
+	ctx := t.Context()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	metadata := NewPostgresMetadataFromCatalog(internal.LoggerFromCtx(ctx), pool)
+
+	flowName := "test_finish_batch_schema_" + uuid.NewString()
+	tableName := "public.target"
+	initialSchema, err := proto.Marshal(&protos.TableSchema{
+		TableIdentifier: tableName,
+		Columns:         []*protos.FieldDescription{{Name: "id", Type: "int32"}},
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, "INSERT INTO table_schema_mapping(flow_name, table_name, table_schema) VALUES ($1, $2, $3)",
+		flowName, tableName, initialSchema)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx := context.WithoutCancel(ctx)
+		_, _ = pool.Exec(cleanupCtx, "DELETE FROM table_schema_mapping WHERE flow_name = $1", flowName)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, flowName)
+	})
+	deltas := []*protos.TableSchemaDelta{{
+		DstTableName: tableName,
+		AddedColumns: []*protos.FieldDescription{{Name: "added", Type: "int32"}},
+	}}
+
+	require.NoError(t, metadata.FinishBatch(ctx, flowName, 1, model.CdcCheckpoint{ID: 10, Text: "first"}, nil))
+	schema, err := internal.LoadTableSchemaFromCatalog(ctx, pool, flowName, tableName)
+	require.NoError(t, err)
+	require.Len(t, schema.Columns, 1, "a batch without schema changes must not change the catalog schema")
+
+	require.NoError(t, metadata.FinishBatch(ctx, flowName, 2, model.CdcCheckpoint{ID: 20, Text: "second"}, deltas))
+	batchID, err := metadata.GetLastSyncBatchID(ctx, flowName)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), batchID)
+	offset, err := metadata.GetLastOffset(ctx, flowName)
+	require.NoError(t, err)
+	require.Equal(t, int64(20), offset.ID)
+	require.Equal(t, "second", offset.Text)
+	schema, err = internal.LoadTableSchemaFromCatalog(ctx, pool, flowName, tableName)
+	require.NoError(t, err)
+	require.Len(t, schema.Columns, 2)
+	require.Equal(t, "added", schema.Columns[1].Name)
+
+	require.NoError(t, metadata.FinishBatch(ctx, flowName, 2, model.CdcCheckpoint{ID: 20, Text: "second"}, deltas))
+	schema, err = internal.LoadTableSchemaFromCatalog(ctx, pool, flowName, tableName)
+	require.NoError(t, err)
+	require.Len(t, schema.Columns, 2, "a retried batch added the column twice")
+
+	// An unreadable stored schema makes the schema write fail.
+	_, err = pool.Exec(ctx, "UPDATE table_schema_mapping SET table_schema = $1 WHERE flow_name = $2", []byte{0xff}, flowName)
+	require.NoError(t, err)
+	require.Error(t, metadata.FinishBatch(ctx, flowName, 3, model.CdcCheckpoint{ID: 30, Text: "third"}, deltas))
+	batchID, err = metadata.GetLastSyncBatchID(ctx, flowName)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), batchID)
 }
