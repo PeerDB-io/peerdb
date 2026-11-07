@@ -46,6 +46,10 @@ if ! $DOCKER exec "$CONTAINER" test -d /tmp/pgvector; then
       exit 1
       ;;
   esac
+  if [ -n "${PEERDB_DEV_EXTRA_CA_CERT:-}" ]; then
+    # Trust an extra CA for the clone, e.g. of a TLS-intercepting proxy (see Tiltfile)
+    $DOCKER exec -i "$CONTAINER" sh -c 'cat >> /etc/ssl/certs/ca-certificates.crt' < "$PEERDB_DEV_EXTRA_CA_CERT"
+  fi
   $DOCKER exec "$CONTAINER" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector
   $DOCKER exec "$CONTAINER" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install'
 fi
