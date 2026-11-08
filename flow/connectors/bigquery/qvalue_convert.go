@@ -446,7 +446,7 @@ func qvalueArrayFromBigQueryValues(
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode JSON array column %s: %w", qfield.Name, err)
 		}
-		return types.QValueJSON{Val: string(encoded), IsArray: true}, nil
+		return types.QValueArrayJSON{Val: string(encoded)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported repeated BigQuery column type for %s: %s", qfield.Name, qfield.Type)
 	}

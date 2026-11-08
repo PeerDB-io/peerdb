@@ -2,7 +2,6 @@ package connmongo
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -53,7 +52,6 @@ var protoToReadPref = map[protos.ReadPreference]*readpref.ReadPref{
 }
 
 type metadataStore interface {
-	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
 	SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error
 }
 
@@ -74,6 +72,7 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+	clientUpdateLookup   bool
 }
 
 func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
@@ -164,6 +163,11 @@ func NewMongoConnector(ctx context.Context, env map[string]string, config *proto
 		}
 	}
 
+	mc.clientUpdateLookup, err = internal.PeerDBMongoDBClientSideUpdateLookup(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		return nil, err
@@ -230,6 +234,10 @@ func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
+func (c *MongoConnector) GetTopologyType(ctx context.Context) (string, error) {
+	return peerdb_mongo.GetTopologyType(ctx, c.client)
+}
+
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
 	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
 	if err != nil {
@@ -249,39 +257,4 @@ func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 		return 0, err
 	}
 	return collStats.Size, nil
-}
-
-// GetServerSideCommitLagMicroseconds returns the commit lag between the latest WAL write
-// and the last consumed event. Both timestamps come from the MongoDB server to avoid clock skew.
-func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error) {
-	replSetStatus, err := peerdb_mongo.GetReplSetStatus(ctx, c.client)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get replica set status: %w", err)
-	}
-
-	lastOffset, err := c.metadataStore.GetLastOffset(ctx, flowJobName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last offset: %w", err)
-	}
-
-	if lastOffset.Text == "" {
-		return 0, fmt.Errorf("last offset is empty string, cannot calculate commit lag")
-	}
-
-	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode resume token: %w", err)
-	}
-	clusterTime, err := decodeTimestampFromResumeToken(resumeToken)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode timestamp from resume token: %w", err)
-	}
-
-	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
-
-	lagSeconds := max(int64(latestWALTime.T)-int64(clusterTime.T), 0)
-
-	lagMicroseconds := lagSeconds * 1_000_000
-
-	return lagMicroseconds, nil
 }

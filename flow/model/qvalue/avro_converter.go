@@ -317,6 +317,8 @@ func QValueToAvro(
 		return val, size, nil
 	case types.QValueJSON:
 		return c.processJSON(v.Val), stringSize(v.Val, sizeOpt), nil
+	case types.QValueArrayJSON:
+		return c.processJSON(v.Val), stringSize(v.Val, sizeOpt), nil
 	case types.QValueHStore:
 		val, err := c.processHStore(v.Val)
 		if err != nil {

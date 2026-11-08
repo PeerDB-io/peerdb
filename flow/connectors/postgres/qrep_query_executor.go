@@ -29,21 +29,30 @@ type QRepQueryExecutor struct {
 	snapshot    string
 	flowJobName string
 	partitionID string
-	version     uint32
+	// columns holds the table's column settings, for the explicit destination types
+	columns []*protos.ColumnSetting
+	flags   []string
+	version uint32
+	// PEERDB_CLICKHOUSE_ENABLE_JSON, looked up once per executor
+	nativeJSONEnabled bool
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID, nil, nil)
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
-	snapshot string, flowJobName string, partitionID string,
+	snapshot string, flowJobName string, partitionID string, flags []string, columns []*protos.ColumnSetting,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
+	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
 	}
 	return &QRepQueryExecutor{
 		PostgresConnector: c,
@@ -53,6 +62,9 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, en
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 		version:           version,
+		flags:             flags,
+		nativeJSONEnabled: nativeJSONEnabled,
+		columns:           columns,
 	}, nil
 }
 
@@ -616,6 +628,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			values[i],
 			qe.customTypeMapping,
 			qe.version,
+			shouldWrapNonObjectJSON(fd.DataTypeOID, fd.Name, qe.customTypeMapping, qe.flags, qe.version, qe.nativeJSONEnabled, qe.columns),
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))

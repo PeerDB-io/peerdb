@@ -28,7 +28,7 @@ type BsonToQValueConverter interface {
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
 	// QValueJSONFromDocument converts a raw BSON document (Object) to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
-	// QValueJSONFromArray converts a raw BSON array to a QValueJSON.
+	// QValueJSONFromArray converts a raw BSON array to a QValueJSON, for a JSON destination column.
 	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
 
 	// QValueFromBsonValue converts any BSON value to the QValue.
@@ -69,7 +69,7 @@ func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QVal
 	if err := shared_mongo.RawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
 		return types.QValueJSON{}, fmt.Errorf("failed to convert array: %w", err)
 	}
-	return types.QValueJSON{Val: string(c.stream.Buffer()), IsArray: true}, nil
+	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 }
 
 func typedArrayFromBson[Q types.QValue, T any](
@@ -174,8 +174,6 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 			values, err := typedArrayFromBson(c, arr, types.QValueKindTimestamp, func(q types.QValueTimestamp) time.Time { return q.Val })
 			return types.QValueArrayTimestamp{Val: values}, err
 		case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
-			// The array kinds of JSON have no dedicated QValue struct.
-			// This yields a QValueJSON holding the whole array serialized in Val and IsArray: true.
 			values, err := typedArrayFromBson(c, arr, types.QValueKindJSON, func(q types.QValueJSON) nullableJSONElement {
 				return nullableJSONElement{value: q.Val, hasValue: true}
 			})
@@ -191,7 +189,7 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 				builder.WriteString(value.String())
 			}
 			builder.WriteByte(']')
-			return types.QValueJSON{Val: builder.String(), IsArray: true}, nil
+			return types.QValueArrayJSON{Val: builder.String()}, nil
 		default:
 			return c.QValueJSONFromArray(arr)
 		}

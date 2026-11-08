@@ -517,3 +517,71 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveClickHouseColumnType(t *testing.T) {
+	nullableInt := &protos.FieldDescription{Name: "id", Type: string(types.QValueKindInt64), Nullable: true}
+	notNullInt := &protos.FieldDescription{Name: "id", Type: string(types.QValueKindInt64)}
+	nullableArray := &protos.FieldDescription{Name: "tags", Type: string(types.QValueKindArrayString), Nullable: true}
+
+	testCases := []struct {
+		name                 string
+		column               *protos.FieldDescription
+		colSetting           *protos.ColumnSetting
+		tableNullableEnabled bool
+		expected             string
+	}{
+		{name: "no setting", column: nullableInt, expected: "Int64"},
+		{name: "no setting, table nullable", column: nullableInt, tableNullableEnabled: true, expected: "Nullable(Int64)"},
+		{
+			name:       "no destination type, column nullable",
+			column:     nullableInt,
+			colSetting: &protos.ColumnSetting{SourceName: "id", NullableEnabled: true},
+			expected:   "Nullable(Int64)",
+		},
+		{
+			name:       "destination type, not nullable",
+			column:     nullableInt,
+			colSetting: &protos.ColumnSetting{SourceName: "id", DestinationType: "UInt64"},
+			expected:   "UInt64",
+		},
+		{
+			name:                 "destination type, table nullable",
+			column:               nullableInt,
+			colSetting:           &protos.ColumnSetting{SourceName: "id", DestinationType: "UInt64"},
+			tableNullableEnabled: true,
+			expected:             "Nullable(UInt64)",
+		},
+		{
+			name:       "destination type, column nullable",
+			column:     nullableInt,
+			colSetting: &protos.ColumnSetting{SourceName: "id", DestinationType: "UInt64", NullableEnabled: true},
+			expected:   "Nullable(UInt64)",
+		},
+		{
+			name:       "destination type already nullable",
+			column:     nullableInt,
+			colSetting: &protos.ColumnSetting{SourceName: "id", DestinationType: "Nullable(UInt64)", NullableEnabled: true},
+			expected:   "Nullable(UInt64)",
+		},
+		{
+			name:       "destination type, source column not nullable",
+			column:     notNullInt,
+			colSetting: &protos.ColumnSetting{SourceName: "id", DestinationType: "UInt64", NullableEnabled: true},
+			expected:   "UInt64",
+		},
+		{
+			name:       "destination type, array column",
+			column:     nullableArray,
+			colSetting: &protos.ColumnSetting{SourceName: "tags", DestinationType: "Array(LowCardinality(String))", NullableEnabled: true},
+			expected:   "Array(LowCardinality(String))",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, err := resolveClickHouseColumnType(t.Context(), tc.column, tc.colSetting, tc.tableNullableEnabled, nil, nil, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, actual)
+		})
+	}
+}

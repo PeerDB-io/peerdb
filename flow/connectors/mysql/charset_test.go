@@ -51,13 +51,13 @@ func TestQValueFromMysqlRowEvent_Transcodes(t *testing.T) {
 
 	// Without a decoder (utf8mb4 column) the bytes are reinterpreted verbatim - mojibake.
 	raw, err := QValueFromMysqlRowEvent(
-		ev, 0, nil, nil, types.QValueKindString, latin1, nil, logger, &coercionReported)
+		ev, 0, nil, nil, types.QValueKindString, latin1, nil, logger, &coercionReported, false)
 	require.NoError(t, err)
 	require.NotEqual(t, "café", raw.(types.QValueString).Val)
 
 	// With the latin1 decoder the value is correctly transcoded.
 	decoded, err := QValueFromMysqlRowEvent(
-		ev, 0, nil, nil, types.QValueKindString, latin1, mysqlCharsetEncodings["latin1"], logger, &coercionReported)
+		ev, 0, nil, nil, types.QValueKindString, latin1, mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
 	require.NoError(t, err)
 	require.Equal(t, "café", decoded.(types.QValueString).Val)
 }

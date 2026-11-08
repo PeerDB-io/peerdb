@@ -88,6 +88,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+	replConfig.Config.RuntimeParams["extra_float_digits"] = "3"
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	// Required for QueryExecModeSimpleProtocol below; pgx refuses simple
 	// protocol when the server reports standard_conforming_strings=off.
@@ -337,6 +338,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
 	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -353,6 +358,8 @@ func pullCore[Items model.Items](
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
+		Flags:                                    req.Flags,
+		NativeJSONEnabled:                        nativeJSONEnabled,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))

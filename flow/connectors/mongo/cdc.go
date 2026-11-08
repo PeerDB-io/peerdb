@@ -305,6 +305,7 @@ type encodedMongoEvent struct {
 	destinationTableName string
 	documentKey          bson.Raw
 	commitTimeNanos      int64
+	clusterTime          bson.Timestamp
 }
 
 // decodeEvent is spun up by PullRecordsWorkerPool in separate goroutines, up to
@@ -448,12 +449,21 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
 		// batchSize=0 only affects the initial aggregate response, so Watch returns
 		// immediately without blocking on the initial cursor establishment. Subsequent
 		// getMore calls fall back to the server default (up to 16 MiB per batch).
 		// https://www.mongodb.com/docs/manual/reference/method/cursor.batchSize/
 		SetBatchSize(0)
+
+	// By default, the change stream looks up each update's document server-side.
+	fullDocumentMode := options.UpdateLookup
+	if c.clientUpdateLookup {
+		// Collections with changeStreamPreAndPostImages get the post-image for free. Updates without one
+		// (option disabled, or pre-image expired) arrive with fullDocument: null and are looked up client-side.
+		fullDocumentMode = options.WhenAvailable
+	}
+	changeStreamOpts.SetFullDocument(fullDocumentMode)
+	c.logger.Info("[mongo] change stream full document mode", slog.String("mode", string(fullDocumentMode)))
 
 	if preimageTables := tablesWithDeletePreimage(req.TableNameMapping, c.excludedOps); len(preimageTables) > 0 {
 		// whenAvailable, never required: a pre-image can be missing even for a collection that has
@@ -513,7 +523,7 @@ func (c *MongoConnector) PullRecords(
 		}
 	}()
 
-	var recordCount uint32
+	var recordCount, updatesWithoutPostImage uint32
 	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	var receiveTime, processTime, parallelProcessTime, addRecordTime atomic.Int64
 	pullStart := time.Now()
@@ -537,6 +547,10 @@ func (c *MongoConnector) PullRecords(
 			slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+		if updatesWithoutPostImage > 0 {
+			c.logger.Info("[mongo] update events without a post-image were looked up client-side",
+				slog.Uint64("count", uint64(updatesWithoutPostImage)))
+		}
 	}()
 	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
 	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
@@ -561,6 +575,15 @@ func (c *MongoConnector) PullRecords(
 	workerPool := concurrency.PullRecordsWorkerPool[encodedMongoEvent, []model.Record[model.RecordItems], string]{
 		Concurrency: c.numDecodeWorkers,
 		ChunkSize:   pullRecordsItemsChunkSize,
+		Prepare: func(ctx context.Context, events []encodedMongoEvent) error {
+			if !c.clientUpdateLookup {
+				return nil
+			}
+			bytes, err := c.hydrateUpdateEvents(ctx, events)
+			deltaBytesProcessed.Add(bytes)
+			cumulativeBytesProcessed.Add(bytes)
+			return err
+		},
 		WorkerFunc: func(events []encodedMongoEvent) ([]model.Record[model.RecordItems], error) {
 			decodeStart := time.Now()
 			defer func() {
@@ -795,6 +818,10 @@ func (c *MongoConnector) PullRecords(
 			sourceTableName:      sourceTableName,
 			destinationTableName: destinationTableName,
 			commitTimeNanos:      commitTimeNanos,
+			clusterTime:          changeEvent.ClusterTime,
+		}
+		if c.clientUpdateLookup && event.operationType == operationTypeUpdate && event.maybeFullDocument == nil {
+			updatesWithoutPostImage++
 		}
 		switch event.operationType {
 		case operationTypeInsert, operationTypeReplace, operationTypeUpdate, operationTypeDelete:

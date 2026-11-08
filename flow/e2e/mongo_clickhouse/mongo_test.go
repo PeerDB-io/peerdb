@@ -460,6 +460,99 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_Structured_Ingestion_Table_Addition adds a structured ingestion table to a running mirror: its CDC
+// rows must land through its column settings, as its initial load does
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Table_Addition() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_addition"
+	dstTable := "test_structured_addition_dst"
+	addedSrcTable := "test_structured_addition_added"
+	addedDstTable := "test_structured_addition_added_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+	addedCollection := db.Collection(addedSrcTable)
+	insertMeetings := func(prefix string) {
+		for i := range 5 {
+			res, err := addedCollection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "title", Value: fmt.Sprintf("title_%s_%d", prefix, i)},
+				{Key: "attendees", Value: bson.A{
+					bson.D{{Key: "email", Value: fmt.Sprintf("a_%s_%d", prefix, i)}, {Key: "internal", Value: true}},
+					bson.D{{Key: "email", Value: fmt.Sprintf("b_%s_%d", prefix, i)}, {Key: "internal", Value: false}},
+				}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertMeetings("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := db.Collection(srcTable).InsertOne(t.Context(), bson.D{{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc into the original table", dstTable, "_id", 1)
+
+	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused for table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// the added table renames a column and lands arrays of documents in an array of JSON
+	addedTableMappings := e2e.TableMappings(s, addedSrcTable, addedDstTable)
+	addedTableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	addedTableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "title", DestinationName: "headline", DestinationType: "Nullable(String)"},
+		{SourceName: "attendees", DestinationType: "Array(Nullable(JSON))"},
+	}
+	runID := e2e.EnvGetRunID(t, env)
+	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: addedTableMappings,
+	})
+	e2e.EnvWaitFor(t, env, 4*time.Minute, "adding table", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.EnvWaitFor(t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != e2e.EnvGetRunID(t, env)
+	})
+	e2e.EnvWaitForCount(env, s, "initial load of the added table", addedDstTable, "_id,name", 5)
+
+	insertMeetings("cdc")
+	e2e.EnvWaitForCount(env, s, "cdc into the added table", addedDstTable, "_id,name", 10)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	for _, prefix := range []string{"init", "cdc"} {
+		var headline, secondAttendee string
+		var attendeesLength uint64
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT ifNull(headline, ''), length(attendees), toString(attendees[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, addedDstTable, prefix)).Scan(&headline, &attendeesLength, &secondAttendee))
+		require.Equal(t, "title_"+prefix+"_3", headline)
+		require.Equal(t, uint64(2), attendeesLength)
+		require.JSONEq(t, fmt.Sprintf(`{"email": "b_%s_3", "internal": false}`, prefix), secondAttendee)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 // Test_Structured_Ingestion_Scalars_And_Typed_Arrays covers the destination types the other structured
 // ingestion tests leave out, on both the initial load and CDC: floats, integers widened into floats, booleans,
 // dates, typed arrays of integers, floats and booleans, the scalars mapping to strings, and the ones mapping
@@ -1255,7 +1348,104 @@ func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
 	require.NoError(t, err)
 }
 
-func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
+func (s MongoClickhouseSuite) Test_CDC_Client_Side_Lookup_Post_Images() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_use_post_images"
+	dstTable := "test_use_post_images_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable, preAndPostImages))
+	collection := db.Collection(srcTable)
+
+	// Only PeerDB's lookup queries are profiled, which shows which updates needed a lookup.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	lookedUpIDs := func() map[bson.ObjectID]struct{} {
+		cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+			{Key: "command.aggregate", Value: srcTable},
+			{Key: "command.comment", Value: parallelDocumentLookupComment},
+		})
+		require.NoError(t, err)
+		defer cursor.Close(t.Context())
+		ids := map[bson.ObjectID]struct{}{}
+		for cursor.Next(t.Context()) {
+			in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+			require.NoError(t, err, "expected an _id lookup to batch with $in")
+			values, err := in.Array().Values()
+			require.NoError(t, err)
+			for _, value := range values {
+				ids[value.ObjectID()] = struct{}{}
+			}
+		}
+		require.NoError(t, cursor.Err())
+		return ids
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	const numDocs = 300
+	docs := make([]any, 0, numDocs)
+	for i := range numDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+
+	// Tests that updates with a post-image need no lookup.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{}, bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(numDocs), updateRes.ModifiedCount)
+	// The post-image is the document right after the update, so it survives a later delete.
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: 0}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "key", Value: 0}})
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates with post-images", srcTable, dstTable, "_id,doc")
+	require.Empty(t, lookedUpIDs(), "updates with a post-image must not be looked up")
+
+	// Tests that an update without a post-image is looked up instead of written without its document.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: srcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: false}}},
+	}).Err())
+	const numWithoutPostImage = 10
+	expectedLookups := make(map[bson.ObjectID]struct{}, numWithoutPostImage)
+	for i := 1; i <= numWithoutPostImage; i++ {
+		_, err := collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: i}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 100 + i}}}})
+		require.NoError(t, err)
+		expectedLookups[insertRes.InsertedIDs[i].(bson.ObjectID)] = struct{}{}
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates without post-images", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+	require.Equal(t, expectedLookups, lookedUpIDs(), "only the updates without a post-image are looked up")
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Uniform() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_simple_partitioned"
@@ -1269,6 +1459,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.Env["PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING"] = "false"
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -1312,6 +1503,66 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	require.NoError(t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Sample() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_partitioned_sampled_skewed"
+	dstTable := "test_partitioned_sampled_skewed_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1000
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Mimics the likely $sample path in production: MongoDB uses a random cursor only when the
+	// sample is under 5% of the collection and the collection has more than 100 documents;
+	// otherwise scans the whole collection and sorts it randomly. 5,002 documents at
+	// 1,000 rows per partition give 6 partitions and a 120-document sample (6 x 20, 2.4%).
+	const clustered = 5_000
+	docs := make([]any, 0, clustered+2)
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range clustered {
+		docs = append(docs, bson.D{
+			{Key: "_id", Value: bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))},
+			{Key: "key", Value: fmt.Sprintf("value_%d", i)},
+		})
+	}
+	docs = append(docs,
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(1, 0))}, {Key: "outlier", Value: "min"}},
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(math.MaxUint32-1, 0))}, {Key: "outlier", Value: "max"}},
+	)
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	var maxRowsInPartition int64
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*), COALESCE(MAX(rows_in_partition), 0) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount, &maxRowsInPartition))
+	require.Greaterf(t, partitionCount, 1, "expected a parallel snapshot, got %d partition(s)", partitionCount)
+	// allow 3x the target since the random cursor gives different boundaries on every run.
+	require.LessOrEqualf(t, maxRowsInPartition, int64(3_000),
+		"largest of %d partitions held %d of 5,002 documents; sampling should spread the clustered _ids",
+		partitionCount, maxRowsInPartition)
+
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
@@ -1779,6 +2030,225 @@ func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_parallel_lookup"
+	dstTable := "test_parallel_lookup_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+
+	collection := db.Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	// Only PeerDB's lookup queries are profiled, which shows how updates were hydrated.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// More documents than one lookup window, so updates span several windows and $in batches.
+	const numDocs = 600
+	docs := make([]any, 0, numDocs)
+	for i := range numDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+	expectedIDs := make(map[bson.ObjectID]struct{}, numDocs)
+	for _, id := range insertRes.InsertedIDs {
+		expectedIDs[id.(bson.ObjectID)] = struct{}{}
+	}
+
+	// Tests that updates spanning several windows are all hydrated by batched $in lookups.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{},
+		bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(numDocs), updateRes.ModifiedCount)
+
+	// Tests lookup does not fail with deletion
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: 0}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "key", Value: 0}})
+	require.NoError(t, err)
+
+	// Test that value converges after a mix of lookup and non-lookup operations
+	recreatedID := insertRes.InsertedIDs[2]
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}})
+	require.NoError(t, err)
+	_, err = collection.InsertOne(t.Context(),
+		bson.D{{Key: "_id", Value: recreatedID}, {Key: "key", Value: 2}, {Key: "recreated", Value: true}})
+	require.NoError(t, err)
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 2}}}})
+	require.NoError(t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "mixed events", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+
+	cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+		{Key: "command.aggregate", Value: srcTable},
+		{Key: "command.comment", Value: parallelDocumentLookupComment},
+	})
+	require.NoError(t, err)
+	defer cursor.Close(t.Context())
+	// Window boundaries depend on change stream timing, so assert which IDs were
+	// looked up, not how many queries ran.
+	lookedUpIDs := make(map[bson.ObjectID]struct{}, len(expectedIDs))
+	for cursor.Next(t.Context()) {
+		in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+		require.NoError(t, err, "expected every ObjectID lookup to be a batched $in lookup")
+		values, err := in.Array().Values()
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(values), 64, "batched lookup exceeded the query size")
+		for _, value := range values {
+			lookedUpIDs[value.ObjectID()] = struct{}{}
+		}
+	}
+	require.NoError(t, cursor.Err())
+	require.Equal(t, expectedIDs, lookedUpIDs, "every updated document must be hydrated by a batched $in lookup")
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup_Mixed_Id_Types() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_parallel_lookup_mixed_ids"
+	dstTable := "test_parallel_lookup_mixed_ids_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+
+	collection := db.Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	// Only PeerDB's lookup queries are profiled, which shows how updates were hydrated.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	decimal, err := bson.ParseDecimal128("12.50")
+	require.NoError(t, err)
+	// An ObjectID and its hex string are left out: both map to the same destination _id.
+	nonObjectIDs := []any{
+		"string-id",
+		"",
+		int32(7),
+		int64(1) << 40,
+		3.5,
+		decimal,
+		bson.Binary{Subtype: 4, Data: []byte("0123456789abcdef")},
+		bson.DateTime(1700000000000),
+		true,
+		// Embedded documents with the same fields in a different order are different _ids.
+		bson.D{{Key: "a", Value: 1}, {Key: "b", Value: "x"}},
+		bson.D{{Key: "b", Value: "x"}, {Key: "a", Value: 1}},
+	}
+	const numObjectIDDocs = 10
+	docs := make([]any, 0, len(nonObjectIDs)+numObjectIDDocs)
+	for i, id := range nonObjectIDs {
+		docs = append(docs, bson.D{{Key: "_id", Value: id}, {Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	for i := range numObjectIDDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: len(nonObjectIDs) + i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+	expectedIDs := make(map[string]struct{}, len(docs))
+	for _, id := range insertRes.InsertedIDs {
+		idType, idData, err := bson.MarshalValue(id)
+		require.NoError(t, err)
+		expectedIDs[string([]byte{byte(idType)})+string(idData)] = struct{}{}
+	}
+	require.Len(t, expectedIDs, len(docs))
+
+	// Tests that each update in a mixed window is hydrated with its own document.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{},
+		bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(len(docs)), updateRes.ModifiedCount)
+
+	// Tests that repeated updates to one key keep the latest document.
+	for i := range 3 {
+		_, err := collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: "string-id"}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 10 + i}}}})
+		require.NoError(t, err)
+	}
+
+	// Tests that the sync does not fail when a lookup finds no document.
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: int32(7)}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: int32(7)}})
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "mixed events", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+
+	cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+		{Key: "command.aggregate", Value: srcTable},
+		{Key: "command.comment", Value: parallelDocumentLookupComment},
+	})
+	require.NoError(t, err)
+	defer cursor.Close(t.Context())
+	// Window boundaries depend on change stream timing, so assert which IDs were
+	// looked up, not how many queries ran.
+	lookedUpIDs := make(map[string]struct{}, len(expectedIDs))
+	for cursor.Next(t.Context()) {
+		in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+		require.NoError(t, err, "expected an unsharded collection lookup to batch _ids with $in")
+		values, err := in.Array().Values()
+		require.NoError(t, err)
+		for _, value := range values {
+			lookedUpIDs[string([]byte{byte(value.Type)})+string(value.Value)] = struct{}{}
+		}
+	}
+	require.NoError(t, cursor.Err())
+	require.Equal(t, expectedIDs, lookedUpIDs, "every updated document must be hydrated by a batched $in lookup")
 }
 
 func (s MongoClickhouseSuite) Test_CDC_Collection_DDL_Reported_To_User() {

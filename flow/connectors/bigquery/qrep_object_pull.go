@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -408,15 +409,15 @@ func (c *BigQueryConnector) runTableExports(
 				}
 			}
 
-			return fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
+			return fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, exceptions.NewBigQueryError(err))
 		}
 		jobs[tm.SourceTableIdentifier] = job
 	}
 	for sourceTableIdentifier, job := range jobs {
 		if status, err := job.Wait(ctx); err != nil {
-			return fmt.Errorf("error waiting for export job to complete: %w", err)
+			return fmt.Errorf("error waiting for export job to complete: %w", exceptions.NewBigQueryError(err))
 		} else if err := status.Err(); err != nil {
-			return fmt.Errorf("export job completed with error: %w", err)
+			return fmt.Errorf("export job completed with error: %w", exceptions.NewBigQueryError(err))
 		}
 
 		_ = c.LogFlowInfo(ctx, flowName, "Exported snapshot data to GCS for table "+sourceTableIdentifier)
@@ -438,13 +439,15 @@ func (c *BigQueryConnector) maxWatermarkValue(
 	it, err := c.client.Query(fmt.Sprintf("SELECT MAX(TIMESTAMP(%s)) AS wm FROM %s",
 		quotedIdentifier(watermarkColumn), dsTable.stringQuoted())).Read(ctx)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to query max watermark for table %s: %w", sourceTableIdentifier, err)
+		return time.Time{}, fmt.Errorf("failed to query max watermark for table %s: %w", sourceTableIdentifier,
+			exceptions.NewBigQueryError(err))
 	}
 	var row struct {
 		Wm bigquery.NullTimestamp `bigquery:"wm"`
 	}
 	if err := it.Next(&row); err != nil {
-		return time.Time{}, fmt.Errorf("failed to read max watermark for table %s: %w", sourceTableIdentifier, err)
+		return time.Time{}, fmt.Errorf("failed to read max watermark for table %s: %w", sourceTableIdentifier,
+			exceptions.NewBigQueryError(err))
 	}
 	if !row.Wm.Valid {
 		return c.currentBigQueryTimestamp(ctx)
@@ -457,13 +460,13 @@ func (c *BigQueryConnector) maxWatermarkValue(
 func (c *BigQueryConnector) currentBigQueryTimestamp(ctx context.Context) (time.Time, error) {
 	it, err := c.client.Query("SELECT CURRENT_TIMESTAMP() AS ts").Read(ctx)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to query current BigQuery timestamp: %w", err)
+		return time.Time{}, fmt.Errorf("failed to query current BigQuery timestamp: %w", exceptions.NewBigQueryError(err))
 	}
 	var row struct {
 		Ts time.Time `bigquery:"ts"`
 	}
 	if err := it.Next(&row); err != nil {
-		return time.Time{}, fmt.Errorf("failed to read current BigQuery timestamp: %w", err)
+		return time.Time{}, fmt.Errorf("failed to read current BigQuery timestamp: %w", exceptions.NewBigQueryError(err))
 	}
 	return row.Ts, nil
 }

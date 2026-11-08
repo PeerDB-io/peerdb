@@ -768,15 +768,10 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
-	// validate mirror first because once the mirror is dropped, there's no going back
-	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
-		return NewInternalApiError(err)
-	} else {
-		config.Version = internalVersion
-	}
 	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
+	// validate mirror first because once the mirror is dropped, there's no going back
 	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false, false); err != nil {
 		return err
 	}

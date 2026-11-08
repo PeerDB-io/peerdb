@@ -48,7 +48,15 @@ func jsonFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 
-	if !qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion) {
+	// an explicit destination type decides for its column, as the DDL and the normalize query do
+	castToJSON := qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion)
+	for _, column := range config.config.GetColumns() {
+		if column.SourceName == field.Name && column.DestinationType != "" {
+			castToJSON = column.DestinationType == "JSON" || column.DestinationType == "Nullable(JSON)"
+			break
+		}
+	}
+	if !castToJSON {
 		return sourceFieldIdentifier, nil
 	}
 
@@ -111,12 +119,10 @@ func arrayJSONFieldExpressionConverter(
 	if field.Type != types.QValueKindArrayJSON && field.Type != types.QValueKindArrayJSONB {
 		return sourceFieldIdentifier, nil
 	}
-	for _, column := range config.config.GetColumns() {
-		if column.SourceName == field.Name && strings.HasPrefix(column.DestinationType, "Array(") {
-			// a null array is staged as a null string, the empty array once parsed
-			return fmt.Sprintf("JSONExtract(ifNull(%s, ''), %s)",
-				sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(column.DestinationType)), nil
-		}
+	if dstType := findColumnSetting(field.Name, config.config.GetColumns()).GetDestinationType(); strings.HasPrefix(dstType, "Array(") {
+		// a null array is staged as a null string, the empty array once parsed
+		return fmt.Sprintf("JSONExtract(ifNull(%s, ''), %s)",
+			sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(dstType)), nil
 	}
 	return sourceFieldIdentifier, nil
 }
@@ -175,8 +181,9 @@ func buildInsertFromTableFunctionQuery(
 			sourceFieldName = convertedExpr
 		}
 
+		dstColName := resolveDestinationColumnName(colName, config.config.GetColumns())
 		selectedColumnNames = append(selectedColumnNames, sourceFieldName)
-		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
+		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(dstColName))
 	}
 
 	// Add source schema column if needed

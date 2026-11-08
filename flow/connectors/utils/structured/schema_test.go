@@ -228,18 +228,17 @@ func TestProjectRecord(t *testing.T) {
 }
 
 func TestProjectRecordArrayOfJSON(t *testing.T) {
-	// the array-of-JSON kinds have no dedicated QValue type: their values are QValueJSONs flagged
-	// IsArray, which must fit the column while plain JSON values must not
+	// an array-of-JSON column takes QValueArrayJSON values, while plain JSON values must not fit it
 	projector, err := NewSchemaProjectorFromQFields([]types.QField{
 		{Name: "attachments", Type: types.QValueKindArrayJSON},
 	}, nil, true)
 	require.NoError(t, err)
 
 	values, err := projector.ProjectRecord(recordOf(
-		recordField{"attachments", types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}},
+		recordField{"attachments", types.QValueArrayJSON{Val: `[{"k":1}]`}},
 	))
 	require.NoError(t, err)
-	require.Equal(t, types.QValueJSON{Val: `[{"k":1}]`, IsArray: true}, values[0])
+	require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1}]`}, values[0])
 	require.Equal(t, types.QValueNull(types.QValueKindJSON), values[1])
 
 	values, err = projector.ProjectRecord(recordOf(

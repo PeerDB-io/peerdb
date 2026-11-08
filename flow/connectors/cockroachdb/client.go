@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -58,7 +59,7 @@ func NewCockroachDBConnFromConfig(
 			return []string{host}, nil
 		}
 	}
-	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	conn, err := shared.ConnectPostgres(ctx, connConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to CockroachDB: %w", toCrdbError(err))
 	}
@@ -87,7 +88,8 @@ func GetCRDBConnectionString(config *protos.CockroachDBConfig, flowName string) 
 	} else {
 		q.Set("sslmode", "require")
 	}
-	u.RawQuery = q.Encode()
+	// Preserve spaces in application_name; pgx treats '+' literally.
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
 	return u.String()
 }
 

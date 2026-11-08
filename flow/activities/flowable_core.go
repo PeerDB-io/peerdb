@@ -149,6 +149,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestionConfig,
 		)
 		mapping.MongoConfiguration = v.MongoConfig
+		mapping.Columns = v.Columns
 		tblNameMapping[v.SourceTableIdentifier] = mapping
 	}
 
@@ -251,6 +252,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
+			Flags:                       config.Flags,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)

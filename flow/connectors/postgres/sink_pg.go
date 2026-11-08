@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
@@ -79,13 +81,22 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		return 0, 0, err
 	}
 
-	fieldDescriptions := norows.FieldDescriptions()
+	fieldDescriptions := slices.Clone(norows.FieldDescriptions())
+	norows.Close()
+	if err := norows.Err(); err != nil {
+		return 0, 0, err
+	}
 	cols := make([]string, 0, len(fieldDescriptions))
 	for _, fd := range fieldDescriptions {
 		cols = append(cols, fd.Name)
 	}
+	if qe.snapshot != "" && fromOneTable(fieldDescriptions) {
+		var err error
+		if query, cols, err = snapshotColumns(ctx, tx, query, fieldDescriptions); err != nil {
+			return 0, 0, err
+		}
+	}
 	p.SetSchema(cols)
-	norows.Close()
 
 	query, err = sanitize.SanitizeSQL(query, args...)
 	if err != nil {
@@ -138,4 +149,33 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 		fmt.Sprintf("COPY %s (%s) FROM STDIN", table.Sanitize(), strings.Join(quotedCols, ",")),
 	)
 	return ct.RowsAffected(), err
+}
+
+func fromOneTable(fields []pgconn.FieldDescription) bool {
+	return len(fields) > 0 && fields[0].TableOID != 0 &&
+		!slices.ContainsFunc(fields, func(fd pgconn.FieldDescription) bool { return fd.TableOID != fields[0].TableOID })
+}
+
+func snapshotColumns(ctx context.Context, tx pgx.Tx, query string, fields []pgconn.FieldDescription) (string, []string, error) {
+	rows, err := tx.Query(ctx, `SELECT attnum, attname FROM pg_catalog.pg_attribute
+		WHERE attrelid = $1 AND attnum > 0 AND NOT attisdropped`, fields[0].TableOID)
+	if err != nil {
+		return "", nil, err
+	}
+	names := make(map[uint16]string)
+	var num uint16
+	var name string
+	if _, err := pgx.ForEachRow(rows, []any{&num, &name}, func() error {
+		names[num] = name
+		return nil
+	}); err != nil {
+		return "", nil, err
+	}
+	sel, cols := make([]string, 0, len(fields)), make([]string, 0, len(fields))
+	for _, fd := range fields {
+		if name, ok := names[fd.TableAttributeNumber]; ok {
+			sel, cols = append(sel, common.QuoteIdentifier(fd.Name)+" AS "+common.QuoteIdentifier(name)), append(cols, name)
+		}
+	}
+	return "SELECT " + strings.Join(sel, ",") + " FROM (" + query + ") _peerdb_snapshot", cols, nil
 }

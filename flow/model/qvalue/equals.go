@@ -120,6 +120,9 @@ func Equals(qv types.QValue, other types.QValue) bool {
 			return false
 		}
 		return reflect.DeepEqual(a, b)
+	case types.QValueArrayJSON:
+		// compared as JSON documents, like QValueJSON
+		return Equals(types.QValueJSON(q), other)
 	case types.QValueGeometry:
 		return compareGeometry(q.Val, otherValue)
 	case types.QValueGeography:
