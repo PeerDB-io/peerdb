@@ -60,6 +60,8 @@ type Site struct {
 	Workloads Workload
 	// SchemaChangeOnly sites are reached only by batches that carry schema changes.
 	SchemaChangeOnly bool
+	// ScenarioOnly sites serve scenario tests only. GenerateCases skips them.
+	ScenarioOnly bool
 }
 
 func (s Site) In(w Workload) bool {
@@ -128,6 +130,12 @@ var (
 	}
 	CHNormalizeInsertAfter = Site{
 		Name: "ch.normalize.insert.after", Kind: KindFail, Loop: LoopNormalize, Workloads: WorkloadPGToCH,
+	}
+	// Holds an INSERT worker after its INSERT returns, so a test can see whether
+	// NormalizeRecords waits for the worker before returning.
+	CHNormalizeInsertReturnGap = Site{
+		Name: "ch.normalize.insert_return.gap", Kind: KindPause, Loop: LoopNormalize, Workloads: WorkloadPGToCH,
+		ScenarioOnly: true,
 	}
 	CHNormalizeTableBatchIDAfter = Site{
 		Name: "ch.normalize.table_batch_id.after", Kind: KindFail, Loop: LoopNormalize, Workloads: WorkloadPGToCH,
@@ -199,6 +207,7 @@ var Sites = []Site{
 	CHNormalizeCopyStagesAfter,
 	CHNormalizeEnqueueAfter,
 	CHNormalizeInsertAfter,
+	CHNormalizeInsertReturnGap,
 	CHNormalizeTableBatchIDAfter,
 	CHNormalizeBatchIDBefore,
 
