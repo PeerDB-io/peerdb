@@ -15,9 +15,9 @@ NormAdvance(t) == /\ (IF t="a" THEN ((A!CheckWork \/ A!AcquireNormConnector \/ A
  /\ UNCHANGED <<phase,canceled,fatalFailures,restarts>>
 OtherStep(t) == /\ (IF t="a" THEN ((A!Arrival \/ A!EmptyPoll \/ A!FailPull \/ A!FailNorm) /\ UNCHANGED right) ELSE ((B!Arrival \/ B!EmptyPoll \/ B!FailPull \/ B!FailNorm) /\ UNCHANGED left))
  /\ UNCHANGED <<phase,canceled,fatalFailures,restarts>>
-ExitSync(t) == /\ (IF t="a" THEN ((A!StopSync) /\ UNCHANGED right) ELSE ((B!StopSync) /\ UNCHANGED left))
+ExitSync(t) == /\ (IF t="a" THEN ((A!StopSync \/ A!CanceledSyncCommitError) /\ UNCHANGED right) ELSE ((B!StopSync \/ B!CanceledSyncCommitError) /\ UNCHANGED left))
  /\ UNCHANGED <<phase,canceled,fatalFailures,restarts>>
-ExitNorm(t) == /\ (IF t="a" THEN ((A!StopNorm) /\ UNCHANGED right) ELSE ((B!StopNorm) /\ UNCHANGED left))
+ExitNorm(t) == /\ (IF t="a" THEN ((A!StopNorm \/ A!CanceledNormCommitError) /\ UNCHANGED right) ELSE ((B!StopNorm \/ B!CanceledNormCommitError) /\ UNCHANGED left))
  /\ UNCHANGED <<phase,canceled,fatalFailures,restarts>>
 FatalError(t) == /\ ~canceled /\ phase="running" /\ fatalFailures<MaxFatalFailures
  /\ (IF t="a" THEN ((A!FatalSyncError \/ A!FatalNormError) /\ right'=[right EXCEPT !.groupCanceled=TRUE, !.phase="canceling"]) ELSE ((B!FatalSyncError \/ B!FatalNormError) /\ left'=[left EXCEPT !.groupCanceled=TRUE, !.phase="canceling"]))
