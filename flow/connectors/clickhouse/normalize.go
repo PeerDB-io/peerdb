@@ -507,7 +507,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.String("query", q.query),
 					slog.Int("parallelWorker", i))
 
-				if err := c.execWithConnection(errCtx, chConn, q.query); err != nil {
+				err := c.execWithConnection(errCtx, chConn, q.query)
+				// errCtx may already be canceled here, so the pause waits on ctx.
+				testhooks.Pausepoint(ctx, testhooks.CHNormalizeInsertReturnGap)
+				if err != nil {
 					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
 						slog.String("table", q.table),
 						slog.Int64("endBatchID", endBatchID),

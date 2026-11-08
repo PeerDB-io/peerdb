@@ -34,11 +34,12 @@ func (c Case) Name() string {
 func GenerateCases() []Case {
 	var cases []Case
 	for _, w := range Workloads {
-		var fails, pauses []Site
+		var sites, fails, pauses []Site
 		for _, s := range Sites {
-			if !s.In(w) {
+			if !s.In(w) || s.ScenarioOnly {
 				continue
 			}
+			sites = append(sites, s)
 			if s.Kind == KindPause {
 				pauses = append(pauses, s)
 			} else {
@@ -46,10 +47,8 @@ func GenerateCases() []Case {
 			}
 		}
 
-		for _, s := range Sites {
-			if s.In(w) {
-				cases = append(cases, Case{Workload: w, Kind: CaseSingle, First: s})
-			}
+		for _, s := range sites {
+			cases = append(cases, Case{Workload: w, Kind: CaseSingle, First: s})
 		}
 		for _, a := range fails {
 			for _, b := range fails {
