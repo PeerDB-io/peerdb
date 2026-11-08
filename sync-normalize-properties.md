@@ -4,6 +4,8 @@ This checklist applies to both the baseline and the revised coordination code. T
 
 ## Assumptions
 
+The modeled CDC destinations are PostgreSQL and ClickHouse. Normalize-less sinks are outside this verification scope.
+
 - Only one active sync/normalize worker pair owns a table, including across restarts. CDC shares one pair across the mirror.
 - Nothing outside that pair changes its progress while it runs.
 - Catalog writes are atomic individually. A catalog write and a notification are separate steps.

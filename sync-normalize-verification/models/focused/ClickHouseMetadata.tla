@@ -29,7 +29,7 @@ StartTables == /\ st.phase="copy" /\ st.cursor>=st.end
 Dispatch(t) == /\ st.phase="tables" /\ t \notin st.sent
  /\ st'=[st EXCEPT !.sent=@ \cup {t},
  !.pending=IF Max(st.lastNorm,st.tableSaved[t])<st.end THEN @ \cup {<<st.calls,t,st.end>>} ELSE @]
-\* INSERT completes before this SQL assignment. Neither early return nor primary Close joins a separate connection.
+\* INSERT completes before this SQL assignment. Pool Close does not join an active borrowed connection.
 SaveTable(job) == /\ job \in st.pending
  /\ st'=[st EXCEPT !.tableSaved[job[2]]=job[3], !.pending=@ \ {job}]
 CurrentJobs == {j \in st.pending:j[1]=st.calls}

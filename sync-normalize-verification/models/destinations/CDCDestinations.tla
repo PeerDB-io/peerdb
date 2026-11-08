@@ -5,7 +5,7 @@ VARIABLE st
 vars == <<st>>
 Init == \E synced \in 0..Batches: \E normalized \in 0..synced:
  st = [ds |-> synced, dn |-> normalized, req |-> synced, resp |-> normalized,
-       applied |-> [t \in Tables |-> normalized], schema |-> 1..synced, destinationSchema |-> 1..synced, raw |-> 1..synced, transactionRaw |-> {},
+       applied |-> [t \in Tables |-> normalized], schema |-> 1..synced, destinationSchema |-> 1..synced, raw |-> 1..synced, transactionRaw |-> {}, pending |-> {},
        firstBatch |-> TRUE, sp |-> "pull", np |-> "check", target |-> normalized, heartbeat |-> normalized,
        end |-> normalized, rg |-> 0, ng |-> 0, rw |-> 0, nw |-> 0, rc |-> {}, nc |-> {}, sold |-> 0, nold |-> 0, nreturn |-> "check",
        failures |-> 0, restarts |-> 0, canceled |-> FALSE]
@@ -45,29 +45,35 @@ SubscribeNorm == /\ ~st.canceled /\ st.np = "subscribe"
                  /\ st' = [st EXCEPT !.rw = st.rg, !.np = "sleep"]
 WakeNorm == /\ ~st.canceled /\ st.np = "sleep" /\ st.rw \in st.rc
             /\ st' = [st EXCEPT !.np = "check"]
-Apply(t) == /\ ~st.canceled /\ st.np = "apply" /\ st.applied[t] < st.end
-            /\ st' = [st EXCEPT !.applied[t] = st.end]
-CommitNorm == /\ ~st.canceled /\ st.np = "apply" /\ \A t \in Tables: st.applied[t] >= st.end
-              /\ st' = [st EXCEPT !.dn = st.end,
-                !.np = IF Destination="PostgreSQL" /\ st.end<st.target THEN "apply" ELSE "report",
-                !.end = IF Destination="PostgreSQL" /\ st.end<st.target THEN @+1 ELSE @]
+Apply(t) == /\ ~st.canceled /\ st.np = "apply"
+ /\ IF Destination="PostgreSQL"
+ THEN /\ t \notin st.pending /\ st'=[st EXCEPT !.pending=@ \cup {t}]
+ ELSE /\ st.applied[t]<st.end /\ st'=[st EXCEPT !.applied[t]=st.end]
+CommitNorm == /\ ~st.canceled /\ st.np = "apply"
+ /\ IF Destination="PostgreSQL"
+ THEN /\ st.pending=Tables
+      /\ st'=[st EXCEPT !.applied=[t \in Tables |-> st.end], !.dn=st.end, !.pending={},
+        !.np=IF st.end<st.target THEN "apply" ELSE "report",
+        !.end=IF st.end<st.target THEN @+1 ELSE @]
+ ELSE /\ \A t \in Tables:st.applied[t]>=st.end
+      /\ st'=[st EXCEPT !.dn=st.end, !.np="report"]
 ReportNorm == /\ ~st.canceled /\ st.np = "report"
               /\ st' = [st EXCEPT !.resp = st.dn, !.np = "responseSwap",
                         !.nreturn = IF st.dn < st.target THEN "apply" ELSE "check",
                         !.end = GroupEnd(st.dn,st.target)]
 FailNorm == /\ ~st.canceled /\ st.np \in {"apply", "report"} /\ st.failures < MaxFailures
-            /\ st' = [st EXCEPT !.failures = @+1, !.np = "retry"]
+            /\ st' = [st EXCEPT !.failures = @+1, !.pending={}, !.np = "retry"]
 RetryNorm == /\ ~st.canceled /\ st.np = "retry"
              /\ st' = [st EXCEPT !.target = st.req, !.heartbeat = st.req,
                        !.end = GroupEnd(st.dn,st.req), !.np = "apply"]
 Restart == /\ ~st.canceled /\ st.restarts < MaxRestarts
  /\ st' = [st EXCEPT !.req = st.ds, !.resp = st.dn, !.heartbeat = st.dn,
- !.target = st.dn, !.end = st.dn, !.transactionRaw={}, !.firstBatch=TRUE, !.sp = "pull", !.np = "check",
+ !.target = st.dn, !.end = st.dn, !.transactionRaw={}, !.pending={}, !.firstBatch=TRUE, !.sp = "pull", !.np = "check",
  !.rg = 0, !.ng = 0, !.rw = 0, !.nw = 0, !.rc = {}, !.nc = {},
  !.sold = 0, !.nold = 0, !.nreturn = "check", !.restarts = @+1]
 Cancel == /\ ~st.canceled /\ st' = [st EXCEPT !.canceled = TRUE]
 StopSync == /\ st.canceled /\ st.sp # "stopped" /\ st' = [st EXCEPT !.sp = "stopped"]
-StopNorm == /\ st.canceled /\ st.np # "stopped" /\ st' = [st EXCEPT !.np = "stopped"]
+StopNorm == /\ st.canceled /\ st.np # "stopped" /\ st' = [st EXCEPT !.np = "stopped", !.pending={}]
 Idle == /\ ((st.ds = Batches /\ st.resp = Batches /\ st.sp = "pull")
              \/ (st.sp = "stopped" /\ st.np = "stopped")) /\ UNCHANGED st
 SyncSwap == /\ ~st.canceled /\ st.sp = "publishSwap"
@@ -113,19 +119,23 @@ TargetsDoNotAcknowledge == [][CheckWork => UNCHANGED <<st.dn,st.resp>>]_vars
 CompletionBeforeNotification == st.resp <= st.dn
 
 \* Isolated configuration of the actual ClickHouse NormalizeRecords worker lifecycle.
-WorkerInit == st=[sent |-> {}, active |-> {}, applied |-> {}, returned |-> FALSE, retried |-> FALSE, ack |-> FALSE]
-Dispatch(t) == /\ ~st.returned /\ t \notin st.sent
+WorkerInit == st=[sent |-> {}, active |-> {}, applied |-> {}, returned |-> FALSE, retried |-> FALSE, ack |-> FALSE, failed |-> FALSE]
+Dispatch(t) == /\ ~st.returned /\ ~st.failed /\ t \notin st.sent
  /\ st'=[st EXCEPT !.sent=@ \cup {t}, !.active=@ \cup {t}]
-ProducerError == /\ st.sent=Tables /\ ~st.returned
+ProducerError == /\ ~st.returned /\ st.sent # Tables
  /\ st'=[st EXCEPT !.returned=TRUE]
 WorkerFinish(t) == /\ t \in st.active
  /\ st'=[st EXCEPT !.active=@ \ {t}, !.applied=@ \cup {t}]
-SuccessfulJoin == /\ st.sent=Tables /\ st.active={} /\ ~st.returned
+WorkerTaskError(t) == /\ t \in st.active
+ /\ st'=[st EXCEPT !.active=@ \ {t}, !.failed=TRUE]
+JoinedError == /\ ~st.returned /\ st.failed /\ st.active={}
+ /\ st'=[st EXCEPT !.returned=TRUE]
+SuccessfulJoin == /\ ~st.failed /\ st.sent=Tables /\ st.active={} /\ ~st.returned
  /\ st'=[st EXCEPT !.returned=TRUE, !.ack=TRUE]
 CallerRetries == /\ st.returned /\ ~st.ack /\ ~st.retried
  /\ st'=[st EXCEPT !.retried=TRUE]
 WorkerDone == /\ st.returned /\ st.active={} /\ UNCHANGED st
-WorkerNext == (\E t \in Tables: Dispatch(t)) \/ ProducerError \/ (\E t \in Tables: WorkerFinish(t)) \/ SuccessfulJoin \/ CallerRetries \/ WorkerDone
+WorkerNext == (\E t \in Tables: Dispatch(t)) \/ ProducerError \/ (\E t \in Tables: WorkerFinish(t) \/ WorkerTaskError(t)) \/ JoinedError \/ SuccessfulJoin \/ CallerRetries \/ WorkerDone
 WorkerSpec == WorkerInit /\ [][WorkerNext]_vars /\ (\A t \in Tables: WF_vars(WorkerFinish(t)))
 WorkersJoinedBeforeReturn == st.returned => st.active={}
 RetryHasNoPriorWorkers == st.retried => st.active={}
@@ -140,4 +150,5 @@ DurableWriteArgumentsOrdered == [][CommitNorm => st.end>=st.dn]_vars
 \* PostgreSQL commits batches internally but returns only the captured target.
 PostgresReportsWholeCall == [][(Destination="PostgreSQL" /\ ReportNorm) => st.dn=st.target]_vars
 NoPublicationDuringInternalCommit == [][CommitNorm => UNCHANGED st.resp]_vars
+PostgresEffectsAndCheckpointAtomic == Destination # "PostgreSQL" \/ (\A t \in Tables:st.applied[t]=st.dn)
 =============================================================================

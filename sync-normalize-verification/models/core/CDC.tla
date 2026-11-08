@@ -87,19 +87,23 @@ TargetsDoNotAcknowledge == [][CheckWork => UNCHANGED <<st.dn,st.resp>>]_vars
 CompletionBeforeNotification == st.resp <= st.dn
 
 \* Isolated configuration of the actual ClickHouse NormalizeRecords worker lifecycle.
-WorkerInit == st=[sent |-> {}, active |-> {}, applied |-> {}, returned |-> FALSE, retried |-> FALSE, ack |-> FALSE]
-Dispatch(t) == /\ ~st.returned /\ t \notin st.sent
+WorkerInit == st=[sent |-> {}, active |-> {}, applied |-> {}, returned |-> FALSE, retried |-> FALSE, ack |-> FALSE, failed |-> FALSE]
+Dispatch(t) == /\ ~st.returned /\ ~st.failed /\ t \notin st.sent
  /\ st'=[st EXCEPT !.sent=@ \cup {t}, !.active=@ \cup {t}]
-ProducerError == /\ st.sent=Tables /\ ~st.returned
+ProducerError == /\ ~st.returned /\ st.sent # Tables
  /\ st'=[st EXCEPT !.returned=TRUE]
 WorkerFinish(t) == /\ t \in st.active
  /\ st'=[st EXCEPT !.active=@ \ {t}, !.applied=@ \cup {t}]
-SuccessfulJoin == /\ st.sent=Tables /\ st.active={} /\ ~st.returned
+WorkerTaskError(t) == /\ t \in st.active
+ /\ st'=[st EXCEPT !.active=@ \ {t}, !.failed=TRUE]
+JoinedError == /\ ~st.returned /\ st.failed /\ st.active={}
+ /\ st'=[st EXCEPT !.returned=TRUE]
+SuccessfulJoin == /\ ~st.failed /\ st.sent=Tables /\ st.active={} /\ ~st.returned
  /\ st'=[st EXCEPT !.returned=TRUE, !.ack=TRUE]
 CallerRetries == /\ st.returned /\ ~st.ack /\ ~st.retried
  /\ st'=[st EXCEPT !.retried=TRUE]
 WorkerDone == /\ st.returned /\ st.active={} /\ UNCHANGED st
-WorkerNext == (\E t \in Tables: Dispatch(t)) \/ ProducerError \/ (\E t \in Tables: WorkerFinish(t)) \/ SuccessfulJoin \/ CallerRetries \/ WorkerDone
+WorkerNext == (\E t \in Tables: Dispatch(t)) \/ ProducerError \/ (\E t \in Tables: WorkerFinish(t) \/ WorkerTaskError(t)) \/ JoinedError \/ SuccessfulJoin \/ CallerRetries \/ WorkerDone
 WorkerSpec == WorkerInit /\ [][WorkerNext]_vars /\ (\A t \in Tables: WF_vars(WorkerFinish(t)))
 WorkersJoinedBeforeReturn == st.returned => st.active={}
 RetryHasNoPriorWorkers == st.retried => st.active={}

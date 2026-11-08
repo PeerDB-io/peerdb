@@ -112,6 +112,10 @@ NoRequestRegression == st.req = st.highest
 OnlyCommittedWorkApplied == st.applied \subseteq (1..st.ds) \X (1..Files)
 NoStrandedNormalize == ~(~st.canceled /\ st.sp = "pull" /\ st.ds = Batches
                          /\ st.np = "sleep" /\ st.rw \notin st.rc /\ st.ds > st.dn)
+NoStrandedSync == ~(~st.canceled /\ st.sp="sleep" /\ st.ds-st.dn<Limit
+ /\ st.nw \notin st.nc /\ st.np="sleep")
+CompletionReleasesSync == (~st.canceled /\ st.sp="sleep" /\ st.ds-st.dn<Limit)
+ ~> (st.sp # "sleep" \/ st.canceled)
 AllCommittedComplete == \A b \in 1..Batches: (st.ds >= b) ~> (st.dn >= b \/ st.canceled)
 ShutdownCompletes == st.canceled ~> (st.sp = "stopped" /\ st.np = "stopped")
 
@@ -124,20 +128,31 @@ PublishAfterCommit == [][PublishSync => st.ds >= st.batch]_vars
 CompletionBeforeNotification == st.resp <= st.dn
 
 \* Separate per-table configuration: one shared permit, disjoint progress.
-TableInit == st=[completed |-> [t \in {"a","b","c"} |-> 0], applied |-> [t \in {"a","b","c"} |-> 0], holder |-> "none"]
-AcquireTable(t) == /\ st.holder="none" /\ st.completed[t]<Batches
- /\ st'=[st EXCEPT !.holder=t]
-ApplyTable(t) == /\ st.holder=t /\ st.applied[t]=st.completed[t]
- /\ st'=[st EXCEPT !.applied[t]=@+1]
-CommitTable(t) == /\ st.holder=t /\ st.applied[t]>st.completed[t]
- /\ st'=[st EXCEPT !.completed[t]=st.applied[t], !.holder="none"]
-TableDone == /\ (\A t \in {"a","b","c"}:st.completed[t]=Batches) /\ UNCHANGED st
-TableNext == (\E t \in {"a","b","c"}:AcquireTable(t) \/ ApplyTable(t) \/ CommitTable(t)) \/ TableDone
+TableInit == st=[completed |-> [t \in {"a","b","c"} |-> 0], applied |-> [t \in {"a","b","c"} |-> 0],
+ holder |-> "none", phase |-> [t \in {"a","b","c"} |-> "ready"], canceled |-> FALSE, fatal |-> FALSE]
+AcquireTable(t) == /\ ~st.canceled /\ st.holder="none" /\ st.phase[t]="ready" /\ st.completed[t]<Batches
+ /\ st'=[st EXCEPT !.holder=t, !.phase[t]="io"]
+ApplyTable(t) == /\ st.holder=t /\ st.phase[t]="io"
+ /\ st'=[st EXCEPT !.applied[t]=@+1, !.phase[t]="release"]
+ReleaseTable(t) == /\ st.holder=t /\ st.phase[t]="release"
+ /\ st'=[st EXCEPT !.holder="none", !.phase[t]="commit"]
+CommitTable(t) == /\ st.phase[t]="commit"
+ /\ st'=[st EXCEPT !.completed[t]=st.applied[t], !.phase[t]=IF st.canceled THEN "stopped" ELSE "ready"]
+FatalTableError(t) == /\ ~st.canceled /\ MaxFailures>0 /\ st.phase[t]="commit"
+ /\ st'=[st EXCEPT !.phase[t]="stopped", !.canceled=TRUE, !.fatal=TRUE]
+StopTable(t) == /\ st.canceled /\ st.phase[t] \in {"ready","commit"}
+ /\ st'=[st EXCEPT !.phase[t]="stopped"]
+TablesStopped == \A t \in {"a","b","c"}:st.phase[t]="stopped"
+TableDone == /\ ((\A t \in {"a","b","c"}:st.completed[t]=Batches) \/ TablesStopped) /\ UNCHANGED st
+TableNext == (\E t \in {"a","b","c"}:AcquireTable(t) \/ ApplyTable(t) \/ ReleaseTable(t) \/ CommitTable(t) \/ FatalTableError(t) \/ StopTable(t)) \/ TableDone
 TableSpec == TableInit /\ [][TableNext]_vars
- /\ (\A t \in {"a","b","c"}:SF_vars(AcquireTable(t)) /\ WF_vars(ApplyTable(t)) /\ WF_vars(CommitTable(t)))
+ /\ (\A t \in {"a","b","c"}:SF_vars(AcquireTable(t)) /\ WF_vars(ApplyTable(t)) /\ WF_vars(ReleaseTable(t)) /\ WF_vars(CommitTable(t)) /\ WF_vars(StopTable(t)))
 TableAckMatchesOwnWork == \A t \in {"a","b","c"}:st.completed[t]<=st.applied[t]
 TableCommitIsIsolated == [][\A t \in {"a","b","c"}:CommitTable(t) => (\A other \in {"a","b","c"}\{t}: st'.completed[other]=st.completed[other])]_vars
-EveryTableCompletesWithFairAdmission == <>(\A t \in {"a","b","c"}:st.completed[t]=Batches)
+EveryTableCompletesWithFairAdmission == <>(st.canceled \/ (\A t \in {"a","b","c"}:st.completed[t]=Batches))
+TableCommitHoldsNoSlot == \A t \in {"a","b","c"}:st.phase[t]="commit" => st.holder # t
+FatalTableErrorStopsAllTables == st.fatal ~> TablesStopped
+TableShutdownReleasesSlot == TablesStopped => st.holder="none"
 
 CommittedProgressEventuallyVisible == \A b \in 1..Batches:(st.ds >= b /\ st.dn < b) ~> (st.req >= b \/ st.dn >= b \/ st.canceled)
 
