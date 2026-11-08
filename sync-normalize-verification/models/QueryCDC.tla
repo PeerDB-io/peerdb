@@ -67,6 +67,10 @@ FatalSyncError == /\ ~CancelRequested /\ st.sp \in {"pull","commit","publish"} /
  /\ st'=[st EXCEPT !.sp="stopped", !.groupCanceled=TRUE, !.phase="canceling", !.fatalFailures=@+1]
 FatalNormError == /\ ~CancelRequested /\ st.np \in {"acquire","commit","publish"} /\ st.fatalFailures<MaxFatalFailures
  /\ st'=[st EXCEPT !.np="stopped", !.groupCanceled=TRUE, !.phase="canceling", !.fatalFailures=@+1]
+CanceledSyncCommitError == /\ CancelRequested /\ st.sp="publish"
+ /\ st'=[st EXCEPT !.sp="stopped"]
+CanceledNormCommitError == /\ CancelRequested /\ st.np="publish"
+ /\ st'=[st EXCEPT !.np="stopped"]
 JoinGroup == /\ st.phase="canceling" /\ st.sp="stopped" /\ st.np="stopped"
  /\ st'=[st EXCEPT !.phase="returned"]
 CrashActivity == /\ ~CancelRequested /\ st.phase="running"
@@ -94,7 +98,7 @@ Next == AcquireNormConnector \/ BeginPull \/ FatalSyncError \/ FatalNormError \/
         \/ EmptyPoll \/ Stage \/ FinishPull \/ CommitSync \/ PublishSync \/ FailPull
         \/ CheckWork \/ WakeNorm \/ SkipMissing \/ (\E f \in 1..Files: Apply(f)) \/ DeleteStage
         \/ FinishRange \/ CommitNorm \/ ReportNorm \/ FailNorm \/ Restart
-        \/ Cancel \/ StopSync \/ StopNorm \/ Idle
+        \/ Cancel \/ StopSync \/ StopNorm \/ CanceledSyncCommitError \/ CanceledNormCommitError \/ Idle
 Spec == Init /\ [][Next]_vars
 
 
