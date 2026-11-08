@@ -17,6 +17,7 @@ import (
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/internal/testhooks"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -346,6 +347,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 ) error {
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
+	ctx = testhooks.WithTable(ctx, sourceTable)
 	destTable := tableMapping.DestinationTableIdentifier
 	sourceTableMapping := model.NewSourceTableMapping(destTable, tableMapping.Exclude)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
@@ -377,6 +379,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 			logger.Warn("query-based CDC table waiting on its own normalize backpressure",
 				slog.Int64("syncedBatchID", state.SyncedBatchID),
 				slog.Int64("normalizedBatchID", state.NormalizedBatchID), slog.Int64("normBufferSize", normBufferSize))
+			testhooks.Pausepoint(ctx, testhooks.QCDCSyncBackpressureGap)
 			select {
 			case <-normWaitCh:
 			case <-ctx.Done():
@@ -544,11 +547,17 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+		if err := testhooks.Failpoint(ctx, testhooks.QCDCSyncRecordAfter); err != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
 			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
 			normRequests.Update(newBatchID)
+			if err := testhooks.Failpoint(ctx, testhooks.QCDCSyncPublishSyncedAfter); err != nil {
+				return a.Alerter.LogFlowError(ctx, flowName, err)
+			}
 		}
 	}
 	return ctx.Err()
@@ -607,6 +616,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 ) error {
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
+	ctx = testhooks.WithTable(ctx, sourceTable)
 	destTable := tableMapping.DestinationTableIdentifier
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("table", sourceTable))
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
@@ -618,6 +628,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, flowName, err)
 	}
+	testhooks.Pausepoint(ctx, testhooks.QCDCNormalizeStartupGap)
 	normResponses.Update(state.NormalizedBatchID)
 	if state.SyncedBatchID > state.NormalizedBatchID {
 		// Resume any batches synced but not normalized before a prior activity attempt stopped.
@@ -631,6 +642,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		lastNormalized := normResponses.Load()
 		if reqBatchID <= lastNormalized {
 			logger.Info("[cdc] waiting for next normalize request", slog.Int64("lastNormalizedBatchID", lastNormalized))
+			testhooks.Pausepoint(ctx, testhooks.QCDCNormalizeIdleGap)
 			ch := normRequests.Wait()
 			if ch == nil {
 				return nil
@@ -702,7 +714,13 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		if err := pgMetadata.RecordQueryCDCNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
+		if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizeRecordAfter); err != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 		normResponses.Update(reqBatchID)
+		if err := testhooks.Failpoint(ctx, testhooks.QCDCNormalizePublishNormalizedAfter); err != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, err)
+		}
 		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
