@@ -225,30 +225,42 @@ func (h *FaultHarness) killNormalizes(i int) {
 	}
 }
 
-// runReturnWithoutJoin: NormalizeRecords returns its error while a worker's
-// INSERT is still running.
+// holdInsertWorkerThenFailProducer holds table 0's INSERT worker after its
+// INSERT returns, then fails the producer. The checks look at the worker, not at
+// the ClickHouse server, which can keep running a canceled INSERT.
+func holdInsertWorkerThenFailProducer(h *FaultHarness) bool {
+	h.Arm(testhooks.CHNormalizeInsertReturnGap, nil, "")
+	h.Arm(testhooks.CHNormalizeEnqueueAfter, nil, "")
+	h.Insert(0)
+	return h.WaitFired(testhooks.CHNormalizeEnqueueAfter, faultLiveness) &&
+		h.WaitFired(testhooks.CHNormalizeInsertReturnGap, faultLiveness)
+}
+
+// runReturnWithoutJoin: NormalizeRecords returns its error while an INSERT
+// worker is still running.
 func runReturnWithoutJoin(h *FaultHarness) {
-	release, fired := startSlowInsertThenFailProducer(h, 150*time.Second)
-	if fired && h.WaitFlowError(testhooks.CHNormalizeEnqueueAfter.Name, 2*time.Minute) {
-		if n := h.RunningNormalizes(0); n > 0 {
-			h.Violation("join", "[29] NormalizeRecords reported its error while %d INSERT(s) into %s were still running",
-				n, h.Table(0).Dest)
+	if holdInsertWorkerThenFailProducer(h) {
+		if h.WaitFlowError(testhooks.CHNormalizeEnqueueAfter.Name, time.Minute) {
+			h.Violation("join", "[29] NormalizeRecords reported its error while an INSERT worker into %s was still running",
+				h.Table(0).Dest)
 		}
+		h.Release(testhooks.CHNormalizeInsertReturnGap)
 	}
-	release()
-	h.killNormalizes(0)
 	h.Finish()
 }
 
 // runRetryOverlap: the retry after the one-minute backoff starts while the old
-// INSERT still runs. The monitor's overlap check [31] sees both.
+// attempt's INSERT worker is still held.
 func runRetryOverlap(h *FaultHarness) {
-	release, fired := startSlowInsertThenFailProducer(h, 150*time.Second)
-	if fired {
-		time.Sleep(normalizeRetryBackoff + 30*time.Second)
+	// Claimable only after the old worker is held, so only a retry can fire it.
+	h.Arm(testhooks.CHNormalizeCopyStagesAfter, &testhooks.CHNormalizeInsertReturnGap, "")
+	if holdInsertWorkerThenFailProducer(h) {
+		if h.WaitFired(testhooks.CHNormalizeCopyStagesAfter, normalizeRetryBackoff+30*time.Second) {
+			h.Violation("retry_overlap", "[31] a retry started while the previous attempt's INSERT worker into %s was still running",
+				h.Table(0).Dest)
+		}
+		h.Release(testhooks.CHNormalizeInsertReturnGap)
 	}
-	release()
-	h.killNormalizes(0)
 	h.Finish()
 }
 
