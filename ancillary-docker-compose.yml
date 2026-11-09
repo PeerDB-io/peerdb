@@ -180,6 +180,8 @@ services:
       - "--binlog-format=ROW"
       - "--binlog-row-metadata=FULL"
       - "--max-allowed-packet=128M"
+      # the default of 151 is too low for the e2e suite running tests in parallel
+      - "--max-connections=1000"
     restart: unless-stopped
     volumes:
       - mariadb_data:/var/lib/mysql
