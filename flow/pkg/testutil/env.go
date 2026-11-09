@@ -2,10 +2,12 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -101,6 +103,46 @@ func ClickHouseTestPort() uint32 {
 		return 9000
 	}
 	return uint32(port)
+}
+
+func getEnvString(name string, defaultValue string) string {
+	val, ok := os.LookupEnv(name)
+	if !ok {
+		return defaultValue
+	}
+	return val
+}
+
+func MySQLSSHUpstreamHost() string {
+	return getEnvString("CI_SSH_MYSQL_HOST", "")
+}
+
+func MySQLTestHost() string {
+	return getEnvString("CI_MYSQL_HOST", "localhost")
+}
+
+func MySQLTestPortWithFallback(fallback uint32) uint32 {
+	return mysqlTestPortWithEnvFallback("CI_MYSQL_PORT", fallback)
+}
+
+func mysqlTestPortWithEnvFallback(envName string, fallback uint32) uint32 {
+	envPortStr, ok := os.LookupEnv(envName)
+	if !ok {
+		return fallback
+	}
+	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to parse %s: %v", envName, err))
+	}
+	return uint32(envPort)
+}
+
+func MySQLTestPort() uint32 {
+	return MySQLTestPortWithFallback(3306)
+}
+
+func MySQLTestRootPasswordWithFallback(fallback string) string {
+	return getEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
 }
 
 type MongoTestCredentials struct {
