@@ -410,7 +410,7 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping,
-			shouldWrapNonObjectJSON(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, p.nativeJSONEnabled,
+			shouldWrapJSONColumn(rcol.DataType, rcol.Name, customTypeMapping, p.flags, p.internalVersion, p.nativeJSONEnabled,
 				sourceTableMapping.Columns),
 		); err != nil {
 			return none, nil, err
@@ -495,6 +495,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 					if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
 						p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
 						return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+					}
+					if arr[j] == nil {
+						// a JSON null element decodes to nil like a SQL NULL element; keep it a document
+						arr[j] = json.RawMessage("null")
 					}
 				} else {
 					arr[j] = nil

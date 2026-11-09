@@ -48,6 +48,9 @@ const (
 	// Postgres/MySQL: wrap non-object JSON values (scalars, arrays, JSON null) as {"_value": ...} when
 	// PEERDB_CLICKHOUSE_ENABLE_JSON is on, since ClickHouse JSON only accepts objects at the top level
 	InternalVersion_WrapNonObjectJSON
+	// Postgres: the elements of json[]/jsonb[] values going into a ClickHouse Array(JSON) or Array(Nullable(JSON))
+	// column (an explicit destination type) are wrapped like json values, as the JSON type only takes objects
+	InternalVersion_WrapJSONArrayElements
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

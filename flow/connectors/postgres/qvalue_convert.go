@@ -375,13 +375,19 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-// shouldWrapNonObjectJSON reports whether the values of a json/jsonb column, or of a domain over one, are
-// wrapped for the destination. Other columns never wrap, so the gate is only consulted for those types.
-func shouldWrapNonObjectJSON(
+// shouldWrapJSONColumn reports whether the values of a json/jsonb column, or of a domain over one, are
+// wrapped for the destination, and whether the elements of a json[]/jsonb[] column are. Other columns never
+// wrap, so the gate is only consulted for those types. A domain over json[]/jsonb[] is left alone: the snapshot
+// reads such a column as text, so its elements cannot be wrapped on both paths alike.
+func shouldWrapJSONColumn(
 	oid uint32, name string, customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	flags []string, version uint32, nativeJSONEnabled bool, columns []*protos.ColumnSetting,
 ) bool {
-	if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
+	switch oid {
+	case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
+		return qvalue.ShouldWrapJSONArrayElements(flags, version, model.ExplicitDestinationType(columns, name))
+	case pgtype.JSONOID, pgtype.JSONBOID:
+	default:
 		// a domain is decoded as its base type, so it wraps like the base type
 		oid, _ = pkg_pg.ResolveDataType(oid, 0, customTypeMapping)
 		if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
@@ -519,6 +525,21 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 		return types.QValueJSON{Val: doc}, nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+		if valArr, ok := value.([]any); ok && wrapNonObjectJSON {
+			// the classic reader hands over decoded elements: marshal each so the loop below can wrap it,
+			// leaving a SQL NULL element empty
+			docs := make([]preMarshalledJson, len(valArr))
+			for i, elem := range valArr {
+				if elem != nil {
+					doc, err := json.Marshal(elem)
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse JSON array element: %w", err)
+					}
+					docs[i] = doc
+				}
+			}
+			value = docs
+		}
 		if valArr, ok := value.([]preMarshalledJson); ok {
 			// value is an array of pre-marshalled JSON documents; incrementally marshal
 			// the array instead of round-tripping the whole array through json.Marshal.
@@ -528,13 +549,16 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				if i > 0 {
 					builder.WriteByte(',')
 				}
-				// A NULL array element, as opposed to a JSON null one, still has to
-				// occupy its slot for the array to stay well-formed.
-				if len(elem) == 0 {
-					elem = jsonNullLiteral
-				}
-				if _, err := builder.Write(elem); err != nil {
-					return nil, fmt.Errorf("failed to write JSON array element: %w", err)
+				switch {
+				case len(elem) == 0:
+					// A NULL array element, as opposed to a JSON null one, still has to
+					// occupy its slot for the array to stay well-formed.
+					builder.Write(jsonNullLiteral)
+				case wrapNonObjectJSON:
+					// Array(JSON) only takes objects; a wrapped JSON null is stored as {}
+					builder.WriteString(qvalue.WrapNonObjectJSON(shared.UnsafeFastReadOnlyBytesToString(elem)))
+				default:
+					builder.Write(elem)
 				}
 			}
 			builder.WriteByte(']')
