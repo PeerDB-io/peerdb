@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -288,23 +287,14 @@ func (s *ClickHouseAvroSyncMethod) pushStagingDataToClickHouseForSnapshot(
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
-	var destinationColumnTypes map[string]string
-	if hasJSONArrayWithoutDestinationType(schema, config.Columns) &&
-		qvalue.ShouldUseArrayJSONType(ctx, config.Env, s.chVersion, config.Version, config.SourceType) {
-		var err error
-		if destinationColumnTypes, err = s.destinationColumnTypes(ctx, config.DestinationTableIdentifier); err != nil {
-			return err
-		}
-	}
 	insertConfig := &insertFromTableFunctionConfig{
-		destinationTable:       config.DestinationTableIdentifier,
-		schema:                 schema,
-		columnNameMap:          columnNameAvroFieldMap,
-		excludedColumns:        config.Exclude,
-		config:                 config,
-		connector:              s.ClickHouseConnector,
-		logger:                 s.logger,
-		destinationColumnTypes: destinationColumnTypes,
+		destinationTable: config.DestinationTableIdentifier,
+		schema:           schema,
+		columnNameMap:    columnNameAvroFieldMap,
+		excludedColumns:  config.Exclude,
+		config:           config,
+		connector:        s.ClickHouseConnector,
+		logger:           s.logger,
 	}
 
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)

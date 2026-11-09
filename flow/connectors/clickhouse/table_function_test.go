@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -105,38 +106,47 @@ func TestBuildInsertFromTableFunctionQueryDestinationName(t *testing.T) {
 		query)
 }
 
-// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks staged JSON arrays are parsed into their array column's type.
+// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks staged JSON arrays are parsed into their array column's type:
+// an override's, or for a column without one the type table creation picked.
 func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
 	const overrides = "JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))')," +
 		"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"
+	const asText = overrides + "`docs_default`,`docs_as_string`"
 	for _, tc := range []struct {
-		destinationColumnTypes map[string]string
-		name                   string
-		want                   string
+		name           string
+		nativeJSON     string
+		nullable       string
+		want           string
+		sourceType     protos.DBType
+		version        uint32
+		columnNullable bool
 	}{
 		{
-			name:                   "Array(JSON) column",
-			destinationColumnTypes: map[string]string{"docs_default": "Array(JSON)"},
-			want:                   overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(JSON)'),`docs_as_string`",
+			name: "default mapping", nativeJSON: "true", nullable: "false",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest,
+			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(JSON)'),`docs_as_string`",
 		},
 		{
-			name:                   "Array(Nullable(JSON)) column",
-			destinationColumnTypes: map[string]string{"docs_default": "Array(Nullable(JSON))"},
-			want:                   overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
+			name: "default mapping with PEERDB_NULLABLE", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest,
+			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
 		},
 		{
-			name:                   "String column",
-			destinationColumnTypes: map[string]string{"docs_default": "String"},
-			want:                   overrides + "`docs_default`,`docs_as_string`",
+			name: "default mapping with a nullable column setting", nativeJSON: "true", nullable: "false",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest, columnNullable: true,
+			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
 		},
 		{
-			name:                   "user-created Array(String) column",
-			destinationColumnTypes: map[string]string{"docs_default": "Array(String)"},
-			want:                   overrides + "`docs_default`,`docs_as_string`",
+			name: "setting off", nativeJSON: "false", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest, want: asText,
 		},
 		{
-			name: "column types unknown",
-			want: overrides + "`docs_default`,`docs_as_string`",
+			name: "non-Postgres source", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_COCKROACHDB, version: shared.InternalVersion_Latest, want: asText,
+		},
+		{
+			name: "mirror from before the mapping", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_JSONArrayAsArrayJSON - 1, want: asText,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,15 +159,21 @@ func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
 					{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
 				}},
 				config: &protos.QRepConfig{
-					Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+					Env: map[string]string{
+						"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+						"PEERDB_CLICKHOUSE_ENABLE_JSON":              tc.nativeJSON,
+						"PEERDB_NULLABLE":                            tc.nullable,
+					},
 					Columns: []*protos.ColumnSetting{
 						{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
 						{SourceName: "docsb", DestinationType: "Array(JSON)"},
+						{SourceName: "docs_default", NullableEnabled: tc.columnNullable},
 						{SourceName: "docs_as_string", DestinationType: "String"},
 					},
+					SourceType: tc.sourceType,
+					Version:    tc.version,
 				},
-				connector:              &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
-				destinationColumnTypes: tc.destinationColumnTypes,
+				connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
 			}
 
 			query, err := buildInsertFromTableFunctionQuery(
@@ -170,19 +186,6 @@ func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
 				query)
 		})
 	}
-}
-
-// TestHasJSONArrayWithoutDestinationType checks the column types are only read for json[] without a destination type.
-func TestHasJSONArrayWithoutDestinationType(t *testing.T) {
-	schema := types.QRecordSchema{Fields: []types.QField{
-		{Name: "id", Type: types.QValueKindInt64},
-		{Name: "docs", Type: types.QValueKindArrayJSONB},
-	}}
-	require.True(t, hasJSONArrayWithoutDestinationType(schema, nil))
-	require.False(t, hasJSONArrayWithoutDestinationType(schema,
-		[]*protos.ColumnSetting{{SourceName: "docs", DestinationType: "Array(JSON)"}}))
-	require.False(t, hasJSONArrayWithoutDestinationType(
-		types.QRecordSchema{Fields: []types.QField{{Name: "id", Type: types.QValueKindInt64}}}, nil))
 }
 
 // TestBuildInsertFromTableFunctionQueryJSON checks the native JSON casts: CAST(NULL, 'JSON') fails, so a

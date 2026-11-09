@@ -20,9 +20,7 @@ import (
 
 // insertFromTableFunctionConfig contains the configuration for building INSERT queries from table functions
 type insertFromTableFunctionConfig struct {
-	columnNameMap map[string]string
-	// destination column types by name, nil when unknown
-	destinationColumnTypes    map[string]string
+	columnNameMap             map[string]string
 	config                    *protos.QRepConfig
 	connector                 *ClickHouseConnector
 	logger                    log.Logger
@@ -113,7 +111,7 @@ func arrayTimeFieldExpressionConverter(
 
 // arrayJSONFieldExpressionConverter parses arrays of JSON going into an array column.
 func arrayJSONFieldExpressionConverter(
-	_ context.Context,
+	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	sourceFieldIdentifier string,
 	field types.QField,
@@ -121,13 +119,17 @@ func arrayJSONFieldExpressionConverter(
 	if field.Type != types.QValueKindArrayJSON && field.Type != types.QValueKindArrayJSONB {
 		return sourceFieldIdentifier, nil
 	}
-	dstType := findColumnSetting(field.Name, config.config.GetColumns()).GetDestinationType()
-	if dstType == "" {
-		// follow the column the DDL created, which knows whether the elements are Nullable
-		switch tableType := config.destinationColumnTypes[resolveDestinationColumnName(field.Name, config.config.GetColumns())]; tableType {
-		case "Array(JSON)", "Array(Nullable(JSON))":
-			dstType = tableType
+	colSetting := findColumnSetting(field.Name, config.config.GetColumns())
+	dstType := colSetting.GetDestinationType()
+	if dstType == "" && qvalue.ShouldUseArrayJSONType(
+		ctx, config.config.Env, config.connector.chVersion, config.config.Version, config.config.SourceType,
+	) {
+		// the same type table creation picked, whose nullable setting comes from the same env
+		nullable, err := internal.PeerDBNullable(ctx, config.config.Env)
+		if err != nil {
+			return "", err
 		}
+		dstType = qvalue.ClickHouseArrayJSONType(nullable || colSetting.GetNullableEnabled())
 	}
 	if strings.HasPrefix(dstType, "Array(") {
 		// a null array is staged as a null string, the empty array once parsed
