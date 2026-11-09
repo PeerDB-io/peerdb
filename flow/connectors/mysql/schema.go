@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/pkg/mysql"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -100,9 +99,15 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 	if err != nil {
 		return nil, err
 	}
+	var jsonColumns []string
+	if hasLongText(rs) {
+		jsonColumns, err = c.getMariaDBJSONColumns(ctx, schema, table, version)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	columns := make([]*protos.ColumnsItem, 0, rs.RowNumber())
-	var longTextColumns []*protos.ColumnsItem
 	for idx := range rs.RowNumber() {
 		columnName, err := rs.GetString(idx, 0)
 		if err != nil {
@@ -124,29 +129,14 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		column := &protos.ColumnsItem{
+		qkind = mariaDBJSONKind(qkind, columnName, columnType, jsonColumns)
+		columns = append(columns, &protos.ColumnsItem{
 			Name:     columnName,
 			Type:     columnType,
 			IsKey:    columnKey == "PRI",
 			Qkind:    string(qkind),
 			Nullable: isNullable == "YES",
-		}
-		columns = append(columns, column)
-		if isLongText(qkind, columnType) {
-			longTextColumns = append(longTextColumns, column)
-		}
-	}
-	// only a table with a LONGTEXT column can have a MariaDB JSON column, so only such a table pays for the lookup
-	if len(longTextColumns) > 0 {
-		jsonColumns, err := c.getMariaDBJSONColumns(ctx, schema, table, version)
-		if err != nil {
-			return nil, err
-		}
-		for _, column := range longTextColumns {
-			if slices.Contains(jsonColumns, column.Name) {
-				column.Qkind = string(types.QValueKindJSON)
-			}
-		}
+		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
 }

@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -136,7 +137,11 @@ func jsonValidCheckColumn(checkClause string) (string, bool) {
 	return column, true
 }
 
-// isLongText reports whether a column is a LONGTEXT typed as a string, the only shape MariaDB's JSON alias creates
-func isLongText(qkind types.QValueKind, columnType string) bool {
-	return qkind == types.QValueKindString && strings.EqualFold(columnType, "longtext")
+// mariaDBJSONKind types a LONGTEXT column as JSON when MariaDB backs it with a json_valid check, which is what
+// MariaDB's JSON alias creates.
+func mariaDBJSONKind(qkind types.QValueKind, column string, columnType string, jsonColumns []string) types.QValueKind {
+	if qkind == types.QValueKindString && strings.EqualFold(columnType, "longtext") && slices.Contains(jsonColumns, column) {
+		return types.QValueKindJSON
+	}
+	return qkind
 }

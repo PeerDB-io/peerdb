@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -539,6 +540,26 @@ func TestGetMariaDBJSONColumnsSkipsOldServers(t *testing.T) {
 	columns, err := c.getMariaDBJSONColumns(t.Context(), "db", "t", shared.InternalVersion_Latest)
 	require.NoError(t, err)
 	require.Nil(t, columns)
+}
+
+func TestHasLongText(t *testing.T) {
+	t.Parallel()
+
+	result := func(columnTypes ...string) *mysql.Result {
+		rs := mysql.NewResultset(2)
+		for _, columnType := range columnTypes {
+			rs.Values = append(rs.Values, []mysql.FieldValue{
+				mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte("c")),
+				mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte(columnType)),
+			})
+		}
+		return mysql.NewResult(rs)
+	}
+
+	require.True(t, hasLongText(result("int(11)", "longtext")))
+	require.True(t, hasLongText(result("LONGTEXT")))
+	require.False(t, hasLongText(result("int(11)", "text", "mediumtext", "varchar(10)")))
+	require.False(t, hasLongText(result()))
 }
 
 func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {
