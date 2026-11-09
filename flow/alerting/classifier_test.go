@@ -747,6 +747,21 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresNotNullViolationOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.NotNullViolation,
+		Message:  `null value in column "clientId" of relation "CarePlan" violates not-null constraint`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.CarePlan: %w", err))
+	assert.Equal(t, ErrorNotifyConstraintViolation, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.NotNullViolation,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresExtensionNotAvailableOnSchemaDump(t *testing.T) {
 	for name, message := range map[string]string{
 		"not available": `psql failed: exit status 3

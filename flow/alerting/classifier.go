@@ -858,7 +858,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyInvalidEnumValue, pgErrorInfo
 			}
 
-		case pgerrcode.CheckViolation, pgerrcode.UniqueViolation:
+		case pgerrcode.CheckViolation, pgerrcode.UniqueViolation, pgerrcode.NotNullViolation:
+			// Destination constraint that the source data does not satisfy,
+			// e.g. `null value in column "clientId" of relation "CarePlan" violates not-null constraint`
 			return ErrorNotifyConstraintViolation, pgErrorInfo
 
 		case pgerrcode.GeneratedAlways:
