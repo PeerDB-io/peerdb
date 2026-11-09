@@ -1413,6 +1413,71 @@ func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+// Test_Identity_Only_PKey_PG covers a table whose only column is a GENERATED ALWAYS AS IDENTITY primary key,
+// which leaves normalize with no columns to update, so the matched branch must become DO NOTHING.
+func (s PeerFlowE2ETestSuitePG) Test_Identity_Only_PKey_PG() {
+	srcTableName := s.attachSchemaSuffix("test_identity_only_pkey_pg")
+	dstTableName := s.attachSchemaSuffix("test_identity_only_pkey_pg_dst")
+
+	for _, table := range []string{srcTableName, dstTableName} {
+		_, err := s.Conn().Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY)", table))
+		require.NoError(s.t, err)
+	}
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		"INSERT INTO %s SELECT FROM generate_series(1, 3)", srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_identity_only_pkey_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.SyncedAtColName = ""
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	waitForMatch := func(reason string, count int) {
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, reason, func() bool {
+			err := errors.Join(
+				s.compareCounts(dstTableName, int64(count)),
+				s.comparePGTables(srcTableName, dstTableName, "id"),
+			)
+			if err != nil {
+				s.t.Log(err.Error())
+			}
+			return err == nil
+		})
+	}
+	waitForMatch("initial load", 3)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		"INSERT INTO %s SELECT FROM generate_series(1, 2)", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	waitForMatch("cdc insert", 5)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("DELETE FROM %s WHERE id IN (2, 4)", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	waitForMatch("cdc delete", 3)
+
+	// insert and delete within one transaction so they land in the same batch
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`BEGIN;
+		INSERT INTO %[1]s SELECT FROM generate_series(1, 2);
+		DELETE FROM %[1]s WHERE id IN (1, 6);
+		COMMIT`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	waitForMatch("cdc mixed batch", 3)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 	srcTableName := s.attachSchemaSuffix("test_transrecord_pg")
 	dstTableName := s.attachSchemaSuffix("test_transrecord_pg_dst")
