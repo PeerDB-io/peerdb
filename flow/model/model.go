@@ -215,6 +215,9 @@ type ToJSONOptions struct {
 	UnnestColumns        map[string]struct{}
 	HStoreAsJSON         bool
 	ClearValuesOverBytes int // 0 means preserve values
+	// NilBytesAsEmpty writes a QValueBytes with a nil Val as an empty value instead of null (a NULL arrives as
+	// QValueNull, so nil there is an empty value)
+	NilBytesAsEmpty bool
 }
 
 func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {

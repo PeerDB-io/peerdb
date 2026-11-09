@@ -37,3 +37,20 @@ func TestRecordItemsPreserveValuesByDefault(t *testing.T) {
 	require.JSONEq(t, `{"key":"value"}`, got["json"].(string))
 	require.JSONEq(t, `{"key":"value"}`, got["hstore"].(string))
 }
+
+// Postgres destinations set NilBytesAsEmpty: an empty binary value (nil Val, as MySQL sources read it) is written as
+// an empty value, while a NULL (QValueNull) stays null. Other destinations' options keep nil as null.
+func TestRecordItemsNilBytesAsEmpty(t *testing.T) {
+	items := NewRecordItems(3)
+	items.AddColumn("empty", types.QValueBytes{Val: nil})
+	items.AddColumn("null", types.QValueNull(types.QValueKindBytes))
+	items.AddColumn("value", types.QValueBytes{Val: []byte("ab")})
+
+	got, err := items.ToJSONWithOptions(ToJSONOptions{NilBytesAsEmpty: true})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"empty":"","null":null,"value":"YWI="}`, got)
+
+	got, err = items.ToJSONWithOptions(NewToJSONOptions(nil, true))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"empty":null,"null":null,"value":"YWI="}`, got, "default options are unchanged")
+}
