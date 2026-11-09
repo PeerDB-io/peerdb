@@ -55,7 +55,7 @@ func (c *PostgresConnector) CheckSourceTables(
 
 		selectedColumnsStr := "*"
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
-			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns, protos.TypeSystem_Q)
+			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
 			if err != nil {
 				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
 			}
@@ -259,12 +259,6 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
-	if cfg.System == protos.TypeSystem_PG && !noCDC {
-		if err := c.checkGeneratedKeyColumns(ctx, sourceTables); err != nil {
-			return err
-		}
-	}
-
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
@@ -276,44 +270,6 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	return nil
-}
-
-// checkGeneratedKeyColumns rejects tables whose key (primary key, or replica identity index) contains a
-// stored generated column: those columns are skipped for PG type system mirrors and pgoutput doesn't
-// publish them, so CDC can't identify the rows to update or delete.
-func (c *PostgresConnector) checkGeneratedKeyColumns(ctx context.Context, tables []*common.QualifiedTable) error {
-	schemas := make([]string, 0, len(tables))
-	names := make([]string, 0, len(tables))
-	for _, table := range tables {
-		schemas = append(schemas, table.Namespace)
-		names = append(names, table.Table)
-	}
-	rows, err := c.conn.Query(ctx, `SELECT n.nspname, cl.relname, a.attname
-		FROM unnest($1::text[], $2::text[]) AS t(nspname, relname)
-		JOIN pg_namespace n ON n.nspname = t.nspname
-		JOIN pg_class cl ON cl.relnamespace = n.oid AND cl.relname = t.relname
-		JOIN pg_index i ON i.indrelid = cl.oid
-			AND CASE WHEN cl.relreplident = 'i' THEN i.indisreplident ELSE i.indisprimary END
-		JOIN pg_attribute a ON a.attrelid = cl.oid AND a.attnum = ANY(i.indkey)
-		WHERE a.attgenerated <> ''
-		ORDER BY 1, 2, a.attnum`, schemas, names)
-	if err != nil {
-		return fmt.Errorf("failed to check for generated key columns: %w", err)
-	}
-	var invalid []string
-	var schema, table, column string
-	if _, err := pgx.ForEachRow(rows, []any{&schema, &table, &column}, func() error {
-		invalid = append(invalid, fmt.Sprintf("%s.%s", common.QualifiedTable{Namespace: schema, Table: table}.String(),
-			common.QuoteIdentifier(column)))
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to check for generated key columns: %w", err)
-	}
-	if len(invalid) > 0 {
-		return fmt.Errorf("generated columns cannot be part of the primary key or replica identity index "+
-			"when replicating Postgres to Postgres: %s", strings.Join(invalid, ", "))
-	}
 	return nil
 }
 
