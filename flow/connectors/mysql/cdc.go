@@ -214,10 +214,7 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
-// getMariaDBJSONColumns returns the columns of a MariaDB table that carry a json_valid check constraint, which is
-// how MariaDB stores a column declared JSON: as LONGTEXT with that check. Empty for MySQL, whose JSON type
-// needs no check, and for mirrors below InternalVersion_MariaDBJSONColumns, which keep typing such columns as
-// strings.
+// getMariaDBJSONColumns returns the LONGTEXT columns of a MariaDB table that carry a json_valid check constraint
 func (c *MySqlConnector) getMariaDBJSONColumns(
 	ctx context.Context, schema string, table string, version uint32,
 ) ([]string, error) {
@@ -229,7 +226,6 @@ func (c *MySqlConnector) getMariaDBJSONColumns(
 		return nil, err
 	}
 	if cmp < 0 {
-		// before 10.4.3 a column declared JSON is a plain LONGTEXT, with no check to find
 		return nil, nil
 	}
 	rs, err := c.Execute(ctx, fmt.Sprintf(`

@@ -337,9 +337,7 @@ type jsonColumnMirrorConfig struct {
 	sourceNullLandsAs  *string
 	tableName          string
 	expectedColumnType string
-	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON; when false the setting is left unset, so it falls back to its
-	// default and the JSON columns land as String
-	nativeJSON bool
+	nativeJSON         bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
 	// overrideToJSON gives every JSON column the destination type JSON through its column settings
