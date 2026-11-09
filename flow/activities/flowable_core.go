@@ -284,7 +284,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(
-			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags, config.Version, config.SourceType,
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -334,6 +334,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			Env:                    config.Env,
 			Version:                config.Version,
 			Flags:                  config.Flags,
+			SourceType:             config.SourceType,
 		})
 		if err != nil {
 			syncSpan.RecordError(err)
@@ -743,6 +744,7 @@ func (a *FlowableActivity) startNormalize(
 				SyncBatchID:            batchID,
 				Version:                config.Version,
 				Flags:                  config.Flags,
+				SourceType:             config.SourceType,
 			})
 			if err != nil {
 				normSpan.RecordError(err)

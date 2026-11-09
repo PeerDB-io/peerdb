@@ -241,6 +241,14 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
+	// stamped at creation and on resync by recreation, before the config is stored; the in-workflow resync
+	// (drop_flow.go) continues as new with the config it already holds, so it inherits the field instead
+	sourceType, err := connectors.LoadPeerType(ctx, h.pool, connectionConfigs.SourceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load source peer type: %w", err)
+	}
+	connectionConfigs.SourceType = sourceType
+
 	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
@@ -282,14 +290,15 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		TaskQueue:             h.peerflowTaskQueueID,
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
+	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
+	if err != nil {
+		return nil, NewInternalApiError(err)
+	}
+	cfg.SourceType = dbtype
 	if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
-	}
-	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
-	if err != nil {
-		return nil, NewInternalApiError(err)
 	}
 	var workflowFn any
 	if dbtype == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {

@@ -552,6 +552,32 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 	}, nil
 }
 
+// hasJSONArrayWithoutDestinationType reports whether a json[]/jsonb[] field takes its type from the destination table.
+func hasJSONArrayWithoutDestinationType(schema types.QRecordSchema, columns []*protos.ColumnSetting) bool {
+	for _, field := range schema.Fields {
+		if (field.Type == types.QValueKindArrayJSON || field.Type == types.QValueKindArrayJSONB) &&
+			findColumnSetting(field.Name, columns).GetDestinationType() == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// destinationColumnTypes returns the destination table's column types by column name.
+func (c *ClickHouseConnector) destinationColumnTypes(ctx context.Context, table string) (map[string]string, error) {
+	rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", peerdb_clickhouse.QuoteIdentifier(table)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the columns of %s: %w", table, err)
+	}
+	defer rows.Close()
+	columnTypes := rows.ColumnTypes()
+	result := make(map[string]string, len(columnTypes))
+	for _, column := range columnTypes {
+		result[column.Name()] = column.DatabaseTypeName()
+	}
+	return result, nil
+}
+
 func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,

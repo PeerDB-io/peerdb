@@ -20,7 +20,9 @@ import (
 
 // insertFromTableFunctionConfig contains the configuration for building INSERT queries from table functions
 type insertFromTableFunctionConfig struct {
-	columnNameMap             map[string]string
+	columnNameMap map[string]string
+	// destination column types by name, nil when unknown
+	destinationColumnTypes    map[string]string
 	config                    *protos.QRepConfig
 	connector                 *ClickHouseConnector
 	logger                    log.Logger
@@ -119,7 +121,15 @@ func arrayJSONFieldExpressionConverter(
 	if field.Type != types.QValueKindArrayJSON && field.Type != types.QValueKindArrayJSONB {
 		return sourceFieldIdentifier, nil
 	}
-	if dstType := findColumnSetting(field.Name, config.config.GetColumns()).GetDestinationType(); strings.HasPrefix(dstType, "Array(") {
+	dstType := findColumnSetting(field.Name, config.config.GetColumns()).GetDestinationType()
+	if dstType == "" {
+		// follow the column the DDL created, which knows whether the elements are Nullable
+		switch tableType := config.destinationColumnTypes[resolveDestinationColumnName(field.Name, config.config.GetColumns())]; tableType {
+		case "Array(JSON)", "Array(Nullable(JSON))":
+			dstType = tableType
+		}
+	}
+	if strings.HasPrefix(dstType, "Array(") {
 		// a null array is staged as a null string, the empty array once parsed
 		return fmt.Sprintf("JSONExtract(ifNull(%s, ''), %s)",
 			sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(dstType)), nil

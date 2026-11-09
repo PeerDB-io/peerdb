@@ -260,6 +260,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		protos.DBType_POSTGRES,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -315,6 +316,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		protos.DBType_POSTGRES,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -367,6 +369,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		"",
 		shared.InternalVersion_Latest,
 		nil,
+		protos.DBType_POSTGRES,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -579,7 +582,8 @@ func TestResolveClickHouseColumnType(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, err := resolveClickHouseColumnType(t.Context(), tc.column, tc.colSetting, tc.tableNullableEnabled, nil, nil, nil)
+			actual, err := resolveClickHouseColumnType(t.Context(), tc.column, tc.colSetting, tc.tableNullableEnabled,
+				nil, nil, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES)
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, actual)
 		})

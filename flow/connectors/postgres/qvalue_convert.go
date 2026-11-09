@@ -377,24 +377,22 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 
 // shouldWrapJSONColumn reports whether the values of a json/jsonb column, or of a domain over one, are
 // wrapped for the destination, and whether the elements of a json[]/jsonb[] column are. Other columns never
-// wrap, so the gate is only consulted for those types. A domain over json[]/jsonb[] is left alone: the snapshot
-// reads such a column as text, so its elements cannot be wrapped on both paths alike.
+// wrap, so the gate is only consulted for those types. A domain wraps like its base type: CDC decodes it as the
+// base type, and the snapshot never sees the domain, since Postgres reports a domain column's base type in a
+// query's row description.
 func shouldWrapJSONColumn(
 	oid uint32, name string, customTypeMapping map[uint32]pkg_pg.CustomDataType,
 	flags []string, version uint32, nativeJSONEnabled bool, columns []*protos.ColumnSetting,
 ) bool {
+	oid, _ = pkg_pg.ResolveDataType(oid, 0, customTypeMapping)
 	switch oid {
 	case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
-		return qvalue.ShouldWrapJSONArrayElements(flags, version, model.ExplicitDestinationType(columns, name))
+		return qvalue.ShouldWrapJSONArrayElements(flags, version, nativeJSONEnabled, model.ExplicitDestinationType(columns, name))
 	case pgtype.JSONOID, pgtype.JSONBOID:
+		return qvalue.ShouldWrapNonObjectJSON(flags, version, nativeJSONEnabled, model.ExplicitDestinationType(columns, name))
 	default:
-		// a domain is decoded as its base type, so it wraps like the base type
-		oid, _ = pkg_pg.ResolveDataType(oid, 0, customTypeMapping)
-		if oid != pgtype.JSONOID && oid != pgtype.JSONBOID {
-			return false
-		}
+		return false
 	}
-	return qvalue.ShouldWrapNonObjectJSON(flags, version, nativeJSONEnabled, model.ExplicitDestinationType(columns, name))
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(

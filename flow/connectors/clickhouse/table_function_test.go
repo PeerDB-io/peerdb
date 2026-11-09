@@ -105,37 +105,84 @@ func TestBuildInsertFromTableFunctionQueryDestinationName(t *testing.T) {
 		query)
 }
 
-// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks arrays of JSON, staged as a string holding the
-// whole array, are parsed when their column is declared an array, a null one into the empty array, and
-// left as is otherwise, as when they land in a String column.
+// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks staged JSON arrays are parsed into their array column's type.
 func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
-	config := &insertFromTableFunctionConfig{
-		destinationTable: "t1",
-		schema: types.QRecordSchema{Fields: []types.QField{
-			{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
-			{Name: "docsb", Type: types.QValueKindArrayJSONB, Nullable: true},
-			{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
-		}},
-		config: &protos.QRepConfig{
-			Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
-			Columns: []*protos.ColumnSetting{
-				{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
-				{SourceName: "docsb", DestinationType: "Array(JSON)"},
-			},
+	const overrides = "JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))')," +
+		"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"
+	for _, tc := range []struct {
+		destinationColumnTypes map[string]string
+		name                   string
+		want                   string
+	}{
+		{
+			name:                   "Array(JSON) column",
+			destinationColumnTypes: map[string]string{"docs_default": "Array(JSON)"},
+			want:                   overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(JSON)'),`docs_as_string`",
 		},
-	}
+		{
+			name:                   "Array(Nullable(JSON)) column",
+			destinationColumnTypes: map[string]string{"docs_default": "Array(Nullable(JSON))"},
+			want:                   overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
+		},
+		{
+			name:                   "String column",
+			destinationColumnTypes: map[string]string{"docs_default": "String"},
+			want:                   overrides + "`docs_default`,`docs_as_string`",
+		},
+		{
+			name:                   "user-created Array(String) column",
+			destinationColumnTypes: map[string]string{"docs_default": "Array(String)"},
+			want:                   overrides + "`docs_default`,`docs_as_string`",
+		},
+		{
+			name: "column types unknown",
+			want: overrides + "`docs_default`,`docs_as_string`",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &insertFromTableFunctionConfig{
+				destinationTable: "t1",
+				schema: types.QRecordSchema{Fields: []types.QField{
+					{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
+					{Name: "docsb", Type: types.QValueKindArrayJSONB, Nullable: true},
+					{Name: "docs_default", Type: types.QValueKindArrayJSON, Nullable: true},
+					{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
+				}},
+				config: &protos.QRepConfig{
+					Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+					Columns: []*protos.ColumnSetting{
+						{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
+						{SourceName: "docsb", DestinationType: "Array(JSON)"},
+						{SourceName: "docs_as_string", DestinationType: "String"},
+					},
+				},
+				connector:              &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
+				destinationColumnTypes: tc.destinationColumnTypes,
+			}
 
-	query, err := buildInsertFromTableFunctionQuery(
-		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
-	)
-	require.NoError(t, err)
-	require.Equal(t,
-		"INSERT INTO `t1`(`docs`,`docsb`,`docs_as_string`) SELECT "+
-			"JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))'),"+
-			"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"+
-			"`docs_as_string` "+
-			"FROM s3('s3://bucket/key', 'Avro')",
-		query)
+			query, err := buildInsertFromTableFunctionQuery(
+				context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+			)
+			require.NoError(t, err)
+			require.Equal(t,
+				"INSERT INTO `t1`(`docs`,`docsb`,`docs_default`,`docs_as_string`) SELECT "+tc.want+
+					" FROM s3('s3://bucket/key', 'Avro')",
+				query)
+		})
+	}
+}
+
+// TestHasJSONArrayWithoutDestinationType checks the column types are only read for json[] without a destination type.
+func TestHasJSONArrayWithoutDestinationType(t *testing.T) {
+	schema := types.QRecordSchema{Fields: []types.QField{
+		{Name: "id", Type: types.QValueKindInt64},
+		{Name: "docs", Type: types.QValueKindArrayJSONB},
+	}}
+	require.True(t, hasJSONArrayWithoutDestinationType(schema, nil))
+	require.False(t, hasJSONArrayWithoutDestinationType(schema,
+		[]*protos.ColumnSetting{{SourceName: "docs", DestinationType: "Array(JSON)"}}))
+	require.False(t, hasJSONArrayWithoutDestinationType(
+		types.QRecordSchema{Fields: []types.QField{{Name: "id", Type: types.QValueKindInt64}}}, nil))
 }
 
 // TestBuildInsertFromTableFunctionQueryJSON checks the native JSON casts: CAST(NULL, 'JSON') fails, so a

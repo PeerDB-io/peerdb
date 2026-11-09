@@ -33,6 +33,7 @@ type NormalizeQueryGenerator struct {
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
 	version                         uint32
+	sourceType                      protos.DBType
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
@@ -51,6 +52,7 @@ func NewNormalizeQueryGenerator(
 	configuredSoftDeleteColName string,
 	version uint32,
 	flags []string,
+	sourceType protos.DBType,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := defaultIsDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -71,6 +73,7 @@ func NewNormalizeQueryGenerator(
 		isDeletedColName:                isDeletedColumn,
 		version:                         version,
 		flags:                           flags,
+		sourceType:                      sourceType,
 	}
 }
 
@@ -138,7 +141,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 		clickHouseType, err := resolveClickHouseColumnType(
-			ctx, column, colSetting, schema.NullableEnabled, t.env, t.chVersion, t.flags,
+			ctx, column, colSetting, schema.NullableEnabled, t.env, t.chVersion, t.flags, t.version, t.sourceType,
 		)
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)

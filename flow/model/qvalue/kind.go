@@ -61,6 +61,8 @@ func ToDWHColumnType(
 	column *protos.FieldDescription,
 	nullableEnabled bool,
 	flags []string,
+	version uint32,
+	sourceType protos.DBType,
 ) (string, error) {
 	var colType string
 	switch dwhType {
@@ -92,6 +94,9 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
+		} else if (kind == types.QValueKindArrayJSON || kind == types.QValueKindArrayJSONB) &&
+			ShouldUseArrayJSONType(ctx, env, dwhVersion, version, sourceType) {
+			colType = ClickHouseArrayJSONType(nullableEnabled)
 		} else if (kind == types.QValueKindTime || kind == types.QValueKindTimeTZ) &&
 			slices.Contains(flags, shared.Flag_ClickHouseTime64Enabled) {
 			colType = "Time64(6)"
@@ -126,4 +131,22 @@ func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersi
 	// Treat error the same as not enabled
 	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
 	return isJsonEnabled
+}
+
+// ShouldUseArrayJSONType reports whether a json[]/jsonb[] column without a destination type lands in Array(JSON).
+// Only the Postgres reader wraps the elements, so other sources keep String.
+func ShouldUseArrayJSONType(
+	ctx context.Context, env map[string]string, chVersion *chproto.Version, version uint32, sourceType protos.DBType,
+) bool {
+	return version >= shared.InternalVersion_JSONArrayAsArrayJSON &&
+		sourceType == protos.DBType_POSTGRES &&
+		ShouldUseNativeJSONType(ctx, env, chVersion)
+}
+
+// ClickHouseArrayJSONType: the elements are Nullable with the nullable setting, whatever the source column's nullability.
+func ClickHouseArrayJSONType(nullableEnabled bool) string {
+	if nullableEnabled {
+		return "Array(Nullable(JSON))"
+	}
+	return "Array(JSON)"
 }

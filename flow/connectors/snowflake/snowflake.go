@@ -343,6 +343,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 	_ []string,
+	_ uint32, _ protos.DBType,
 ) error {
 	if len(schemaDeltas) == 0 {
 		return nil
@@ -368,7 +369,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			sfColtype, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled, nil,
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled, nil, shared.InternalVersion_First,
+				protos.DBType_DBTYPE_UNKNOWN,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -453,7 +455,9 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil); err != nil {
+	if err := c.ReplayTableSchemaDeltas(
+		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil, req.Version, req.SourceType,
+	); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -666,7 +670,8 @@ func generateCreateTableSQLForNormalizedTable(
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		qvKind := types.QValueKind(genericColumnType)
 		sfColType, err := qvalue.ToDWHColumnType(
-			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled, nil,
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled, nil, shared.InternalVersion_First,
+			protos.DBType_DBTYPE_UNKNOWN,
 		)
 		if err != nil {
 			slog.WarnContext(ctx, fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),

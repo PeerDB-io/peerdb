@@ -35,30 +35,42 @@ func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
 	require.False(t, shouldWrapJSONColumn(jsonbDomainOID, "j", nil, flags, version, true, nil))
 }
 
-// TestShouldWrapNonObjectJSONArrays checks that json[]/jsonb[] columns take the array gate: their elements wrap
-// for an explicit Array(JSON) or Array(Nullable(JSON)) destination type from InternalVersion_WrapJSONArrayElements
-// on, and never without one, as the column is then a String.
+// TestShouldWrapNonObjectJSONArrays checks when json[]/jsonb[] elements wrap: for an Array override, or by default.
 func TestShouldWrapNonObjectJSONArrays(t *testing.T) {
 	t.Parallel()
 
 	flags := []string{shared.Flag_ClickHouseJSONSupported}
 	latest := shared.InternalVersion_Latest
-	before := shared.InternalVersion_WrapJSONArrayElements - 1
+	beforeWrap := shared.InternalVersion_WrapJSONArrayElements - 1
+	beforeDefault := shared.InternalVersion_JSONArrayAsArrayJSON - 1
 	arrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(JSON)"}}
 	nullableArrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(Nullable(JSON))"}}
 	stringOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "String"}}
 
+	// explicit destination types
 	require.True(t, shouldWrapJSONColumn(pgtype.JSONArrayOID, "j", nil, flags, latest, true, arrayOverride))
 	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, arrayOverride))
 	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, nullableArrayOverride))
-	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, before, true, arrayOverride))
-	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, nil))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, beforeDefault, false, arrayOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, beforeWrap, true, arrayOverride))
 	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, stringOverride))
 	require.False(t, shouldWrapJSONColumn(pgtype.TextArrayOID, "j", nil, flags, latest, true, arrayOverride))
-	// a domain over jsonb[] is left alone: the snapshot path reads it as text
+
+	// the default mapping
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONArrayOID, "j", nil, flags, latest, true, nil))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, beforeDefault, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, nil, latest, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.TextArrayOID, "j", nil, flags, latest, true, nil))
+
+	// a domain over jsonb[] wraps like jsonb[]: CDC sees the domain OID, the snapshot sees the base type's
 	const jsonbArrayDomainOID uint32 = 70003
 	domains := map[uint32]pkg_pg.CustomDataType{jsonbArrayDomainOID: {Name: "jdocs", BaseOID: pgtype.JSONBArrayOID}}
-	require.False(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, nil))
+	require.False(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, stringOverride))
+	require.False(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, beforeDefault, true, nil))
 }
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {
@@ -152,6 +164,18 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			name: "text not wrapped", value: `"dark"`, qkind: types.QValueKindString,
 			wrapNonObjectJSON: true, want: `'"dark"'`,
 		},
+		// json arrays: only an Array(JSON) column takes a default, with each element wrapped
+		{
+			name: "jsonb array wrapped", value: `[{"a": 1}, "dark", 2, null, [1]]`, qkind: types.QValueKindArrayJSONB,
+			wrapNonObjectJSON: true,
+			want:              `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":2},{"_value":null},{"_value":[1]}]', 'Array(JSON)')`,
+		},
+		{
+			name: "json empty array wrapped", value: `[]`, qkind: types.QValueKindArrayJSON,
+			wrapNonObjectJSON: true, want: `JSONExtract('[]', 'Array(JSON)')`,
+		},
+		{name: "jsonb array as string column", value: `[{"a": 1}]`, qkind: types.QValueKindArrayJSONB},
+		{name: "jsonb array malformed", value: `{"a": 1}`, qkind: types.QValueKindArrayJSONB, wrapNonObjectJSON: true},
 		{
 			name: "hstore canonicalized", value: `{"z": "<&>", "a": null}`,
 			qkind: types.QValueKindHStore, want: `'{"a":null,"z":"\\u003c\\u0026\\u003e"}'`,

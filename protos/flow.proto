@@ -230,6 +230,8 @@ message FlowConnectionConfigsCore {
 
   // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
   int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
+
+  peerdb_peers.DBType source_type = 31; // internal, stamped by the API from the source peer
 }
 
 message RenameTableOption {
@@ -359,6 +361,7 @@ message SetupNormalizedTableBatchInput {
   bool is_resync = 8;
   uint32 version = 9;
   repeated string flags = 10;
+  peerdb_peers.DBType source_type = 11;
 }
 
 message SetupNormalizedTableOutput {
@@ -521,7 +524,7 @@ message QRepConfig {
   repeated ColumnSetting columns = 27;
   uint32 version = 28; // internal
 
-  peerdb_peers.DBType source_type = 30;
+  peerdb_peers.DBType source_type = 30; // internal
 
   // Connector capabilities detected at flow creation time.
   // Used to control type mapping backwards compatibility.

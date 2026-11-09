@@ -516,6 +516,7 @@ func CreateQRepWorkflowConfig(
 		WatermarkTable:             sourceTable,
 		DestinationTableIdentifier: dstTable,
 		SourceName:                 GeneratePostgresPeer(t).Name,
+		SourceType:                 protos.DBType_POSTGRES,
 		DestinationName:            dest,
 		Query:                      query,
 		WatermarkColumn:            "updated_at",

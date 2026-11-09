@@ -190,7 +190,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				colNameMap[colName] = dstColName
 			}
 			clickHouseType, err := resolveClickHouseColumnType(
-				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags,
+				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags, config.Version, config.SourceType,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -568,6 +568,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.SoftDeleteColName,
 				req.Version,
 				req.Flags,
+				req.SourceType,
 			)
 			query, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
@@ -724,12 +725,15 @@ func resolveClickHouseColumnType(
 	env map[string]string,
 	chVersion *chproto.Version,
 	flags []string,
+	version uint32,
+	sourceType protos.DBType,
 ) (string, error) {
 	colType := types.QValueKind(column.Type)
 	nullableEnabled := tableNullableEnabled || colSetting.GetNullableEnabled()
 	clickHouseType := colSetting.GetDestinationType()
 	if clickHouseType == "" {
-		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags)
+		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags, version,
+			sourceType)
 	}
 	// TODO basic validation to avoid injection
 	if nullableEnabled && column.Nullable && !colType.IsArray() && !strings.HasPrefix(clickHouseType, "Nullable(") {

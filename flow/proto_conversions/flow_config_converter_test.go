@@ -15,7 +15,7 @@ import (
 // else missing is a forgotten field, not a design decision.
 var (
 	removedFromCore = map[protoreflect.FieldNumber]string{}
-	coreOnly        = map[protoreflect.FieldNumber]string{}
+	coreOnly        = map[protoreflect.FieldNumber]string{31: "source_type"}
 )
 
 // TestFlowConnectionConfigsEquivalence enforces what codegen used to: that
