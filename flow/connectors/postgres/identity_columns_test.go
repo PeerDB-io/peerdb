@@ -15,45 +15,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
-func TestGetSelectedColumnsSkipsGenerated(t *testing.T) {
-	ctx := t.Context()
-	c, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
-	require.NoError(t, err)
-	defer c.Close()
-	s := "gen_" + strings.ToLower(common.RandomString(8))
-	_, err = c.conn.Exec(ctx, fmt.Sprintf(
-		"create schema %[1]s; create table %[1]s.t(id int primary key, a int, b int generated always as (a * 2) stored)", s))
-	require.NoError(t, err)
-	table := &common.QualifiedTable{Namespace: s, Table: "t"}
-	cols, err := c.GetSelectedColumns(ctx, table, nil, protos.TypeSystem_PG)
-	require.NoError(t, err)
-	require.Equal(t, []string{"id", "a"}, cols)
-	cols, err = c.GetSelectedColumns(ctx, table, []string{"a"}, protos.TypeSystem_Q)
-	require.NoError(t, err)
-	require.Equal(t, []string{"id", "b"}, cols)
-}
-
-func TestCheckGeneratedKeyColumns(t *testing.T) {
-	ctx := t.Context()
-	c, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
-	require.NoError(t, err)
-	defer c.Close()
-	s := "genkey_" + strings.ToLower(common.RandomString(8))
-	_, err = c.conn.Exec(ctx, fmt.Sprintf(`create schema %[1]s;
-		create table %[1]s.ok(id int generated always as identity primary key, a int, b int generated always as (a * 2) stored);
-		create table %[1]s.genpk(a int, b int generated always as (a * 2) stored primary key);
-		create table %[1]s.genri(id int primary key, a int not null, b int not null generated always as (a * 2) stored);
-		create unique index genri_b on %[1]s.genri(b); alter table %[1]s.genri replica identity using index genri_b;
-		create table %[1]s.riok(a int not null, b int generated always as (a * 2) stored primary key);
-		create unique index riok_a on %[1]s.riok(a); alter table %[1]s.riok replica identity using index riok_a`, s))
-	require.NoError(t, err)
-	table := func(name string) *common.QualifiedTable { return &common.QualifiedTable{Namespace: s, Table: name} }
-
-	require.NoError(t, c.checkGeneratedKeyColumns(ctx, []*common.QualifiedTable{table("ok"), table("riok")}))
-	err = c.checkGeneratedKeyColumns(ctx, []*common.QualifiedTable{table("ok"), table("genpk"), table("genri")})
-	require.ErrorContains(t, err, fmt.Sprintf(`"%[1]s"."genpk"."b", "%[1]s"."genri"."b"`, s))
-}
-
 func TestNormalizeAlwaysIdentity(t *testing.T) {
 	ctx := t.Context()
 	c, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
@@ -80,7 +41,8 @@ func TestNormalizeAlwaysIdentity(t *testing.T) {
 			require.NoError(t, err)
 			_, err = c.conn.Exec(ctx, fmt.Sprintf(`create schema %[1]s; create table %[1]s.t(
 				id int generated always as identity primary key, n int generated always as identity unique, v text,
-				del bool, at timestamptz); create table %[1]s.only_id(id int generated always as identity primary key, del bool, at timestamptz)`, job))
+				del bool, at timestamptz);
+				create table %[1]s.only_id(id int generated always as identity primary key, del bool, at timestamptz)`, job))
 			require.NoError(t, err)
 
 			raw := []struct {

@@ -416,7 +416,6 @@ func (c *PostgresConnector) GetSelectedColumns(
 	ctx context.Context,
 	sourceTable *common.QualifiedTable,
 	excludedColumns []string,
-	system protos.TypeSystem,
 ) ([]string, error) {
 	quotedExcludedColumns := make([]string, 0, len(excludedColumns))
 	for _, col := range excludedColumns {
@@ -425,9 +424,6 @@ func (c *PostgresConnector) GetSelectedColumns(
 	excludedColumnsSQL := ""
 	if len(excludedColumns) > 0 {
 		excludedColumnsSQL = " AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
-	}
-	if system == protos.TypeSystem_PG {
-		excludedColumnsSQL += " AND a.attgenerated = ''"
 	}
 
 	getColumnsSQL := `
@@ -589,8 +585,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	selectedColumnsStr := "*"
-	if len(tm.Exclude) > 0 || system == protos.TypeSystem_PG {
-		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, tm.Exclude, system)
+	if len(tm.Exclude) > 0 {
+		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, tm.Exclude)
 		if err != nil {
 			return nil, err
 		}

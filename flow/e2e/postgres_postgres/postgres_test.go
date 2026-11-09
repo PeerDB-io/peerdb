@@ -1335,11 +1335,10 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-// Test_Identity_PKey_And_Generated_Columns_PG replicates a table whose primary key is GENERATED ALWAYS AS IDENTITY,
-// with another ALWAYS identity column and a stored generated column, into a destination table with the same schema.
-// The initial load must skip the generated column, and normalize must insert identity columns with
-// OVERRIDING SYSTEM VALUE without ever updating them.
-func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_And_Generated_Columns_PG() {
+// Test_Identity_PKey_PG replicates a table whose primary key is GENERATED ALWAYS AS IDENTITY, with another
+// ALWAYS identity column, into a destination table with the same schema. Normalize must insert identity
+// columns with OVERRIDING SYSTEM VALUE without ever updating them.
+func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_PG() {
 	srcTableName := s.attachSchemaSuffix("test_identity_pkey_pg")
 	dstTableName := s.attachSchemaSuffix("test_identity_pkey_pg_dst")
 
@@ -1348,7 +1347,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_And_Generated_Columns_PG() {
 			id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 			seq INT GENERATED ALWAYS AS IDENTITY (START WITH 100) UNIQUE,
 			a INT NOT NULL,
-			doubled INT GENERATED ALWAYS AS (a * 2) STORED,
 			v TEXT)`, table))
 		require.NoError(s.t, err)
 	}
@@ -1375,7 +1373,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_And_Generated_Columns_PG() {
 		e2e.EnvWaitFor(s.t, env, 3*time.Minute, reason, func() bool {
 			err := errors.Join(
 				s.compareCounts(dstTableName, int64(count)),
-				s.comparePGTables(srcTableName, dstTableName, "id,seq,a,doubled,v"),
+				s.comparePGTables(srcTableName, dstTableName, "id,seq,a,v"),
 			)
 			if err != nil {
 				s.t.Log(err.Error())

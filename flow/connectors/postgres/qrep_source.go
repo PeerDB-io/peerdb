@@ -365,10 +365,10 @@ func corePullQRepRecords(
 	}
 
 	selectedColumns := "*"
-	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 || config.System == protos.TypeSystem_PG {
+	if len(config.Exclude) != 0 || len(partition.ChildTableRanges) > 0 {
 		// derive columns from the source directly; the catalog schema may be absent
 		// (e.g. resync/table-addition renames the destination) and isn't needed here
-		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, config.Exclude, config.System)
+		columns, err := c.GetSelectedColumns(ctx, parsedSrcTable, config.Exclude)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to get selected columns: %w", err)
 		}

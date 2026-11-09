@@ -845,44 +845,6 @@ func (s APITestSuite) TestPostgresDestinationValidation_NumericSuperset() {
 	require.NotNil(s.t, response)
 }
 
-func (s APITestSuite) TestPostgresSourceValidation_GeneratedKeyColumns() {
-	if _, ok := s.source.(*PostgresSource); !ok {
-		s.t.Skip("only for PostgreSQL source")
-	}
-
-	validTable := AttachSchema(s, "validation_identity_pk")
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE %s(
-		id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, a int, doubled int GENERATED ALWAYS AS (a * 2) STORED)`, validTable)))
-	generatedPkTable := AttachSchema(s, "validation_generated_pk")
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
-		"CREATE TABLE %s(a int, doubled int GENERATED ALWAYS AS (a * 2) STORED PRIMARY KEY)", generatedPkTable)))
-
-	validate := func(name string, table string) (*protos.ValidateCDCMirrorResponse, error) {
-		return s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: &protos.FlowConnectionConfigs{
-			FlowJobName:       name + "_" + s.suffix,
-			SourceName:        s.source.GeneratePeer(s.t).Name,
-			DestinationName:   s.pg.GeneratePeer(s.t).Name,
-			TableMappings:     []*protos.TableMapping{{SourceTableIdentifier: table, DestinationTableIdentifier: table}},
-			DoInitialSnapshot: true,
-			System:            protos.TypeSystem_PG,
-			Env:               map[string]string{"PEERDB_PG_AUTOMATED_SCHEMA_DUMP": "true"},
-		}})
-	}
-
-	response, err := validate("pg_validation_identity_pk", validTable)
-	require.NoError(s.t, err, "identity primary key with a non-key generated column should be accepted")
-	require.NotNil(s.t, response)
-
-	response, err = validate("pg_validation_generated_pk", generatedPkTable)
-	require.Error(s.t, err)
-	require.Nil(s.t, response)
-	st, ok := status.FromError(err)
-	require.True(s.t, ok, "expected gRPC status error")
-	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Contains(s.t, st.Message(), "generated columns cannot be part of the primary key or replica identity index")
-	require.Contains(s.t, st.Message(), `"doubled"`)
-}
-
 func (s APITestSuite) TestPostgresDestinationValidation_UnboundedNumeric() {
 	_, ok := s.source.(*PostgresSource)
 	if !ok {
