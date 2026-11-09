@@ -1,12 +1,69 @@
 package connsnowflake
 
 import (
+	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestGenerateMergeStatementNullableSchemaDoesNotAddNotNullToCasts(t *testing.T) {
+	destinationTable := "public.events"
+	requiredTimestamp := &protos.FieldDescription{
+		Name:     "created_at",
+		Type:     string(types.QValueKindTimestampTZ),
+		Nullable: false,
+	}
+	generator := &mergeStmtGenerator{
+		tableSchemaMapping: map[string]*protos.TableSchema{
+			destinationTable: {
+				Columns: []*protos.FieldDescription{
+					{Name: "id", Type: string(types.QValueKindInt64), Nullable: false},
+					requiredTimestamp,
+					{Name: "deleted_at", Type: string(types.QValueKindTimestampTZ), Nullable: true},
+				},
+				PrimaryKeyColumns: []string{"id"},
+				NullableEnabled:   true,
+			},
+		},
+		unchangedToastColumnsMap: map[string][]string{destinationTable: {""}},
+		peerdbCols:               &protos.PeerDBColumns{},
+		rawTableName:             "raw_events",
+		mergeBatchId:             1,
+	}
+
+	statement, err := generator.generateMergeStmt(context.Background(), nil, destinationTable)
+	if err != nil {
+		t.Fatalf("generate merge statement: %v", err)
+	}
+	if strings.Contains(statement, "NOT NULL") {
+		t.Fatalf("merge statement contains invalid NOT NULL cast: %s", statement)
+	}
+	for _, expected := range []string{
+		`CAST(VAR_COLS:"created_at" AS TIMESTAMP_TZ) AS "CREATED_AT"`,
+		`CAST(VAR_COLS:"deleted_at" AS TIMESTAMP_TZ) AS "DELETED_AT"`,
+	} {
+		if !strings.Contains(statement, expected) {
+			t.Errorf("merge statement missing %q: %s", expected, statement)
+		}
+	}
+
+	requiredType, err := qvalue.ToDWHColumnType(
+		context.Background(), types.QValueKindTimestampTZ, nil, protos.DBType_SNOWFLAKE,
+		nil, requiredTimestamp, true, nil,
+	)
+	if err != nil {
+		t.Fatalf("convert required destination column type: %v", err)
+	}
+	if requiredType != "TIMESTAMP_TZ NOT NULL" {
+		t.Fatalf("required destination column type = %q, want TIMESTAMP_TZ NOT NULL", requiredType)
+	}
+}
 
 func TestGenerateUpdateStatement(t *testing.T) {
 	allCols := []string{"col1", "col2", "col3"}
