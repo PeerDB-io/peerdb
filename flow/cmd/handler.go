@@ -486,6 +486,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		}
 	}
 
+	configUpdateSignaled := false
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil &&
 		// Don't allow config updates if the flow is already in a terminal state since it can lead to confusion
 		//  where the config is updated but the flow is not reflecting those changes since it's already completed/failed
@@ -493,6 +494,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			currState != protos.FlowStatus_STATUS_TERMINATING &&
 			currState != protos.FlowStatus_STATUS_FAILED &&
 			currState != protos.FlowStatus_STATUS_COMPLETED) {
+		configUpdateSignaled = true
 		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
@@ -522,7 +524,11 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
 			if currState == protos.FlowStatus_STATUS_PAUSED {
-				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				// A paused mirror resumes on its own once it has processed the config update. Resuming it here
+				// as well could skip the update, or resume the mirror after a table resync failed.
+				if !configUpdateSignaled {
+					changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				}
 				if changeErr == nil {
 					telemetry.LogActivityResumeFlow(ctx, req.FlowJobName)
 					h.alerter.LogFlowInfo(ctx, req.FlowJobName, "Mirror resume signaled")
@@ -707,6 +713,14 @@ func (h *FlowRequestHandler) validateTableResync(
 	if err != nil {
 		return NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 	}
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("unable to get destination peer type: %w", err))
+	}
+	if dstType != protos.DBType_CLICKHOUSE {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("table resync is only supported for ClickHouse destinations, got %s", dstType))
+	}
 	if err := internal.ValidateResyncTables(config.TableMappings, cdcUpdate); err != nil {
 		return NewInvalidArgumentApiError(err)
 	}
@@ -717,11 +731,10 @@ func (h *FlowRequestHandler) validateTableResync(
 			errors.New("table resync is not supported when PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN is enabled"))
 	}
 
-	config.TableMappings = cdcUpdate.ResyncTables
-	config.Resync = true
-	config.DoInitialSnapshot = true
-	config.InitialSnapshotOnly = true
-	_, apiErr := h.validateCDCMirrorImpl(ctx, pconv.FlowConnectionConfigsToCore(config), false, true)
+	resyncConfig := internal.BuildTableResyncConfig(pconv.FlowConnectionConfigsToCore(config), cdcUpdate.ResyncTables)
+	// snapshot-only mirrors skip CDC checks, but we want to make sure that after the resync the mirror can continue CDC
+	resyncConfig.InitialSnapshotOnly = false
+	_, apiErr := h.validateCDCMirrorImpl(ctx, resyncConfig, false, true)
 	return apiErr
 }
 
@@ -757,15 +770,10 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 
 	config.Resync = true
 	config.DoInitialSnapshot = true
-	// validate mirror first because once the mirror is dropped, there's no going back
-	if internalVersion, err := internal.PeerDBForceInternalVersion(ctx, config.Env); err != nil {
-		return NewInternalApiError(err)
-	} else {
-		config.Version = internalVersion
-	}
 	configCore := pconv.FlowConnectionConfigsToCore(config)
 	internal.ApplySnapshotConfigOverrides(configCore, cdcConfigUpdate)
 
+	// validate mirror first because once the mirror is dropped, there's no going back
 	if _, err := h.validateCDCMirrorImpl(ctx, configCore, false, false); err != nil {
 		return err
 	}

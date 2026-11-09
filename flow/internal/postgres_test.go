@@ -168,7 +168,7 @@ func TestGetPGConnectionString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			connStr := GetPGConnectionString(tt.config, "test")
+			connStr := GetPGConnectionString(tt.config, "test + flow")
 			cfg, err := pgx.ParseConfig(connStr)
 			require.NoError(t, err, "ParseConfig error: %v", err)
 			assert.Equal(t, tt.config.Password, cfg.Password, "Password mismatch")
@@ -179,7 +179,7 @@ func TestGetPGConnectionString(t *testing.T) {
 			}
 			assert.Equal(t, expectedHost, cfg.Host, "Host mismatch")
 			assert.Equal(t, uint16(tt.config.Port), cfg.Port, "Port mismatch")
-			assert.Equal(t, "peerdb_test", cfg.Config.RuntimeParams["application_name"], "Application name mismatch")
+			assert.Equal(t, "peerdb_test + flow", cfg.Config.RuntimeParams["application_name"], "Application name mismatch")
 			assert.Equal(t, "UTF8", cfg.Config.RuntimeParams["client_encoding"], "Client encoding mismatch")
 
 			// without explicit sslmode pgx assumes sslmode=prefer

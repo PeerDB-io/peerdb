@@ -193,13 +193,11 @@ func (sc *SchemaProjector) ProjectRecord(record iter.Seq2[string, types.QValue])
 	return values, nil
 }
 
-// kindMatches reports whether value fits a column of kind. Kinds must be equal, except for the
-// array-of-JSON kinds, whose values are, by codebase convention, QValueJSONs flagged IsArray, as those
-// kinds have no dedicated QValue type.
+// kindMatches reports whether value fits a column of kind. Kinds must be equal; QValueArrayJSON serves
+// both array-of-JSON kinds, as QValueJSON serves json and jsonb.
 func kindMatches(kind types.QValueKind, value types.QValue) bool {
-	if jsonValue, isJSON := value.(types.QValueJSON); isJSON &&
-		(kind == types.QValueKindArrayJSON || kind == types.QValueKindArrayJSONB) {
-		return jsonValue.IsArray
+	if kind == types.QValueKindArrayJSONB {
+		kind = types.QValueKindArrayJSON
 	}
 	return kind == value.Kind()
 }

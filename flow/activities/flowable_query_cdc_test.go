@@ -46,22 +46,27 @@ func TestQueryCDCPollWaitCron(t *testing.T) {
 func TestQueryCDCCatchingUp(t *testing.T) {
 	start := time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 	safeEnd := start.Add(3 * time.Hour)
+	cappedEnd := start.Add(2 * time.Hour)
 
-	t.Run("cursor advanced but still behind safe end", func(t *testing.T) {
-		require.True(t, queryCDCCatchingUp(start, start.Add(time.Hour), safeEnd))
+	t.Run("capped poll advanced but still behind safe end", func(t *testing.T) {
+		require.True(t, queryCDCCatchingUp(start, cappedEnd, start.Add(time.Hour), safeEnd))
+	})
+
+	t.Run("uncapped poll whose max watermark trails safe end", func(t *testing.T) {
+		require.False(t, queryCDCCatchingUp(start, safeEnd, start.Add(time.Hour), safeEnd))
 	})
 
 	t.Run("cursor reached safe end", func(t *testing.T) {
-		require.False(t, queryCDCCatchingUp(start, safeEnd, safeEnd))
+		require.False(t, queryCDCCatchingUp(start, cappedEnd, safeEnd, safeEnd))
 	})
 
 	t.Run("connector advanced past the requested end over an empty range", func(t *testing.T) {
-		require.False(t, queryCDCCatchingUp(start, safeEnd.Add(time.Minute), safeEnd))
+		require.False(t, queryCDCCatchingUp(start, cappedEnd, safeEnd.Add(time.Minute), safeEnd))
 	})
 
 	t.Run("no progress is not catching up", func(t *testing.T) {
-		require.False(t, queryCDCCatchingUp(start, start, safeEnd))
-		require.False(t, queryCDCCatchingUp(start, time.Time{}, safeEnd))
+		require.False(t, queryCDCCatchingUp(start, cappedEnd, start, safeEnd))
+		require.False(t, queryCDCCatchingUp(start, cappedEnd, time.Time{}, safeEnd))
 	})
 }
 

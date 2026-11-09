@@ -28,17 +28,7 @@ func typedCDCTableSchema(
 	businessFields := make([]types.QField, 0, len(tableSchema.Columns))
 	sourceColumnByDest := make(map[string]string, len(tableSchema.Columns))
 	for _, column := range tableSchema.Columns {
-		dstColName := column.Name
-		if tableMapping != nil {
-			for _, col := range tableMapping.Columns {
-				if col.SourceName == column.Name {
-					if col.DestinationName != "" {
-						dstColName = col.DestinationName
-					}
-					break
-				}
-			}
-		}
+		dstColName := resolveDestinationColumnName(column.Name, tableMapping.GetColumns())
 		sourceColumnByDest[dstColName] = column.Name
 		businessFields = append(businessFields, types.QField{
 			Name:     dstColName,

@@ -22,6 +22,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -350,16 +351,8 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
-		colName := srcField.Name
 		// if the column is mapped to a different name, find and use that name instead
-		for _, col := range tableMapping.Columns {
-			if col.SourceName == colName {
-				if col.DestinationName != "" {
-					colName = col.DestinationName
-				}
-				break
-			}
-		}
+		colName := resolveDestinationColumnName(srcField.Name, tableMapping.GetColumns())
 		found := false
 		// compare either the source column name or the mapped destination column name to the ClickHouse schema
 		for _, dstField := range dstSchema {
@@ -406,6 +399,9 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 
 func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	var flags []string
+	if qvalue.NativeJSONTypeSupported(c.chVersion) {
+		flags = append(flags, shared.Flag_ClickHouseJSONSupported)
+	}
 
 	var time64Setting string
 	err := c.queryRow(ctx,

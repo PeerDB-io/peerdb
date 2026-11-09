@@ -401,7 +401,7 @@ func TestDocumentQValueIterator(t *testing.T) {
 	require.Equal(t, types.QValueNull(""), values["nickname"])
 	// embedded documents and arrays are yielded whole, as JSON
 	require.Equal(t, types.QValueJSON{Val: `{"city":"London"}`}, values["address"])
-	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`, IsArray: true}, values["tags"])
+	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`}, values["tags"])
 }
 
 func TestDocumentQValueIteratorEmptyAndKeyOnly(t *testing.T) {
@@ -549,7 +549,7 @@ func TestStructuredArrayColumns(t *testing.T) {
 		values := byName(record)
 		require.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2}}, values["scores"])
 		require.Equal(t, types.QValueArrayString{Val: []string{"a", "507f1f77bcf86cd799439011"}}, values["tags"])
-		require.Equal(t, types.QValueJSON{Val: `[{"k":1},[2]]`, IsArray: true}, values["attachments"])
+		require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},[2]]`}, values["attachments"])
 		require.Equal(t, types.QValueNull(types.QValueKindJSON), values[structured.MalformedDataColumn])
 	})
 

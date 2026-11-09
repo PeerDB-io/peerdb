@@ -48,6 +48,7 @@ const (
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 	MongoInvalidResumeToken              = "Invalid resume token"
+	MongoTooManyCursorsOpened            = "Cannot open a new cursor since too many cursors are already opened"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -304,6 +305,11 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// DocumentDB caps open cursors per instance by instance class (30 on t3/t4g.medium)
+	// https://docs.aws.amazon.com/documentdb/latest/devguide/limits.html#limits.instance
+	ErrorNotifyTooManyCursorsOpened = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_CURSORS_OPENED", action: NotifyUser,
 	}
 	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
 	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
@@ -1012,6 +1018,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
+		case 2: // BadValue
+			// DocumentDB reports open-cursor limit as BadValue
+			if mongoCmdErr.HasErrorMessage(MongoTooManyCursorsOpened) {
+				return ErrorNotifyTooManyCursorsOpened, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 6: // HostUnreachable
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 9: // FailedToParse
@@ -1278,6 +1290,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+			//nolint:lll
+			// PeerDB maps dates to Date32, so a Date column that rejects a value outside 1970-2149 was set by the user:
+			// https://github.com/ClickHouse/ClickHouse/blob/abbc002369b8bf2b54abbf54dd02a662a685c4db/src/Processors/Formats/Impl/AvroRowInputFormat.cpp#L380-L389
+			if strings.Contains(chException.Message, "exceeds the range of type Date, ") {
+				return ErrorNotifyDestinationModified, chErrorInfo
 			}
 		case chproto.ErrBadArguments:
 			if ClickHouseDecimalInsertRe.MatchString(chException.Message) {

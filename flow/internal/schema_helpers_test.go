@@ -96,3 +96,31 @@ func TestValidateResyncTables(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildTableResyncConfig(t *testing.T) {
+	resyncTables := []*protos.TableMapping{{
+		SourceTableIdentifier:      "public.orders",
+		DestinationTableIdentifier: "orders",
+		PartitionByExpr:            "toYYYYMM(created_at)",
+	}}
+	base := &protos.FlowConnectionConfigsCore{
+		FlowJobName: "mirror",
+		Version:     3,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: "public.orders", DestinationTableIdentifier: "orders"},
+			{SourceTableIdentifier: "public.customers", DestinationTableIdentifier: "customers"},
+		},
+		Env: map[string]string{"PEERDB_FORCE_INTERNAL_VERSION": "100"},
+	}
+
+	got := BuildTableResyncConfig(base, resyncTables)
+
+	require.Equal(t, uint32(3), got.Version, "resync must run with the version of the mirror")
+	require.Equal(t, "mirror", got.FlowJobName)
+	require.Equal(t, resyncTables, got.TableMappings)
+	require.True(t, got.Resync)
+	require.True(t, got.DoInitialSnapshot)
+	require.True(t, got.InitialSnapshotOnly)
+	require.Len(t, base.TableMappings, 2, "base config must not be modified")
+	require.False(t, base.Resync, "base config must not be modified")
+}

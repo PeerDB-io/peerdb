@@ -393,12 +393,6 @@ type GetLogRetentionConnector interface {
 	GetLogRetentionHours(ctx context.Context) (float64, error)
 }
 
-type GetServerSideCommitLagConnector interface {
-	Connector
-
-	GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error)
-}
-
 // SourceClockOffsetConnector exposes the source connector's estimated clock offset
 // (source clock minus worker clock).
 type SourceClockOffsetConnector interface {
@@ -411,6 +405,12 @@ type DatabaseVariantConnector interface {
 	Connector
 
 	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
+}
+
+type TopologyTypeConnector interface {
+	Connector
+
+	GetTopologyType(ctx context.Context) (string, error)
 }
 
 type ReplicationMechanismInUseConnector interface {
@@ -882,8 +882,6 @@ var (
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
 
-	_ GetServerSideCommitLagConnector = &connmongo.MongoConnector{}
-
 	_ SourceClockOffsetConnector = &connpostgres.PostgresConnector{}
 	_ SourceClockOffsetConnector = &connmysql.MySqlConnector{}
 	_ SourceClockOffsetConnector = &connmongo.MongoConnector{}
@@ -892,6 +890,8 @@ var (
 	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
 	_ DatabaseVariantConnector = &connmongo.MongoConnector{}
 	_ DatabaseVariantConnector = &conncockroachdb.CockroachDBConnector{}
+
+	_ TopologyTypeConnector = &connmongo.MongoConnector{}
 
 	_ TableSizeEstimatorConnector = &connpostgres.PostgresConnector{}
 	_ TableSizeEstimatorConnector = &connmysql.MySqlConnector{}

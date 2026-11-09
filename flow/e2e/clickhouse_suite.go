@@ -226,6 +226,98 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// Test_Addition_Column_Settings adds a table with column settings to a running mirror: its CDC rows must
+// land through them, as its initial load does
+func (s ClickHouseSuite) Test_Addition_Column_Settings() {
+	tc := NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_addition_settings")
+	addedSrcTableName := s.attachSchemaSuffix("test_addition_settings_added")
+	dstTableName := "test_addition_settings_dst"
+	addedDstTableName := "test_addition_settings_added_dst"
+
+	for _, tableName := range []string{srcTableName, addedSrcTableName} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, note TEXT, amount INT)`, tableName)))
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (1, 'snapshot', 10)`, addedSrcTableName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_addition_settings"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (1, 'cdc', 1)`, srcTableName)))
+	EnvWaitForCount(env, s, "cdc into the original table", dstTableName, "id", 1)
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		conn := pgconn.Conn()
+		_, err := conn.Exec(s.t.Context(),
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("ch_addition_settings")))
+		require.NoError(s.t, err)
+
+		EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
+			rows, err := conn.Query(s.t.Context(),
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("ch_addition_settings")))
+			require.NoError(s.t, err)
+			defer rows.Close()
+			return !rows.Next()
+		})
+	}
+
+	// the added table renames a column, makes it nullable, and widens another one
+	runID := EnvGetRunID(s.t, env)
+	SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSrcTableName,
+			DestinationTableIdentifier: addedDstTableName,
+			ShardingKey:                "id",
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "note", DestinationName: "memo", NullableEnabled: true},
+				{SourceName: "amount", DestinationType: "Int64"},
+			},
+		}},
+	})
+	EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	EnvWaitFor(s.t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != EnvGetRunID(s.t, env)
+	})
+	EnvWaitForCount(env, s, "initial load of the added table", addedDstTableName, "id,memo", 1)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note, amount) VALUES (2, 'cdc', 20), (3, NULL, 30)`, addedSrcTableName)))
+	EnvWaitForCount(env, s, "cdc into the added table", addedDstTableName, "id,memo", 3)
+
+	rows, err := s.GetRows(addedDstTableName, "id,memo,amount")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3)
+	require.Equal(s.t, "snapshot", rows.Records[0][1].Value())
+	require.Equal(s.t, "cdc", rows.Records[1][1].Value())
+	require.Nil(s.t, rows.Records[2][1].Value(), "a NULL lands as NULL in the nullable column")
+	require.Equal(s.t, int64(30), rows.Records[2][2].Value())
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Removing one of several source tables feeding a shared destination must keep
 // that destination's raw rows & catalog schema mapping intact, otherwise the
 // surviving source can no longer normalize into it. Disjoint id ranges keep the
@@ -446,6 +538,46 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (ky) VALUES ('cdc')`, srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,ky,val,n,t")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// Test_DestinationNameColumnSetting checks a column renamed via destination_name is filled by both the
+// initial snapshot and CDC.
+func (s ClickHouseSuite) Test_DestinationNameColumnSetting() {
+	srcTableName := "test_destination_name"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_destination_name_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, note TEXT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note) VALUES (1, 'snapshot')`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_destination_name"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{{SourceName: "note", DestinationName: "memo"}}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForCount(env, s, "waiting on initial", dstTableName, "id,memo", 1)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, note) VALUES (2, 'cdc')`, srcFullName)))
+	EnvWaitForCount(env, s, "waiting on cdc", dstTableName, "id,memo", 2)
+
+	rows, err := s.GetRows(dstTableName, "id,memo")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	require.Equal(s.t, "snapshot", rows.Records[0][1].Value())
+	require.Equal(s.t, "cdc", rows.Records[1][1].Value())
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -2217,6 +2349,8 @@ func (s ClickHouseSuite) Test_PG_AlterTableAddColumnDefault() {
 		{"c_enum", enumType + " DEFAULT 'ok'", "'sad'"},
 		{"c_uuid", "UUID DEFAULT '00000000-0000-0000-0000-000000000001'", "'11111111-1111-1111-1111-111111111111'"},
 		{"c_jsonb", `JSONB DEFAULT '{"a": 1}'`, `'{"b": 2}'`},
+		// a top-level JSON string must keep its quotes; the text form of the missing value would drop them
+		{"c_jsonb_string", `JSONB DEFAULT '"dark"'`, `'"explicit"'`},
 		{"c_hstore", `HSTORE DEFAULT '"z"=>"<&>", "a"=>NULL'`, `'"a"=>NULL, "z"=>"<&>"'`},
 		// Date and time values; non-volatile expressions are evaluated once into attmissingval.
 		{"c_date", "DATE DEFAULT '2020-01-02'", "'2021-02-03'"},
@@ -2564,6 +2698,81 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 1", srcTableName1, dstTableName1, "id,\"key\"")
 	EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 2", srcTableName2, dstTableName2, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+// A batch synced right before SyncFlow restarts must get normalized
+// even if the source has no further changes to trigger another sync
+func (s ClickHouseSuite) Test_Normalize_Synced_Batch_After_Restart() {
+	srcTableName := "test_normalize_after_restart"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_normalize_after_restart_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			ky TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_normalize_after_restart"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	rawTableName := s.connector.GetRawTableName(flowConnConfig.FlowJobName)
+	fakeRawTableName := rawTableName + "_fake"
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("RENAME TABLE %s TO %s%s",
+		clickhouse.QuoteIdentifier(rawTableName), clickhouse.QuoteIdentifier(fakeRawTableName), onCluster)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id, ky) VALUES (1, 'one'), (2, 'two')`, srcFullName)))
+
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for batch to sync", func() bool {
+		var syncBatchID pgtype.Int8
+		if err := s.catalog.QueryRow(s.t.Context(),
+			"SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name=$1",
+			flowConnConfig.FlowJobName).Scan(&syncBatchID); err != nil {
+			return false
+		}
+		return syncBatchID.Valid && syncBatchID.Int64 == 1
+	})
+	EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
+		errorCount, err := GetLogCount(
+			s.t.Context(), s.catalog, flowConnConfig.FlowJobName, "error", "failed to normalize records",
+		)
+		return err == nil && errorCount > 0
+	})
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("RENAME TABLE %s TO %s%s",
+		clickhouse.QuoteIdentifier(fakeRawTableName), clickhouse.QuoteIdentifier(rawTableName), onCluster)))
+
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
+	EnvWaitFor(s.t, env, 3*time.Minute, "resuming", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	EnvWaitForEqualTablesWithNames(env, s, "synced batch normalized after restart", srcTableName, dstTableName, "id,ky")
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
@@ -4008,7 +4217,7 @@ func (s ClickHouseSuite) Test_Sync_Error_Cancels_InProgress_Normalize() {
 	// set an invalid s3 access key which will trigger a sync error
 	peer := s.Peer()
 	peer.GetClickhouseConfig().S3 = proto.CloneOf(peer.GetClickhouseConfig().S3)
-	peer.GetClickhouseConfig().S3.SecretAccessKey = proto.String("bad")
+	peer.GetClickhouseConfig().S3.SecretAccessKey = new("bad")
 	CreatePeer(s.t, peer)
 
 	lastErrorBefore := EnvGetWorkflowState(s.t, env).LastError

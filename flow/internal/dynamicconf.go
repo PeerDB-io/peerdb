@@ -337,6 +337,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name: "PEERDB_GROUP_NORMALIZE_RAW_INSERT_PARALLELISM",
+		Description: "Number of staged batch files loaded into the ClickHouse raw table by a single INSERT during normalize. " +
+			"Each file is read by its own stream, so values above 1 parallelize reading and decoding Avro",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name: "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING",
 		Description: "Enables parallel_view_processing setting on clickhouse, pushing to attached materialized views " +
 			"concurrently during inserts",
@@ -373,8 +382,10 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_ENABLE_JSON",
-		Description:      "Map JSON datatype from source to JSON in ClickHouse instead of String",
+		Name: "PEERDB_CLICKHOUSE_ENABLE_JSON",
+		Description: "Map JSON datatype from source to JSON in ClickHouse instead of String. Postgres/MySQL values that " +
+			"are not objects (scalars, arrays) are wrapped as {\"_value\": ...}, since ClickHouse JSON only accepts " +
+			"objects at the top level; a JSON null lands as {} because ClickHouse JSON drops null paths",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
@@ -588,6 +599,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING",
+		Description: "Controls whether MongoDB ObjectID _id snapshot partitions use sampled boundaries instead of " +
+			"an even split of the min-max _id range",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD",
 		Description: "Number of normalized batches to retain in raw table. After normalize, batches older " +
 			"than normalize_batch_id minus this value are deleted. 0 disables cleanup",
@@ -601,6 +621,16 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "Number of parallel threads to use when decoding full BSON documents in MongoDB change events.",
 		DefaultValue:     "1",
 		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP",
+		Description: "If true, PeerDB fetches update documents in bounded parallel batches outside the change stream. " +
+			"The exception is if the collections already have changeStreamPreAndPostImages enabled, then it will use the " +
+			"post-image supplied in the change stream event, only missing documents are queried.",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
@@ -960,6 +990,10 @@ func PeerDBClickHouseParallelViewProcessing(ctx context.Context, env map[string]
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_VIEW_PROCESSING")
 }
 
+func PeerDBGroupNormalizeRawInsertParallelism(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE_RAW_INSERT_PARALLELISM")
+}
+
 func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]string) (int, error) {
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE")
 }
@@ -1123,12 +1157,20 @@ func PeerDBMongoDBExcludedOperationTypes(ctx context.Context, env map[string]str
 	return ops, nil
 }
 
+func PeerDBMongoDBSampledObjectIDPartitioning(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING")
+}
+
 func PeerDBPostgresRawBatchCleanupThreshold(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_POSTGRES_RAW_BATCH_CLEANUP_THRESHOLD")
 }
 
 func PeerDBMongoDBNumParallelDecodeThreads(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_MONGODB_NUM_PARALLEL_DECODE_THREADS")
+}
+
+func PeerDBMongoDBClientSideUpdateLookup(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP")
 }
 
 func PeerDBMongoDBLogCommands(ctx context.Context, env map[string]string) (bool, error) {

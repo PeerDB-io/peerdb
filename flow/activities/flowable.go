@@ -91,6 +91,28 @@ func getInitialNormalizeBatchID(
 	return pgMetadata.GetLastNormalizeBatchID(ctx, flowName)
 }
 
+func getLastSyncBatchID(
+	ctx context.Context,
+	logger log.Logger,
+	catalogPool shared.CatalogPool,
+	env map[string]string,
+	destinationName string,
+	destinationType protos.DBType,
+	flowName string,
+) (int64, error) {
+	if destinationType == protos.DBType_POSTGRES {
+		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get postgres destination connector for sync state: %w", err)
+		}
+		defer dstClose(ctx)
+		return dstPgConn.GetLastSyncBatchID(ctx, flowName)
+	}
+
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, catalogPool)
+	return pgMetadata.GetLastSyncBatchID(ctx, flowName)
+}
+
 func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
@@ -364,6 +386,13 @@ func (a *FlowableActivity) SyncFlow(
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 
+	// config keeps the table mappings the mirror started with, options also the tables added since:
+	// normalize must see the column settings of added tables too
+	if options != nil {
+		config = proto.CloneOf(config)
+		config.TableMappings = options.TableMappings
+	}
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// This is kept here and not deeper as we can have errors during SetupReplConn
 	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
@@ -473,6 +502,19 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	if lastNormBatchID > 0 {
 		normalizingBatchID.Store(lastNormBatchID)
 		normResponses.Update(lastNormBatchID)
+	}
+	lastSyncBatchID, err := getLastSyncBatchID(
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	if lastSyncBatchID > lastNormBatchID {
+		// Batches synced before a restart would otherwise wait for the next sync to request normalize,
+		// which may never come if the source goes quiet
+		logger.Info("resuming normalize of batches synced before restart",
+			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
+		normRequests.Update(lastSyncBatchID)
 	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
@@ -1093,8 +1135,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 				flowNames = append(flowNames, entry.FlowConfig.FlowName)
 			}
 
-			version, variant, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
-			telemetry.LogPeerInfo(ctx, peer, version, variant)
+			version, variant, topology, replicationMechanismInUseByFlow := a.getRuntimeInfo(ctx, peer, flowNames)
+			telemetry.LogPeerInfo(ctx, peer, version, variant, topology)
 			for _, entry := range peerFlowEntries {
 				entry.FlowConfig.ReplicationMechanismInUse = replicationMechanismInUseByFlow[entry.FlowConfig.FlowName]
 				if peer.Type == protos.DBType_POSTGRES {
@@ -1119,16 +1161,17 @@ func (a *FlowableActivity) getRuntimeInfo(
 	ctx context.Context,
 	peer *protos.Peer,
 	flowNames []string,
-) (string, string, map[string]string) {
+) (string, string, string, map[string]string) {
 	logger := internal.LoggerFromCtx(ctx)
 	version := "N/A"
 	variant := "N/A"
+	topology := "N/A"
 	replicationMechanismInUseByFlow := make(map[string]string, len(flowNames))
 
 	conn, err := connectors.GetConnector(ctx, nil, peer)
 	if err != nil {
 		logger.Error("failed to create connector for source peer info", slog.String("peer", peer.Name), slog.Any("error", err))
-		return version, variant, replicationMechanismInUseByFlow
+		return version, variant, topology, replicationMechanismInUseByFlow
 	}
 	defer conn.Close()
 
@@ -1148,6 +1191,14 @@ func (a *FlowableActivity) getRuntimeInfo(
 			variant = v.String()
 		}
 	}
+	if tc, ok := conn.(connectors.TopologyTypeConnector); ok {
+		if t, err := tc.GetTopologyType(ctx); err != nil {
+			logger.Error("failed to get topology type",
+				slog.String("peer", peer.Name), slog.Any("error", err))
+		} else {
+			topology = t
+		}
+	}
 	if rmc, ok := conn.(connectors.ReplicationMechanismInUseConnector); ok {
 		for _, flowName := range flowNames {
 			mechanismInUse, err := rmc.GetReplicationMechanismInUse(ctx, flowName)
@@ -1162,7 +1213,7 @@ func (a *FlowableActivity) getRuntimeInfo(
 		}
 	}
 
-	return version, variant, replicationMechanismInUseByFlow
+	return version, variant, topology, replicationMechanismInUseByFlow
 }
 
 type flowInformation struct {
@@ -1531,9 +1582,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		if err := a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge); err != nil {
 			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
 		}
-		if err := a.recordServerSideCommitLag(timeoutCtx, info, a.OtelManager.Metrics.ServerSideCommitLagGauge); err != nil {
-			logger.Error("Failed to record server-side commit lag", slog.Any("error", err))
-		}
 		cancel()
 
 		if qryErr == nil {
@@ -1637,43 +1685,6 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
-	return nil
-}
-
-func (a *FlowableActivity) recordServerSideCommitLag(
-	ctx context.Context,
-	info flowInformation,
-	serverSideCommitLagGauge metric.Int64Gauge,
-) error {
-	logger := internal.LoggerFromCtx(ctx)
-	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-		FlowName:           info.config.FlowJobName,
-		SourceName:         info.config.SourceName,
-		DestinationName:    info.config.DestinationName,
-		FetchSourceVariant: true,
-	})
-	if err != nil {
-		logger.Error("Failed to get flow metadata", slog.Any("error", err))
-		return err
-	}
-	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-	srcConn, srcClose, err := connectors.GetByNameAs[connectors.GetServerSideCommitLagConnector](
-		ctx, nil, a.CatalogPool, info.config.SourceName)
-	if errors.Is(err, errors.ErrUnsupported) {
-		return nil
-	} else if err != nil {
-		logger.Error("Failed to get connector", slog.Any("error", err))
-		return err
-	}
-	defer srcClose(ctx)
-
-	flowName := info.config.FlowJobName
-	lagMicroseconds, err := srcConn.GetServerSideCommitLagMicroseconds(ctx, flowName)
-	if err != nil {
-		logger.Error("Failed to get commit lag", slog.Any("error", err))
-		return err
-	}
-	serverSideCommitLagGauge.Record(ctx, lagMicroseconds)
 	return nil
 }
 
