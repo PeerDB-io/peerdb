@@ -95,6 +95,9 @@ var (
 	PostgresExtensionNotAvailableRe = regexp.MustCompile(
 		`extension ".*?" is not available|could not open extension control file`,
 	)
+	// pg_dump automated schema migration failing because the destination already has an object from the source schema,
+	// e.g. `ERROR:  schema "public_v2" already exists` or `ERROR:  relation "users" already exists`.
+	PostgresSchemaMigrationObjectExistsRe = regexp.MustCompile(`ERROR:\s+[^\n]* already exists`)
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 
@@ -239,6 +242,12 @@ var (
 	// that the source schema depends on; the user must install it on the destination.
 	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
 		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
+	}
+	// The pg_dump automated schema migration failed because the destination already has an object that the
+	// source schema creates; psql runs in a single transaction, so this is pre-existing destination state that
+	// the user must drop or migrate manually.
+	ErrorNotifyPostgresSchemaMigrationObjectExists = ErrorClass{
+		Class: "NOTIFY_POSTGRES_SCHEMA_MIGRATION_OBJECT_EXISTS", action: NotifyUser,
 	}
 	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
 		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
@@ -1568,6 +1577,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyPostgresExtensionNotAvailable, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "EXTENSION_NOT_AVAILABLE",
+		}
+	}
+
+	if strings.Contains(err.Error(), "pg_dump schema migration failed") &&
+		PostgresSchemaMigrationObjectExistsRe.MatchString(err.Error()) {
+		return ErrorNotifyPostgresSchemaMigrationObjectExists, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "OBJECT_ALREADY_EXISTS",
 		}
 	}
 

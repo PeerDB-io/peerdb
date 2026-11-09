@@ -768,6 +768,31 @@ psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postg
 	}
 }
 
+func TestPostgresObjectExistsOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"schema": `psql failed: exit status 3
+stderr:
+ERROR:  schema "__postgres_by_clickhouse_quickstart_1794225965" already exists`,
+		"relation": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  relation "users" already exists`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresSchemaMigrationObjectExists, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "OBJECT_ALREADY_EXISTS",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+
+	// outside of the pg_dump schema migration, the same text is not classified
+	errorClass, _ := GetErrorClass(t.Context(), errors.New(`ERROR:  relation "users" already exists`))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+}
+
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
