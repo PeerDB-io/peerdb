@@ -739,8 +739,7 @@ type jsonArrayMirrorConfig struct {
 	// overrideType is given to every array column as its destination type through the column settings
 	overrideType string
 	// version, when set, pins the mirror to that internal version through PEERDB_FORCE_INTERNAL_VERSION
-	version uint32
-	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON
+	version    uint32
 	nativeJSON bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE
 	nullableDestinationColumns bool
