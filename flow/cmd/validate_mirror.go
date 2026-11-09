@@ -46,11 +46,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
-	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
+	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false, !flowConnectionConfigsCore.Resync)
 }
 
 func (h *FlowRequestHandler) validateCDCMirrorImpl(
-	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool,
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool, validateTableSettings bool,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, connectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
@@ -171,7 +171,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer dstClose(ctx)
 
 	var tableSchemaMap map[string]*protos.TableSchema
-	if !connectionConfigs.Resync {
+	if validateTableSettings {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
 			connectionConfigs.System, connectionConfigs.TableMappings)

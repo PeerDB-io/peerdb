@@ -1,11 +1,14 @@
 package internal
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -87,4 +90,62 @@ func BuildProcessedSchemaMapping(
 			slog.Any("schema", tableSchema))
 	}
 	return processedSchemaMapping
+}
+
+// ValidateResyncTables checks that each table to resync is an existing mirror table with the same
+// destination, is requested once, and is not also added or removed in the same update.
+// Other fields of the resync mappings are the new table settings.
+func ValidateResyncTables(currentTableMappings []*protos.TableMapping, update *protos.CDCFlowConfigUpdate) error {
+	currentBySource := make(map[string]*protos.TableMapping, len(currentTableMappings))
+	for _, mapping := range currentTableMappings {
+		currentBySource[mapping.SourceTableIdentifier] = mapping
+	}
+
+	resyncSources := make(map[string]struct{}, len(update.ResyncTables))
+	for _, requested := range update.ResyncTables {
+		if requested == nil || requested.SourceTableIdentifier == "" {
+			return errors.New("resync table must have a source table identifier")
+		}
+		if _, duplicate := resyncSources[requested.SourceTableIdentifier]; duplicate {
+			return fmt.Errorf("table %s was requested for resync more than once", requested.SourceTableIdentifier)
+		}
+		resyncSources[requested.SourceTableIdentifier] = struct{}{}
+
+		current, exists := currentBySource[requested.SourceTableIdentifier]
+		if !exists {
+			return fmt.Errorf("table %s is not part of the mirror", requested.SourceTableIdentifier)
+		}
+		if requested.DestinationTableIdentifier != current.DestinationTableIdentifier {
+			return fmt.Errorf("destination for table %s does not match the mirror configuration",
+				requested.SourceTableIdentifier)
+		}
+	}
+
+	for _, table := range update.AdditionalTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be added and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	for _, table := range update.RemovedTables {
+		if _, exists := resyncSources[table.SourceTableIdentifier]; exists {
+			return fmt.Errorf("table %s cannot be removed and resynced in the same update",
+				table.SourceTableIdentifier)
+		}
+	}
+	return nil
+}
+
+// BuildTableResyncConfig builds the config of the snapshot-only child mirror that resyncs the given tables.
+// The API validates a table resync with the same config, so both always agree, e.g. on the mirror version.
+func BuildTableResyncConfig(
+	base *protos.FlowConnectionConfigsCore,
+	resyncTables []*protos.TableMapping,
+) *protos.FlowConnectionConfigsCore {
+	cfg := proto.CloneOf(base)
+	cfg.TableMappings = resyncTables
+	cfg.Resync = true
+	cfg.DoInitialSnapshot = true
+	cfg.InitialSnapshotOnly = true
+	return cfg
 }
