@@ -1395,6 +1395,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Identity_PKey_And_Generated_Columns_PG() {
 	e2e.EnvNoError(s.t, env, err)
 	waitForMatch("cdc insert/update/delete", 6)
 
+	// update-only batch, for a snapshotted row and a CDC-inserted row
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		"UPDATE %s SET a = a + 1000, v = 'update_only' WHERE id IN (5, 6)", srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	waitForMatch("cdc update only", 6)
+
 	// insert, update and delete within one transaction so they land in the same batch
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`BEGIN;
 		INSERT INTO %[1]s (a, v) VALUES (9, 'tx');
