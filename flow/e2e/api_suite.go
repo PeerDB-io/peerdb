@@ -2487,7 +2487,11 @@ func (s APITestSuite) TestCancelTableLevelResync() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to resume after cancelled resync", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	require.False(s.t, sourceReadBlocked(), "resync source reads must stop before CDC resumes")
+	// pgx sends the cancel request for a cancelled query asynchronously, so the blocked backend can
+	// outlive the activity for a moment. A read that was never cancelled stays blocked on the lock.
+	EnvWaitFor(s.t, env, time.Minute, "wait for cancelled resync source read to stop", func() bool {
+		return !sourceReadBlocked()
+	})
 	require.NoError(s.t, lockTx.Rollback(ctx))
 
 	require.Equal(s.t, tableBefore, s.getCHTableInfo(ch, destination), "cancelled resync must not replace the table")
