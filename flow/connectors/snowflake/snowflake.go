@@ -376,8 +376,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 			}
 
 			if _, err := tableSchemaModifyTx.ExecContext(ctx,
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype),
+				generateAddColumnSQL(schemaDelta.DstTableName, addedColumn.Name, sfColtype),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
@@ -652,6 +651,13 @@ func (c *SnowflakeConnector) checkIfTableExists(
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
 	return result.Bool, nil
+}
+
+// generateAddColumnSQL names the column with SnowflakeIdentifierNormalize, as CREATE TABLE and MERGE do,
+// so a column added by a schema change is found by later MERGE statements.
+func generateAddColumnSQL(dstTableName string, columnName string, columnType string) string {
+	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
+		dstTableName, SnowflakeIdentifierNormalize(columnName), columnType)
 }
 
 func generateCreateTableSQLForNormalizedTable(
