@@ -98,6 +98,7 @@ var (
 	// pg_dump automated schema migration failing because the destination already has an object from the source schema,
 	// e.g. `ERROR:  schema "public_v2" already exists` or `ERROR:  relation "users" already exists`.
 	PostgresSchemaMigrationObjectExistsRe = regexp.MustCompile(`ERROR:\s+[^\n]* already exists`)
+
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 
