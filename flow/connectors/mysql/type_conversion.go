@@ -111,7 +111,8 @@ func shouldReportColumnTypeChange(schemaKind, wireKind types.QValueKind, flavor 
 		return false
 	}
 	// MariaDB stores a JSON column as LONGTEXT with a json_valid check, so the binlog reports it as a string
-	if flavor == protos.MySqlFlavor_MYSQL_MARIA && schemaKind == types.QValueKindJSON && wireKind == types.QValueKindString {
+	if flavor == protos.MySqlFlavor_MYSQL_MARIA && wireKind == types.QValueKindString &&
+		schemaKind == types.QValueKindJSON {
 		return false
 	}
 	if flavor == protos.MySqlFlavor_MYSQL_MARIA && wireKind == types.QValueKindBytes &&
