@@ -346,6 +346,57 @@ func TestCTIDPartitioningOnPartitionedTable(t *testing.T) {
 	}
 }
 
+// A child dropped after the snapshot was exported is still listed by pg_inherits under that snapshot,
+// but pg_relation_size returns NULL for it. Partitioning must skip it instead of failing to scan.
+func TestCTIDPartitioningSkipsChildDroppedAfterSnapshot(t *testing.T) {
+	t.Parallel()
+	schemaName, conn, connStr := setupTestSchema(t)
+
+	parentTable := schemaName + ".partitioned_test"
+	_, err := conn.Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s (id INT NOT NULL, value TEXT) PARTITION BY RANGE (id);
+		CREATE TABLE %[1]s_0 PARTITION OF %[1]s FOR VALUES FROM (0) TO (100);
+		CREATE TABLE %[1]s_1 PARTITION OF %[1]s FOR VALUES FROM (100) TO (200);
+		INSERT INTO %[1]s SELECT g, 'val_' || g FROM generate_series(0, 199) g;
+	`, parentTable))
+	require.NoError(t, err)
+
+	snapshotConn, err := pgx.Connect(t.Context(), connStr)
+	require.NoError(t, err)
+	t.Cleanup(func() { snapshotConn.Close(t.Context()) })
+	snapshotTx, err := snapshotConn.BeginTx(t.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	require.NoError(t, err)
+	defer snapshotTx.Rollback(t.Context()) //nolint:errcheck
+	var snapshotName string
+	require.NoError(t, snapshotTx.QueryRow(t.Context(), "SELECT pg_export_snapshot()").Scan(&snapshotName))
+
+	_, err = conn.Exec(t.Context(), fmt.Sprintf("DROP TABLE %s_1", parentTable))
+	require.NoError(t, err)
+
+	c := &PostgresConnector{
+		connStr: connStr,
+		Config:  &protos.PostgresConfig{},
+		conn:    conn,
+		logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testCTIDDroppedChild"))),
+	}
+	partitions, err := c.GetQRepPartitions(t.Context(), &protos.QRepConfig{
+		FlowJobName:           "test_ctid_dropped_child",
+		NumRowsPerPartition:   10,
+		NumPartitionsOverride: 4,
+		Query:                 fmt.Sprintf(`SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}`, parentTable),
+		WatermarkTable:        parentTable,
+		WatermarkColumn:       "ctid",
+		SnapshotName:          snapshotName,
+	}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, partitions)
+	for _, p := range partitions {
+		for _, ctr := range p.ChildTableRanges {
+			require.Equal(t, parentTable+"_0", ctr.Table)
+		}
+	}
+}
+
 func TestCTIDPartitioningOnMultiLevelPartitionedTable(t *testing.T) {
 	t.Parallel()
 	_, conn, connStr := setupTestSchema(t)

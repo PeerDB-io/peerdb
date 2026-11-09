@@ -344,7 +344,10 @@ type tableBlockStats struct {
 func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map[string]tableBlockStats, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relkind::text,
-			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint,
+			-- pg_relation_size returns NULL when the relation no longer exists. That happens for a child dropped
+			-- after the snapshot was exported: pg_inherits still lists it under the transaction snapshot, but
+			-- pg_relation_size looks it up in the latest catalog. Treat it as empty so it gets skipped.
+			COALESCE(pg_relation_size(c.oid) / current_setting('block_size')::int, 0)::bigint,
 			(CASE WHEN c.relpages > 0 THEN c.reltuples::float / c.relpages ELSE 0 END)::float
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
@@ -425,7 +428,8 @@ func getInheritedTables(
 
 	rows, err := tx.Query(ctx, `
 		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relhassubclass,
-			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint,
+			-- NULL for a child dropped after the snapshot was exported, see getPartitionedTables
+			COALESCE(pg_relation_size(c.oid) / current_setting('block_size')::int, 0)::bigint,
 			(CASE WHEN c.relpages > 0 THEN c.reltuples::float / c.relpages ELSE 0 END)::float
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
