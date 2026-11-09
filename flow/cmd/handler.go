@@ -732,6 +732,8 @@ func (h *FlowRequestHandler) validateTableResync(
 	}
 
 	resyncConfig := internal.BuildTableResyncConfig(pconv.FlowConnectionConfigsToCore(config), cdcUpdate.ResyncTables)
+	// snapshot-only mirrors skip CDC checks, but we want to make sure that after the resync the mirror can continue CDC
+	resyncConfig.InitialSnapshotOnly = false
 	_, apiErr := h.validateCDCMirrorImpl(ctx, resyncConfig, false, true)
 	return apiErr
 }
