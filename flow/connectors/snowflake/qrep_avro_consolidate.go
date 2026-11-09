@@ -2,6 +2,9 @@ package connsnowflake
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -19,8 +22,13 @@ type SnowflakeAvroConsolidateHandler struct {
 	config       *protos.QRepConfig
 	dstTableName string
 	stage        string
-	allColNames  []string
-	allColTypes  []string
+	// avroFieldByCol maps a destination column to the exact field name in the staged Avro files
+	avroFieldByCol map[string]string
+	allColNames    []string
+	allColTypes    []string
+	// resolveAvroFields looks up the staged Avro field names instead of deriving them from the destination column names.
+	// Only set for QRep snapshots, where the staged files hold the source column names.
+	resolveAvroFields bool
 }
 
 // NewSnowflakeAvroConsolidateHandler creates a new SnowflakeAvroWriteHandler
@@ -55,6 +63,12 @@ func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Con
 	s.allColNames = colNames
 	s.allColTypes = colTypes
 
+	if s.resolveAvroFields {
+		if err := s.resolveAvroFieldNames(ctx); err != nil {
+			return err
+		}
+	}
+
 	appendMode := true
 	if s.config.WriteMode != nil {
 		writeType := s.config.WriteMode.WriteType
@@ -78,7 +92,79 @@ func (s *SnowflakeAvroConsolidateHandler) CopyStageToDestination(ctx context.Con
 	return nil
 }
 
-func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string, isDeletedCol string) (string, string) {
+// matchAvroFieldNames maps destination columns to the Avro field holding their values.
+// An exact match wins; otherwise a case-insensitive match is used, because Snowflake can store a column
+// with different case than the source name (e.g. QUOTED_IDENTIFIERS_IGNORE_CASE stores "partProjectId" as PARTPROJECTID).
+// Columns without any matching field are left out of the result.
+// A column which matches several fields case-insensitively and none exactly is an error rather than a guess.
+func matchAvroFieldNames(colNames []string, avroFields []string) (map[string]string, error) {
+	matched := make(map[string]string, len(colNames))
+	for _, col := range colNames {
+		var foldMatches []string
+		exact := false
+		for _, field := range avroFields {
+			if field == col {
+				exact = true
+				break
+			}
+			if strings.EqualFold(field, col) {
+				foldMatches = append(foldMatches, field)
+			}
+		}
+		switch {
+		case exact:
+			matched[col] = col
+		case len(foldMatches) == 1:
+			matched[col] = foldMatches[0]
+		case len(foldMatches) > 1:
+			return nil, fmt.Errorf("destination column %q matches multiple Avro fields case-insensitively: %q",
+				col, foldMatches)
+		}
+	}
+	return matched, nil
+}
+
+// getAvroFieldNames reads the field names of the first record in the stage.
+// All files of a QRep run come from the same source query, so they share one schema.
+func (s *SnowflakeAvroConsolidateHandler) getAvroFieldNames(ctx context.Context) ([]string, error) {
+	var fieldsJSON sql.NullString
+	err := s.connector.QueryRowContext(ctx, "SELECT OBJECT_KEYS($1) FROM @"+s.stage+" LIMIT 1").Scan(&fieldsJSON)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !fieldsJSON.Valid) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to read Avro field names from stage: %w", err)
+	}
+	var fields []string
+	if err := json.Unmarshal([]byte(fieldsJSON.String), &fields); err != nil {
+		return nil, fmt.Errorf("failed to parse Avro field names from stage: %w", err)
+	}
+	return fields, nil
+}
+
+func (s *SnowflakeAvroConsolidateHandler) resolveAvroFieldNames(ctx context.Context) error {
+	avroFields, err := s.getAvroFieldNames(ctx)
+	if err != nil {
+		// without the field names the COPY uses the destination column names, as before this lookup existed
+		s.connector.logger.Warn("could not read Avro field names from stage, matching on destination column names",
+			slog.Any("error", err))
+		return nil
+	}
+
+	colNames := make([]string, 0, len(s.allColNames))
+	for _, col := range s.allColNames {
+		if col != s.config.SyncedAtColName && col != s.config.SoftDeleteColName {
+			colNames = append(colNames, col)
+		}
+	}
+	s.avroFieldByCol, err = matchAvroFieldNames(colNames, avroFields)
+	return err
+}
+
+// getTransformSQL builds the COPY transformation. avroFieldByCol, when it has an entry for a column,
+// gives the exact Avro field name for it; other columns derive the name from the destination column as before.
+func getTransformSQL(
+	colNames []string, colTypes []string, syncedAtCol string, isDeletedCol string, avroFieldByCol map[string]string,
+) (string, string) {
 	transformations := make([]string, 0, len(colNames))
 	columnOrder := make([]string, 0, len(colNames))
 	for idx, avroColName := range colNames {
@@ -95,7 +181,9 @@ func getTransformSQL(colNames []string, colTypes []string, syncedAtCol string, i
 			continue
 		}
 
-		if utils.IsUpper(avroColName) {
+		if avroField, ok := avroFieldByCol[avroColName]; ok {
+			avroColName = avroField
+		} else if utils.IsUpper(avroColName) {
 			avroColName = strings.ToLower(avroColName)
 		}
 		// Avro files are written with lowercase in mind, so don't normalize it like everything else
@@ -137,6 +225,7 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		s.allColTypes,
 		s.config.SyncedAtColName,
 		s.config.SoftDeleteColName,
+		s.avroFieldByCol,
 	)
 	onErrorStr := ""
 	if onError := internal.GetEnvString("PEERDB_SNOWFLAKE_ON_ERROR", ""); onError != "" {
