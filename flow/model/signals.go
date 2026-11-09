@@ -147,6 +147,12 @@ var TableResyncSwapStartedSignal = TypedSignal[struct{}]{
 	Name: "table-resync-swap-started-signal",
 }
 
+// sent by the snapshot flow of a table-level resync to the mirror once a source table is fully snapshotted,
+// so that a cancelled resync can still swap in the tables that completed
+var TableResyncTableSnapshottedSignal = TypedSignal[string]{
+	Name: "table-resync-table-snapshotted-signal",
+}
+
 func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {
 	f, set := workflow.NewFuture(ctx)
 	workflow.Go(ctx, func(ctx workflow.Context) {

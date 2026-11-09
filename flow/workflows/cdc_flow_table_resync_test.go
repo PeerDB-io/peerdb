@@ -31,11 +31,7 @@ func TestApplyResyncedTableMappings(t *testing.T) {
 			20: "public.customers",
 		},
 	}
-	result := &CDCFlowWorkflowResult{SyncFlowOptions: &protos.SyncFlowOptions{
-		SrcTableIdNameMapping: map[uint32]string{30: "public.orders"},
-	}}
-
-	applyResyncedTableMappings(options, []*protos.TableMapping{replacement}, result)
+	applyResyncedTableMappings(options, []*protos.TableMapping{replacement}, map[uint32]string{30: "public.orders"})
 
 	require.Equal(t, replacement.Columns, options.TableMappings[0].Columns)
 	require.NotSame(t, replacement, options.TableMappings[0])

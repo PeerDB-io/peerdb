@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -226,7 +227,34 @@ func (s *SnapshotFlowExecution) cloneTable(
 		StructuredIngestionConfig:  mapping.StructuredIngestionConfig,
 	}
 
-	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
+	var onSuccess func()
+	if mirrorWorkflowID := tableResyncMirrorWorkflowID(ctx, s.config); mirrorWorkflowID != "" {
+		onSuccess = func() {
+			// disconnected, so that a table cloned right before a cancellation is still reported
+			signalCtx, cancel := workflow.NewDisconnectedContext(ctx)
+			defer cancel()
+			if err := model.TableResyncTableSnapshottedSignal.SignalExternalWorkflow(
+				signalCtx, mirrorWorkflowID, "", srcName,
+			).Get(signalCtx, nil); err != nil {
+				s.logger.Warn("failed to report snapshotted table, a cancelled resync will not keep it",
+					slog.String("table", srcName), slog.Any("error", err))
+			}
+		}
+	}
+	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, onSuccess, config, nil)
+}
+
+// tableResyncMirrorWorkflowID returns the mirror workflow of a table-level resync, which runs this
+// workflow under a resync child of the mirror. Empty for every other snapshot, including the one of a
+// full resync of an initial-snapshot-only mirror, where the parent is the mirror itself.
+func tableResyncMirrorWorkflowID(ctx workflow.Context, cfg *protos.FlowConnectionConfigsCore) string {
+	info := workflow.GetInfo(ctx)
+	if !cfg.Resync || !cfg.InitialSnapshotOnly ||
+		info.RootWorkflowExecution == nil || info.ParentWorkflowExecution == nil ||
+		info.RootWorkflowExecution.ID == info.ParentWorkflowExecution.ID {
+		return ""
+	}
+	return info.RootWorkflowExecution.ID
 }
 
 // excluded columns are missing from the stored schema, so their nullability is unknown;

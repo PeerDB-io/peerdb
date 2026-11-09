@@ -2510,6 +2510,155 @@ func (s APITestSuite) TestCancelTableLevelResync() {
 	RequireEnvCanceled(s.t, env)
 }
 
+// TestCancelTableLevelResyncKeepsCompletedTables cancels a two-table resync after the first table finished
+// its snapshot and the second is blocked on a lock. The first table must be swapped in, the second kept.
+func (s APITestSuite) TestCancelTableLevelResyncKeepsCompletedTables() {
+	pgSource, ok := s.source.(*PostgresSource)
+	if !ok {
+		s.t.Skip("test blocks resync snapshot with a Postgres table lock")
+	}
+
+	ctx := s.t.Context()
+	sourceDone := AttachSchema(s, "table_resync_partial_done")
+	sourceBlocked := AttachSchema(s, "table_resync_partial_blocked")
+	destinationDone := AddSuffix(s, "table_resync_partial_done")
+	destinationBlocked := AddSuffix(s, "table_resync_partial_blocked")
+	for _, source := range []string{sourceDone, sourceBlocked} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text, note text)", source)))
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val, note) VALUES (1, 'a', 'n1')", source)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "table_level_resync_partial_" + s.suffix,
+		TableMappings: []*protos.TableMapping{
+			{SourceTableIdentifier: sourceDone, DestinationTableIdentifier: destinationDone},
+			{SourceTableIdentifier: sourceBlocked, DestinationTableIdentifier: destinationBlocked},
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	response, err := s.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(ctx, s.catalog, tc, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table-resync mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	defer env.Cancel(ctx)
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial load done table", "table_resync_partial_done", destinationDone, "id,val,note")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "initial load blocked table",
+		"table_resync_partial_blocked", destinationBlocked, "id,val,note")
+
+	ch, err := connclickhouse.Connect(ctx, nil, s.ch.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	defer ch.Close()
+	doneTableBefore := s.getCHTableInfo(ch, destinationDone)
+	blockedTableBefore := s.getCHTableInfo(ch, destinationBlocked)
+
+	_, err = s.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause before table resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	resyncMappings := make([]*protos.TableMapping, 0, len(flowConfig.TableMappings))
+	for _, tm := range flowConfig.TableMappings {
+		resyncMapping := proto.CloneOf(tm)
+		resyncMapping.Exclude = []string{"note"}
+		resyncMappings = append(resyncMappings, resyncMapping)
+	}
+	// one table at a time in mapping order, so the second table's snapshot starts only after the first completed
+	SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		ResyncTables:                resyncMappings,
+		SnapshotNumTablesInParallel: 1,
+	})
+
+	// Setup reads the schema of both tables, so lock only once it stored the "_resync" schemas. The
+	// snapshot of the second table then blocks on the lock.
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table resync setup", func() bool {
+		var resyncSchemaRows int64
+		require.NoError(s.t, s.catalog.QueryRow(ctx,
+			"SELECT count(*) FROM table_schema_mapping WHERE flow_name = $1 AND table_name = $2",
+			flowConfig.FlowJobName, destinationBlocked+shared.CDCResyncTableSuffix,
+		).Scan(&resyncSchemaRows))
+		return resyncSchemaRows > 0
+	})
+	lockConn, err := pgx.ConnectConfig(ctx, pgSource.Conn().Config().Copy())
+	require.NoError(s.t, err)
+	defer lockConn.Close(context.Background())
+	lockTx, err := lockConn.Begin(ctx)
+	require.NoError(s.t, err)
+	defer func() { _ = lockTx.Rollback(context.Background()) }()
+	_, err = lockTx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s IN ACCESS EXCLUSIVE MODE", sourceBlocked))
+	require.NoError(s.t, err)
+
+	sourceReadBlocked := func() bool {
+		var blocked bool
+		require.NoError(s.t, pgSource.Conn().QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+			)`, int32(lockConn.PgConn().PID())).Scan(&blocked))
+		return blocked
+	}
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for second table snapshot to block on source table lock", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RESYNC && sourceReadBlocked()
+	})
+	_, err = s.CancelTableResync(ctx, &protos.CancelTableResyncRequest{FlowJobName: flowConfig.FlowJobName})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to resume after cancelled resync", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	require.False(s.t, sourceReadBlocked(), "resync source reads must stop before CDC resumes")
+	require.NoError(s.t, lockTx.Rollback(ctx))
+
+	doneTableAfter := s.getCHTableInfo(ch, destinationDone)
+	require.NotEqual(s.t, doneTableBefore.uuid, doneTableAfter.uuid, "completed table must be swapped in")
+	require.NotContains(s.t, doneTableAfter.columns, "note", "completed table must use the resync column settings")
+	require.Equal(s.t, blockedTableBefore, s.getCHTableInfo(ch, destinationBlocked), "blocked table must not be replaced")
+
+	catalogConfig, err := s.loadConfigFromCatalog(ctx, flowConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.Len(s.t, catalogConfig.TableMappings, 2)
+	for _, tm := range catalogConfig.TableMappings {
+		switch tm.SourceTableIdentifier {
+		case sourceDone:
+			require.Equal(s.t, []string{"note"}, tm.Exclude, "completed table must get the resync mapping")
+		case sourceBlocked:
+			require.True(s.t, proto.Equal(flowConfig.TableMappings[1], tm), "blocked table must keep its old mapping")
+		default:
+			require.Failf(s.t, "unexpected table mapping", "%s", tm.SourceTableIdentifier)
+		}
+	}
+	var resyncSchemaRows int64
+	require.NoError(s.t, s.catalog.QueryRow(ctx,
+		"SELECT count(*) FROM table_schema_mapping WHERE flow_name = $1 AND table_name = ANY($2)",
+		flowConfig.FlowJobName, []string{
+			destinationDone + shared.CDCResyncTableSuffix,
+			destinationBlocked + shared.CDCResyncTableSuffix,
+		},
+	).Scan(&resyncSchemaRows))
+	require.Zero(s.t, resyncSchemaRows, "no schema of a \"_resync\" table should be left behind")
+
+	for _, source := range []string{sourceDone, sourceBlocked} {
+		require.NoError(s.t, s.source.Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val, note) VALUES (2, 'b', 'n2')", source)))
+	}
+	EnvWaitForEqualTablesWithNames(env, s.ch, "CDC into swapped table", "table_resync_partial_done", destinationDone, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s.ch, "CDC into kept table",
+		"table_resync_partial_blocked", destinationBlocked, "id,val,note")
+
+	env.Cancel(ctx)
+	RequireEnvCanceled(s.t, env)
+}
+
 // TestTableLevelResyncRevertsColumnSettings goes the other way: a nullable column becomes non-nullable,
 // a type override is dropped, and a previously excluded column is brought back.
 func (s APITestSuite) TestTableLevelResyncRevertsColumnSettings() {

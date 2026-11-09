@@ -9,10 +9,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
-// CancelTableResync signals the mirror to cancel its in-progress table-level resync. The mirror then
-// resumes with the old table mappings. Fails once the resync started swapping tables. Cancellation is
-// asynchronous: if swapping starts before the signal is handled, the resync runs to completion, or in a
-// narrow race stays paused like a failed resync.
+// CancelTableResync signals the mirror to cancel its in-progress table-level resync. Tables whose
+// snapshot already completed are swapped in, the rest keep their old table mappings, and the mirror
+// resumes. Fails once the resync started swapping tables. Cancellation is asynchronous: if swapping
+// starts before the signal is handled, the resync runs to completion, or in a narrow race stays paused
+// like a failed resync.
 func (h *FlowRequestHandler) CancelTableResync(
 	ctx context.Context,
 	req *protos.CancelTableResyncRequest,

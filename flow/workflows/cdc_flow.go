@@ -454,8 +454,9 @@ func processTableAdditions(
 // RenameTables swaps those in for the originals. On success the new mappings replace the old ones in
 // SyncFlowOptions, and CDC resumes from the same slot. If the child fails, the old mappings are kept,
 // an alert is raised and the mirror stays paused, since some tables may already have been swapped.
-// CancelTableResyncSignal cancels the child before it swaps tables, after which CDC resumes with the
-// old mappings. Cancellations are ignored once the child signalled TableResyncSwapStartedSignal.
+// CancelTableResyncSignal cancels the child before it swaps tables. Tables whose snapshot already
+// completed are then swapped in by this workflow, the rest keep their old mappings, and CDC resumes.
+// Cancellations are ignored once the child signalled TableResyncSwapStartedSignal.
 func processTableResyncs(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -485,13 +486,24 @@ func processTableResyncs(
 		resyncCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 	}
 
-	// drop cancellations that arrived after an earlier resync finished, they must not cancel this one
+	// drop signals that arrived after an earlier resync finished, they must not affect this one
 	cancelResyncChan := model.CancelTableResyncSignal.GetSignalChannel(ctx)
 	for {
 		if _, ok := cancelResyncChan.ReceiveAsync(); !ok {
 			break
 		}
 	}
+	snapshottedChan := model.TableResyncTableSnapshottedSignal.GetSignalChannel(ctx)
+	drainSnapshotted := func() {
+		for {
+			if _, ok := snapshottedChan.ReceiveAsync(); !ok {
+				break
+			}
+		}
+	}
+	drainSnapshotted()
+	// the child can complete before all of its snapshotted tables are received
+	defer drainSnapshotted()
 
 	childCtx, cancelChild := workflow.WithCancel(workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        childID,
@@ -516,6 +528,10 @@ func processTableResyncs(
 	swapStartedChan.AddToSelector(selector, func(_ struct{}, _ bool) {
 		logger.Info("table resync started swapping tables")
 		state.TableResyncSwapStarted = true
+	})
+	snapshottedTables := make(map[string]struct{}, len(resyncTables))
+	snapshottedChan.AddToSelector(selector, func(table string, _ bool) {
+		snapshottedTables[table] = struct{}{}
 	})
 	cancelRequested := false
 	cancelResyncChan.AddToSelector(selector, func(_ struct{}, _ bool) {
@@ -556,22 +572,16 @@ func processTableResyncs(
 		}
 		if cancelled && !state.TableResyncSwapStarted {
 			// The child stopped before swapping any table, so the old mappings are still in place.
-			// Otherwise fall through and stay paused like a failed resync.
-			cancelCleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
-			})
-			if err := workflow.ExecuteActivity(cancelCleanupCtx, flowable.CleanupCancelledTableResync, cfg, resyncTables).
-				Get(cancelCleanupCtx, nil); err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return nextRunNone, ctxErr
+			// Otherwise fall through and stay paused like a failed resync. Snapshotted tables are
+			// reported before the child completes, so they are all buffered by now.
+			for {
+				table, ok := snapshottedChan.ReceiveAsync()
+				if !ok {
+					break
 				}
-				// only stats and schema rows of "_resync" tables are left behind, so resume anyway
-				logger.Warn("failed to cleanup cancelled table resync", slog.Any("error", err))
+				snapshottedTables[table] = struct{}{}
 			}
-			logger.Info("table resync cancelled, resuming with previous table mappings",
-				slog.Int("tableCount", len(resyncTables)))
-			return nextRunNone, nil
+			return finishCancelledTableResync(ctx, logger, cfg, state, resyncTables, snapshottedTables)
 		}
 		if childErr != nil {
 			// RenameTables swaps tables one by one, so a failure can leave some of them swapped. Resuming
@@ -582,6 +592,143 @@ func processTableResyncs(
 		}
 	}
 
+	return completeTableResync(ctx, logger, cfg, state, resyncTables, result.SyncFlowOptions.SrcTableIdNameMapping)
+}
+
+// finishCancelledTableResync runs after the resync child was cancelled before swapping tables. Tables
+// whose snapshot completed are swapped in, the rest keep their old mappings.
+func finishCancelledTableResync(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	resyncTables []*protos.TableMapping,
+	snapshottedTables map[string]struct{},
+) (nextRun, error) {
+	var completed, discarded []*protos.TableMapping
+	for _, table := range resyncTables {
+		if _, ok := snapshottedTables[table.SourceTableIdentifier]; ok {
+			completed = append(completed, table)
+		} else {
+			discarded = append(discarded, table)
+		}
+	}
+
+	var srcTableIdNameMapping map[uint32]string
+	if len(completed) > 0 {
+		// The child's SetupFlow output is lost with the cancellation, so look the source table IDs up again.
+		// They change when a source table is dropped and recreated before the resync.
+		var err error
+		srcTableIdNameMapping, err = getSourceTableIDs(ctx, cfg, completed)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nextRunNone, ctxErr
+			}
+			logger.Warn("failed to get source table IDs, discarding all resynced tables", slog.Any("error", err))
+			completed, discarded = nil, resyncTables
+		}
+	}
+
+	if len(discarded) > 0 {
+		cancelCleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
+		})
+		if err := workflow.ExecuteActivity(cancelCleanupCtx, flowable.CleanupCancelledTableResync, cfg, discarded).
+			Get(cancelCleanupCtx, nil); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nextRunNone, ctxErr
+			}
+			// only stats and schema rows of "_resync" tables are left behind, so resume anyway
+			logger.Warn("failed to cleanup cancelled table resync", slog.Any("error", err))
+		}
+	}
+	if len(completed) == 0 {
+		logger.Info("table resync cancelled, resuming with previous table mappings",
+			slog.Int("tableCount", len(resyncTables)))
+		return nextRunNone, nil
+	}
+
+	logger.Info("table resync cancelled, swapping in tables that completed their snapshot",
+		slog.Int("completedTableCount", len(completed)), slog.Int("discardedTableCount", len(discarded)))
+	state.TableResyncSwapStarted = true
+	renameOpts := &protos.RenameTablesInput{
+		FlowJobName:       cfg.FlowJobName,
+		PeerName:          cfg.DestinationName,
+		SyncedAtColName:   cfg.SyncedAtColName,
+		SoftDeleteColName: cfg.SoftDeleteColName,
+	}
+	for _, table := range completed {
+		renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
+			CurrentName: internal.CDCResyncDestinationTable(table),
+			NewName:     table.DestinationTableIdentifier,
+		})
+	}
+	renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 12 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+	if err := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts).
+		Get(renameTablesCtx, nil); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nextRunNone, ctxErr
+		}
+		// same as a failed child, some tables may already be swapped
+		alertFlowError(ctx, logger, cfg.FlowJobName,
+			fmt.Sprintf("table resync cancellation failed to swap completed tables, mirror kept paused, "+
+				"retry the resync before resuming: %v", err))
+		return nextRunPause, nil
+	}
+	return completeTableResync(ctx, logger, cfg, state, completed, srcTableIdNameMapping)
+}
+
+// getSourceTableIDs returns the source table IDs of tables, keyed like SyncFlowOptions.SrcTableIdNameMapping.
+func getSourceTableIDs(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tables []*protos.TableMapping,
+) (map[uint32]string, error) {
+	pullabilityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+			MaximumAttempts: 5,
+		},
+	})
+	sourceTables := make([]string, 0, len(tables))
+	for _, table := range tables {
+		sourceTables = append(sourceTables, table.SourceTableIdentifier)
+	}
+	slices.Sort(sourceTables)
+	var output *protos.EnsurePullabilityBatchOutput
+	if err := workflow.ExecuteActivity(pullabilityCtx, flowable.EnsurePullability, &protos.EnsurePullabilityBatchInput{
+		PeerName:               cfg.SourceName,
+		FlowJobName:            cfg.FlowJobName,
+		SourceTableIdentifiers: sourceTables,
+	}).Get(pullabilityCtx, &output); err != nil {
+		return nil, err
+	}
+	srcTableIdNameMapping := make(map[uint32]string, len(sourceTables))
+	for _, table := range slices.Sorted(maps.Keys(output.GetTableIdentifierMapping())) {
+		srcTableIdNameMapping[output.TableIdentifierMapping[table].RelId] = table
+	}
+	return srcTableIdNameMapping, nil
+}
+
+// completeTableResync runs once resynced tables are swapped in: it drops their pending raw rows and
+// applies their new mappings and source table IDs.
+func completeTableResync(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+	tables []*protos.TableMapping,
+	srcTableIdNameMapping map[uint32]string,
+) (nextRun, error) {
 	cleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -590,12 +737,12 @@ func processTableResyncs(
 		WaitForCancellation: true,
 	})
 	// skip normalization for not yet normalized batches of resynced tables
-	err := workflow.ExecuteActivity(cleanupCtx, flowable.SkipPendingNormalizeForTables, cfg, resyncTables).
+	err := workflow.ExecuteActivity(cleanupCtx, flowable.SkipPendingNormalizeForTables, cfg, tables).
 		Get(cleanupCtx, nil)
 	// Pending rows of resynced tables are already covered by the snapshot, and normalizing them
 	// into the new tables would overwrite snapshot rows using a stale column set, so drop them.
 	if err == nil {
-		err = workflow.ExecuteActivity(cleanupCtx, flowable.RemoveTablesFromRawTable, cfg, resyncTables).
+		err = workflow.ExecuteActivity(cleanupCtx, flowable.RemoveTablesFromRawTable, cfg, tables).
 			Get(cleanupCtx, nil)
 	}
 	if err != nil {
@@ -610,17 +757,17 @@ func processTableResyncs(
 
 	// Refresh the source table IDs discovered by SetupFlow. This matters when a
 	// source table was dropped and recreated with the same name before resync.
-	applyResyncedTableMappings(state.SyncFlowOptions, resyncTables, result)
-	logger.Info("tables resynced", slog.Int("tableCount", len(resyncTables)))
+	applyResyncedTableMappings(state.SyncFlowOptions, tables, srcTableIdNameMapping)
+	logger.Info("tables resynced", slog.Int("tableCount", len(tables)))
 	return nextRunNone, nil
 }
 
 // applyResyncedTableMappings swaps in the new mappings of resynced tables and replaces their source
-// table IDs with the ones SetupFlow found during the resync.
+// table IDs with the ones found during the resync.
 func applyResyncedTableMappings(
 	syncFlowOptions *protos.SyncFlowOptions,
 	resyncTables []*protos.TableMapping,
-	resyncResult *CDCFlowWorkflowResult,
+	srcTableIdNameMapping map[uint32]string,
 ) {
 	resyncedSources := make(map[string]struct{}, len(resyncTables))
 	resyncMappingsBySource := make(map[string]*protos.TableMapping, len(resyncTables))
@@ -632,7 +779,7 @@ func applyResyncedTableMappings(
 		_, resynced := resyncedSources[source]
 		return resynced
 	})
-	maps.Copy(syncFlowOptions.SrcTableIdNameMapping, resyncResult.SyncFlowOptions.SrcTableIdNameMapping)
+	maps.Copy(syncFlowOptions.SrcTableIdNameMapping, srcTableIdNameMapping)
 	for idx, table := range syncFlowOptions.TableMappings {
 		if replacement, ok := resyncMappingsBySource[table.SourceTableIdentifier]; ok {
 			syncFlowOptions.TableMappings[idx] = proto.CloneOf(replacement)

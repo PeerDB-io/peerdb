@@ -18,7 +18,9 @@ func NewBoundSelector(ctx workflow.Context, selectorName string, limit int) *Bou
 	}
 }
 
-func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback func(workflow.Future), args ...any) error {
+// SpawnChild starts a child workflow, waiting first if the limit is reached. onSuccess, if set, runs
+// once the child completes without error.
+func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, onSuccess func(), args ...any) error {
 	if s.ferror != nil {
 		return s.ferror
 	}
@@ -30,15 +32,13 @@ func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback f
 	}
 
 	future := workflow.ExecuteChildWorkflow(ctx, w, args...)
-	if futureCallback != nil {
-		s.selector.AddFuture(future, futureCallback)
-	} else {
-		s.selector.AddFuture(future, func(f workflow.Future) {
-			if err := f.Get(ctx, nil); err != nil {
-				s.ferror = err
-			}
-		})
-	}
+	s.selector.AddFuture(future, func(f workflow.Future) {
+		if err := f.Get(ctx, nil); err != nil {
+			s.ferror = err
+		} else if onSuccess != nil {
+			onSuccess()
+		}
+	})
 	s.count += 1
 	return s.ferror
 }

@@ -906,8 +906,8 @@ service FlowService {
     };
   }
 
-  // Asynchronously cancels an in-progress table-level resync. Fails with FailedPrecondition
-  // once the resync started swapping tables.
+  // Asynchronously cancels an in-progress table-level resync. Tables whose snapshot already
+  // completed are kept. Fails with FailedPrecondition once the resync started swapping tables.
   rpc CancelTableResync(CancelTableResyncRequest) returns (CancelTableResyncResponse) {
     option (google.api.http) = {
       post : "/v1/flows/cdc/cancel_table_resync",
