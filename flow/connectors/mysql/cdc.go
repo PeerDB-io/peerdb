@@ -293,12 +293,9 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
-	jsonColumns, err := c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
-	if err != nil {
-		return nil, err
-	}
 
 	var primaryEntries []pkEntry
+	var longTextColumns []*protos.FieldDescription
 	for idx := range rs.RowNumber() {
 		columnName, err := rs.GetString(idx, 0)
 		if err != nil {
@@ -328,7 +325,6 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind = mariaDBJSONKind(qkind, columnName, dataType, jsonColumns)
 
 		column := &protos.FieldDescription{
 			Name:         columnName,
@@ -337,6 +333,9 @@ func (c *MySqlConnector) getTableSchemaForTable(
 			Nullable:     isNullable == "YES",
 		}
 		columns = append(columns, column)
+		if isLongText(qkind, dataType) {
+			longTextColumns = append(longTextColumns, column)
+		}
 
 		seqIsNull, err := rs.IsNull(idx, 5)
 		if err != nil {
@@ -348,6 +347,19 @@ func (c *MySqlConnector) getTableSchemaForTable(
 				return nil, err
 			}
 			primaryEntries = append(primaryEntries, pkEntry{name: columnName, seqInIndex: seq})
+		}
+	}
+
+	// only a table with a LONGTEXT column can have a MariaDB JSON column, so only such a table pays for the lookup
+	if len(longTextColumns) > 0 {
+		jsonColumns, err := c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
+		if err != nil {
+			return nil, err
+		}
+		for _, column := range longTextColumns {
+			if slices.Contains(jsonColumns, column.Name) {
+				column.Type = string(types.QValueKindJSON)
+			}
 		}
 	}
 
