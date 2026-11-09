@@ -357,14 +357,6 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
-// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
-func gcsStatusErrorClass(statusCode int) ErrorClass {
-	if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
-		return ErrorRetryRecoverable
-	}
-	return ErrorOther
-}
-
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var pgErr *pgconn.PgError
 	if pgWalErr, ok := errors.AsType[*exceptions.PostgresWalError](err); ok {
@@ -1203,6 +1195,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		gcsErrorInfo := ErrorInfo{
 			Source: ErrorSourceGCS,
 			Code:   "UNKNOWN",
+		}
+		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+		gcsStatusErrorClass := func(statusCode int) ErrorClass {
+			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+				return ErrorRetryRecoverable
+			}
+			return ErrorOther
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
