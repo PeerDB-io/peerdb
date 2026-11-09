@@ -171,6 +171,8 @@ message FlowConnectionConfigs {
 
   // Deprecated: use BigqueryCdcConfig.query_cdc.pull_sync_parallelism instead.
   int32 query_cdc_pull_sync_parallelism = 30 [deprecated = true];
+
+  peerdb_peers.DBType source_type = 31; // internal, stamped by the API from the source peer
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it

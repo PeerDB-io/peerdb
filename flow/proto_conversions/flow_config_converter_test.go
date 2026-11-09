@@ -15,7 +15,7 @@ import (
 // else missing is a forgotten field, not a design decision.
 var (
 	removedFromCore = map[protoreflect.FieldNumber]string{}
-	coreOnly        = map[protoreflect.FieldNumber]string{31: "source_type"}
+	coreOnly        = map[protoreflect.FieldNumber]string{}
 )
 
 // TestFlowConnectionConfigsEquivalence enforces what codegen used to: that
@@ -62,6 +62,7 @@ func TestFlowConnectionConfigsRoundTrip(t *testing.T) {
 		Env:                map[string]string{"key": "value"},
 		Version:            7,
 		Flags:              []string{"flag_a", "flag_b"},
+		SourceType:         protos.DBType_POSTGRES,
 		SkipValidation:     &skipValidation,
 		SourceConnectorConfig: &protos.FlowConnectionConfigs_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{
