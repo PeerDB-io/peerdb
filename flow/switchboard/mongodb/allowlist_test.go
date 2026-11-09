@@ -62,7 +62,7 @@ func TestValidateCommand(t *testing.T) {
 }
 
 func TestIsCommandAllowed(t *testing.T) {
-	allowed := []string{"find", "aggregate", "ping", "hello", "FIND", "Aggregate"}
+	allowed := []string{"find", "aggregate", "ping", "hello", "FIND", "Aggregate", "listCursors"}
 	for _, cmd := range allowed {
 		if !isCommandAllowed(cmd) {
 			t.Errorf("expected %q to be allowed", cmd)

@@ -699,42 +699,33 @@ func (c *MySqlConnector) PullRecords(
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
-	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
-	var receiveTime, processTime, addRecordTime atomic.Int64
+	counters := newMysqlPullCounters(otelManager)
+	gauges := newMysqlPullGauges(otelManager, mysqlClockOffset)
 	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
-			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
+			attribute.Int64(otel_metrics.BytesPulledKey, counters.totalFetchedBytes.Load()),
 		)
 		if updatedOffset != "" {
 			span.SetAttributes(attribute.String(otel_metrics.GtidKey, updatedOffset))
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 
-	defer func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
-	}()
+	defer counters.flush(ctx)
+	defer gauges.recordBatchEnd(ctx)
 	shutdown := common.Interval(ctx, time.Minute, func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		counters.flush(ctx)
 		c.logger.Info("[mysql] pulling records",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	})
@@ -753,19 +744,19 @@ func (c *MySqlConnector) PullRecords(
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		addStart := time.Now()
-		processTime.Add(int64(addStart.Sub(processStart)))
+		counters.processTime.Add(int64(addStart.Sub(processStart)))
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 			return err
 		}
 		processStart = time.Now()
-		addRecordTime.Add(int64(processStart.Sub(addStart)))
+		counters.addRecordTime.Add(int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
 			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", totalFetchedBytes.Load()),
+				slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("inTx", inTx),
@@ -774,36 +765,6 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
-		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
-			// A heartbeat means there is currently no source change event to lag behind.
-			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
-			// the old source-lag value.
-			otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
-			return
-		}
-
-		// GTID commit timestamps are precise transaction timestamps. Other binlog
-		// events only have the common header timestamp, which is seconds-resolution
-		// but lets older MySQL/MariaDB versions report source lag as well.
-		timestampMicros := int64(event.Header.Timestamp) * int64(time.Second/time.Microsecond)
-		switch ev := event.Event.(type) {
-		case *replication.GTIDEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				timestampMicros = int64(ev.ImmediateCommitTimestamp)
-			}
-		case *replication.GtidTaggedLogEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				timestampMicros = int64(ev.ImmediateCommitTimestamp)
-			}
-		}
-
-		if timestampMicros > 0 {
-			otelManager.Metrics.SourceLagGauge.Record(ctx,
-				time.Now().UTC().Add(mysqlClockOffset).
-					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
-		}
-	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
 		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
@@ -833,7 +794,7 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
-		recordSourceEventLag(ctx, event)
+		gauges.observeEvent(event, lastEventAt)
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
@@ -966,8 +927,8 @@ func (c *MySqlConnector) PullRecords(
 					return e
 				}
 				eventSize := int64(len(event.RawData))
-				fetchedBytes.Add(eventSize)
-				totalFetchedBytes.Add(eventSize)
+				counters.fetchedBytes.Add(eventSize)
+				counters.totalFetchedBytes.Add(eventSize)
 				otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
@@ -976,7 +937,7 @@ func (c *MySqlConnector) PullRecords(
 				// Build colIdx -> encoding directly from TABLE_MAP charset metadata.
 				// This mirrors go-mysql's collation traversal without allocating its maps;
 				// when all character columns are utf8/ascii/binary, the slice stays nil.
-				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, otelManager)
+				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, counters.recordUsedCharset)
 				if err != nil {
 					return err
 				}
@@ -1146,12 +1107,7 @@ func (c *MySqlConnector) PullRecords(
 					recordUnsupportedEvent(ctx, event, "Rows")
 				}
 			}
-			if event.Header.Timestamp > 0 {
-				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
-					ctx,
-					int64(event.Header.Timestamp),
-				)
-			}
+			gauges.observeConsumed(int64(event.Header.Timestamp))
 		case *replication.FormatDescriptionEvent, *replication.PreviousGTIDsEvent,
 			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
 			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
@@ -1174,7 +1130,7 @@ func (c *MySqlConnector) PullRecords(
 		if err == nil {
 			receiveStart := time.Now()
 			event, err = mystream.GetEvent(timeoutCtx)
-			receiveTime.Add(int64(time.Since(receiveStart)))
+			counters.receiveTime.Add(int64(time.Since(receiveStart)))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1202,7 +1158,7 @@ func (c *MySqlConnector) PullRecords(
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),
-							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 							slog.Int("channelLen", req.RecordStream.ChannelLen()),
 							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 						resetTimeout(time.Minute)
@@ -1222,7 +1178,7 @@ func (c *MySqlConnector) PullRecords(
 		lastEventAt = time.Now()
 		processStart = lastEventAt
 
-		allFetchedBytes.Add(int64(len(event.RawData)))
+		counters.allFetchedBytes.Add(int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.TransactionPayloadEvent:
@@ -1238,7 +1194,8 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
-		processTime.Add(int64(time.Since(processStart)))
+		gauges.recordPeriodic(ctx, lastEventAt)
+		counters.processTime.Add(int64(time.Since(processStart)))
 	}
 	return nil
 }

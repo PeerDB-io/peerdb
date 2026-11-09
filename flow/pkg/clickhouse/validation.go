@@ -94,11 +94,12 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 
 			for rows.Next() {
 				var tableName, engine string
-				var totalRows uint64
+				// total_rows is Nullable(UInt64): NULL for views and engines that don't track row counts
+				var totalRows *uint64
 				if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
 					return fmt.Errorf("failed to scan information for tables: %w", err)
 				}
-				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
+				if !allowNonEmpty && totalRows != nil && *totalRows != 0 && initialSnapshotEnabled {
 					return fmt.Errorf("table %s exists and is not empty", tableName)
 				}
 				if engine == "View" || engine == "MaterializedView" {

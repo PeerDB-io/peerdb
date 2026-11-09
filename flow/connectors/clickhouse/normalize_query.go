@@ -135,24 +135,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		colType := types.QValueKind(column.Type)
 		colSetting := findColumnSetting(colName, tableMapping.GetColumns())
 		dstColName := resolveDestinationColumnName(colName, tableMapping.GetColumns())
-		// TODO basic validation to avoid injection
-		clickHouseType := colSetting.GetDestinationType()
-		columnNullableEnabled := colSetting.GetNullableEnabled()
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
-		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
-			)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-			}
-		} else if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
-			!strings.HasPrefix(clickHouseType, "Nullable(") {
-			// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be
-			// extracted as Nullable(...), or JSON nulls turn into the type's default value
-			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+		clickHouseType, err := resolveClickHouseColumnType(
+			ctx, column, colSetting, schema.NullableEnabled, t.env, t.chVersion, t.flags,
+		)
+		if err != nil {
+			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
 		switch clickHouseType {
