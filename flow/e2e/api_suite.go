@@ -2471,12 +2471,15 @@ func (s APITestSuite) TestCancelTableLevelResync() {
 		ResyncTables: []*protos.TableMapping{newMapping},
 	})
 
+	// Only count waiters on this table's lock. LOCK TABLE assigns an xid to lockTx, so concurrent
+	// tests creating replication slots also wait on lockTx and show up in pg_blocking_pids.
 	sourceReadBlocked := func() bool {
 		var blocked bool
 		require.NoError(s.t, pgSource.Conn().QueryRow(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
-			)`, int32(lockConn.PgConn().PID())).Scan(&blocked))
+				SELECT 1 FROM pg_locks
+				WHERE locktype = 'relation' AND relation = $1::text::regclass AND NOT granted
+			)`, source).Scan(&blocked))
 		return blocked
 	}
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table resync to block on source table lock", func() bool {
