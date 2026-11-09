@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -1181,6 +1182,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
 				return ErrorRetryRecoverable, bqErrorInfo
 			}
+		} else if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			bqErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			switch {
+			case statusCode == 401 || statusCode == 403:
+				return ErrorNotifyConnectivity, bqErrorInfo
+			case statusCode >= 500:
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
@@ -1190,13 +1201,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceGCS,
 			Code:   "UNKNOWN",
 		}
+		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+		gcsStatusErrorClass := func(statusCode int) ErrorClass {
+			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+				return ErrorRetryRecoverable
+			}
+			return ErrorOther
+		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
-			// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
-			if apiErr.Code == 408 || apiErr.Code == 429 || apiErr.Code >= 500 {
-				return ErrorRetryRecoverable, gcsErrorInfo
-			}
-			return ErrorOther, gcsErrorInfo
+			return gcsStatusErrorClass(apiErr.Code), gcsErrorInfo
+		}
+		if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			gcsErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			return gcsStatusErrorClass(statusCode), gcsErrorInfo
 		}
 		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
 		// and is retried by dialing a new connection.

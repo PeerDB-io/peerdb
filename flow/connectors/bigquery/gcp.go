@@ -5,12 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials/downscope"
 	"google.golang.org/api/googleapi"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
+
+// downscope returns token exchange failures as an untyped string.
+var downscopeExchangeErrorRe = regexp.MustCompile(`(?s)^downscope: unable to exchange token, (\d{3}): (.*)$`)
 
 func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketName string, prefix string) (*auth.Token, error) {
 	accessBoundary := []downscope.AccessBoundaryRule{
@@ -30,9 +37,24 @@ func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketNa
 
 	token, err := tp.Token(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate downscoped token: %w", err)
+		return nil, exceptions.NewGCSError(fmt.Errorf("failed to generate downscoped token: %w", wrapDownscopeError(err)))
 	}
 	return token, nil
+}
+
+// wrapDownscopeError extracts the HTTP status into a googleapi.Error for classification.
+func wrapDownscopeError(err error) error {
+	m := downscopeExchangeErrorRe.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	code, convErr := strconv.Atoi(m[1])
+	if convErr != nil {
+		return err
+	}
+	apiErr := &googleapi.Error{Code: code, Body: m[2]}
+	apiErr.Wrap(err)
+	return apiErr
 }
 
 func (c *BigQueryConnector) isApiErrorWithStatusCode(err error, code int) bool {
