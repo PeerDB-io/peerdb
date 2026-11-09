@@ -31,6 +31,36 @@ func TestWrapNonObjectJSON(t *testing.T) {
 	}
 }
 
+func TestShouldWrapJSONArrayElements(t *testing.T) {
+	clickhouse := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
+	otherDestination := []string{shared.Flag_ClickHouseTime64Enabled}
+
+	for _, tc := range []struct {
+		destinationType string
+		flags           []string
+		version         uint32
+		want            bool
+	}{
+		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements, destinationType: "Array(JSON)", want: true},
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(JSON)", want: true},
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(Nullable(JSON))", want: true},
+		// a mirror from before the change keeps its elements unwrapped
+		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements - 1, destinationType: "Array(JSON)", want: false},
+		// without an explicit array type the column is a String, whatever the settings
+		{flags: clickhouse, version: shared.InternalVersion_Latest, want: false},
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "String", want: false},
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(String)", want: false},
+		// the scalar JSON types are not array types
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "JSON", want: false},
+		// an explicit array type is only honoured where the destination has the JSON type
+		{flags: otherDestination, version: shared.InternalVersion_Latest, destinationType: "Array(JSON)", want: false},
+		{flags: nil, version: shared.InternalVersion_Latest, destinationType: "Array(Nullable(JSON))", want: false},
+	} {
+		got := ShouldWrapJSONArrayElements(tc.flags, tc.version, tc.destinationType)
+		require.Equal(t, tc.want, got, "flags=%v version=%d destinationType=%q", tc.flags, tc.version, tc.destinationType)
+	}
+}
+
 func TestShouldWrapNonObjectJSON(t *testing.T) {
 	clickhouse := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
 	otherDestination := []string{shared.Flag_ClickHouseTime64Enabled}

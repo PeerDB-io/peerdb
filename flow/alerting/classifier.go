@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -305,6 +306,11 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// DocumentDB caps open cursors per instance by instance class (30 on t3/t4g.medium)
+	// https://docs.aws.amazon.com/documentdb/latest/devguide/limits.html#limits.instance
+	ErrorNotifyTooManyCursorsOpened = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_CURSORS_OPENED", action: NotifyUser,
 	}
 	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
 	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
@@ -1014,9 +1020,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
 		case 2: // BadValue
-			// DocumentDB reports open-cursor limit as BadValue, recovers once cursors are released
+			// DocumentDB reports open-cursor limit as BadValue
 			if mongoCmdErr.HasErrorMessage(MongoTooManyCursorsOpened) {
-				return ErrorRetryRecoverable, mongoErrorInfo
+				return ErrorNotifyTooManyCursorsOpened, mongoErrorInfo
 			}
 			return ErrorOther, mongoErrorInfo
 		case 6: // HostUnreachable
@@ -1176,6 +1182,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
 				return ErrorRetryRecoverable, bqErrorInfo
 			}
+		} else if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			bqErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			switch {
+			case statusCode == 401 || statusCode == 403:
+				return ErrorNotifyConnectivity, bqErrorInfo
+			case statusCode >= 500:
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
@@ -1185,13 +1201,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceGCS,
 			Code:   "UNKNOWN",
 		}
+		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+		gcsStatusErrorClass := func(statusCode int) ErrorClass {
+			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+				return ErrorRetryRecoverable
+			}
+			return ErrorOther
+		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
-			// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
-			if apiErr.Code == 408 || apiErr.Code == 429 || apiErr.Code >= 500 {
-				return ErrorRetryRecoverable, gcsErrorInfo
-			}
-			return ErrorOther, gcsErrorInfo
+			return gcsStatusErrorClass(apiErr.Code), gcsErrorInfo
+		}
+		if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			gcsErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			return gcsStatusErrorClass(statusCode), gcsErrorInfo
 		}
 		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
 		// and is retried by dialing a new connection.

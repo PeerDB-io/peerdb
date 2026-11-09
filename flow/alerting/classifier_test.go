@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -1398,14 +1399,15 @@ func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestMongoTooManyCursorsOpenedShouldBeRecoverable(t *testing.T) {
+func TestMongoTooManyCursorsOpenedShouldNotifyUser(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
 		Code:    2,
 		Message: "Cannot open a new cursor since too many cursors are already opened",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyTooManyCursorsOpened, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "Unexpected error action")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "2",
@@ -2009,6 +2011,61 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceGCS,
 		Code:   "CONNECTION_LOST",
 	}, errInfo)
+}
+
+func TestGCSAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 502, expectedClass: ErrorRetryRecoverable},
+		{code: 504, expectedClass: ErrorRetryRecoverable},
+		{code: 429, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewGCSError(fmt.Errorf("failed to generate downscoped token: %w",
+				fmt.Errorf("downscope: unable to obtain root token: %w", authErr)))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to get headers: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceGCS,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 503, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorNotifyConnectivity},
+		{code: 403, expectedClass: ErrorNotifyConnectivity},
+		{code: 400, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewBigQueryError(fmt.Errorf("Post \"https://bigquery.googleapis.com\": %w", authErr))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
 }
 
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {

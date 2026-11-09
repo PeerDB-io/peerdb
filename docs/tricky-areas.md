@@ -40,12 +40,11 @@ can read the stale one and still pass every test that never changes a mirror aft
 ## Per-mirror behaviour: versions, flags, settings
 
 **Why it is tricky.** Three mechanisms pin what a mirror writes, each with a different lifetime. `Version` is set
-from `PEERDB_FORCE_INTERNAL_VERSION` at creation and again only when a completed or failed mirror is resynced by
-recreation. Flags from `GetFlags` record destination capabilities at creation and are never re-detected. A dynamic
-setting resolves from the mirror's env, then the catalog, then the process environment, and a non-immediate value
-is written back into the env map it was resolved with, so one pinned into `cfg.Env` at creation lasts the mirror's
-lifetime while an activity's copy lasts one call. A decision taken from the mechanism with the wrong lifetime
-changes the output of a running mirror.
+from `PEERDB_FORCE_INTERNAL_VERSION` at creation and kept through resync. Flags from `GetFlags` record destination
+capabilities at creation and are never re-detected. A dynamic setting resolves from the mirror's env, then the
+catalog, then the process environment, and a non-immediate value is written back into the env map it was resolved
+with, so one pinned into `cfg.Env` at creation lasts the mirror's lifetime while an activity's copy lasts one call.
+A decision taken from the mechanism with the wrong lifetime changes the output of a running mirror.
 
 **What to watch for in a PR.**
 
@@ -53,7 +52,7 @@ changes the output of a running mirror.
   and a test for a mirror at the previous version.
 - Carefully thread all transformations the column value goes through, as it can change at different layers.
   Changes that are bugfixes (replacing nonsensical data with something more reasonable) are okay without a bump.
-- Flags re-detected outside creation, or a flag that stores a decision rather than a capability.
+- Version or flags re-detected outside creation, or a flag that stores a decision rather than a capability.
 
 ---
 

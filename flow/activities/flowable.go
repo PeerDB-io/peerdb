@@ -91,6 +91,28 @@ func getInitialNormalizeBatchID(
 	return pgMetadata.GetLastNormalizeBatchID(ctx, flowName)
 }
 
+func getLastSyncBatchID(
+	ctx context.Context,
+	logger log.Logger,
+	catalogPool shared.CatalogPool,
+	env map[string]string,
+	destinationName string,
+	destinationType protos.DBType,
+	flowName string,
+) (int64, error) {
+	if destinationType == protos.DBType_POSTGRES {
+		dstPgConn, dstClose, err := connectors.GetPostgresConnectorByName(ctx, env, catalogPool, destinationName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get postgres destination connector for sync state: %w", err)
+		}
+		defer dstClose(ctx)
+		return dstPgConn.GetLastSyncBatchID(ctx, flowName)
+	}
+
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, catalogPool)
+	return pgMetadata.GetLastSyncBatchID(ctx, flowName)
+}
+
 func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
@@ -480,6 +502,19 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	if lastNormBatchID > 0 {
 		normalizingBatchID.Store(lastNormBatchID)
 		normResponses.Update(lastNormBatchID)
+	}
+	lastSyncBatchID, err := getLastSyncBatchID(
+		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+	if lastSyncBatchID > lastNormBatchID {
+		// Batches synced before a restart would otherwise wait for the next sync to request normalize,
+		// which may never come if the source goes quiet
+		logger.Info("resuming normalize of batches synced before restart",
+			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
+		normRequests.Update(lastSyncBatchID)
 	}
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
@@ -1751,7 +1786,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 					fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
 			}
 
-			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("Resync completed for %d tables", len(config.RenameTableOptions)))
 			return renameOutput, nil
 		}
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
@@ -1784,7 +1819,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync with soft-delete completed for all tables")
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+		fmt.Sprintf("Resync with soft-delete completed for %d tables", len(config.RenameTableOptions)))
 	return renameOutput, nil
 }
 
@@ -2018,6 +2054,31 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 		NormalizeBatchId:      normBatchID,
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
+	return nil
+}
+
+// SkipPendingNormalizeForTables moves the per-table normalize watermark of the given tables to the last
+// sync batch, so normalize skips them for every batch synced so far.
+func (a *FlowableActivity) SkipPendingNormalizeForTables(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, cfg.FlowJobName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to get last sync batch id: %w", err))
+	}
+
+	for _, tm := range tableMappings {
+		if err := pgMetadata.SetLastNormalizedBatchIDForTable(
+			ctx, cfg.FlowJobName, tm.DestinationTableIdentifier, syncBatchID,
+		); err != nil {
+			return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		}
 	}
 	return nil
 }
