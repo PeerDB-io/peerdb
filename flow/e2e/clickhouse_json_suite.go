@@ -709,44 +709,42 @@ func (tc jsonArrayTestCase) allElementsAreObjects() bool {
 	return true
 }
 
-func jsonDoc(s string) *string { return &s }
-
 func jsonArrayTestCases() []jsonArrayTestCase {
 	return []jsonArrayTestCase{
 		{
 			desc:         "objects",
-			elements:     []*string{jsonDoc(`{"a": 1}`), jsonDoc(`{"b": {"c": [1, 2]}, "s": "x"}`)},
+			elements:     []*string{new(`{"a": 1}`), new(`{"b": {"c": [1, 2]}, "s": "x"}`)},
 			wantElements: []string{`{"a": 1}`, `{"b": {"c": [1, 2]}, "s": "x"}`},
 		},
 		{
 			desc:         "empty object",
-			elements:     []*string{jsonDoc(`{}`)},
+			elements:     []*string{new(`{}`)},
 			wantElements: []string{`{}`},
 		},
 		{
 			desc:         "scalars",
-			elements:     []*string{jsonDoc(`"text"`), jsonDoc(`42`), jsonDoc(`true`), jsonDoc(`-1.5`), jsonDoc(`""`)},
+			elements:     []*string{new(`"text"`), new(`42`), new(`true`), new(`-1.5`), new(`""`)},
 			wantElements: []string{`{"_value":"text"}`, `{"_value":42}`, `{"_value":true}`, `{"_value":-1.5}`, `{"_value":""}`},
 		},
 		{
 			desc:         "string starting with a brace",
-			elements:     []*string{jsonDoc(`"{not an object"`)},
+			elements:     []*string{new(`"{not an object"`)},
 			wantElements: []string{`{"_value":"{not an object"}`},
 		},
 		{
 			desc:         "nested arrays",
-			elements:     []*string{jsonDoc(`[1, 2]`), jsonDoc(`[[3], {"k": "v"}]`), jsonDoc(`[]`)},
+			elements:     []*string{new(`[1, 2]`), new(`[[3], {"k": "v"}]`), new(`[]`)},
 			wantElements: []string{`{"_value":[1, 2]}`, `{"_value":[[3], {"k": "v"}]}`, `{"_value":[]}`},
 		},
 		{
 			desc:                 "null element",
-			elements:             []*string{jsonDoc(`{"a": 1}`), nil, jsonDoc(`"s"`)},
+			elements:             []*string{new(`{"a": 1}`), nil, new(`"s"`)},
 			wantElements:         []string{`{"a": 1}`, `{}`, `{"_value":"s"}`},
 			wantNullableElements: []string{`{"a": 1}`, `null`, `{"_value":"s"}`},
 		},
 		{
 			desc:         "json null element",
-			elements:     []*string{jsonDoc(`null`), jsonDoc(`{"a": 1}`)},
+			elements:     []*string{new(`null`), new(`{"a": 1}`)},
 			wantElements: []string{`{}`, `{"a": 1}`},
 		},
 		{
@@ -757,7 +755,7 @@ func jsonArrayTestCases() []jsonArrayTestCase {
 		},
 		{
 			desc:         "unicode and escapes",
-			elements:     []*string{jsonDoc(`{"k": "日本語 🚀 \"q\" \\ \n"}`), jsonDoc(`"é\ttab"`)},
+			elements:     []*string{new(`{"k": "日本語 🚀 \"q\" \\ \n"}`), new(`"é\ttab"`)},
 			wantElements: []string{`{"k": "日本語 🚀 \"q\" \\ \n"}`, `{"_value":"é\ttab"}`},
 		},
 		{
