@@ -468,6 +468,14 @@ func processTableResyncs(
 		return nextRunNone, nil
 	}
 
+	// drop cancellations that arrived after an earlier resync finished, they must not cancel this one.
+	cancelResyncChan := model.CancelTableResyncSignal.GetSignalChannel(ctx)
+	for {
+		if _, ok := cancelResyncChan.ReceiveAsync(); !ok {
+			break
+		}
+	}
+
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 	resyncTablesUUID := GetUUID(ctx)
 	childID := GetChildWorkflowID(resyncTablesCDCFlowPrefix, cfg.FlowJobName, resyncTablesUUID)
@@ -483,14 +491,6 @@ func processTableResyncs(
 	}
 	if state.SnapshotNumTablesInParallel > 0 {
 		resyncCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
-	}
-
-	// drop cancellations that arrived after an earlier resync finished, they must not cancel this one
-	cancelResyncChan := model.CancelTableResyncSignal.GetSignalChannel(ctx)
-	for {
-		if _, ok := cancelResyncChan.ReceiveAsync(); !ok {
-			break
-		}
 	}
 
 	childCtx, cancelChild := workflow.WithCancel(workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
@@ -520,7 +520,7 @@ func processTableResyncs(
 	cancelRequested := false
 	cancelResyncChan.AddToSelector(selector, func(_ struct{}, _ bool) {
 		if state.TableResyncSwapStarted {
-			logger.Info("ignoring table resync cancellation, tables are already being swapped")
+			logger.Warn("ignoring table resync cancellation, tables are already being swapped")
 		} else if !cancelRequested {
 			logger.Info("table resync cancellation requested")
 			cancelRequested = true

@@ -10,7 +10,8 @@ import (
 )
 
 // CancelTableResync signals the mirror to cancel its in-progress table-level resync. The mirror then
-// resumes with the old table mappings. Fails once the resync started swapping tables. Cancellation is
+// resumes with the old table mappings. Fails if any Null engine table (resynced in place) was requested,
+// or once the resync started swapping tables. Cancellation is
 // asynchronous: if swapping starts before the signal is handled, the resync runs to completion, or in a
 // narrow race stays paused like a failed resync.
 func (h *FlowRequestHandler) CancelTableResync(
@@ -30,6 +31,13 @@ func (h *FlowRequestHandler) CancelTableResync(
 		state.FlowConfigUpdate == nil || len(state.FlowConfigUpdate.ResyncTables) == 0 {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("flow %s has no table-level resync in progress", req.FlowJobName))
+	}
+	for _, tm := range state.FlowConfigUpdate.ResyncTables {
+		if tm.Engine == protos.TableEngine_CH_ENGINE_NULL {
+			return nil, NewFailedPreconditionApiError(fmt.Errorf(
+				"table resync of flow %s includes Null engine table %s, which is resynced in place and cannot be cancelled",
+				req.FlowJobName, tm.DestinationTableIdentifier))
+		}
 	}
 	if state.TableResyncSwapStarted {
 		return nil, NewFailedPreconditionApiError(
