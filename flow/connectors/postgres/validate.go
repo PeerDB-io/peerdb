@@ -1,10 +1,12 @@
 package connpostgres
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -41,7 +44,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	tableMappings []*protos.TableMapping,
 	pubName string,
 	noCDC bool,
-	doInitialSnapshot bool,
+	ctidSnapshotTables map[string]struct{},
 ) error {
 	if c.conn == nil {
 		return fmt.Errorf("check tables: conn is nil")
@@ -65,9 +68,7 @@ func (c *PostgresConnector) CheckSourceTables(
 				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
 			}
 		}
-		// only ctid-partitioned snapshots read child tables directly, other partition keys read through the parent
-		partitionKey := tableMappings[idx].PartitionKey
-		if doInitialSnapshot && (partitionKey == "" || partitionKey == ctidColumnName) {
+		if _, ok := ctidSnapshotTables[tableMappings[idx].SourceTableIdentifier]; ok {
 			if err := childCheck.add(parsedTable, selectedColumns); err != nil {
 				return err
 			}
@@ -143,7 +144,33 @@ func (c *PostgresConnector) CheckSourceTables(
 	return nil
 }
 
-// childTablesCheck holds the parallel query arguments for checkChildTablesReadable, one entry per table.
+// ctidSnapshotTables resolves partition keys like the snapshot flow and GetQRepPartitions do.
+func (c *PostgresConnector) ctidSnapshotTables(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) (map[string]struct{}, error) {
+	if !cfg.DoInitialSnapshot {
+		return nil, nil
+	}
+	defaults, err := c.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
+		TableMappings: cfg.TableMappings,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default partition keys: %w", err)
+	}
+	ctidBlockPartitioning, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, cfg.Env)
+	if err != nil {
+		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
+	}
+	tables := make(map[string]struct{})
+	for _, tm := range cfg.TableMappings {
+		partitionKey := cmp.Or(tm.PartitionKey, defaults.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier])
+		if pkg_pg.UsesCTIDBlockPartitioning(partitionKey, cfg.SnapshotNumPartitionsOverride, ctidBlockPartitioning) {
+			tables[tm.SourceTableIdentifier] = struct{}{}
+		}
+	}
+	return tables, nil
+}
+
 // Columns are a JSON array per table because Postgres arrays can't be ragged; empty means all columns.
 type childTablesCheck struct {
 	schemas []string
@@ -368,9 +395,14 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		sourceTables = append(sourceTables, parsedTable)
 	}
 
+	ctidSnapshotTables, err := c.ctidSnapshotTables(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	pubName := cfg.PublicationName
 	// Check source tables before the publication, for better errors
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC, cfg.DoInitialSnapshot); err != nil {
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC, ctidSnapshotTables); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
