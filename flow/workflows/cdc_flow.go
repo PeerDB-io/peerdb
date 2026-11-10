@@ -288,6 +288,53 @@ func processResync(
 	}
 }
 
+// dropRequested reports whether a terminate or resync was handled, so the run continues as DropFlowWorkflow.
+func dropRequested(state *cdc_state.CDCFlowWorkflowState) bool {
+	return state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal
+}
+
+// dropAfterConfigUpdate is dropRequested for loops whose state changes go through handleFlowSignalStateChange.
+// That handler defers the catalog sync of a resync, so it is done here, with the final state.
+func dropAfterConfigUpdate(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	state *cdc_state.CDCFlowWorkflowState,
+) bool {
+	if !dropRequested(state) {
+		return false
+	}
+	if state.ActiveSignal == model.ResyncSignal {
+		state.DropFlowInput.FlowConnectionConfigs = syncStateToConfigProtoInCatalog(ctx, cfg, state)
+	}
+	return true
+}
+
+// terminateIfCancelled marks the mirror TERMINATED once the workflow is cancelled and returns the cancellation.
+func terminateIfCancelled(ctx workflow.Context, logger log.Logger, state *cdc_state.CDCFlowWorkflowState) error {
+	err := ctx.Err()
+	if err != nil {
+		logger.Info("mirror canceled", slog.Any("error", err))
+		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+	}
+	return err
+}
+
+// setupInterrupted is checked after every Select of startSetupAndSnapshot. A terminate or resync hands over to
+// DropFlowWorkflow before a cancellation is looked at.
+func setupInterrupted(
+	ctx workflow.Context,
+	logger log.Logger,
+	state *cdc_state.CDCFlowWorkflowState,
+) (nextRun, bool, error) {
+	if dropRequested(state) {
+		return nextRunDrop, true, nil
+	}
+	if err := terminateIfCancelled(ctx, logger, state); err != nil {
+		return nextRunNone, true, err
+	}
+	return nextRunNone, false, nil
+}
+
 func handleFlowSignalStateChange(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigsCore,
@@ -426,11 +473,7 @@ func processTableAdditions(
 
 	for res == nil {
 		addTablesSelector.Select(ctx)
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			if state.ActiveSignal == model.ResyncSignal {
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
-			}
+		if dropAfterConfigUpdate(ctx, cfg, state) {
 			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -536,11 +579,7 @@ func processTableResyncs(
 
 	for result == nil {
 		selector.Select(ctx)
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			if state.ActiveSignal == model.ResyncSignal {
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
-			}
+		if dropAfterConfigUpdate(ctx, cfg, state) {
 			return nextRunDrop, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -748,11 +787,7 @@ func processTableRemovals(
 
 	for !done {
 		removeTablesSelector.Select(ctx)
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			if state.ActiveSignal == model.ResyncSignal {
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
-			}
+		if dropAfterConfigUpdate(ctx, cfg, state) {
 			return nextRunDrop, nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -828,11 +863,10 @@ func handlePaused(
 			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
 			selector.Select(ctx)
 		}
-		if err := ctx.Err(); err != nil {
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+		if err := terminateIfCancelled(ctx, logger, state); err != nil {
 			return nextRunNone, err
 		}
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+		if dropRequested(state) {
 			return nextRunDrop, nil
 		}
 
@@ -867,8 +901,7 @@ func fetchMetadata(
 	state *cdc_state.CDCFlowWorkflowState,
 ) (workflow.Context, error) {
 	for {
-		if err := ctx.Err(); err != nil {
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+		if err := terminateIfCancelled(ctx, logger, state); err != nil {
 			return ctx, err
 		}
 
@@ -960,12 +993,8 @@ func startSetupAndSnapshot(
 
 	for setupFlowOutput == nil {
 		setupSnapshotSelector.Select(ctx)
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			return nextRunDrop, nil
-		}
-		if err := ctx.Err(); err != nil {
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return nextRunNone, err
+		if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+			return next, err
 		}
 		if setupFlowError != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
@@ -1005,12 +1034,8 @@ func startSetupAndSnapshot(
 
 	for !snapshotDone {
 		setupSnapshotSelector.Select(ctx)
-		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-			return nextRunDrop, nil
-		}
-		if err := ctx.Err(); err != nil {
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-			return nextRunNone, err
+		if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+			return next, err
 		}
 		if snapshotError != nil {
 			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
@@ -1050,8 +1075,7 @@ func startSetupAndSnapshot(
 		if parent := workflow.GetInfo(ctx).ParentWorkflowExecution; parent != nil && cfg.InitialSnapshotOnly {
 			if err := model.TableResyncSwapStartedSignal.SignalExternalWorkflow(ctx, parent.ID, "", struct{}{}).
 				Get(ctx, nil); err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+				if ctxErr := terminateIfCancelled(ctx, logger, state); ctxErr != nil {
 					return nextRunNone, ctxErr
 				}
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
@@ -1081,12 +1105,8 @@ func startSetupAndSnapshot(
 		})
 		for !renameTablesDone {
 			setupSnapshotSelector.Select(ctx)
-			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return nextRunDrop, nil
-			}
-			if err := ctx.Err(); err != nil {
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-				return nextRunNone, err
+			if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+				return next, err
 			}
 			if renameTablesError != nil {
 				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
@@ -1192,9 +1212,7 @@ func startCDC(
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
 			mainLoopSelector.Select(ctx)
 		}
-		if err := ctx.Err(); err != nil {
-			logger.Info("mirror canceled", slog.Any("error", err))
-			state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+		if err := terminateIfCancelled(ctx, logger, state); err != nil {
 			return nextRunNone, err
 		}
 
@@ -1211,9 +1229,7 @@ func startCDC(
 				mainLoopSelector.Select(ctx)
 			}
 
-			if err := ctx.Err(); err != nil {
-				logger.Info("mirror canceled", slog.Any("error", err))
-				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			if err := terminateIfCancelled(ctx, logger, state); err != nil {
 				return nextRunNone, err
 			}
 
@@ -1223,7 +1239,7 @@ func startCDC(
 				state.ErrorCount = 0
 			}
 
-			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			if dropRequested(state) {
 				return nextRunDrop, nil
 			}
 			return nextRunCDC, nil
