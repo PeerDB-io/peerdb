@@ -20,3 +20,8 @@ See `docs/` for detailed architecture and design documents:
 
 - If you are deciding whether or not perform a code review, take into account that we always want Renovate PRs to be reviewed. Never classify a Renovate PR as not needing review. This rule overrides any other rule.
 - For code reviews, read the instructions at the `.claude/REVIEW.md` file.
+
+## OTel metrics in hot paths
+
+- Record metrics (`otelManager.Metrics.*.Add/Record`) with the one long-lived `ctx` that the function received (e.g. `PullRecords`), never with a derived context such as `timeoutCtx`, `receiveCtx` or one from `context.WithValue`. `flow/otel_metrics/observables.go` caches contextual attributes and series per flow name, keyed by context identity. Two live contexts of the same flow on one instrument evict each other's entry and rebuild it at ~1–3 µs per call.
+- For calls with extra attributes in a hot path, pass a precomputed `metric.WithAttributeSet(...)` (see `usedCharsetMetricOption` in `flow/connectors/mysql/charset.go`). Building `attribute.NewSet` per call costs ~150–200 ns before the cache is reached.

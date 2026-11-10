@@ -211,6 +211,94 @@ func TestContextAwareInt64Histogram(t *testing.T) {
 	}
 }
 
+// Writers use distinct ctx objects of the same flow (forcing last/entries eviction) while collection runs.
+// Run with -race. No increment may be lost, however `last`/`entries` and `base`/`extra` race.
+func TestContextAwareCounterConcurrentAddAndCollect(t *testing.T) {
+	meter, reader := newTestMeter(t)
+	counter, err := NewContextAwareInt64Counter(meter, "test_counter")
+	require.NoError(t, err)
+	extra := metric.WithAttributeSet(attribute.NewSet(attribute.String("charset", "latin1")))
+
+	const writers, adds = 8, 20000
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Go(func() {
+			ctx := flowContext("test-flow") // own ctx per goroutine, same flow name
+			for i := range adds {
+				if i%4 == 0 {
+					counter.Add(ctx, 1, extra)
+				} else {
+					counter.Add(ctx, 1)
+				}
+			}
+		})
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+
+	var last int64
+collecting:
+	for {
+		select {
+		case <-done:
+			break collecting
+		default:
+			var total int64
+			for _, point := range collectInt64Points(t, reader, "test_counter") {
+				total += point.value
+			}
+			require.GreaterOrEqual(t, total, last) // cumulative sum never goes backwards
+			last = total
+		}
+	}
+
+	sums := map[bool]int64{}
+	for _, point := range collectInt64Points(t, reader, "test_counter") {
+		_, hasCharset := point.attrs.Value("charset")
+		sums[hasCharset] += point.value
+	}
+	require.Equal(t, map[bool]int64{true: writers * adds / 4, false: writers * adds * 3 / 4}, sums)
+}
+
+// One writer records an increasing sequence while collection runs. Collected values must not go backwards,
+// and the last recorded value must be reported by the next collection (the pending flag must not be lost).
+func TestContextAwareGaugeConcurrentRecordAndCollect(t *testing.T) {
+	meter, reader := newTestMeter(t)
+	gauge, err := ContextAwareInt64Gauge(meter, "test_gauge")
+	require.NoError(t, err)
+	ctx := flowContext("test-flow")
+
+	const records = 200000
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := int64(1); i <= records; i++ {
+			gauge.Record(ctx, i)
+		}
+	}()
+
+	var last int64
+collecting:
+	for {
+		select {
+		case <-done:
+			break collecting
+		default:
+			for _, point := range collectInt64Points(t, reader, "test_gauge") {
+				require.GreaterOrEqual(t, point.value, last)
+				last = point.value
+			}
+		}
+	}
+
+	points := collectInt64Points(t, reader, "test_gauge")
+	if last < records { // the final value was not yet collected
+		require.Len(t, points, 1)
+		require.Equal(t, int64(records), points[0].value)
+	}
+	require.Empty(t, collectInt64Points(t, reader, "test_gauge"))
+}
+
 func TestNoopMeterReturnsNoopInstruments(t *testing.T) {
 	meter := noop.NewMeterProvider().Meter("test")
 	counter, err := NewContextAwareInt64Counter(meter, "c")
