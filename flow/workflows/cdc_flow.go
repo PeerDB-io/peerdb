@@ -319,22 +319,6 @@ func terminateIfCancelled(ctx workflow.Context, logger log.Logger, state *cdc_st
 	return err
 }
 
-// setupInterrupted is checked after every Select of startSetupAndSnapshot. A terminate or resync hands over to
-// DropFlowWorkflow before a cancellation is looked at.
-func setupInterrupted(
-	ctx workflow.Context,
-	logger log.Logger,
-	state *cdc_state.CDCFlowWorkflowState,
-) (nextRun, bool, error) {
-	if dropRequested(state) {
-		return nextRunDrop, true, nil
-	}
-	if err := terminateIfCancelled(ctx, logger, state); err != nil {
-		return nextRunNone, true, err
-	}
-	return nextRunNone, false, nil
-}
-
 func handleFlowSignalStateChange(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigsCore,
@@ -941,6 +925,16 @@ func startSetupAndSnapshot(
 	for _, tableMapping := range cfg.TableMappings {
 		originalTableMappings = append(originalTableMappings, proto.CloneOf(tableMapping))
 	}
+	// checked after every Select: a terminate or resync hands over to DropFlowWorkflow before a cancellation is looked at
+	interrupted := func() (nextRun, bool, error) {
+		if dropRequested(state) {
+			return nextRunDrop, true, nil
+		}
+		if err := terminateIfCancelled(ctx, logger, state); err != nil {
+			return nextRunNone, true, err
+		}
+		return nextRunNone, false, nil
+	}
 	// if resync is true, alter the table name schema mapping to temporarily add
 	// a suffix to the table names.
 	if cfg.Resync {
@@ -993,7 +987,7 @@ func startSetupAndSnapshot(
 
 	for setupFlowOutput == nil {
 		setupSnapshotSelector.Select(ctx)
-		if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+		if next, stop, err := interrupted(); stop {
 			return next, err
 		}
 		if setupFlowError != nil {
@@ -1034,7 +1028,7 @@ func startSetupAndSnapshot(
 
 	for !snapshotDone {
 		setupSnapshotSelector.Select(ctx)
-		if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+		if next, stop, err := interrupted(); stop {
 			return next, err
 		}
 		if snapshotError != nil {
@@ -1105,7 +1099,7 @@ func startSetupAndSnapshot(
 		})
 		for !renameTablesDone {
 			setupSnapshotSelector.Select(ctx)
-			if next, stop, err := setupInterrupted(ctx, logger, state); stop {
+			if next, stop, err := interrupted(); stop {
 				return next, err
 			}
 			if renameTablesError != nil {
