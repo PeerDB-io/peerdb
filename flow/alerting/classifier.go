@@ -44,7 +44,7 @@ const (
 )
 
 const (
-	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoShutdownInProgress              = "(ShutdownInProgress)"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
@@ -1012,6 +1012,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
+		// The message differs between mongod and mongos, so only the code name is matched.
 		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}

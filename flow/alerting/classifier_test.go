@@ -1319,6 +1319,36 @@ func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongosShutdownInProgressDuringHandshakeShouldBeIgnored(t *testing.T) {
+	shutdownErr := driver.Error{
+		Code:    91,
+		Name:    "ShutdownInProgress",
+		Message: "Mongos is in quiesce mode and will shut down",
+	}
+	connErr := topology.ConnectionError{Wrapped: fmt.Errorf("handshake failure: %w", shutdownErr)}
+	// the driver wraps network errors without a code, which hides the inner code from mongo.CommandError
+	networkErr := driver.Error{
+		//nolint:lll
+		Message: "connection() error occurred during connection handshake: handshake failure: (ShutdownInProgress) Mongos is in quiesce mode and will shut down",
+		Labels:  []string{driver.NetworkError},
+		Wrapped: connErr,
+	}
+	cmdErr := mongo.CommandError{
+		Code:    networkErr.Code,
+		Message: networkErr.Message,
+		Labels:  networkErr.Labels,
+		Name:    networkErr.Name,
+		Wrapped: networkErr,
+	}
+	err := fmt.Errorf("connection to source down: %w", fmt.Errorf("failed to ping MongoDB: %w", cmdErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	//nolint:lll
 	err := fmt.Errorf("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
