@@ -138,6 +138,16 @@
       ],
       "dependencyDashboardApproval": true,
       "automerge": false
+    },
+    // This package rule adds the label `ai-fix-me` to all updates PRs,
+    // this has the effect of making `peerdb-nerve` agent to try to fix 
+    // its broken rules.
+    // The agent will disable auto merge and add `stop-updating`, this way 
+    // proposed changes should be reviewed by a human and won't get overwritten
+    // by renovate updates. 
+    {
+      "matchPackageNames": ["*"],
+      "addLabels": ["ai-fix-me"]
     }
   ],
   "vulnerabilityAlerts": {
