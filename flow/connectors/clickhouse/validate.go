@@ -13,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func engineToString(e protos.TableEngine) (string, error) {
@@ -58,8 +57,8 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	destinationTables := make([]string, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		destinationTable := tableMapping.DestinationTableIdentifier
-		if cfg.Resync && tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-			destinationTable += shared.CDCResyncTableSuffix
+		if cfg.Resync {
+			destinationTable = internal.CDCResyncDestinationTable(tableMapping)
 		}
 		destinationTables = append(destinationTables, destinationTable)
 	}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
@@ -768,6 +769,31 @@ psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postg
 	}
 }
 
+func TestPostgresObjectExistsOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"schema": `psql failed: exit status 3
+stderr:
+ERROR:  schema "__postgres_by_clickhouse_quickstart_1794225965" already exists`,
+		"relation": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  relation "users" already exists`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresSchemaMigrationObjectExists, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "OBJECT_ALREADY_EXISTS",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+
+	// outside of the pg_dump schema migration, the same text is not classified
+	errorClass, _ := GetErrorClass(t.Context(), errors.New(`ERROR:  relation "users" already exists`))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+}
+
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
 	err := &pgconn.PgError{
 		Severity: "ERROR",
@@ -1286,6 +1312,36 @@ func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 		Wrapped: de,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongosShutdownInProgressDuringHandshakeShouldBeIgnored(t *testing.T) {
+	shutdownErr := driver.Error{
+		Code:    91,
+		Name:    "ShutdownInProgress",
+		Message: "Mongos is in quiesce mode and will shut down",
+	}
+	connErr := topology.ConnectionError{Wrapped: fmt.Errorf("handshake failure: %w", shutdownErr)}
+	// the driver wraps network errors without a code, which hides the inner code from mongo.CommandError
+	networkErr := driver.Error{
+		//nolint:lll
+		Message: "connection() error occurred during connection handshake: handshake failure: (ShutdownInProgress) Mongos is in quiesce mode and will shut down",
+		Labels:  []string{driver.NetworkError},
+		Wrapped: connErr,
+	}
+	cmdErr := mongo.CommandError{
+		Code:    networkErr.Code,
+		Message: networkErr.Message,
+		Labels:  networkErr.Labels,
+		Name:    networkErr.Name,
+		Wrapped: networkErr,
+	}
+	err := fmt.Errorf("connection to source down: %w", fmt.Errorf("failed to ping MongoDB: %w", cmdErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
@@ -2010,6 +2066,61 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 		Source: ErrorSourceGCS,
 		Code:   "CONNECTION_LOST",
 	}, errInfo)
+}
+
+func TestGCSAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 502, expectedClass: ErrorRetryRecoverable},
+		{code: 504, expectedClass: ErrorRetryRecoverable},
+		{code: 429, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewGCSError(fmt.Errorf("failed to generate downscoped token: %w",
+				fmt.Errorf("downscope: unable to obtain root token: %w", authErr)))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to get headers: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceGCS,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 503, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorNotifyConnectivity},
+		{code: 403, expectedClass: ErrorNotifyConnectivity},
+		{code: 400, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewBigQueryError(fmt.Errorf("Post \"https://bigquery.googleapis.com\": %w", authErr))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
 }
 
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {

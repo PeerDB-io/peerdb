@@ -138,6 +138,15 @@ var StartMaintenanceSignal = TypedSignal[*protos.StartMaintenanceSignal]{
 	Name: "start-maintenance-signal",
 }
 
+var CancelTableResyncSignal = TypedSignal[struct{}]{
+	Name: "cancel-table-resync-signal",
+}
+
+// sent by the table-level resync child to its parent right before it starts swapping tables
+var TableResyncSwapStartedSignal = TypedSignal[struct{}]{
+	Name: "table-resync-swap-started-signal",
+}
+
 func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {
 	f, set := workflow.NewFuture(ctx)
 	workflow.Go(ctx, func(ctx workflow.Context) {

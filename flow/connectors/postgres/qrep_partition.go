@@ -338,13 +338,16 @@ type tableBlockStats struct {
 	blockCount   int64
 }
 
+// pg_relation_size is NULL for a child dropped after the snapshot, which pg_inherits still lists; count it as empty.
+const childBlockCountExpr = `COALESCE(pg_relation_size(c.oid) / current_setting('block_size')::int, 0)::bigint`
+
 // getPartitionedTables returns a map of partitioned child table names to their block stats,
 // recursively handle multi-level partitioned tables.
 // Uses OID-based join to avoid to_regclass which lowercases unquoted mixed-case identifiers.
 func getPartitionedTables(ctx context.Context, tx pgx.Tx, parentOID uint32) (map[string]tableBlockStats, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relkind::text,
-			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint,
+			`+childBlockCountExpr+`,
 			(CASE WHEN c.relpages > 0 THEN c.reltuples::float / c.relpages ELSE 0 END)::float
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid
@@ -410,7 +413,7 @@ func getInheritedTables(
 	var numBlocks int64
 	var blockDensity float64
 	if err := tx.QueryRow(ctx, `
-			SELECT (pg_relation_size($1) / current_setting('block_size')::int)::bigint,
+			SELECT `+childBlockCountExpr+`,
 				(CASE WHEN c.relpages > 0 THEN c.reltuples::float / c.relpages ELSE 0 END)::float
 			FROM pg_class c WHERE c.oid = $1
 		`, parentOID).Scan(&numBlocks, &blockDensity); err != nil {
@@ -425,7 +428,7 @@ func getInheritedTables(
 
 	rows, err := tx.Query(ctx, `
 		SELECT c.oid, format('%s.%s', n.nspname, c.relname), c.relhassubclass,
-			(pg_relation_size(c.oid) / current_setting('block_size')::int)::bigint,
+			`+childBlockCountExpr+`,
 			(CASE WHEN c.relpages > 0 THEN c.reltuples::float / c.relpages ELSE 0 END)::float
 		FROM pg_inherits i
 		JOIN pg_class c ON i.inhrelid = c.oid

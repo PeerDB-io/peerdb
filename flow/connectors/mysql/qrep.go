@@ -281,6 +281,12 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
+	// information_schema.columns lists nothing for a table that was dropped or that the user can no longer read
+	if len(tableSchema.Columns) == 0 {
+		return 0, 0, fmt.Errorf("watermark table %s not found or has no visible columns: %w",
+			config.WatermarkTable, shared.ErrTableDoesNotExist)
+	}
+
 	selectedColumns := buildSelectedColumns(tableSchema.Columns, config.Exclude)
 	if selectedColumns == "" {
 		return 0, 0, fmt.Errorf("no columns selected for watermark table %s (check Exclude configuration)", config.WatermarkTable)

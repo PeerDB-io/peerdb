@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -43,7 +44,7 @@ const (
 )
 
 const (
-	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoShutdownInProgress              = "(ShutdownInProgress)"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
@@ -95,6 +96,10 @@ var (
 	PostgresExtensionNotAvailableRe = regexp.MustCompile(
 		`extension ".*?" is not available|could not open extension control file`,
 	)
+	// pg_dump automated schema migration failing because the destination already has an object from the source schema,
+	// e.g. `ERROR:  schema "public_v2" already exists` or `ERROR:  relation "users" already exists`.
+	PostgresSchemaMigrationObjectExistsRe = regexp.MustCompile(`ERROR:\s+[^\n]* already exists`)
+
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
 
@@ -239,6 +244,12 @@ var (
 	// that the source schema depends on; the user must install it on the destination.
 	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
 		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
+	}
+	// The pg_dump automated schema migration failed because the destination already has an object that the
+	// source schema creates; psql runs in a single transaction, so this is pre-existing destination state that
+	// the user must drop or migrate manually.
+	ErrorNotifyPostgresSchemaMigrationObjectExists = ErrorClass{
+		Class: "NOTIFY_POSTGRES_SCHEMA_MIGRATION_OBJECT_EXISTS", action: NotifyUser,
 	}
 	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
 		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
@@ -1001,6 +1012,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
+		// The message differs between mongod and mongos, so only the code name is matched.
 		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
@@ -1181,6 +1193,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
 				return ErrorRetryRecoverable, bqErrorInfo
 			}
+		} else if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			bqErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			switch {
+			case statusCode == 401 || statusCode == 403:
+				return ErrorNotifyConnectivity, bqErrorInfo
+			case statusCode >= 500:
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
@@ -1190,13 +1212,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceGCS,
 			Code:   "UNKNOWN",
 		}
+		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+		gcsStatusErrorClass := func(statusCode int) ErrorClass {
+			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+				return ErrorRetryRecoverable
+			}
+			return ErrorOther
+		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
-			// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
-			if apiErr.Code == 408 || apiErr.Code == 429 || apiErr.Code >= 500 {
-				return ErrorRetryRecoverable, gcsErrorInfo
-			}
-			return ErrorOther, gcsErrorInfo
+			return gcsStatusErrorClass(apiErr.Code), gcsErrorInfo
+		}
+		if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			gcsErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			return gcsStatusErrorClass(statusCode), gcsErrorInfo
 		}
 		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
 		// and is retried by dialing a new connection.
@@ -1568,6 +1599,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyPostgresExtensionNotAvailable, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "EXTENSION_NOT_AVAILABLE",
+		}
+	}
+
+	if strings.Contains(err.Error(), "pg_dump schema migration failed") &&
+		PostgresSchemaMigrationObjectExistsRe.MatchString(err.Error()) {
+		return ErrorNotifyPostgresSchemaMigrationObjectExists, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "OBJECT_ALREADY_EXISTS",
 		}
 	}
 
