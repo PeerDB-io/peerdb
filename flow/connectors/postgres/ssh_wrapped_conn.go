@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func NewPostgresConnFromConfig(
@@ -17,6 +18,7 @@ func NewPostgresConnFromConfig(
 	connConfig *pgx.ConnConfig,
 	tlsHost string,
 	rdsAuth *utils.RDSAuth,
+	cloudSQLDialer *utils.CloudSQLDialer,
 	tunnel *utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	if tunnel.IsActive() {
@@ -45,6 +47,19 @@ func NewPostgresConnFromConfig(
 		connConfig = connConfig.Copy()
 		connConfig.Password = token
 	}
+	if cloudSQLDialer != nil {
+		logger.Info("Setting up Cloud SQL IAM auth for Postgres")
+		connConfig = connConfig.Copy()
+		// the connector authenticates with an ephemeral client certificate and already encrypts the connection,
+		// so there is no password and no Postgres-level SSL negotiation
+		connConfig.DialFunc = cloudSQLDialer.DialContext
+		connConfig.LookupFunc = func(ctx context.Context, host string) ([]string, error) {
+			return []string{host}, nil
+		}
+		connConfig.TLSConfig = nil
+		connConfig.Fallbacks = nil
+		connConfig.Password = ""
+	}
 
 	// If the endpoint is misbehaved (e.g. a TCP tunnel started pointing at something new),
 	// the random initial sequence of bytes may be misinterpreted as a multi-GB message and
@@ -54,7 +69,7 @@ func NewPostgresConnFromConfig(
 		frontend.SetMaxBodyLen(16 * 1024 * 1024)
 		return frontend
 	}
-	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	conn, err := shared.ConnectPostgres(ctx, connConfig)
 	if err != nil {
 		logger.Error("Failed to create connection", slog.Any("error", err))
 		return nil, err

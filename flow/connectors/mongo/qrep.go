@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -65,7 +66,12 @@ func (c *MongoConnector) GetQRepPartitions(
 		return utils.FullTablePartition(), nil
 	}
 
-	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions)
+	sampleObjectIDs, err := internal.PeerDBMongoDBSampledObjectIDPartitioning(ctx, config.Env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sampled ObjectID partitioning setting: %w", err)
+	}
+
+	return c.buildPartitions(ctx, collection, adjustedPartitions.AdjustedNumPartitions, sampleObjectIDs)
 }
 
 func (c *MongoConnector) GetDefaultPartitionKeyForTables(
@@ -103,7 +109,7 @@ func (c *MongoConnector) PullQRepRecords(
 	var qValuesFromBsonRaw func(raw bson.Raw) ([]types.QValue, error)
 	structuredCfg := config.StructuredIngestionConfig
 	if structuredCfg.GetEnabled() {
-		projector, err := newStructuredSchemaProjector(config.Columns, !structuredCfg.GetDropUnexpectedValues())
+		projector, err := newStructuredSchemaProjector(config.Columns, config.Exclude, !structuredCfg.GetDropUnexpectedValues())
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to build structured schema: %w", err)
 		}

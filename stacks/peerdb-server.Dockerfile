@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 
-FROM lukemathwalker/cargo-chef:latest-rust-1.98.0-alpine@sha256:917b051d1fc8e234a3aad123378b5263c95fa5d8739439ee25aa789c2db97a90 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.99.1-alpine@sha256:2c27e67049f17e8b67d882a2cf2f5e1a1d4d71c206ec97f91edf278254688e95 AS chef
 
 WORKDIR /root
 
@@ -41,7 +41,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     mkdir -p /root/target && \
     cp target/${BUILD_MODE}/peerdb-server /root/target/
 
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 ENV TZ=UTC
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
   adduser -s /bin/sh -D peerdb && \

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -130,6 +131,42 @@ func ValidateCollections(ctx context.Context, client *mongo.Client, tables []*co
 	}
 	if len(missingTables) > 0 {
 		return common.NewSourceTablesMissingError(missingTables)
+	}
+	return nil
+}
+
+// ValidatePreAndPostImages checks that changeStreamPreAndPostImages is enabled on every collection in
+// tables. Without it, a change stream never provides the document as it stood before a change.
+func ValidatePreAndPostImages(ctx context.Context, client *mongo.Client, tables []*common.QualifiedTable) error {
+	databaseCollectionsMapping := make(map[string][]string)
+	for _, t := range tables {
+		databaseCollectionsMapping[t.Namespace] = append(databaseCollectionsMapping[t.Namespace], t.Table)
+	}
+
+	var disabledTables []string
+	for database, collections := range databaseCollectionsMapping {
+		specs, err := client.Database(database).ListCollectionSpecifications(ctx,
+			bson.D{{Key: "name", Value: bson.D{{Key: "$in", Value: collections}}}})
+		if err != nil {
+			return fmt.Errorf("failed to get collection options: %w", err)
+		}
+		enabledCollections := make(map[string]struct{}, len(specs))
+		for i := range specs {
+			if enabled, ok := specs[i].Options.Lookup("changeStreamPreAndPostImages", "enabled").BooleanOK(); ok && enabled {
+				enabledCollections[specs[i].Name] = struct{}{}
+			}
+		}
+		for _, col := range collections {
+			if _, ok := enabledCollections[col]; !ok {
+				disabledTables = append(disabledTables, database+"."+col)
+			}
+		}
+	}
+	if len(disabledTables) > 0 {
+		slices.Sort(disabledTables)
+		return fmt.Errorf("delete pre-images require changeStreamPreAndPostImages to be enabled on collections %s, "+
+			"e.g. db.runCommand({collMod: \"<collection>\", changeStreamPreAndPostImages: {enabled: true}})",
+			strings.Join(disabledTables, ", "))
 	}
 	return nil
 }

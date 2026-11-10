@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const testTLSConnString = "postgres://user@localhost:5432/testdb?sslmode=require"
@@ -124,4 +125,25 @@ func TestParseConfigClientTLS(t *testing.T) {
 		})
 		require.Error(t, err)
 	})
+}
+
+func TestParseConfigCloudSQLIAMLeavesTLSToConnector(t *testing.T) {
+	// root CA and TLS host are leftovers from the manual token flow and must not reach pgx
+	rootCA, _ := generateClientCertKey(t, "test-root")
+	config := &protos.PostgresConfig{
+		Host:     "project:region:instance",
+		Port:     5432,
+		User:     "configured-db-user",
+		Database: "testdb",
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+		TlsHost:  "cloudsql.google.internal",
+		RootCa:   &rootCA,
+	}
+	connectionString := internal.GetPGConnectionString(config, "")
+	require.Contains(t, connectionString, "sslmode=disable")
+	require.NotContains(t, connectionString, "project:region:instance")
+	connConfig, err := ParseConfig(connectionString, config)
+	require.NoError(t, err)
+	require.Nil(t, connConfig.TLSConfig)
+	require.Empty(t, connConfig.Password)
 }

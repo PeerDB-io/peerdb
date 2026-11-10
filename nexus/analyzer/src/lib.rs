@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context;
 use parser::PeerDBStatement;
 use parser::ast_peerdb::CreateMirror::{CDC, Select};
-use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
+use pt::peerdb_peers::{MongoAuthType, MySqlAuthType, PostgresAuthType};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
@@ -747,6 +747,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .parse::<i32>()
                     .context("unable to parse read preference as valid int")?,
                 ssh_config: None,
+                auth_type: MongoAuthType::MongoPassword.into(),
+                aws_auth: None,
             };
             Config::MongoConfig(mongo_config)
         }

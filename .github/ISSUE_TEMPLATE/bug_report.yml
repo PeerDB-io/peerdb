@@ -38,6 +38,15 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: org_id
+    attributes:
+      label: ClickHouse Cloud organization ID
+      description: If you use ClickPipes on ClickHouse Cloud, enter your organization ID so we can find your pipes. This issue is public, so do not include credentials or other secrets.
+      placeholder: e.g. 01234567-89ab-cdef-0123-456789abcdef
+    validations:
+      required: false
+
   - type: dropdown
     id: source_connector
     attributes:

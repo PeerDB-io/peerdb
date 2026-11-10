@@ -223,16 +223,13 @@ export default function CDCConfigForm({
   };
 
   const shouldHideBigQuerySourceIncompatibleFields = (label: string) => {
-    if (!isBigQuerySource()) {
-      return false;
-    }
-
     // Initial copy and sync interval stay available for CDC, but snapshot-only
     // mirrors have no ongoing sync. Query CDC stages through the ClickHouse
     // destination, so the CDC staging path never applies to a BigQuery source.
     return (
-      label.includes('cdc staging path') ||
-      (mirrorConfig.initialSnapshotOnly && label.includes('sync interval'))
+      isBigQuerySource() &&
+      (label.includes('cdc staging path') ||
+        (mirrorConfig.initialSnapshotOnly && label.includes('sync interval')))
     );
   };
 
@@ -370,6 +367,7 @@ export default function CDCConfigForm({
 
         <TablePicker
           sourcePeerName={mirrorConfig.sourceName}
+          sourceType={sourceType}
           rows={rows}
           setRows={setRows}
           peerType={destinationType}

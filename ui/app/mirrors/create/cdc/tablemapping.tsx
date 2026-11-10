@@ -15,6 +15,7 @@ import { loaderContainer } from './styles';
 
 interface TableMappingProps {
   sourcePeerName: string;
+  sourceType?: DBType;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   peerType?: DBType;
@@ -27,6 +28,7 @@ interface TableMappingProps {
 
 export default function TablePicker({
   sourcePeerName,
+  sourceType,
   rows,
   setRows,
   peerType,
@@ -100,6 +102,7 @@ export default function TablePicker({
               key={schema}
               schema={schema}
               sourcePeer={sourcePeerName}
+              sourceType={sourceType}
               rows={rows}
               setRows={setRows}
               tableColumns={tableColumns}

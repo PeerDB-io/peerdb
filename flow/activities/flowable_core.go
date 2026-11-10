@@ -145,9 +145,12 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	tblNameMapping := make(map[string]model.SourceTableMapping, len(options.TableMappings))
 	for _, v := range options.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = model.NewSourceTableMappingWithStructuredIngestion(
+		mapping := model.NewSourceTableMappingWithStructuredIngestion(
 			v.DestinationTableIdentifier, v.Exclude, v.StructuredIngestionConfig,
 		)
+		mapping.MongoConfiguration = v.MongoConfig
+		mapping.Columns = v.Columns
+		tblNameMapping[v.SourceTableIdentifier] = mapping
 	}
 
 	if err := srcConn.ConnectionActive(ctx); err != nil {
@@ -249,6 +252,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
+			Flags:                       config.Flags,
 		})
 		if err != nil {
 			pullSpan.RecordError(err)

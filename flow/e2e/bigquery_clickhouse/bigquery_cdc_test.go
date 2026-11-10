@@ -1065,7 +1065,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	require.Equal(t, "0.12345678901234567890123456789012345678", bigNumeric.String())
 	require.Equal(t, "1-2 3 4:5:6", row[1].Value())
 	require.Equal(t, "[2024-01-01, 2024-02-01)", row[2].Value())
-	require.JSONEq(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value().(string))
+	require.Equal(t, `{"nested_str":"nested","nested_int":7}`, row[3].Value()) //nolint:testifylint // exact match: JSONEq ignores key order
 	require.Equal(t, []string{"aGk=", "Ynll"}, row[4].Value())
 	arrayTime, ok := row[5].Value().([]time.Time)
 	require.True(t, ok, "array_time should land as an array of time-of-day values, got %T", row[5].Value())
@@ -1075,7 +1075,88 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_All_Types() {
 	arrayRecord, ok := row[7].Value().([]string)
 	require.True(t, ok)
 	require.Len(t, arrayRecord, 1)
-	require.JSONEq(t, `{"item_count":9,"item_name":"item"}`, arrayRecord[0])
+	require.Equal(t, `{"item_name":"item","item_count":9}`, arrayRecord[0]) //nolint:testifylint // exact match: JSONEq ignores key order
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Snapshot_And_CDC_Struct_JSON_Match checks that STRUCT columns
+// land identically whether a row arrives via the initial snapshot (Parquet export)
+// or via CDC (Go JSON encoding), with keys in schema order.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Snapshot_And_CDC_Struct_JSON_Match() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := e2e.AddSuffix(s, "cdc_struct_match")
+	dstTable := srcTable + "_dst"
+	tableFQN := fmt.Sprintf("%s.%s.%s", source.config.ProjectId, source.config.DatasetId, srcTable)
+	// Field names are deliberately not in alphabetical order.
+	require.NoError(t, source.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s (
+		id INT64 NOT NULL,
+		record_col STRUCT<nested_str STRING, nested_int INT64, sub STRUCT<z STRING, y INT64>>,
+		array_record ARRAY<STRUCT<item_name STRING, item_count INT64>>,
+		PRIMARY KEY(id) NOT ENFORCED
+	)`, quoteBigQueryTableFQN(tableFQN))), "should create struct BigQuery CDC source table %s", srcTable)
+	t.Cleanup(func() {
+		table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+		if err := table.Delete(context.Background()); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	})
+
+	insertRow := func(id int64) {
+		t.Helper()
+		require.NoError(t, source.Exec(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (
+			%d,
+			STRUCT('nested', 7, STRUCT('zz', 1)),
+			[STRUCT('item', 9), STRUCT('other', 3)]
+		)`, quoteBigQueryTableFQN(tableFQN), id)), "should insert struct row %d", id)
+	}
+
+	// present before the mirror exists - lands via the initial snapshot.
+	insertRow(1)
+
+	flowConnConfig := bqCdcFlowConnectionConfig(s, srcTable, dstTable, bqCdcFlowParams{
+		eventsFunction:    protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	waitForRows := func(reason string, n int) {
+		t.Helper()
+		e2e.EnvWaitFor(t, env, 4*time.Minute, reason, func() bool {
+			rows, err := s.GetRows(dstTable, "id")
+			if err != nil {
+				t.Log(err)
+				return false
+			}
+			return len(rows.Records) == n
+		})
+	}
+	waitForRows("snapshot row landed", 1)
+
+	// inserted after the snapshot - lands via CDC.
+	insertRow(2)
+	waitForRows("CDC row landed", 2)
+
+	rows, err := s.GetRows(dstTable, "id,record_col,array_record")
+	require.NoError(t, err)
+	require.Len(t, rows.Records, 2)
+	snapshotRow, cdcRow := rows.Records[0], rows.Records[1]
+	require.Equal(t, int64(1), snapshotRow[0].Value())
+	require.Equal(t, int64(2), cdcRow[0].Value())
+
+	expectedRecord := `{"nested_str":"nested","nested_int":7,"sub":{"z":"zz","y":1}}`
+	expectedArray := []string{`{"item_name":"item","item_count":9}`, `{"item_name":"other","item_count":3}`}
+	require.Equal(t, expectedRecord, cdcRow[1].Value(), "CDC record_col")
+	require.Equal(t, expectedArray, cdcRow[2].Value(), "CDC array_record")
+	require.Equal(t, cdcRow[1].Value(), snapshotRow[1].Value(), "snapshot and CDC record_col should match")
+	require.Equal(t, cdcRow[2].Value(), snapshotRow[2].Value(), "snapshot and CDC array_record should match")
 
 	env.Cancel(ctx)
 	e2e.RequireEnvCanceled(t, env)
@@ -1598,6 +1679,125 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Isolated_Table_Removal_Mid_CD
 			return false
 		})
 
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Table_Addition_Mid_CDC verifies that an added table gets
+// both its initial snapshot and a cursor from which query-based CDC can resume.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Mid_CDC() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	existingSrc := e2e.AddSuffix(s, "cdc_addition_existing")
+	addedSrc := e2e.AddSuffix(s, "cdc_addition_added")
+	existingDst := existingSrc + "_dst"
+	addedDst := addedSrc + "_dst"
+	existingFQN := createBigQueryCdcSourceTable(ctx, t, source, existingSrc, false)
+	addedFQN := createBigQueryCdcSourceTable(ctx, t, source, addedSrc, false)
+	addedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, addedSrc)
+
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 1, Val: "existing-initial"}})
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-pre-snapshot"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, bqCdcFlowParams{
+		eventsFunction:    appends,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table initial snapshot landed", existingSrc, existingDst, "id,val")
+
+	pool, err := e2e.CatalogTestAccessPool()
+	require.NoError(t, err)
+	e2e.SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	e2e.SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSourceID,
+			DestinationTableIdentifier: s.DestinationTable(addedDst),
+			BigqueryCdcEventsFunction:  appends,
+		}},
+	})
+	e2e.EnvWaitFor(t, env, 5*time.Minute, "resumed workflow after table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table initial snapshot landed", addedSrc, addedDst, "id,val")
+	checkpointAfterAddition := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID)
+	require.False(t, checkpointAfterAddition.IsZero())
+
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 2, Val: "added-cdc-1"}})
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 2, Val: "existing-cdc-1"}})
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table CDC wave landed", addedSrc, addedDst, "id,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table CDC continues after addition", existingSrc, existingDst, "id,val")
+	require.True(t, readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID).After(checkpointAfterAddition))
+	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_BigQuery_CDC_Table_Addition_Skip_Initial_Snapshot verifies that a table added
+// without an initial load still gets a CDC cursor, so its changes are replicated.
+func (s BigQueryClickhouseSuite) Test_BigQuery_CDC_Table_Addition_Skip_Initial_Snapshot() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	existingSrc := e2e.AddSuffix(s, "cdc_addition_noload_existing")
+	addedSrc := e2e.AddSuffix(s, "cdc_addition_noload_added")
+	existingDst := existingSrc + "_dst"
+	addedDst := addedSrc + "_dst"
+	existingFQN := createBigQueryCdcSourceTable(ctx, t, source, existingSrc, false)
+	addedFQN := createBigQueryCdcSourceTable(ctx, t, source, addedSrc, false)
+	addedSourceID := fmt.Sprintf("%s.%s", source.config.DatasetId, addedSrc)
+
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 1, Val: "existing-initial"}})
+
+	appends := protos.BigqueryCdcEventsFunction_BIGQUERY_CDC_EVENTS_FUNCTION_APPENDS
+	flowConnConfig := bqCdcFlowConnectionConfig(s, existingSrc, existingDst, bqCdcFlowParams{
+		eventsFunction:    appends,
+		replicationMethod: protos.BigQueryReplicationMethod_BIGQUERY_REPLICATION_METHOD_EVENTS,
+	})
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table initial snapshot landed", existingSrc, existingDst, "id,val")
+
+	pool, err := e2e.CatalogTestAccessPool()
+	require.NoError(t, err)
+	e2e.SignalWorkflow(ctx, env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	e2e.SignalWorkflow(ctx, env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSourceID,
+			DestinationTableIdentifier: s.DestinationTable(addedDst),
+			BigqueryCdcEventsFunction:  appends,
+		}},
+		SkipInitialSnapshotForTableAdditions: true,
+	})
+	e2e.EnvWaitFor(t, env, 5*time.Minute, "resumed workflow after table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	checkpointAfterAddition := readBigQueryTableCursor(t, pool, flowConnConfig.FlowJobName, addedSourceID)
+	require.False(t, checkpointAfterAddition.IsZero())
+
+	bqInsertRows(ctx, t, source, addedFQN, []bqCdcRow{{ID: 1, Val: "added-cdc-1"}})
+	bqInsertRows(ctx, t, source, existingFQN, []bqCdcRow{{ID: 2, Val: "existing-cdc-1"}})
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "added table CDC wave landed", addedSrc, addedDst, "id,val")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "existing table CDC continues after addition", existingSrc, existingDst, "id,val")
 	require.Equal(t, protos.FlowStatus_STATUS_RUNNING, env.GetFlowStatus(t))
 
 	env.Cancel(ctx)

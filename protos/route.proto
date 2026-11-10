@@ -402,6 +402,7 @@ enum TimeAggregateType {
   TIME_AGGREGATE_TYPE_ONE_HOUR = 3;
   TIME_AGGREGATE_TYPE_ONE_DAY = 4;
   TIME_AGGREGATE_TYPE_ONE_MONTH = 5;
+  TIME_AGGREGATE_TYPE_ONE_MIN = 6;
 }
 
 message GraphRequest {
@@ -419,6 +420,18 @@ message GraphResponse {
   repeated GraphResponseItem data = 1;
   int64 total_rows = 2;
 
+}
+
+// lags are the max over batches normalized in the bucket, unset when no batch was normalized
+message LagGraphResponseItem {
+  double time = 1;
+  optional double source_lag_ms = 2;
+  optional double destination_lag_ms = 3;
+  optional double e2e_lag_ms = 4;
+}
+
+message LagGraphResponse {
+  repeated LagGraphResponseItem data = 1;
 }
 
 message MirrorLog {
@@ -792,6 +805,13 @@ service FlowService {
   rpc CDCGraph(GraphRequest) returns (GraphResponse) {
     option (google.api.http) = {
       post : "/v1/mirrors/cdc/graph",
+      body : "*"
+    };
+  }
+
+  rpc CDCLagGraph(GraphRequest) returns (LagGraphResponse) {
+    option (google.api.http) = {
+      post : "/v1/mirrors/cdc/lag_graph",
       body : "*"
     };
   }

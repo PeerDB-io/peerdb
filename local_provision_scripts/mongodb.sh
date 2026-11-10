@@ -1,5 +1,5 @@
 #!/bin/sh
-set -Eeu
+set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../.env
@@ -17,13 +17,30 @@ mongosh_eval() {
     || $DOCKER exec "$CONTAINER" mongosh --quiet -u "$CI_MONGO_ADMIN_USERNAME" -p "$CI_MONGO_ADMIN_PASSWORD" --eval "$1"
 }
 
+wait_for_mongosh_eval() {
+  attempt=0
+  until mongosh_eval "$1"; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 60 ]; then
+      echo "MongoDB initialization timed out after 60 attempts." >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 echo "initialize replica set"
-mongosh_eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"${CI_MONGO_HOST}:${CI_MONGO_PORT}\"}]})" || true
+# Retry startup failures and allow reruns on an initialized replica set.
+wait_for_mongosh_eval "
+  try {
+    rs.initiate({_id: 'rs0', members: [{_id: 0, host: '${CI_MONGO_HOST}:${CI_MONGO_PORT}'}]});
+  } catch (error) {
+    if (error.codeName !== 'AlreadyInitialized') throw error;
+  }
+"
 
 echo "waiting for replica set primary election"
-until mongosh_eval 'rs.status().myState' | grep -q 1; do
-  sleep 1
-done
+wait_for_mongosh_eval 'quit(rs.status().myState === 1 ? 0 : 1)'
 
 echo "create admin user"
 if ! mongosh_eval "db.getSiblingDB('admin').getUser('$CI_MONGO_ADMIN_USERNAME')" | grep -q "$CI_MONGO_ADMIN_USERNAME"; then

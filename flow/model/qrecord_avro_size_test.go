@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -521,6 +522,15 @@ func TestAvroSizeComputation(t *testing.T) {
 			},
 		},
 		{
+			name:       "array_json",
+			kind:       types.QValueKindArrayJSON,
+			numRecords: 5_000,
+			genValue: func() types.QValue {
+				elems := randomArray(func() string { return `{"k":"` + randomText(10+rand.IntN(50)) + `"}` })
+				return types.QValueArrayJSON{Val: "[" + strings.Join(elems, ",") + "]"}
+			},
+		},
+		{
 			name:       "array_enum",
 			kind:       types.QValueKindArrayEnum,
 			numRecords: 5_000,
@@ -741,10 +751,9 @@ func TestAvroSizeComputationSpecial(t *testing.T) {
 	})
 }
 
-// Schema-only kinds with no QValue struct — untestable for size
+// Schema-only kinds with no QValue struct of their own — untestable for size
 var sizeTestSkippedKinds = []string{
 	"QValueKindJSONB",
-	"QValueKindArrayJSON",
 	"QValueKindArrayJSONB",
 }
 

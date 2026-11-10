@@ -287,6 +287,39 @@ func TestPullRecordsIdleWithEmptyBatchPersistsOffsetAndRecreatesStream(t *testin
 	h.requireOffsetsCoverOnlyDeliveredRecords(t, out)
 }
 
+// A no-event timeout that finds the resume token still at the offset the pull started from
+// means no server reply has made any progress, for example because every shard is still
+// scanning past oplog events triggered by a reshard. Such timeout without offset progress
+// is doubled and retried, up to maxNoEventTimeout. Once the pull has made any progress,
+// the timeout goes back to defaultNoEventTimeout.
+func TestPullRecordsNoProgressExtendsNoEventTimeout(t *testing.T) {
+	iterations := make([]iterationType, 0, 11)
+	for range 7 {
+		iterations = append(iterations, idleNoReply)
+	}
+	iterations = append(iterations, idle, idleNoReply, insert, idle)
+	h := newPullHarness(t, iterations...)
+	startToken := toResumeToken(time.Now().Add(-time.Hour))
+	h.stream.resumeToken = startToken
+	h.req.LastOffset = model.CdcCheckpoint{Text: b64(startToken)}
+
+	out := h.run(t)
+	require.NoError(t, out.err)
+	require.Equal(t, mockEventIDs(1), out.ids)
+
+	hour := time.Hour
+	want := []time.Duration{hour, 2 * hour, 4 * hour, 8 * hour, 16 * hour, 32 * hour, 48 * hour, 48 * hour, hour, hour}
+	for i, timeout := range want {
+		require.LessOrEqual(t, h.stream.deadlines[i], timeout, "timeout before iteration %d", i)
+		require.Greater(t, h.stream.deadlines[i], timeout-time.Minute, "timeout before iteration %d", i)
+	}
+	start := b64(startToken)
+	moved := h.stream.tokenAt(7)
+	require.Equal(t, []string{start, start, start, start, start, start, start, moved, moved}, h.persistedOffsets())
+	require.Equal(t, 10, h.streamCreations)
+	require.Equal(t, h.stream.tokenAt(10), out.checkpoint)
+}
+
 // Events the connector cannot replicate must not consume batch budget, and must not
 // advance the offset on their own: the offset stays on the last event that was replicated.
 func TestPullRecordsSkipsUnsupportedOperations(t *testing.T) {

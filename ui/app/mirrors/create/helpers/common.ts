@@ -70,6 +70,7 @@ export const blankBigqueryCdcConfig: BigqueryCdcConfig = {
     pullSyncParallelism: QUERY_CDC_DEFAULT_PULL_SYNC_PARALLELISM,
     safetyLagSeconds: QUERY_CDC_DEFAULT_SAFETY_LAG_SECONDS,
     maxQueryWindowSeconds: QUERY_CDC_DEFAULT_MAX_QUERY_WINDOW_SECONDS,
+    syncCron: '',
   },
 };
 

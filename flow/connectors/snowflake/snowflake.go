@@ -99,6 +99,9 @@ func NewSnowflakeConnector(
 		Warehouse:      snowflakeProtoConfig.Warehouse,
 		Role:           snowflakeProtoConfig.Role,
 		RequestTimeout: time.Duration(snowflakeProtoConfig.QueryTimeout), //nolint:staticcheck // deprecated upstream, no replacement
+		// Preserve OCSP fail-open checking now that the driver defaults to off.
+		// TODO: when upstream defaulting CRL checking to on, switch to that
+		OCSPFailOpen: gosnowflake.OCSPFailOpenTrue,
 		Params: map[string]*string{
 			"CLIENT_SESSION_KEEP_ALIVE": new("true"),
 			"CLIENT_TELEMETRY_ENABLED":  new("false"),

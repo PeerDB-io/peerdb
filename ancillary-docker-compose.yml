@@ -180,6 +180,8 @@ services:
       - "--binlog-format=ROW"
       - "--binlog-row-metadata=FULL"
       - "--max-allowed-packet=128M"
+      # the default of 151 is too low for the e2e suite running tests in parallel
+      - "--max-connections=1000"
     restart: unless-stopped
     volumes:
       - mariadb_data:/var/lib/mysql
@@ -283,6 +285,8 @@ services:
       - 12003:12003
       - 12004:12004
       - 12005:12005
+      - 12006:12006
+      # 12007 doesn't need publishing (only used within the docker network)
       - 14001:14001
       - 14002:14002
       - 14003:14003

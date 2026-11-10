@@ -40,12 +40,6 @@ func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	return setupMyConnector(t, suffix, internal.GetMySQLConfigFromEnv(flavor, replication), "")
 }
 
-func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
-	t.Helper()
-	flavor, replication := internal.MariaDBTestFlavorAndMechanism(t)
-	return setupMyConnector(t, suffix, internal.GetMariaDBConfigFromEnv(flavor, replication), "mariadb")
-}
-
 // MySQLTestContainerConfig parameterizes a throwaway MySQL/MariaDB testcontainer source.
 type MySQLTestContainerConfig struct {
 	Image string
@@ -232,7 +226,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	for _, row := range rs.Values {
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
+			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val, false)
 			if err != nil {
 				return nil, err
 			}

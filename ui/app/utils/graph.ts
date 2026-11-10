@@ -14,6 +14,7 @@ export function formatGraphLabel(
   aggregateType: TimeAggregateType
 ): string {
   switch (aggregateType) {
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MIN:
     case TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN:
     case TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
     case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR:

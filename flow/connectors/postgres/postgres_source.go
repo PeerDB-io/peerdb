@@ -88,6 +88,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+	replConfig.Config.RuntimeParams["extra_float_digits"] = "3"
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	// Required for QueryExecModeSimpleProtocol below; pgx refuses simple
 	// protocol when the server reports standard_conforming_strings=off.
@@ -105,7 +106,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		c.logger.Info("not setting wal_sender_timeout")
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.cloudSQLDialer, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, walSenderTimeout{}, fmt.Errorf("failed to create replication connection: %w", err)
@@ -337,6 +338,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get setting for fastProcessJsonColumns: %w", err)
 	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -353,6 +358,8 @@ func pullCore[Items model.Items](
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
+		Flags:                                    req.Flags,
+		NativeJSONEnabled:                        nativeJSONEnabled,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))
@@ -721,6 +728,7 @@ func (c *PostgresConnector) EnsurePullability(
 func (c *PostgresConnector) ExportTxSnapshot(
 	ctx context.Context,
 	_ string,
+	_ []*protos.TableMapping,
 	env map[string]string,
 ) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
@@ -1072,7 +1080,8 @@ func getOpenReplicationConnectionsForUser(ctx context.Context, conn *pgx.Conn, u
 	}, nil
 }
 
-func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
+// AddTablesToReplication adds the tables to the mirror's publication, if PeerDB manages it.
+func (c *PostgresConnector) AddTablesToReplication(ctx context.Context, req *protos.AddTablesToReplicationInput) error {
 	if req == nil || len(req.AdditionalTables) == 0 {
 		return nil
 	}

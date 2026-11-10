@@ -178,13 +178,13 @@ function CDCCheck(
     config.replicationSlotName = '';
   }
 
-  if (config.initialSnapshotOnly) {
-    // Snapshot-only mirrors never take the query CDC path; keep them off it
-    config.bigqueryCdcConfig = undefined;
-  }
+  // Snapshot-only mirrors never take the query CDC path. Validate against a
+  // copy so toggling Initial Copy Only back off keeps the user's BigQuery config.
   const bigqueryErr = validateBigQueryCDC(
     config.tableMappings,
-    config,
+    config.initialSnapshotOnly
+      ? { ...config, bigqueryCdcConfig: undefined }
+      : config,
     destinationType
   );
   if (bigqueryErr) {
@@ -274,6 +274,7 @@ function reformattedTableMapping(tableMapping: TableMapRow[]): TableMapping[] {
       bigqueryCdcEventsFunction: row.bigqueryCdcEventsFunction,
       queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
       structuredIngestionConfig: row.structuredIngestionConfig,
+      mongoConfig: row.mongoConfig,
     }));
 }
 
@@ -314,12 +315,17 @@ export function changesToTablesMapping(
           bigqueryCdcEventsFunction: row.bigqueryCdcEventsFunction,
           queryCdcWatermarkColumn: row.queryCdcWatermarkColumn,
           structuredIngestionConfig: row.structuredIngestionConfig,
+          mongoConfig: row.mongoConfig,
         }) as TableMapping
     );
   return mapping;
 }
 
 function processCDCConfig(a: CDCConfig): FlowConnectionConfigs {
+  if (a.initialSnapshotOnly && a.bigqueryCdcConfig) {
+    // Keep snapshot-only mirrors off the query CDC path without mutating state
+    a = { ...a, bigqueryCdcConfig: undefined };
+  }
   if (a.disablePeerDBColumns) {
     a.softDeleteColName = '';
     a.syncedAtColName = '';
@@ -548,6 +554,7 @@ export async function fetchTables(
         hasPrimaryKeyOrReplicaIdentity:
           tableObject.hasPrimaryKeyOrReplicaIdentity,
         structuredIngestionConfig: undefined,
+        mongoConfig: undefined,
       });
     }
   }

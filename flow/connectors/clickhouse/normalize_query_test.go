@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -53,16 +54,92 @@ func TestBuildQueryNullableDestinationTypeOverride(t *testing.T) {
 	require.NotContains(t, query, "Nullable(Nullable(")
 }
 
+// TestBuildQueryTimestampArrays checks timestamp arrays with Nullable elements, as structured ingestion
+// declares them, take the clamped best-effort parsing of Array(DateTime64(6)): their elements are stored
+// in the raw data as RFC 3339 strings, which a plain JSONExtract into the array type fails to parse on
+// older ClickHouse versions, and does not clamp on newer ones.
+func TestBuildQueryTimestampArrays(t *testing.T) {
+	schema := &protos.TableSchema{
+		TableIdentifier:   "src.t1",
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		NullableEnabled:   true,
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindString), TypeModifier: -1},
+			{Name: "visits", Type: string(types.QValueKindArrayTimestamp), TypeModifier: -1, Nullable: true},
+		},
+	}
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "src.t1",
+		DestinationTableIdentifier: "t1_dst",
+		Columns:                    []*protos.ColumnSetting{{SourceName: "visits", DestinationType: "Array(Nullable(DateTime64(6)))"}},
+	}
+
+	query, err := NewNormalizeQueryGenerator(
+		"t1_dst",
+		map[string]*protos.TableSchema{"t1_dst": schema},
+		[]*protos.TableMapping{tableMapping},
+		1, 0,
+		false, false,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+	).BuildQuery(t.Context())
+	require.NoError(t, err)
+
+	require.Contains(t, query, `arrayMap(x -> `+clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')")+
+		`,JSONExtract(_peerdb_data,'visits','Array(String)')) AS `+"`visits`")
+	require.NotContains(t, query, `'Array(Nullable(DateTime64(6)))'`)
+}
+
+// TestBuildQueryArrayOfJSON checks arrays of JSON, stored in the raw data as a string holding the whole
+// array, are parsed from that string.
+// Extracting the array type straight from the field yields [].
+func TestBuildQueryArrayOfJSON(t *testing.T) {
+	schema := &protos.TableSchema{
+		TableIdentifier:   "src.t1",
+		PrimaryKeyColumns: []string{"id"},
+		System:            protos.TypeSystem_Q,
+		NullableEnabled:   true,
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindString), TypeModifier: -1},
+			{Name: "docs", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
+			{Name: "docs_strict", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
+		},
+	}
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "src.t1",
+		DestinationTableIdentifier: "t1_dst",
+		Columns: []*protos.ColumnSetting{
+			{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
+			{SourceName: "docs_strict", DestinationType: "Array(JSON)"},
+		},
+	}
+
+	query, err := NewNormalizeQueryGenerator(
+		"t1_dst",
+		map[string]*protos.TableSchema{"t1_dst": schema},
+		[]*protos.TableMapping{tableMapping},
+		1, 0,
+		false, false,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+	).BuildQuery(t.Context())
+	require.NoError(t, err)
+
+	require.Contains(t, query,
+		`JSONExtract(JSONExtractString(_peerdb_data, 'docs'), 'Array(Nullable(JSON))') AS `+"`docs`")
+	require.Contains(t, query,
+		`JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(JSON)') AS `+"`docs_strict`")
+}
+
 // TestBuildQueryNullableJSON checks the projection for native JSON columns.
-// JSONExtractString yields `""` both for a JSON null and for a missing field so `"" ::JSON` errors.
+// JSONExtractString yields `""` both for a SQL NULL and for a missing field, and casting `""` to JSON errors.
 // Nullable(JSON) column has to route `""` to NULL.
-// A non-nullable JSON column keeps the plain ::JSON cast.
+// A non-nullable JSON column writes {} for it instead.
 func TestBuildQueryNullableJSON(t *testing.T) {
 	const (
 		nullableProjection = `CAST(nullIf(JSONExtractString(_peerdb_data, 'payload'), ''), 'Nullable(JSON)') AS ` + "`payload`"
 		nullableUpdate     = `CAST(nullIf(JSONExtractString(_peerdb_match_data, 'payload'), ''), 'Nullable(JSON)') AS ` + "`payload`"
-		plainProjection    = `JSONExtractString(_peerdb_data, 'payload')::JSON AS ` + "`payload`"
-		plainUpdate        = `JSONExtractString(_peerdb_match_data, 'payload')::JSON AS ` + "`payload`"
+		plainProjection    = `CAST(ifNull(nullIf(JSONExtractString(_peerdb_data, 'payload'), ''), '{}'), 'JSON') AS ` + "`payload`"
+		plainUpdate        = `CAST(ifNull(nullIf(JSONExtractString(_peerdb_match_data, 'payload'), ''), '{}'), 'JSON') AS ` + "`payload`"
 	)
 	// ClickHouse 25.8 supports the native JSON type
 	chVersion := &chproto.Version{Major: 25, Minor: 8}
@@ -108,6 +185,8 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		query := build(t, newSchema(true), newMapping(""), false, jsonEnabled)
 		require.Contains(t, query, nullableProjection)
 		require.NotContains(t, query, "::JSON")
+		// the classifier relies on Exec recognizing these casts
+		require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 	})
 
 	t.Run("nullable JSON column via type mapping with primary update", func(t *testing.T) {
@@ -131,11 +210,12 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		require.NotContains(t, query, "Nullable(Nullable(")
 	})
 
-	t.Run("non-nullable JSON column keeps plain cast", func(t *testing.T) {
+	t.Run("non-nullable JSON column writes {} on empty", func(t *testing.T) {
 		query := build(t, newSchema(false), newMapping(""), true, jsonEnabled)
 		require.Contains(t, query, plainProjection)
 		require.Contains(t, query, plainUpdate)
 		require.NotContains(t, query, "Nullable(JSON)")
+		require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 
 		query = build(t, newSchema(false), newMapping("JSON"), true, nil)
 		require.Contains(t, query, plainProjection)

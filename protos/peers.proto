@@ -71,6 +71,12 @@ enum ReadPreference {
   NEAREST = 5;
 }
 
+enum MongoAuthType {
+  MONGO_PASSWORD = 0;
+  // MONGODB-AWS login with credentials from aws_auth, as supported by Amazon DocumentDB.
+  MONGO_IAM_AUTH = 1;
+}
+
 message MongoConfig {
   // can be a mongodb:// URI mapping to discrete hosts or a mongodb+srv:// URI
   // mapping to a DNS SRV record.
@@ -83,6 +89,8 @@ message MongoConfig {
   ReadPreference read_preference = 7;
   optional SSHConfig ssh_config = 8;
   bool skip_cert_verification = 9;
+  MongoAuthType auth_type = 10;
+  optional AwsAuthenticationConfig aws_auth = 11;
 }
 
 message AwsAuthStaticCredentialsConfig {
@@ -113,6 +121,7 @@ message AwsAuthenticationConfig {
 enum PostgresAuthType {
   POSTGRES_PASSWORD = 0;
   POSTGRES_IAM_AUTH = 1;
+  POSTGRES_GCP_CLOUD_SQL_IAM_AUTH = 2;
 }
 
 message ClientTlsConfig {
@@ -236,6 +245,7 @@ enum MySqlReplicationMechanism {
 enum MySqlAuthType {
   MYSQL_PASSWORD = 0;
   MYSQL_IAM_AUTH = 1;
+  MYSQL_GCP_CLOUD_SQL_IAM_AUTH = 2;
 }
 message MySqlConfig {
   string host = 1;

@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 // s3StagingStore implements StagingStore for AWS S3 (and S3-compatible services).
@@ -36,7 +37,7 @@ func newS3StagingStore(
 	ctx context.Context,
 	config *protos.ClickhouseConfig,
 	unifiedBucketName string,
-	chVersion clickhouseproto.Version,
+	chVersion *clickhouseproto.Version, // nil when the server version is unknown, skips version checks
 ) (StagingStore, error) {
 	var awsConfig utils.PeerAWSCredentials
 	var awsBucketPath string
@@ -76,14 +77,14 @@ func newS3StagingStore(
 	if err != nil {
 		return nil, err
 	}
-	if credentials.AWS.SessionToken != "" {
+	if credentials.AWS.SessionToken != "" && chVersion != nil {
 		if !clickhouseproto.CheckMinVersion(
 			clickhouseproto.Version{Major: 24, Minor: 3, Patch: 1},
-			chVersion,
+			*chVersion,
 		) {
 			return nil, fmt.Errorf(
 				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				chVersion,
+				*chVersion,
 				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
 		}
 	}
@@ -129,7 +130,7 @@ func (s *s3StagingStore) Upload(ctx context.Context, env map[string]string, key 
 		}
 		s3Path := "s3://" + s.bucket + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
-		return fmt.Errorf("failed to upload file to S3: %w", err)
+		return exceptions.NewS3Error(fmt.Errorf("failed to upload file to S3: %w", err))
 	}
 
 	logger.Info("finished S3 upload", slog.String("key", key))

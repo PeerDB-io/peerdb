@@ -91,6 +91,7 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.idleTimeoutSeconds || defaultIdleTimeout,
     additionalTables: [],
     removedTables: [],
+    resyncTables: [],
     updatedEnv: {},
     removedEnv: [],
     snapshotNumRowsPerPartition:
@@ -118,6 +119,8 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
           maxQueryWindowSeconds:
             res.cdcStatus.config.bigqueryCdcConfig.queryCdc
               ?.maxQueryWindowSeconds ?? 0,
+          syncCron:
+            res.cdcStatus.config.bigqueryCdcConfig.queryCdc?.syncCron ?? '',
         }
       : undefined,
   };
@@ -438,6 +441,7 @@ export default function EditMirror({
 
       <TablePicker
         sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
+        sourceType={mirrorState.cdcStatus?.sourceType}
         peerType={mirrorState.cdcStatus?.destinationType}
         bigqueryReplicationMethod={
           mirrorState.cdcStatus?.config?.bigqueryCdcConfig

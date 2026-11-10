@@ -118,13 +118,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	schema := t.tableNameSchemaMapping[t.TableName]
 
-	var tableMapping *protos.TableMapping
-	for _, tm := range t.tableMappings {
-		if tm.DestinationTableIdentifier == t.TableName {
-			tableMapping = tm
-			break
-		}
-	}
+	tableMapping := findTableMappingByDestination(t.tableMappings, t.TableName)
 
 	var escapedSourceSchemaSelectorFragment string
 	if t.sourceSchemaAsDestinationColumn {
@@ -138,41 +132,16 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	for _, column := range schema.Columns {
 		colName := column.Name
-		dstColName := colName
 		colType := types.QValueKind(column.Type)
-
-		var clickHouseType string
-		var columnNullableEnabled bool
-		if tableMapping != nil {
-			for _, col := range tableMapping.Columns {
-				if col.SourceName == colName {
-					if col.DestinationName != "" {
-						dstColName = col.DestinationName
-					}
-					if col.DestinationType != "" {
-						// TODO basic validation to avoid injection
-						clickHouseType = col.DestinationType
-					}
-					columnNullableEnabled = col.NullableEnabled
-					break
-				}
-			}
-		}
+		colSetting := findColumnSetting(colName, tableMapping.GetColumns())
+		dstColName := resolveDestinationColumnName(colName, tableMapping.GetColumns())
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
-		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled, t.flags,
-			)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-			}
-		} else if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() &&
-			!strings.HasPrefix(clickHouseType, "Nullable(") {
-			// mirror the table DDL: a nullable-enabled column created as Nullable(...) must also be
-			// extracted as Nullable(...), or JSON nulls turn into the type's default value
-			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+		clickHouseType, err := resolveClickHouseColumnType(
+			ctx, column, colSetting, schema.NullableEnabled, t.env, t.chVersion, t.flags,
+		)
+		if err != nil {
+			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
 
 		switch clickHouseType {
@@ -236,7 +205,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					)
 				}
 			}
-		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
+		case "Array(DateTime64(6))", "Array(Nullable(DateTime64(6)))", "Nullable(Array(DateTime64(6)))":
 			if colType == types.QValueKindArrayTime {
 				// Array-of-TIME shares ClickHouse's Array(DateTime64(6)) representation with
 				// Array-of-TIMESTAMP, so it needs the same extended-time parsing as the
@@ -273,15 +242,35 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				}
 			}
 		case "JSON":
+			// JSONExtractString yields '' both for a SQL NULL and for a missing field, and casting '' with
+			// ::JSON raises; every other type lands as its zero value on NULL, so write {} instead.
 			fmt.Fprintf(&projection,
-				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
+				"CAST(ifNull(nullIf(JSONExtractString(_peerdb_data, %s), ''), '{}'), 'JSON') AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
+					"CAST(ifNull(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), '{}'), 'JSON') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+		case "Array(JSON)", "Array(Nullable(JSON))":
+			// Arrays of JSON are stored in the raw data as a string holding the whole array.
+			// Extracting the array type straight from the field would find a string and yield [].
+			// A missing field or a JSON null extracts as '', so as the empty array.
+			fmt.Fprintf(&projection,
+				"JSONExtract(JSONExtractString(_peerdb_data, %s), %s) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteLiteral(clickHouseType),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"JSONExtract(JSONExtractString(_peerdb_match_data, %s), %s) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteLiteral(clickHouseType),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}

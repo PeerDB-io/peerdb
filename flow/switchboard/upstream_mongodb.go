@@ -39,7 +39,7 @@ type MongoUpstream struct {
 
 // NewMongoUpstream creates a new MongoDB upstream connection
 func NewMongoUpstream(ctx context.Context, config *protos.MongoConfig, database string) (*MongoUpstream, error) {
-	conn, err := connmongo.NewMongoConnector(ctx, config)
+	conn, err := connmongo.NewMongoConnector(ctx, nil, config)
 	if err != nil {
 		return nil, err
 	}

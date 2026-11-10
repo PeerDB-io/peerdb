@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -14,7 +15,6 @@ type CDCStream[T Items] struct {
 	emptySignal chan struct{}
 	records     chan Record[T]
 
-	firstRowReceivedAt time.Time
 	firstRowCommitTime time.Time
 
 	// lastCheckpointText is used for mysql GTID and MongoDB ResumeToken
@@ -22,12 +22,11 @@ type CDCStream[T Items] struct {
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
-	lastCheckpointID  int64
-	lastCheckpointSet bool
-	needsNormalize    bool
-	empty             bool
-	emptySet          bool
-	firstRowSet       bool
+	lastCheckpointID int64
+	// atomic since sources that buffer rows may set it from their read goroutine, see MarkFirstRowReceived
+	firstRowReceivedAtNano atomic.Int64
+	lastCheckpointSet      bool
+	firstRowSet            bool
 }
 
 type CdcCheckpoint struct {
@@ -42,10 +41,7 @@ func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 		emptySignal:        make(chan struct{}),
 		lastCheckpointID:   0,
 		lastCheckpointText: "",
-		needsNormalize:     false,
 		lastCheckpointSet:  false,
-		empty:              true,
-		emptySet:           false,
 	}
 }
 
@@ -65,15 +61,13 @@ func (r *CDCStream[T]) GetLastCheckpoint() CdcCheckpoint {
 }
 
 func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
-	if !r.needsNormalize {
+	if !r.firstRowSet {
 		switch record.(type) {
 		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
-			r.needsNormalize = true
-			if !r.firstRowSet {
-				r.firstRowSet = true
-				r.firstRowReceivedAt = time.Now().UTC()
-				r.firstRowCommitTime = record.GetCommitTime().UTC()
-			}
+			r.firstRowSet = true
+			r.MarkFirstRowReceived(time.Now()) // no-op if the source already marked it at read time
+			r.firstRowCommitTime = record.GetCommitTime().UTC()
+			r.markEmptySignalReady()
 		}
 	}
 
@@ -101,30 +95,23 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 	}
 }
 
-func (r *CDCStream[T]) SignalAsEmpty() {
-	r.emptySet = true
-	close(r.emptySignal)
-}
-
-func (r *CDCStream[T]) SignalAsNotEmpty() {
-	r.empty = false
-	r.emptySet = true
-	close(r.emptySignal)
+// MarkFirstRowReceived records when the first row was read from the source. Sources that buffer
+// rows before calling AddRecord (e.g. MongoDB's parallel decode) call it at read time, so destination
+// lag doesn't miss time spent in the buffer. Only the first call takes effect.
+func (r *CDCStream[T]) MarkFirstRowReceived(t time.Time) {
+	r.firstRowReceivedAtNano.CompareAndSwap(0, t.UnixNano())
 }
 
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
 	<-r.emptySignal
-	return r.empty
+	return !r.firstRowSet
 }
 
 func (r *CDCStream[T]) Close() {
 	if !r.lastCheckpointSet {
 		r.lastCheckpointSet = true
 		close(r.records)
-		if !r.emptySet {
-			r.emptySet = true
-			close(r.emptySignal)
-		}
+		r.markEmptySignalReady()
 	}
 }
 
@@ -144,11 +131,19 @@ func (r *CDCStream[T]) AddSchemaDelta(
 }
 
 func (r *CDCStream[T]) NeedsNormalize() bool {
-	return r.needsNormalize
+	return r.firstRowSet
 }
 
 // FirstRowTimes returns the received/commit timestamps of the batch's first row event.
 // ok is false if the batch had no row events (e.g. schema-delta-only batch).
 func (r *CDCStream[T]) FirstRowTimes() (time.Time, time.Time, bool) {
-	return r.firstRowReceivedAt, r.firstRowCommitTime, r.firstRowSet
+	return time.Unix(0, r.firstRowReceivedAtNano.Load()).UTC(), r.firstRowCommitTime, r.firstRowSet
+}
+
+func (r *CDCStream[T]) markEmptySignalReady() {
+	select {
+	case <-r.emptySignal:
+	default:
+		close(r.emptySignal)
+	}
 }

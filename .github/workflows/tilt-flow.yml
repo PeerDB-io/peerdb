@@ -162,6 +162,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
+  # Tells the Tiltfile to skip services the tests don't use (nexus, UI).
+  PEERDB_CI: "1"
   # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
   TILT_PORT: "10352"
   # Pin Tilt for reproducible runs (matches the version used locally).
@@ -169,7 +171,7 @@ env:
   # Don't phone home from CI.
   DO_NOT_TRACK: "1"
   # How many times to (re)load an unhealthy core PeerDB service before giving up.
-  # Core services like flow-api/peerdb occasionally fail to initialize on a cold
+  # Core services like flow-api occasionally fail to initialize on a cold
   # start; reloading the individual resource recovers them. Bump this if the
   # runner is flaky.
   CORE_SERVICE_RECOVERY_ATTEMPTS: "3"
@@ -208,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest-64-core
     timeout-minutes: 60
     steps:
-      - uses: Kesin11/actions-timeline@57fc93f20c6da7fbc14063c6d24a2a5627c799ad # v3.2.0
+      - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1
         with:
           expand-composite-actions: true
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -233,7 +235,7 @@ jobs:
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -293,18 +295,32 @@ jobs:
           set -euo pipefail
           # `tilt up` serves the control API and runs until torn down, so launch
           # it in the background and drive it via the CLI in later steps.
-          nohup tilt up --port "$TILT_PORT" --stream=true > "$RUNNER_TEMP/tilt-up.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/tilt.pid"
+          # Retain timestamped startup output until initialization finishes.
+          rm -f "$RUNNER_TEMP/tilt-startup-complete"
+          nohup bash -o pipefail -c '
+            export TZ=UTC
+            tilt up --port "$TILT_PORT" --stream=true --log-source=all 2>&1 |
+              while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ -e "$RUNNER_TEMP/tilt-startup-complete" ]]; then
+                  # Keep draining so Tilt cannot block or get a broken pipe.
+                  cat >/dev/null
+                  break
+                fi
+                printf "[%(%Y-%m-%dT%H:%M:%SZ)T] %s\n" -1 "$line"
+              done
+          ' > "$RUNNER_TEMP/tilt-startup.log" 2>&1 &
 
           echo "Waiting for the Tilt API to come up..."
+          # `tilt wait` fails immediately on a missing resource, so wait for the
+          # (Tiltfile) resource itself rather than just a reachable API.
           for i in $(seq 1 60); do
-            if tilt --port "$TILT_PORT" get uiresource >/dev/null 2>&1; then
+            if tilt --port "$TILT_PORT" get uiresource "(Tiltfile)" >/dev/null 2>&1; then
               echo "Tilt API is reachable."
               break
             fi
             if [ "$i" -eq 60 ]; then
-              echo "::error::Tilt API did not become reachable."
-              cat "$RUNNER_TEMP/tilt-up.log" || true
+              echo "::error::Tilt API did not become reachable or the Tiltfile resource was not registered."
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
               exit 1
             fi
             sleep 2
@@ -313,7 +329,7 @@ jobs:
           echo "Waiting for the Tiltfile evaluation to complete..."
           if ! tilt --port "$TILT_PORT" wait --for=condition=Ready "uiresource/(Tiltfile)" --timeout=300s; then
             echo "::error::Tiltfile evaluation did not complete."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
+            cat "$RUNNER_TEMP/tilt-startup.log" || true
             exit 1
           fi
 
@@ -366,19 +382,22 @@ jobs:
           echo "All requested ancillary services are up and running."
 
       # Bring up the core PeerDB services, recovering any that fail to
-      # initialize on the first attempt. Core services (e.g. flow-api, peerdb)
+      # initialize on the first attempt. Core services (e.g. flow-api, flow-worker)
       # occasionally come up unhealthy on a cold start; when that happens we
       # reload the individual resource with `tilt trigger` and wait again, up to
       # CORE_SERVICE_RECOVERY_ATTEMPTS times before failing the run.
       - name: Bring up core PeerDB services (with recovery)
+        # Bound startup separately so stalled dependencies cannot consume the
+        # entire job budget, and leave time for diagnostics and artifact upload.
+        timeout-minutes: 5
         run: |
           set -uo pipefail
 
           # Main PeerDB services that must be healthy before tests run. proto-gen
           # feeds the image builds; flow-migrate applies the catalog schema;
           # catalog/flow-api/flow-worker/flow-snapshot-worker back the
-          # suites; peerdb and minio support peer setup and S3 staging.
-          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker peerdb minio"
+          # suites; minio supports S3 staging.
+          MAIN_SERVICES="proto-gen catalog flow-migrate flow-api flow-worker flow-snapshot-worker minio"
           # Per-attempt wait budget (generous, since flow images are built here).
           PER_ATTEMPT_TIMEOUT=600
 
@@ -438,17 +457,28 @@ jobs:
             return 1
           }
 
-          rc=0
           for res in $MAIN_SERVICES; do
-            wait_or_recover "$res" || rc=1
+            # All of these services are required. In particular, the API and
+            # workers cannot start after flow-migrate has failed.
+            if ! wait_or_recover "$res"; then
+              echo "::error::Required core service $res could not be recovered; stopping startup."
+              cat "$RUNNER_TEMP/tilt-startup.log" || true
+              exit 1
+            fi
           done
-
-          if [ "$rc" -ne 0 ]; then
-            echo "::error::One or more core PeerDB services could not be recovered."
-            cat "$RUNNER_TEMP/tilt-up.log" || true
-            exit 1
-          fi
           echo "Core PeerDB services are up."
+
+      - name: Stop capturing Tilt startup logs
+        if: always()
+        run: touch "$RUNNER_TEMP/tilt-startup-complete"
+
+      - name: Upload Tilt startup log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tilt-startup-${{ steps.run-identity.outputs.suffix }}
+          path: ${{ runner.temp }}/tilt-startup.log
+          retention-days: 30
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
@@ -457,28 +487,58 @@ jobs:
       # GCP service account, Snowflake, GCS, EventHubs).
       - name: setup gcp service account
         id: gcp-service-account
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
+      - name: Configure Cloud SQL IAM smoke test
+        env:
+          # instance connection names: the Cloud SQL connector resolves the instance, its IP and its server CA itself
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES: "custom-program-353117:us-central1:db-integrations-testing-peerdb"
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES: "github-ci@custom-program-353117.iam"
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL: "custom-program-353117:us-central1:db-integrations-testing-peerdb-mysql"
+          # MySQL IAM users are the service account email without @project.iam.gserviceaccount.com
+          FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL: "github-ci"
+        run: |
+          credentials_file="${{ github.workspace }}/bq_service_account.json"
+          if ! jq -e '
+            .client_email == "github-ci@custom-program-353117.iam.gserviceaccount.com" and
+            (.auth_type // .type) == "service_account" and
+            ([.project_id, .private_key_id, .private_key, .token_uri] | all(type == "string" and length > 0))
+          ' "$credentials_file" >/dev/null; then
+            echo "::error::GCP_GH_CI_PKEY must contain complete service account credentials for github-ci."
+            exit 1
+          fi
+          umask 077
+          adc_file="$RUNNER_TEMP/cloudsql-github-ci-adc.json"
+          jq '. + {type: "service_account"}' "$credentials_file" > "$adc_file"
+
+          {
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_POSTGRES"
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_POSTGRES"
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_HOST_MYSQL"
+            echo "FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL=$FLOW_TESTS_CLOUDSQL_IAM_AUTH_USERNAME_MYSQL"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$adc_file"
+          } >> "$GITHUB_ENV"
+
       - name: setup snowflake credentials
         id: sf-credentials
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
       - name: setup GCS credentials
         id: gcs-credentials
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
         with:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
       - name: setup Eventhubs credentials
         id: eventhubs-credentials
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
+        uses: jsdaniell/create-json@938ec496e0f6d88bccb05409cbc40a23a7697337 # v1.2.4
         with:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
@@ -487,7 +547,7 @@ jobs:
       # role tests, assumed via OIDC. The tests read them as
       # FLOW_TESTS_RDS_IAM_AUTH_AWS_* / FLOW_TESTS_AWS_*
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -506,11 +566,16 @@ jobs:
           sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- "$RUNNER_TEMP/aws-global-bundle.pem" '/-----BEGIN CERTIFICATE-----/' '{*}'
           sudo update-ca-certificates
 
+      - name: Select tests
+        env:
+          TEST_PACKAGES: ${{ inputs.test_packages }}
+          PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
+        run: bash .github/scripts/select-flow-tests.sh
+
       # Run selected Tilt-tagged tests on the host against Tilt.
       - name: Run tests
         working-directory: ./flow
         env:
-          TEST_PACKAGES: ${{ inputs.test_packages }}
           PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
@@ -569,90 +634,45 @@ jobs:
           coverdir="$RUNNER_TEMP/gocoverdir"
           mkdir -p "$coverdir" ../logs
 
+          selectiondir="$RUNNER_TEMP/test-selection"
           COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
           COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
 
-          # Log durations to be able to profile this step of CI
-          time_selection() {
-            local label="$1"
-            shift
-            local TIMEFORMAT="selection $label: %3R s"
-            time "$@"
-          }
-
-          # Print the top-level Test* names for one package. A failed list is a
-          # compile failure and must fail the job instead of dropping the package.
-          list_tests() {
-            local pkg="$1" output
-            shift
-            output=$(time_selection "go test -list $pkg $*" go test -list '.' "$@" "$pkg") || {
-              printf '%s\n' "$output" >&2
-              return 1
-            }
-            printf '%s\n' "$output" | awk '/^Test/ {print $1}' | sort -u
-          }
-
-          # Tests added by the tilt build tag need the Tilt-provided services.
-          tilt_only() {
-            local pkg="$1" base tagged rc untagged_tests
-            shift
-            # A package with only tagged test files has no untagged test binary.
-            untagged_tests=$(time_selection "go list untagged test files $pkg" go list -e -f '{{if or .TestGoFiles .XTestGoFiles}}yes{{end}}' "$pkg") || return 1
-            base=$(mktemp)
-            tagged=$(mktemp)
-            rc=0
-            if [ -n "$untagged_tests" ]; then
-              list_tests "$pkg" "$@" > "$base"
-              rc=$?
-            fi
-            if [ "$rc" -eq 0 ]; then
-              list_tests "$pkg" -tags tilt "$@" > "$tagged"
-              rc=$?
-            fi
-            if [ "$rc" -eq 0 ]; then
-              comm -13 "$base" "$tagged"
-            fi
-            rm -f "$base" "$tagged"
-            return "$rc"
-          }
-
           run_selected_tests() {
-            local label="$1" patterns="$2" junitfile="$3" timeout="$4"
-            shift 4
-            local pkg expanded p sel name regex
+            local label="$1" junitfile="$2" timeout="$3"
+            shift 3
+            local package test_name regex previous_package=''
             local names=() pkgs=()
 
-            for pkg in $patterns; do
-              expanded=$(time_selection "go list $pkg" go list -tags tilt "$pkg") || return 1
-              for p in $expanded; do
-                sel=$(tilt_only "$p" "$@") || return 1
-                if [ -n "$sel" ]; then
-                  while IFS= read -r name; do names+=("$name"); done <<< "$sel"
-                  pkgs+=("$p")
-                fi
-              done
-            done
+            # Selection rows are sorted by package, so adjacent rows share
+            # one package entry in the go test arguments.
+            while IFS=$'\t' read -r package test_name; do
+              names+=("$test_name")
+              if [ "$package" != "$previous_package" ]; then
+                pkgs+=("$package")
+                previous_package="$package"
+              fi
+            done < "$selectiondir/$label-selected.tsv" || return 1
             if [ ${#pkgs[@]} -eq 0 ]; then
               echo "$label selection: 0 packages"
               return 0
             fi
             regex="^($(printf '%s\n' "${names[@]}" | sort -u | paste -sd'|' -))$"
             echo "$label selection: ${#pkgs[@]} packages, $(printf '%s\n' "${names[@]}" | sort -u | wc -l) tests"
-            for p in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$p"; done
+            for package in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$package"; done
             gotestsum --format standard-quiet --no-color --junitfile "$junitfile" -- \
               -tags tilt "$@" -p 32 "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
               -args -test.gocoverdir="$coverdir"
           }
 
-          // Implements test selection for e2e and integration packages using the patterns passed as the job input
-          run_selected_tests flow "$TEST_PACKAGES" ../logs/test-results.xml 1200s "${COVERFLAGS_FLOW[@]}"
+          run_selected_tests flow ../logs/test-results.xml 1200s "${COVERFLAGS_FLOW[@]}"
           flow_rc=$?
 
           pkg_rc=0
           if [ -n "$PKG_TEST_PACKAGES" ]; then
             (
               cd pkg || exit 1
-              run_selected_tests pkg "$PKG_TEST_PACKAGES" ../../logs/pkg-test-results.xml 300s "${COVERFLAGS_PKG[@]}"
+              run_selected_tests pkg ../../logs/pkg-test-results.xml 300s "${COVERFLAGS_PKG[@]}"
             )
             pkg_rc=$?
           fi
@@ -702,7 +722,7 @@ jobs:
 
       - name: Upload logs and test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tilt-flow-logs-${{ steps.run-identity.outputs.suffix }}
           path: |

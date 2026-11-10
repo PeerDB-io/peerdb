@@ -4,12 +4,62 @@ import (
 	"testing"
 
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+// TestWrapNonObjectJSONResolvesDomains checks that a domain over json/jsonb wraps like its base type, as
+// the decoder resolves it to that type, while other columns and domains never wrap.
+func TestWrapNonObjectJSONResolvesDomains(t *testing.T) {
+	t.Parallel()
+
+	const jsonbDomainOID, textDomainOID uint32 = 70001, 70002
+	customTypes := map[uint32]pkg_pg.CustomDataType{
+		jsonbDomainOID: {Name: "jdoc", BaseOID: pgtype.JSONBOID},
+		textDomainOID:  {Name: "tdoc", BaseOID: pgtype.TextOID},
+	}
+	flags := []string{shared.Flag_ClickHouseJSONSupported}
+	version := shared.InternalVersion_Latest
+
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBOID, "j", customTypes, flags, version, true, nil))
+	require.True(t, shouldWrapJSONColumn(jsonbDomainOID, "j", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(textDomainOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.TextOID, "t", customTypes, flags, version, true, nil))
+	require.False(t, shouldWrapJSONColumn(jsonbDomainOID, "j", nil, flags, version, true, nil))
+}
+
+// TestShouldWrapNonObjectJSONArrays checks that json[]/jsonb[] columns take the array gate: their elements wrap
+// for an explicit Array(JSON) or Array(Nullable(JSON)) destination type from InternalVersion_WrapJSONArrayElements
+// on, and never without one, as the column is then a String.
+func TestShouldWrapNonObjectJSONArrays(t *testing.T) {
+	t.Parallel()
+
+	flags := []string{shared.Flag_ClickHouseJSONSupported}
+	latest := shared.InternalVersion_Latest
+	before := shared.InternalVersion_WrapJSONArrayElements - 1
+	arrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(JSON)"}}
+	nullableArrayOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "Array(Nullable(JSON))"}}
+	stringOverride := []*protos.ColumnSetting{{SourceName: "j", DestinationType: "String"}}
+
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONArrayOID, "j", nil, flags, latest, true, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, arrayOverride))
+	require.True(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, false, nullableArrayOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, before, true, arrayOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, nil))
+	require.False(t, shouldWrapJSONColumn(pgtype.JSONBArrayOID, "j", nil, flags, latest, true, stringOverride))
+	require.False(t, shouldWrapJSONColumn(pgtype.TextArrayOID, "j", nil, flags, latest, true, arrayOverride))
+	// a domain over jsonb[] is left alone: the snapshot path reads it as text
+	const jsonbArrayDomainOID uint32 = 70003
+	domains := map[uint32]pkg_pg.CustomDataType{jsonbArrayDomainOID: {Name: "jdocs", BaseOID: pgtype.JSONBArrayOID}}
+	require.False(t, shouldWrapJSONColumn(jsonbArrayDomainOID, "j", domains, flags, latest, true, arrayOverride))
+}
 
 func newTestCDCSource(t *testing.T) *PostgresCDCSource {
 	t.Helper()
@@ -44,10 +94,11 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name  string
-		value string
-		qkind types.QValueKind
-		want  string
+		name              string
+		value             string
+		qkind             types.QValueKind
+		want              string
+		wrapNonObjectJSON bool
 	}{
 		{name: "int", value: "5", qkind: types.QValueKindInt32, want: "5"},
 		{name: "int negative", value: "-1", qkind: types.QValueKindInt32, want: "-1"},
@@ -83,6 +134,24 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 			want: "'00000000-0000-0000-0000-000000000001'",
 		},
 		{name: "jsonb", value: `{"a": 1}`, qkind: types.QValueKindJSONB, want: `'{"a": 1}'`},
+		{name: "jsonb scalar", value: `"dark"`, qkind: types.QValueKindJSONB, want: `'"dark"'`},
+		// native JSON on: non-objects are wrapped, objects are not
+		{
+			name: "jsonb object wrapped", value: `{"a": 1}`, qkind: types.QValueKindJSONB,
+			wrapNonObjectJSON: true, want: `'{"a": 1}'`,
+		},
+		{
+			name: "jsonb scalar wrapped", value: `"dark"`, qkind: types.QValueKindJSONB,
+			wrapNonObjectJSON: true, want: `'{"_value":"dark"}'`,
+		},
+		{
+			name: "json array wrapped", value: `[1, 2]`, qkind: types.QValueKindJSON,
+			wrapNonObjectJSON: true, want: `'{"_value":[1, 2]}'`,
+		},
+		{
+			name: "text not wrapped", value: `"dark"`, qkind: types.QValueKindString,
+			wrapNonObjectJSON: true, want: `'"dark"'`,
+		},
 		{
 			name: "hstore canonicalized", value: `{"z": "<&>", "a": null}`,
 			qkind: types.QValueKindHStore, want: `'{"a":null,"z":"\\u003c\\u0026\\u003e"}'`,
@@ -120,7 +189,7 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind)
+			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind, tc.wrapNonObjectJSON)
 			require.Equal(t, tc.want != "", ok)
 			require.Equal(t, tc.want, literal)
 		})

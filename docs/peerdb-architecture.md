@@ -2,14 +2,14 @@
 
 **Status**: Living Document
 **Authors**: Platform Architecture Team
-**Date**: 2026-03-16
+**Date**: 2026-10-20
 **Audience**: All engineers, new hires, cross-functional stakeholders
 
 ---
 
 ## 1. Executive Summary
 
-PeerDB is a distributed ETL/ELT system purpose-built for streaming data from transactional databases (PostgreSQL, MySQL, MongoDB) to analytical destinations (Snowflake, BigQuery, ClickHouse, S3, Kafka, Elasticsearch, and more). It provides Change Data Capture (CDC), Query Replication (QRep), and initial snapshot capabilities, orchestrated through Temporal workflows and exposed via a PostgreSQL-compatible SQL interface.
+PeerDB is a distributed ETL/ELT system purpose-built for streaming data from transactional databases (PostgreSQL, MySQL, MongoDB, CockroachDB) to analytical destinations. The actively maintained destinations are ClickHouse and PostgreSQL; Snowflake, BigQuery, S3, Kafka, Elasticsearch, Azure Event Hubs, and Google Pub/Sub remain functional but are deprecated as destinations (see [deprecated-connectors.md](./deprecated-connectors.md)). It provides Change Data Capture (CDC), Query Replication (QRep), and initial snapshot capabilities, orchestrated through Temporal workflows and exposed via a PostgreSQL-compatible SQL interface.
 
 ---
 
@@ -176,22 +176,25 @@ S3-compatible object storage used for staging AVRO files during snapshot operati
 |-----------|--------------|------|-----------------|--------------|
 | **PostgreSQL** | WAL logical replication (pglogrepl) | Cursor-based with tx snapshots | Parallel CTID partitions | TOAST handling, schema evolution, custom types, RDS/IAM auth, SSH tunnels, Postgres→Postgres native CDC |
 | **MySQL** | Binary log replication (go-mysql) | Cursor-based | Parallel partitions | GTID and file-position modes, MariaDB support, binlog retention monitoring |
-| **MongoDB** | Change Streams API | Aggregation pipelines | Collection scan | Resume tokens, `fullDocument: updateLookup`, read preferences, Atlas support |
+| **MongoDB** | Change Streams API | Aggregation pipelines | Parallel `_id` range partitions | Resume tokens, `fullDocument: updateLookup`, read preferences, Atlas support, DocumentDB IAM auth |
+| **CockroachDB** | Changefeeds (sinkless, wrapped envelope) | `AS OF SYSTEM TIME` reads | Parallel range partitions at a captured HLC timestamp | Resolved-timestamp checkpointing, consistent snapshot-to-CDC handoff via HLC cursor |
 | **BigQuery** | — | Object-based pull | — | GCP service account auth, Parquet export |
 
 ### 4.2 Destination Connectors
 
-| Connector | CDC Sync | Normalize/Merge | QRep Sync | Key Features |
-|-----------|----------|----------------|-----------|--------------|
-| **PostgreSQL** | Raw table insert | MERGE (PG15+) or UPSERT fallback | Direct insert | Soft delete, schema evolution, synced_at column |
-| **Snowflake** | Raw table + AVRO staging | SQL MERGE | AVRO file load | Merge-based upsert, AVRO consolidation, warehouse staging |
-| **BigQuery** | AVRO bulk load | INSERT with dedup | GCS object load | Clustering, partitioning, GCP service account auth |
-| **ClickHouse** | Raw table insert | ReplacingMergeTree / MergeTree | AVRO via S3/table functions | Partition keys, sharding keys, engine selection, S3 IAM, AVRO staging |
-| **S3** | — | — | AVRO file write | Deflate/snappy/zstd codecs |
-| **Kafka** | Topic publish | — | Partition-based | SASL auth, custom partitioner |
-| **Elasticsearch** | Index documents | — | Bulk index | Index creation, mapping management, upsert key support |
-| **Azure EventHub** | Event publish | — | — | Partition hashing, Azure-native |
-| **Google Pub/Sub** | Topic publish | — | — | GCP-native |
+> **Deprecation notice**: Only PostgreSQL and ClickHouse (including ClickHouse Cloud) are actively maintained as destinations. The connectors marked *deprecated* below remain functional and ship in current releases, but receive no new development. See [deprecated-connectors.md](./deprecated-connectors.md) for migration guidance. BigQuery is deprecated only as a destination and remains a supported QRep source.
+
+| Connector | Status | CDC Sync | Normalize/Merge | QRep Sync | Key Features |
+|-----------|--------|----------|----------------|-----------|--------------|
+| **PostgreSQL** | Active | Raw table insert | MERGE (PG15+) or UPSERT fallback | Direct insert | Soft delete, schema evolution, synced_at column |
+| **ClickHouse** | Active | Raw table insert | ReplacingMergeTree / MergeTree | AVRO via S3/table functions | Partition keys, sharding keys, engine selection, S3 IAM, AVRO staging |
+| **Snowflake** | Deprecated | Raw table + AVRO staging | SQL MERGE | AVRO file load | Merge-based upsert, AVRO consolidation, warehouse staging |
+| **BigQuery** | Deprecated | AVRO bulk load | INSERT with dedup | GCS object load | Clustering, partitioning, GCP service account auth |
+| **S3** | Deprecated | — | — | AVRO file write | Deflate/snappy/zstd codecs |
+| **Kafka** | Deprecated | Topic publish | — | Partition-based | SASL auth, custom partitioner |
+| **Elasticsearch** | Deprecated | Index documents | — | Bulk index | Index creation, mapping management, upsert key support |
+| **Azure EventHub** | Deprecated | Event publish | — | — | Partition hashing, Azure-native |
+| **Google Pub/Sub** | Deprecated | Topic publish | — | — | GCP-native |
 
 ### 4.3 Connector Interface Hierarchy
 
@@ -323,7 +326,7 @@ flowchart TD
     SETUP --> SNAPSHOT
 
     subgraph SNAPSHOT["2. SnapshotFlowWorkflow (child, dedicated task queue)"]
-        SN1[ExportTxSnapshot<br/><i>PG: pg_export_snapshot<br/>MySQL: binlog pos<br/>Mongo: timestamp</i>]
+        SN1[ExportTxSnapshot<br/><i>PG: pg_export_snapshot<br/>MySQL: binlog pos<br/>Mongo: timestamp<br/>CockroachDB: HLC timestamp</i>]
         SN2[PartitionTables<br/><i>break into CTID/cursor ranges</i>]
         SN3[PullPartitions<br/><i>parallel reads from source</i>]
         SN4[SyncPartitions<br/><i>AVRO to staging then destination</i>]
@@ -523,9 +526,9 @@ flowchart TD
 
 The replication slot created during setup holds WAL from the snapshot point, ensuring no data is lost between snapshot completion and CDC start.
 
-### 8.2 MySQL / MongoDB Snapshot
+### 8.2 MySQL / MongoDB / CockroachDB Snapshot
 
-Uses QRep-based initial load with cursor partitioning instead of transaction snapshot. Tracks binlog position (MySQL) or change stream timestamp (MongoDB) at snapshot start for seamless CDC handoff.
+Uses QRep-based initial load with range partitioning instead of a transaction snapshot. Tracks binlog position (MySQL), change stream timestamp (MongoDB), or HLC timestamp (CockroachDB) at snapshot start for seamless CDC handoff. MongoDB partitions on `_id` ranges; CockroachDB reads every partition `AS OF SYSTEM TIME` at the captured HLC timestamp and later resumes the changefeed from that same cursor.
 
 ---
 
@@ -647,7 +650,7 @@ Runtime-tunable via `PostDynamicSetting` API. These are system-wide settings tha
 - **Peer credentials**: Encrypted at rest in the catalog with optional KMS integration
 - **Authentication**: SCRAM-SHA-256 for the PeerDB server; per-connector auth (IAM, SSH tunnels, TLS, SASL)
 - **Network**: SSH tunnel support for all connectors; TLS with custom CA certificates
-- **Cloud IAM**: RDS IAM auth for Postgres/MySQL; GCP service accounts for BigQuery/PubSub; Azure managed identity for EventHub
+- **Cloud IAM**: RDS IAM auth for Postgres/MySQL; DocumentDB IAM auth (`MONGODB-AWS`) for MongoDB; GCP service accounts for BigQuery/PubSub; Azure managed identity for EventHub
 
 ---
 

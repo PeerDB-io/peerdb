@@ -3,7 +3,7 @@
 **Status**: Living Document
 **Audience**: Engineers wanting code-level understanding of specific subsystems
 **Companion to**: [PeerDB Architecture](./peerdb-architecture.md)
-**Last Updated**: 2026-03-16
+**Last Updated**: 2026-10-20
 
 > This document goes beyond the architecture document to provide implementation-level detail, design tradeoffs, known limitations (TODOs), and code pointers for each major subsystem.
 
@@ -142,15 +142,31 @@ When a DDL change occurs (e.g., `ALTER TABLE ADD COLUMN`), PostgreSQL sends a `R
 
 Replica identity can change at runtime (e.g., `ALTER TABLE ... REPLICA IDENTITY FULL`), but the current code caches it on first read.
 
-### 1.6 Partitioned Table Support
+### 1.6 Partitioned Table and Table Inheritance Support
 
-For PostgreSQL partitioned tables, child partitions have separate relation IDs from the parent:
+For PostgreSQL partitioned tables, and for plain tables with inheritance children when
+`PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES` is on (the default), children have separate
+relation IDs from the mirrored parent:
 
 ```go
 childToParentRelIDMapping map[uint32]uint32  // child relid → parent relid
 ```
 
-`checkIfUnknownTableInherits()` translates child→parent when an unknown relation ID appears, ensuring partitioned table events are correctly attributed.
+`getChildToParentRelIDMap()` builds the map when a pull starts and `checkIfUnknownTableInherits()` extends it
+when an unknown relation ID appears, ensuring child events are attributed to the parent's table mapping. Both
+use the same rule: the candidates are mirrored tables with a qualifying relkind, and the one with the lowest
+`pg_inherits.inhseqno` wins, so a child of several mirrored tables always goes to the same one. Only direct
+children are remapped; deeper descendants are not replicated by CDC although the initial snapshot includes them.
+
+**Column layouts are per relation.** A child's tuples follow the child's own column order, which can differ from
+the parent's and from its siblings (`ALTER TABLE ... INHERIT` only requires matching names and types, and a
+partition can be attached from an existing table). pgoutput sends a relation's RelationMessage before its first
+change and again only after its schema changes, so `relationMessageMapping` is keyed by the relation's own ID,
+never by the parent's, and tuples are decoded with their own relation's layout. Table and schema lookups still go
+through the parent. With `publish_via_partition_root`, tuples arrive under the root's relid in the root's layout.
+A tuple whose column count differs from its RelationMessage is rejected. Earlier versions of PeerDB may have
+decoded a child's tuples with a sibling's column order. Upgrading fixes new changes but does not repair rows
+already written. If a mirror has children with different column orders, resync the affected tables.
 
 ### 1.7 LSN Checkpoint Management
 
@@ -277,7 +293,7 @@ type MySqlConnector struct {
 
 ## 3. MongoDB CDC — Change Streams Deep Dive
 
-**Key files**: `flow/connectors/mongo/cdc.go`, `flow/connectors/mongo/codec.go`
+**Key files**: `flow/connectors/mongo/cdc.go`
 
 ### 3.1 Architecture
 
@@ -353,12 +369,9 @@ When using `UpdateLookup`, the `fullDocument` field may be missing (`cdc.go`):
 2. Document deleted or collection dropped between the update event and the lookup
 3. Update changes the shard key, causing the document to move between shards
 
-### 3.6 QRep Partition Boundary Duplication
+### 3.6 QRep Partitioning
 
-**Known limitation** (`mongo/qrep.go`):
-> with $bucketAuto, buckets except the last bucket treat their max value as exclusive. we can't tell what bucket is the 'last' bucket without additional tracking, so we accept boundary records being inserted twice
-
-This means QRep with MongoDB may produce duplicate records at partition boundaries. Destinations with upsert/merge handle this correctly, but append-only destinations may see duplicates.
+Snapshot partitions are ranges over `_id`, computed from the collection's min and max by key type (`mongo/qrep_partition.go`). Ranges are contiguous and non-overlapping, so boundary documents are read exactly once; see `qrep_partition_test.go` (`assertContiguous`, `TestToRangeFilter`). This replaced `$bucketAuto`, which read boundary documents twice.
 
 ---
 
@@ -702,16 +715,17 @@ flowchart LR
     NORM -.->|"backpressure"| DST
 ```
 
-### 7.2 The `syncCore` Generic Function
+### 7.2 The `pullAndSyncCore` Generic Function
 
 The core of the activity pipeline is generic over connector and item types:
 
 ```go
-func syncCore[
+func pullAndSyncCore[
     TPull connectors.CDCPullConnectorCore,
     TSync connectors.CDCSyncConnectorCore,
     Items model.Items,
-](ctx, activity, config, options, srcConn, ...) (*model.SyncResponse, error)
+](ctx, a, config, options, srcConn, normRequests, normResponses, normBufferSize, idleTimeout,
+  syncingBatchID, syncState, adaptStream, pull, sync) (*model.SyncResponse, error)
 ```
 
 **Checkpoint loading optimization**: For Postgres→Postgres, the last offset is read from the destination (avoids catalog lookup delay):
@@ -771,9 +785,6 @@ Uses a read-modify-write pattern (`flowable_core.go`):
 2. Deep copy to avoid mutation
 3. Deduplicate column additions (prevent applying same delta twice)
 4. Write back with transactional guarantee
-
-**TODO** (`internal/postgres.go`):
-> TODO: use ReadModifyWriteTableSchemasToCatalog to guarantee transactionality
 
 ---
 
@@ -925,6 +936,7 @@ This means table creation + schema setup is atomic — if any step fails, nothin
 | `flow/connectors/postgres/postgres.go` | Core Postgres connector |
 | `flow/connectors/mysql/cdc.go` | MySQL binlog replication |
 | `flow/connectors/mongo/cdc.go` | MongoDB change streams |
+| `flow/connectors/cockroachdb/cdc.go` | CockroachDB changefeed consumption |
 | `flow/workflows/cdc_flow.go` | CDC workflow orchestration |
 | `flow/workflows/qrep_flow.go` | QRep workflow |
 | `flow/workflows/snapshot_flow.go` | Snapshot orchestration |

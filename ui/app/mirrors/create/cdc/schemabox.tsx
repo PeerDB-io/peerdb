@@ -37,6 +37,11 @@ import {
   getDefaultDestinationTable,
 } from '../handlers';
 import {
+  deletePreimageEnabled,
+  isMongoSource,
+  withDeletePreimage,
+} from '../helpers/mongo';
+import {
   structuredIngestionConfig,
   structuredIngestionEnabled,
   withStructuredIngestionConfig,
@@ -76,6 +81,7 @@ function timestampColumnOptions(columns?: ColumnsItem[]) {
 
 interface SchemaBoxProps {
   sourcePeer: string;
+  sourceType?: DBType;
   schema: string;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
@@ -104,6 +110,7 @@ const bigqueryEventsFunctionOptions = [
 
 export default function SchemaBox({
   sourcePeer,
+  sourceType,
   peerType,
   bigqueryReplicationMethod,
   schema,
@@ -117,6 +124,8 @@ export default function SchemaBox({
   initialLoadOnly,
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
+  // MongoDB specific settings apply to any MongoDB source, whether or not structured ingestion is on
+  const mongoSource = isMongoSource(sourceType);
   const styledTheme = useStyledTheme();
   const [tablesLoading, startTablesTransition] = useTransition();
   const [columnsLoading, startColumnsTransition] = useTransition();
@@ -267,6 +276,13 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updateDeletePreimage = (source: string, enabled: boolean) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = withDeletePreimage(newRows[index], enabled);
+    setRows(newRows);
+  };
+
   const addTableColumns = useCallback(
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
@@ -352,6 +368,7 @@ export default function SchemaBox({
                 row.destination = existingRow.destinationTableIdentifier;
                 row.structuredIngestionConfig =
                   existingRow.structuredIngestionConfig;
+                row.mongoConfig = existingRow.mongoConfig;
                 // For a structured mapping the columns are the destination schema, and a
                 // schemaless source reports none to rediscover, so they come from the
                 // saved mapping or not at all.
@@ -823,6 +840,40 @@ export default function SchemaBox({
                                           }
                                         />
                                       )}
+                                    </div>
+                                  )}
+                                  {mongoSource && (
+                                    <div
+                                      style={{ width: '100%', fontSize: 12 }}
+                                    >
+                                      <RowWithCheckbox
+                                        label={
+                                          <Label
+                                            as='label'
+                                            style={{ fontSize: 13 }}
+                                          >
+                                            <Tooltip
+                                              style={tooltipStyle(styledTheme)}
+                                              content='Carry the document as it stood before the delete on delete events, instead of only its _id, so the deleted row keeps its values. Requires changeStreamPreAndPostImages to be enabled on the collection.'
+                                            >
+                                              Include pre-image on deletes
+                                            </Tooltip>
+                                          </Label>
+                                        }
+                                        action={
+                                          <Checkbox
+                                            style={{ marginLeft: 0 }}
+                                            disabled={row.editingDisabled}
+                                            checked={deletePreimageEnabled(row)}
+                                            onCheckedChange={(state: boolean) =>
+                                              updateDeletePreimage(
+                                                row.source,
+                                                state
+                                              )
+                                            }
+                                          />
+                                        }
+                                      />
                                     </div>
                                   )}
                                 </div>

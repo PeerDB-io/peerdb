@@ -182,6 +182,21 @@ func EnvWaitForEqualTablesWithNames(
 	dstTable string,
 	cols string,
 ) {
+	suite.T().Helper()
+	EnvWaitForEqualTablesWithNamesFunc(env, suite, reason, srcTable, dstTable, cols, e2eshared.CheckEqualRecordBatches)
+}
+
+// EnvWaitForEqualTablesWithNamesFunc is EnvWaitForEqualTablesWithNames with a caller-supplied comparison
+// of the source and destination batches.
+func EnvWaitForEqualTablesWithNamesFunc(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+	equal func(t *testing.T, src *model.QRecordBatch, dst *model.QRecordBatch) bool,
+) {
 	t := suite.T()
 	t.Helper()
 
@@ -200,7 +215,7 @@ func EnvWaitForEqualTablesWithNames(
 			return false
 		}
 
-		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+		return equal(t, sourceRows, rows)
 	})
 }
 

@@ -109,10 +109,12 @@ func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
 	qRecordJsonMap := make(map[string]any)
 
 	for key, val := range items.ColToVal {
-		if r, ok := val.(types.QValueJSON); ok { // JSON is stored as a string, fix that
-			qRecordJsonMap[key] = json.RawMessage(
-				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
-		} else {
+		switch r := val.(type) { // JSON is stored as a string, fix that
+		case types.QValueJSON:
+			qRecordJsonMap[key] = json.RawMessage(shared.UnsafeFastStringToReadOnlyBytes(r.Val))
+		case types.QValueArrayJSON:
+			qRecordJsonMap[key] = json.RawMessage(shared.UnsafeFastStringToReadOnlyBytes(r.Val))
+		default:
 			qRecordJsonMap[key] = val.Value()
 		}
 	}

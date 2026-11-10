@@ -234,6 +234,7 @@ func TestJSONRoundtripCDCDecode(t *testing.T) {
 				qv, err := p.decodeColumnData(
 					raw[col], fds[col].DataTypeOID, fds[col].TypeModifier, pgtype.TextFormatCode, nil,
 					shared.InternalVersion_Latest,
+					false,
 				)
 				require.NoErrorf(t, err, "decodeColumnData for %s", fds[col].Name)
 				str, ok := qv.Value().(string)

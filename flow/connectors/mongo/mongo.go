@@ -2,7 +2,6 @@ package connmongo
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 	"go.temporal.io/sdk/log"
 
 	metadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -51,7 +52,6 @@ var protoToReadPref = map[protos.ReadPreference]*readpref.ReadPref{
 }
 
 type metadataStore interface {
-	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
 	SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error
 }
 
@@ -72,9 +72,10 @@ type MongoConnector struct {
 	deltaBytesRead       atomic.Int64
 	clockOffset          time.Duration
 	numDecodeWorkers     int
+	clientUpdateLookup   bool
 }
 
-func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
+func NewMongoConnector(ctx context.Context, env map[string]string, config *protos.MongoConfig) (_ *MongoConnector, err error) {
 	logger := internal.LoggerFromCtx(ctx)
 	pgMetadata, err := metadata.NewPostgresMetadata(ctx)
 	if err != nil {
@@ -100,6 +101,11 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
+	defer func() {
+		if err != nil && sshTunnel != nil {
+			sshTunnel.Close()
+		}
+	}()
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
@@ -109,24 +115,57 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
 
+	var awsCredentials options.AWSCredentialsProvider
+	if config.AuthType == protos.MongoAuthType_MONGO_IAM_AUTH {
+		// Report a bad URI before the IAM setup, which can call AWS first (role chaining).
+		if _, err := connstring.Parse(config.Uri); err != nil {
+			return nil, fmt.Errorf("error parsing uri: %w", err)
+		}
+		if config.Username != "" || config.Password != "" {
+			logger.Warn("username and password are ignored with IAM authentication")
+		}
+		if err := (&utils.RDSAuth{AwsAuthConfig: config.AwsAuth}).VerifyAuthConfig(); err != nil {
+			return nil, exceptions.NewMongoIAMAuthError(fmt.Errorf("failed to verify auth config: %w", err))
+		}
+		provider, err := utils.GetAWSCredentialsProvider(ctx, "mongo", utils.BuildPeerAWSCredentials(config.AwsAuth))
+		if err != nil {
+			return nil, exceptions.NewMongoIAMAuthError(fmt.Errorf("failed to get AWS credentials: %w", err))
+		}
+		awsCredentials = awsCredentialsProvider{provider: provider.GetUnderlyingProvider()}
+	}
+
 	clientOptions, err := peerdb_mongo.BuildClientOptions(peerdb_mongo.ClientConfig{
-		Uri:                  config.Uri,
-		Username:             config.Username,
-		Password:             config.Password,
-		ReadPreference:       protoReadPrefToString[config.ReadPreference],
-		DisableTls:           config.DisableTls,
-		SkipCertVerification: config.SkipCertVerification,
-		RootCa:               config.GetRootCa(),
-		TlsHost:              config.TlsHost,
-		CreateTlsConfigFunc:  common.CreateTlsConfigFromRootCAString,
-		Dialer:               &meteredDialer,
+		Uri:                    config.Uri,
+		Username:               config.Username,
+		Password:               config.Password,
+		AWSCredentialsProvider: awsCredentials,
+		ReadPreference:         protoReadPrefToString[config.ReadPreference],
+		DisableTls:             config.DisableTls,
+		SkipCertVerification:   config.SkipCertVerification,
+		RootCa:                 config.GetRootCa(),
+		TlsHost:                config.TlsHost,
+		CreateTlsConfigFunc:    common.CreateTlsConfigFromRootCAString,
+		Dialer:                 &meteredDialer,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
-		clientOptions.SetMonitor(NewCommandMonitor(logger))
+		clientOptions.SetMonitor(newDebugCommandMonitor(logger))
+	} else {
+		logCommands, err := internal.PeerDBMongoDBLogCommands(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		if logCommands {
+			clientOptions.SetMonitor(newCommandMonitor(logger))
+		}
+	}
+
+	mc.clientUpdateLookup, err = internal.PeerDBMongoDBClientSideUpdateLookup(ctx, env)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := mongo.Connect(clientOptions)
@@ -195,6 +234,10 @@ func (c *MongoConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
 
+func (c *MongoConnector) GetTopologyType(ctx context.Context) (string, error) {
+	return peerdb_mongo.GetTopologyType(ctx, c.client)
+}
+
 func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
 	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
 	if err != nil {
@@ -214,39 +257,4 @@ func (c *MongoConnector) GetTableSizeEstimatedBytes(ctx context.Context, tableId
 		return 0, err
 	}
 	return collStats.Size, nil
-}
-
-// GetServerSideCommitLagMicroseconds returns the commit lag between the latest WAL write
-// and the last consumed event. Both timestamps come from the MongoDB server to avoid clock skew.
-func (c *MongoConnector) GetServerSideCommitLagMicroseconds(ctx context.Context, flowJobName string) (int64, error) {
-	replSetStatus, err := peerdb_mongo.GetReplSetStatus(ctx, c.client)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get replica set status: %w", err)
-	}
-
-	lastOffset, err := c.metadataStore.GetLastOffset(ctx, flowJobName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last offset: %w", err)
-	}
-
-	if lastOffset.Text == "" {
-		return 0, fmt.Errorf("last offset is empty string, cannot calculate commit lag")
-	}
-
-	resumeToken, err := base64.StdEncoding.DecodeString(lastOffset.Text)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode resume token: %w", err)
-	}
-	clusterTime, err := decodeTimestampFromResumeToken(resumeToken)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode timestamp from resume token: %w", err)
-	}
-
-	latestWALTime := replSetStatus.OpTimes.LastCommittedOpTime.Ts
-
-	lagSeconds := max(int64(latestWALTime.T)-int64(clusterTime.T), 0)
-
-	lagMicroseconds := lagSeconds * 1_000_000
-
-	return lagMicroseconds, nil
 }

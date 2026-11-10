@@ -7,16 +7,22 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"syscall"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
@@ -261,6 +267,37 @@ func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseAvroDateOutOfRangeShouldBeDestinationModified(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrValueIsOutOfRangeOfDataType),
+		//nolint:lll
+		Message: `Input value -1224 exceeds the range of type Date, which is [0, 65535]: (in file/uri clickpipes-svc-3bd17e20-1032-4251-bcf3-6d49358a5e4f/clone_mirror_f8d0710c__40e5__4879__b39e__3d93f745477f_public_boughed_46e3147e_4925_4580_b822_b908137eb985/clone_mirror_f8d0710c__40e5__4879__b39e__3d93f745477f_public_boughed_46e3147e_4925_4580_b822_b908137eb985/37800a62-d8c4-4c11-97e4-d7aa76ff8cc3.000000.avro): While executing AvroRowInputFormat: While executing ReadFromObjectStorage`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
+		exceptions.NewClickHouseQRepSyncError(
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{}), "boughed", "default")))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrValueIsOutOfRangeOfDataType)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseAvroDate32OutOfRangeShouldBeOther(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code:    int32(chproto.ErrValueIsOutOfRangeOfDataType),
+		Message: `Input value -44641 exceeds the range of type Date32, which is [-25567, 120529]: While executing AvroRowInputFormat`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
+		exceptions.NewClickHouseQRepSyncError(
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{}), "boughed", "default")))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   strconv.Itoa(int(chproto.ErrValueIsOutOfRangeOfDataType)),
+	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
@@ -574,7 +611,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -729,6 +767,31 @@ psql:<stdin>:42: ERROR:  could not open extension control file "/usr/share/postg
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestPostgresObjectExistsOnSchemaDump(t *testing.T) {
+	for name, message := range map[string]string{
+		"schema": `psql failed: exit status 3
+stderr:
+ERROR:  schema "__postgres_by_clickhouse_quickstart_1794225965" already exists`,
+		"relation": `psql failed: exit status 3
+stderr:
+psql:<stdin>:42: ERROR:  relation "users" already exists`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fmt.Errorf("pg_dump schema migration failed: pg_dump schema migration failed: %s", message)
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyPostgresSchemaMigrationObjectExists, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "OBJECT_ALREADY_EXISTS",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+
+	// outside of the pg_dump schema migration, the same text is not classified
+	errorClass, _ := GetErrorClass(t.Context(), errors.New(`ERROR:  relation "users" already exists`))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
 }
 
 func TestPostgresGeneratedAlwaysColumnOnNormalize(t *testing.T) {
@@ -1067,7 +1130,8 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -1096,11 +1160,42 @@ func TestErrIncorrectDataWithMVErrorShouldBeNotifyMV(t *testing.T) {
 		Message: "REDACTED",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", peerdb_clickhouse.NewViewError(err))))
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w",
+			peerdb_clickhouse.NewExecError(err, peerdb_clickhouse.ExecTraits{View: true}))))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrIncorrectData)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONShouldNotify(t *testing.T) {
+	redactedErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(redactedErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestErrIncorrectDataCannotParseJSONFromPeerDBJSONCastShouldBeOther(t *testing.T) {
+	execErr := peerdb_clickhouse.NewExecError(&clickhouse.Exception{
+		Code:    int32(chproto.ErrIncorrectData),
+		Message: "REDACTED",
+	}, peerdb_clickhouse.ExecTraits{JSONParse: true, JSONCast: true})
+	wrappedErr := shared.WrapError("failed to sync records",
+		exceptions.NewClickHouseQRepSyncError(execErr, "tbl", "db"))
+	errorClass, errInfo := GetErrorClass(t.Context(), wrappedErr)
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "117",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -1224,6 +1319,36 @@ func TestMongoShutdownInProgressErrorShouldBeIgnored(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongosShutdownInProgressDuringHandshakeShouldBeIgnored(t *testing.T) {
+	shutdownErr := driver.Error{
+		Code:    91,
+		Name:    "ShutdownInProgress",
+		Message: "Mongos is in quiesce mode and will shut down",
+	}
+	connErr := topology.ConnectionError{Wrapped: fmt.Errorf("handshake failure: %w", shutdownErr)}
+	// the driver wraps network errors without a code, which hides the inner code from mongo.CommandError
+	networkErr := driver.Error{
+		//nolint:lll
+		Message: "connection() error occurred during connection handshake: handshake failure: (ShutdownInProgress) Mongos is in quiesce mode and will shut down",
+		Labels:  []string{driver.NetworkError},
+		Wrapped: connErr,
+	}
+	cmdErr := mongo.CommandError{
+		Code:    networkErr.Code,
+		Message: networkErr.Message,
+		Labels:  networkErr.Labels,
+		Name:    networkErr.Name,
+		Wrapped: networkErr,
+	}
+	err := fmt.Errorf("connection to source down: %w", fmt.Errorf("failed to ping MongoDB: %w", cmdErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorIgnoreConnTemporary, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMongoPoolErrorShouldBeRecoverable(t *testing.T) {
 	//nolint:lll
 	err := fmt.Errorf("change stream error: connection pool for abc.123.mongodb.net:27017 was cleared because another operation failed with: (InterruptedDueToReplStateChange) operation was interrupted")
@@ -1287,6 +1412,20 @@ func TestMongoCursorErrors(t *testing.T) {
 	}, errInfo)
 }
 
+func TestMongoPooledConnectionAcquisitionExceededTimeLimitShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    407,
+		Name:    "PooledConnectionAcquisitionExceededTimeLimit",
+		Message: "Couldn't get a connection within the time limit",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "407",
+	}, errInfo)
+}
+
 func TestMongoInvalidResumeTokenShouldNotifyChangeStreamHistoryLost(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
@@ -1312,6 +1451,21 @@ func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "9",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoTooManyCursorsOpenedShouldNotifyUser(t *testing.T) {
+	// Name stays empty because DocumentDB sends no codeName
+	err := mongo.CommandError{
+		Code:    2,
+		Message: "Cannot open a new cursor since too many cursors are already opened",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to create change stream: %w", err))
+	assert.Equal(t, ErrorNotifyTooManyCursorsOpened, errorClass, "Unexpected error class")
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction(), "Unexpected error action")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "2",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -1463,6 +1617,41 @@ func TestMySQLBinlogEventExceededMaxAllowedPacket(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMySQLLockWaitTimeout(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    1205, // ER_LOCK_WAIT_TIMEOUT
+		State:   "HY000",
+		Message: "Lock wait timeout exceeded; try restarting transaction",
+	}
+	err := exceptions.NewMySQLExecuteError(mysqlErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("connection to source down: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1205",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLNoSpaceLeftOnDevice(t *testing.T) {
+	mysqlErr := &mysql.MyError{
+		Code:    14, // EE_CANT_CHSIZE
+		State:   "HY000",
+		Message: "Can't change size of file (OS errno 28 - No space left on device)",
+	}
+	err := exceptions.NewMySQLExecuteError(fmt.Errorf("ReadPacket: %w", mysqlErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in CDC: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "14",
+	}, errInfo, "Unexpected error info")
+
+	// same code without the disk full message stays unclassified
+	mysqlErr.Message = "Can't change size of file (OS errno 13 - Permission denied)"
+	errorClass, _ = GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(mysqlErr))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+}
+
 func TestMySQLSecureTransportRequired(t *testing.T) {
 	mysqlErr := &mysql.MyError{
 		Code:    3159, // ER_SECURE_TRANSPORT_REQUIRED
@@ -1476,6 +1665,17 @@ func TestMySQLSecureTransportRequired(t *testing.T) {
 		Source: ErrorSourceMySQL,
 		Code:   "3159",
 	}, errInfo, "Unexpected error info")
+}
+
+func TestMySQLServerTLSNotSupported(t *testing.T) {
+	handshakeErr := pErrors.Trace(fmt.Errorf("readInitialHandshake: %w",
+		errors.New("the MySQL Server does not support TLS required by the client")))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewMySQLExecuteError(handshakeErr))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "EXECUTE_ERROR",
+	}, errInfo)
 }
 
 func TestMySQLBinlogChecksumMismatch(t *testing.T) {
@@ -1788,6 +1988,25 @@ func TestBigQueryMissingWatermarkColumnShouldNotifyUser(t *testing.T) {
 	}, errInfo)
 }
 
+func TestBigQueryChangeHistoryBeforeTimeTravelShouldNotifyTimeTravelExceeded(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{
+		Code: 400,
+		Message: "The change history start time is before allowed time travel interval ... " +
+			"Start time: 2026-10-02T23:40:57.139692Z.",
+	}
+	err := fmt.Errorf("failed to run APPENDS query for table biglake_sc.ga4_events_hot: %w",
+		exceptions.NewBigQueryError(apiErr))
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyBigQueryTimeTravelExceeded, errorClass)
+	assert.Equal(t, NotifyUser, errorClass.ErrorAction())
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "CHANGE_HISTORY_BEFORE_TIME_TRAVEL",
+	}, errInfo)
+}
+
 // Mirrors the cloud.google.com/go/storage wrapping of 404 from `formatBucketError`:
 //
 //	return fmt.Errorf("%w: %w", ErrBucketNotExist, err)
@@ -1849,16 +2068,128 @@ func TestGCSUploadHTTP2ConnectionLostShouldBeRecoverable(t *testing.T) {
 	}, errInfo)
 }
 
+func TestGCSAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 502, expectedClass: ErrorRetryRecoverable},
+		{code: 504, expectedClass: ErrorRetryRecoverable},
+		{code: 429, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewGCSError(fmt.Errorf("failed to generate downscoped token: %w",
+				fmt.Errorf("downscope: unable to obtain root token: %w", authErr)))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to get headers: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceGCS,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryAuthErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		expectedClass ErrorClass
+		code          int
+	}{
+		{code: 503, expectedClass: ErrorRetryRecoverable},
+		{code: 401, expectedClass: ErrorNotifyConnectivity},
+		{code: 403, expectedClass: ErrorNotifyConnectivity},
+		{code: 400, expectedClass: ErrorOther},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			t.Parallel()
+
+			authErr := &auth.Error{Response: &http.Response{StatusCode: tc.code}}
+			err := exceptions.NewBigQueryError(fmt.Errorf("Post \"https://bigquery.googleapis.com\": %w", authErr))
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, tc.expectedClass, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   "AUTH_" + strconv.Itoa(tc.code),
+			}, errInfo)
+		})
+	}
+}
+
 func TestBigQueryUnclassifiedCodeShouldBeOther(t *testing.T) {
 	t.Parallel()
 
-	apiErr := &googleapi.Error{Code: 500, Message: "internal"}
+	apiErr := &googleapi.Error{Code: 409, Message: "conflict"}
 	err := exceptions.NewBigQueryError(apiErr)
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
 	assert.Equal(t, ErrorOther, errorClass)
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceBigQuery,
-		Code:   "500",
+		Code:   "409",
+	}, errInfo)
+}
+
+func TestBigQueryJobBackendErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{
+		Code:    400,
+		Message: "The job encountered an error during execution. Retrying the job may solve the problem.",
+		Errors:  []googleapi.ErrorItem{{Reason: "jobBackendError"}},
+	}
+	err := exceptions.NewBigQueryError(apiErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf(
+		"failed to run watermark query for table dataset.events: %w", err,
+	))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "400(jobBackendError)",
+	}, errInfo)
+}
+
+func TestBigQuery5xxShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{500, 502, 503, 504} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			t.Parallel()
+
+			err := exceptions.NewBigQueryError(&googleapi.Error{Code: code, Message: "server error"})
+			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("export job failed: %w", err))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass)
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceBigQuery,
+				Code:   strconv.Itoa(code),
+			}, errInfo)
+		})
+	}
+}
+
+func TestBigQueryInternalErrorReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	apiErr := &googleapi.Error{Code: 400, Errors: []googleapi.ErrorItem{{Reason: "internalError"}}}
+	errorClass, _ := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(apiErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+}
+
+func TestBigQueryJobErrorBackendReasonShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	jobErr := &bigquery.Error{Reason: "backendError", Message: "transient"}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("query failed: %w", exceptions.NewBigQueryError(jobErr)))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceBigQuery,
+		Code:   "backendError",
 	}, errInfo)
 }
 
@@ -2005,6 +2336,32 @@ func TestS3MultipartUploadContextCancellationShouldBeIgnored(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "CONTEXT_CANCELLED",
+	}, errInfo)
+}
+
+func TestS3InternalErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
+	respErr := &awshttp.ResponseError{
+		ResponseError: &smithyhttp.ResponseError{
+			Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
+			Err:      &smithy.GenericAPIError{Code: "InternalError", Message: "We encountered an internal error. Please try again."},
+		},
+		RequestID: "ABC123",
+	}
+	sdkErr := &smithy.OperationError{
+		ServiceID:     "S3",
+		OperationName: "CompleteMultipartUpload",
+		Err:           &retry.MaxAttemptsError{Attempt: 3, Err: respErr},
+	}
+	err := fmt.Errorf("failed to push records: failed to upload to staging: %w",
+		exceptions.NewS3Error(fmt.Errorf("failed to upload file to S3: upload multipart failed, upload id: XXX, cause: %w", sdkErr)))
+
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceS3,
+		Code:   "500",
 	}, errInfo)
 }
 

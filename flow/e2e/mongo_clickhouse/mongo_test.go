@@ -318,9 +318,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Good_And_Malformed_Data(
 }
 
 // Test_Structured_Ingestion_Nested_And_Arrays runs a structured ingestion mirror over documents with
-// nested content: embedded documents land whole in JSON columns, arrays included at any depth, while a
-// whole-array value does not fit a scalar column and is reported in _peerdb_malformed_data instead. Note that a
-// top-level array cannot land in a JSON column either: ClickHouse JSON accepts only objects at the root.
+// nested content
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
@@ -333,8 +331,16 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "name", DestinationType: "Nullable(String)"},
 		// embedded documents, arrays included, land whole as JSON
 		{SourceName: "address", DestinationType: "Nullable(JSON)"},
-		// array top level field
+		// top-level arrays land typed in array columns
 		{SourceName: "items", DestinationType: "Array(String)"},
+		// receives an array its element types do not fit
+		{SourceName: "mixed", DestinationType: "Array(Nullable(Int64))"},
+		// arrays of embedded documents land element by element as JSON, a null as the empty object
+		{SourceName: "attachments", DestinationType: "Array(JSON)"},
+		// receives an array mixing documents and scalars, which an array of JSON does not take
+		{SourceName: "notes", DestinationType: "Array(JSON)"},
+		// arrays of dates, declared as discovery infers them
+		{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
 	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -355,8 +361,11 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 					{Key: "geo", Value: bson.D{{Key: "lat", Value: int64(51)}, {Key: "lon", Value: int64(i)}}},
 					{Key: "tags", Value: bson.A{"a", "b", int64(i)}},
 				}},
-				// TODO: Complete support for Arrays so this case is covered (and uncomment the case column)
-				// {Key: "items", Value: bson.A{int64(i), int64(i + 1)}},
+				{Key: "items", Value: bson.A{fmt.Sprintf("%s_item_%d_a", prefix, i), fmt.Sprintf("%s_item_%d_b", prefix, i)}},
+				{Key: "mixed", Value: bson.A{int64(i), true}},
+				{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(i)}}, nil}},
+				{Key: "notes", Value: bson.A{"text", bson.D{{Key: "k", Value: int64(i)}}}},
+				{Key: "visits", Value: bson.A{time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour), nil}},
 			}, options.InsertOne())
 			require.NoError(t, err)
 			require.True(t, res.Acknowledged)
@@ -378,22 +387,382 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
 	require.NoError(t, err)
 	defer ch.Close()
-	// every row got its embedded document, while the array value never fits the scalar column
-	var nestedRows, arrayRows, reportedRows uint64
+	// the array columns were created with their declared types: verbatim, never Nullable-wrapped
+	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('items', 'mixed', 'attachments', 'visits')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{
+		"items": "Array(String)", "mixed": "Array(Nullable(Int64))", "attachments": "Array(JSON)",
+		// DateTime64(9) declared, created with microseconds: MongoDB dates carry milliseconds
+		"visits": "Array(DateTime64(6))",
+	}, actualColumnTypes)
+
+	// every row got its embedded document and its typed array, while the unfitting array left its
+	// column empty and was reported instead
+	var nestedRows, arrayRows, emptyMixedRows, emptyNotesRows, reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-		`SELECT countIf(address IS NOT NULL), countIf("items" IS NULL), countIf(1) FROM "%s"."%s" FINAL`,
-		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &reportedRows))
+		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)), countIf(empty(notes)),
+			countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &emptyNotesRows, &reportedRows))
 	require.Equal(t, uint64(20), nestedRows)
-	// TODO: Complete support for Arrays so this case is covered (and uncomment this case)
-	// require.Equal(t, uint64(20), arrayRows)
+	require.Equal(t, uint64(20), arrayRows)
+	require.Equal(t, uint64(20), emptyMixedRows)
+	require.Equal(t, uint64(20), emptyNotesRows)
 	require.Equal(t, uint64(20), reportedRows)
-	// per leg, the nested document survives whole and the array value is reported verbatim
+	// per leg, the nested document survives whole, the typed array lands element by element, and the
+	// unfitting array is reported verbatim in its JSON form
 	for _, prefix := range []string{"init", "cdc"} {
-		var address, malformed string
+		var address, items, malformed string
 		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
-			`SELECT toString(address), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
-			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &malformed))
+			`SELECT toString(address), toString("items"), toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&address, &items, &malformed))
 		require.JSONEq(t, fmt.Sprintf(`{"city": "city_%s_3", "geo": {"lat": 51, "lon": 3}, "tags": ["a", "b", 3]}`, prefix), address)
+		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
+		require.JSONEq(t, `{
+			"mixed": {"type_mismatch": true, "value": "[3,true]"},
+			"notes": {"type_mismatch": true, "value": "[\"text\",{\"k\":3}]"}
+		}`, malformed)
+
+		// the array of JSON keeps its elements, the null one as the empty object
+		var attachmentsLength uint64
+		var firstAttachment, secondAttachment string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT length(attachments), toString(attachments[1]), toString(attachments[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&attachmentsLength, &firstAttachment, &secondAttachment))
+		require.Equal(t, uint64(2), attachmentsLength)
+		require.JSONEq(t, `{"k": 3}`, firstAttachment)
+		require.JSONEq(t, `{}`, secondAttachment)
+
+		// the array of dates keeps its elements, the null one zero-filled
+		var visitsLength uint64
+		var firstVisit, secondVisit string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT length(visits), toString(visits[1]), toString(visits[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&visitsLength, &firstVisit, &secondVisit))
+		require.Equal(t, uint64(2), visitsLength)
+		require.Equal(t, "2024-01-02 06:04:05.123000", firstVisit)
+		if prefix == "cdc" {
+			// the zero time is clamped to the DateTime64 range by the CDC normalization
+			require.Equal(t, "1900-01-01 00:00:00.000000", secondVisit)
+		}
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Table_Addition adds a structured ingestion table to a running mirror: its CDC
+// rows must land through its column settings, as its initial load does
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Table_Addition() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_addition"
+	dstTable := "test_structured_addition_dst"
+	addedSrcTable := "test_structured_addition_added"
+	addedDstTable := "test_structured_addition_added_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+	addedCollection := db.Collection(addedSrcTable)
+	insertMeetings := func(prefix string) {
+		for i := range 5 {
+			res, err := addedCollection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "title", Value: fmt.Sprintf("title_%s_%d", prefix, i)},
+				{Key: "attendees", Value: bson.A{
+					bson.D{{Key: "email", Value: fmt.Sprintf("a_%s_%d", prefix, i)}, {Key: "internal", Value: true}},
+					bson.D{{Key: "email", Value: fmt.Sprintf("b_%s_%d", prefix, i)}, {Key: "internal", Value: false}},
+				}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertMeetings("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err := db.Collection(srcTable).InsertOne(t.Context(), bson.D{{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc into the original table", dstTable, "_id", 1)
+
+	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, time.Minute, "paused for table addition", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// the added table renames a column and lands arrays of documents in an array of JSON
+	addedTableMappings := e2e.TableMappings(s, addedSrcTable, addedDstTable)
+	addedTableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	addedTableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "title", DestinationName: "headline", DestinationType: "Nullable(String)"},
+		{SourceName: "attendees", DestinationType: "Array(Nullable(JSON))"},
+	}
+	runID := e2e.EnvGetRunID(t, env)
+	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		AdditionalTables: addedTableMappings,
+	})
+	e2e.EnvWaitFor(t, env, 4*time.Minute, "adding table", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.EnvWaitFor(t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != e2e.EnvGetRunID(t, env)
+	})
+	e2e.EnvWaitForCount(env, s, "initial load of the added table", addedDstTable, "_id,name", 5)
+
+	insertMeetings("cdc")
+	e2e.EnvWaitForCount(env, s, "cdc into the added table", addedDstTable, "_id,name", 10)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	for _, prefix := range []string{"init", "cdc"} {
+		var headline, secondAttendee string
+		var attendeesLength uint64
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT ifNull(headline, ''), length(attendees), toString(attendees[2]) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, addedDstTable, prefix)).Scan(&headline, &attendeesLength, &secondAttendee))
+		require.Equal(t, "title_"+prefix+"_3", headline)
+		require.Equal(t, uint64(2), attendeesLength)
+		require.JSONEq(t, fmt.Sprintf(`{"email": "b_%s_3", "internal": false}`, prefix), secondAttendee)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Scalars_And_Typed_Arrays covers the destination types the other structured
+// ingestion tests leave out, on both the initial load and CDC: floats, integers widened into floats, booleans,
+// dates, typed arrays of integers, floats and booleans, the scalars mapping to strings, and the ones mapping
+// to JSON objects.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Scalars_And_Typed_Arrays() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_scalars"
+	dstTable := "test_structured_scalars_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "score", DestinationType: "Nullable(Float64)"},
+		// integers widen into float columns
+		{SourceName: "score_from_int", DestinationType: "Nullable(Float64)"},
+		{SourceName: "ratio", DestinationType: "Nullable(Float32)"},
+		{SourceName: "active", DestinationType: "Nullable(Bool)"},
+		// declared as discovery infers dates
+		{SourceName: "created", DestinationType: "Nullable(DateTime64(9))"},
+		{SourceName: "counts", DestinationType: "Array(Int64)"},
+		// doubles and integers mixed
+		{SourceName: "weights", DestinationType: "Array(Float64)"},
+		{SourceName: "flags", DestinationType: "Array(Bool)"},
+		// scalars mapping to strings
+		{SourceName: "ref", DestinationType: "Nullable(String)"},
+		{SourceName: "amount", DestinationType: "Nullable(String)"},
+		// scalars mapping to JSON objects
+		{SourceName: "blob", DestinationType: "Nullable(JSON)"},
+		{SourceName: "pattern", DestinationType: "Nullable(JSON)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	ref, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	amount, err := bson.ParseDecimal128("12.34")
+	require.NoError(t, err)
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "score", Value: float64(i) + 0.5},
+				{Key: "score_from_int", Value: int32(i)},
+				{Key: "ratio", Value: int64(i)},
+				{Key: "active", Value: i%2 == 0},
+				{Key: "created", Value: time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour)},
+				{Key: "counts", Value: bson.A{int32(i), int64(i + 1)}},
+				{Key: "weights", Value: bson.A{5.0, int32(i)}},
+				{Key: "flags", Value: bson.A{true, false}},
+				{Key: "ref", Value: ref},
+				{Key: "amount", Value: amount},
+				{Key: "blob", Value: bson.Binary{Subtype: 0x80, Data: []byte("hello")}},
+				{Key: "pattern", Value: bson.Regex{Pattern: "^a", Options: "i"}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// dates are created with microseconds, every other column as declared
+	var createdType string
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		"SELECT type FROM system.columns WHERE database = '%s' AND table = '%s' AND name = 'created'",
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&createdType))
+	require.Equal(t, "Nullable(DateTime64(6))", createdType)
+
+	// every value fitted its column
+	var wellFormedRows uint64
+	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+		`SELECT countIf(_peerdb_malformed_data IS NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(&wellFormedRows))
+	require.Equal(t, uint64(20), wellFormedRows)
+
+	for _, prefix := range []string{"init", "cdc"} {
+		var score, scoreFromInt, ratio, active, created, counts, weights, flags, refValue, amountValue, blob, pattern string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT toString(score), toString(score_from_int), toString(ratio), toString(active), toString(created),
+				toString(counts), toString(weights), toString(flags), toString(ref), toString(amount),
+				toString(blob), toString(pattern)
+			FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(
+			&score, &scoreFromInt, &ratio, &active, &created, &counts, &weights, &flags, &refValue, &amountValue, &blob, &pattern))
+		require.Equal(t, "3.5", score, prefix)
+		require.Equal(t, "3", scoreFromInt, prefix)
+		require.Equal(t, "3", ratio, prefix)
+		require.Equal(t, "false", active, prefix)
+		require.Equal(t, "2024-01-02 06:04:05.123000", created, prefix)
+		require.Equal(t, "[3,4]", counts, prefix)
+		require.Equal(t, "[5,3]", weights, prefix)
+		require.Equal(t, "[true,false]", flags, prefix)
+		require.Equal(t, "507f1f77bcf86cd799439011", refValue, prefix)
+		require.Equal(t, "12.34", amountValue, prefix)
+		require.JSONEq(t, `{"Subtype": 128, "Data": "aGVsbG8="}`, blob, prefix)
+		require.JSONEq(t, `{"Pattern": "^a", "Options": "i"}`, pattern, prefix)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Excluded_Fields covers column exclusions under structured ingestion, on both
+// the initial load and CDC.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Excluded_Fields() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_excluded"
+	dstTable := "test_structured_excluded_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
+		// declared but excluded: exclusion wins, even over values not fitting the declared type
+		{SourceName: "internal", DestinationType: "Nullable(Int64)"},
+	}
+	tableMappings[0].Exclude = []string{"secret", "internal"}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "age", Value: int64(i)},
+				{Key: "secret", Value: fmt.Sprintf("secret_%s_%d", prefix, i)},
+				{Key: "internal", Value: fmt.Sprintf("internal_%s_%d", prefix, i)},
+				// a repeated excluded field is not reported as duplicated either
+				{Key: "secret", Value: "repeated"},
+				// neither declared nor excluded
+				{Key: "extra", Value: fmt.Sprintf("extra_%s_%d", prefix, i)},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,name", 10)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// excluded fields have no column, declared or not
+	columnNames, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name FROM system.columns WHERE database = '%s' AND table = '%s' AND name IN ('name', 'age', 'secret', 'internal', 'extra')",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnNames.Close()
+	var actualColumns []string
+	for columnNames.Next() {
+		var name string
+		require.NoError(t, columnNames.Scan(&name))
+		actualColumns = append(actualColumns, name)
+	}
+	require.NoError(t, columnNames.Err())
+	require.ElementsMatch(t, []string{"name", "age"}, actualColumns)
+
+	// per leg, the declared columns land and only the field neither declared nor excluded is reported
+	for _, prefix := range []string{"init", "cdc"} {
+		var age int64
+		var malformed string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT age, toString(_peerdb_malformed_data) FROM "%s"."%s" FINAL WHERE name = '%s_3'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&age, &malformed))
+		require.Equal(t, int64(3), age, prefix)
+		require.JSONEq(t, fmt.Sprintf(`{"extra": {"unexpected_field": true, "value": "extra_%s_3"}}`, prefix), malformed, prefix)
 	}
 
 	env.Cancel(t.Context())
@@ -742,7 +1111,341 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_DeleteField_And_Dele
 	e2e.RequireEnvCanceled(t, env)
 }
 
-func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
+// Test_CDC_Delete_Preimage replicates two collections that both have changeStreamPreAndPostImages
+// enabled, with delete pre-images enabled in the table mapping of only one of them: its deleted row
+// keeps the document's values in `doc`, while the other collection's deleted row has an empty `doc`.
+func (s MongoClickhouseSuite) Test_CDC_Delete_Preimage() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_delete_preimage"
+	dstTable := "test_delete_preimage_dst"
+	srcTableWithout := "test_delete_without_preimage"
+	dstTableWithout := "test_delete_without_preimage_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable, srcTableWithout, dstTableWithout)
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	// Enable pre-and-post-images in the test collection
+	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
+	for _, table := range []string{srcTable, srcTableWithout} {
+		require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), table, preAndPostImages))
+	}
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	// a string `_id` lands as is, so the destination row can be looked up by it
+	const documentID = "preimage-doc"
+	// the `doc` fields of the latest version of the document's row, and whether that row is a delete;
+	// ok is false when there is no row yet
+	readRow := func(table string) (map[string]any, bool, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT toString(doc), _peerdb_is_deleted FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, table, documentID))
+		if err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return nil, false, false
+		}
+		var doc string
+		var deleted uint8
+		if err := rows.Scan(&doc, &deleted); err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(doc), &fields); err != nil {
+			t.Log(err)
+			return nil, false, false
+		}
+		return fields, deleted != 0, true
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Load a sample document into the test collections, one for pre-image enabled and another without it
+	for _, table := range []string{srcTable, srcTableWithout} {
+		insertRes, err := adminClient.Database(srcDatabase).Collection(table).InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: documentID},
+			{Key: "name", Value: "Alice"},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, insertRes.Acknowledged)
+	}
+	for _, table := range []string{dstTable, dstTableWithout} {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, "insert event into "+table, func() bool {
+			fields, deleted, ok := readRow(table)
+			return ok && !deleted && fields["name"] == "Alice"
+		})
+	}
+
+	// Delete the sample document to generate the delete events in both collections
+	for _, table := range []string{srcTable, srcTableWithout} {
+		deleteRes, err := adminClient.Database(srcDatabase).Collection(table).DeleteOne(t.Context(),
+			bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+		require.NoError(t, err)
+		require.Equal(t, int64(1), deleteRes.DeletedCount)
+	}
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event carrying the pre-image", func() bool {
+		fields, deleted, ok := readRow(dstTable)
+		return ok && deleted && fields["name"] == "Alice"
+	})
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event without the pre-image", func() bool {
+		fields, deleted, ok := readRow(dstTableWithout)
+		return ok && deleted && len(fields) == 0
+	})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_CDC_Delete_Preimage is Test_Structured_Ingestion_CDC_DeleteField_And_DeleteDoc's
+// delete with delete pre-images enabled: the deleted row keeps the document's values in its structured
+// columns instead of NULL.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_CDC_Delete_Preimage() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_delete_preimage"
+	dstTable := "test_structured_delete_preimage_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "age", DestinationType: "Nullable(Int64)"},
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable,
+		options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})))
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	const documentID = "structured-preimage-doc"
+	type row struct {
+		name    *string
+		age     *int64
+		deleted bool
+	}
+	// the latest version of the document's row, deleted or not; false when there is none yet
+	readRow := func() (row, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT name, age, _peerdb_is_deleted FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS use_query_cache = false`,
+			peer.GetClickhouseConfig().Database, dstTable, documentID))
+		if err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return row{}, false
+		}
+		var r row
+		var deleted uint8
+		if err := rows.Scan(&r.name, &r.age, &deleted); err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		r.deleted = deleted != 0
+		return r, true
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	waitForRow := func(reason string, expected row) {
+		e2e.EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+			actual, ok := readRow()
+			return ok && reflect.DeepEqual(expected, actual)
+		})
+	}
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{
+		{Key: "_id", Value: documentID},
+		{Key: "name", Value: "Alice"},
+		{Key: "age", Value: int64(30)},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	waitForRow("insert event", row{name: new("Alice"), age: new(int64(30))})
+
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: documentID}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	// the pre-image is projected like a `fullDocument`, so the deleted row keeps its values
+	waitForRow("delete event", row{name: new("Alice"), age: new(int64(30)), deleted: true})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Delete_Preimage_Validation checks that a mirror enabling delete pre-images on a collection fails
+// validation while the collection does not have changeStreamPreAndPostImages enabled, and passes after.
+func (s MongoClickhouseSuite) Test_Delete_Preimage_Validation() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_delete_preimage_validation"
+	dstTable := "test_delete_preimage_validation_dst"
+
+	apiClient, err := e2e.NewApiClient()
+	require.NoError(t, err)
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].MongoConfig = &protos.MongoTableConfig{DeletePreimage: true}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	require.NoError(t, adminClient.Database(srcDatabase).CreateCollection(t.Context(), srcTable))
+
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Error(t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got %T: %v", err, err)
+	require.Equal(t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(t, grpcStatus.Message(), "changeStreamPreAndPostImages")
+	require.Contains(t, grpcStatus.Message(), srcDatabase+"."+srcTable)
+
+	require.NoError(t, adminClient.Database(srcDatabase).RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: srcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: true}}},
+	}).Err())
+	_, err = apiClient.ValidateCDCMirror(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(t, err)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Client_Side_Lookup_Post_Images() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_use_post_images"
+	dstTable := "test_use_post_images_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	preAndPostImages := options.CreateCollection().SetChangeStreamPreAndPostImages(bson.D{{Key: "enabled", Value: true}})
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable, preAndPostImages))
+	collection := db.Collection(srcTable)
+
+	// Only PeerDB's lookup queries are profiled, which shows which updates needed a lookup.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	lookedUpIDs := func() map[bson.ObjectID]struct{} {
+		cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+			{Key: "command.aggregate", Value: srcTable},
+			{Key: "command.comment", Value: parallelDocumentLookupComment},
+		})
+		require.NoError(t, err)
+		defer cursor.Close(t.Context())
+		ids := map[bson.ObjectID]struct{}{}
+		for cursor.Next(t.Context()) {
+			in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+			require.NoError(t, err, "expected an _id lookup to batch with $in")
+			values, err := in.Array().Values()
+			require.NoError(t, err)
+			for _, value := range values {
+				ids[value.ObjectID()] = struct{}{}
+			}
+		}
+		require.NoError(t, cursor.Err())
+		return ids
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	const numDocs = 300
+	docs := make([]any, 0, numDocs)
+	for i := range numDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+
+	// Tests that updates with a post-image need no lookup.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{}, bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(numDocs), updateRes.ModifiedCount)
+	// The post-image is the document right after the update, so it survives a later delete.
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: 0}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "key", Value: 0}})
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates with post-images", srcTable, dstTable, "_id,doc")
+	require.Empty(t, lookedUpIDs(), "updates with a post-image must not be looked up")
+
+	// Tests that an update without a post-image is looked up instead of written without its document.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "collMod", Value: srcTable},
+		{Key: "changeStreamPreAndPostImages", Value: bson.D{{Key: "enabled", Value: false}}},
+	}).Err())
+	const numWithoutPostImage = 10
+	expectedLookups := make(map[bson.ObjectID]struct{}, numWithoutPostImage)
+	for i := 1; i <= numWithoutPostImage; i++ {
+		_, err := collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: i}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 100 + i}}}})
+		require.NoError(t, err)
+		expectedLookups[insertRes.InsertedIDs[i].(bson.ObjectID)] = struct{}{}
+	}
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "updates without post-images", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+	require.Equal(t, expectedLookups, lookedUpIDs(), "only the updates without a post-image are looked up")
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Uniform() {
 	t := s.T()
 	srcDatabase := e2e.GetTestDatabase(s.Suffix())
 	srcTable := "test_simple_partitioned"
@@ -756,6 +1459,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	flowConnConfig.Env["PEERDB_MONGODB_SAMPLED_OBJECTID_PARTITIONING"] = "false"
 
 	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -799,6 +1503,66 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	require.NoError(t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned_ObjectID_Sample() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_partitioned_sampled_skewed"
+	dstTable := "test_partitioned_sampled_skewed_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1000
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// Mimics the likely $sample path in production: MongoDB uses a random cursor only when the
+	// sample is under 5% of the collection and the collection has more than 100 documents;
+	// otherwise scans the whole collection and sorts it randomly. 5,002 documents at
+	// 1,000 rows per partition give 6 partitions and a 120-document sample (6 x 20, 2.4%).
+	const clustered = 5_000
+	docs := make([]any, 0, clustered+2)
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range clustered {
+		docs = append(docs, bson.D{
+			{Key: "_id", Value: bson.NewObjectIDFromTimestamp(baseTime.Add(time.Duration(i) * time.Second))},
+			{Key: "key", Value: fmt.Sprintf("value_%d", i)},
+		})
+	}
+	docs = append(docs,
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(1, 0))}, {Key: "outlier", Value: "min"}},
+		bson.D{{Key: "_id", Value: bson.NewObjectIDFromTimestamp(time.Unix(math.MaxUint32-1, 0))}, {Key: "outlier", Value: "max"}},
+	)
+	_, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	require.NoError(t, err)
+	var partitionCount int
+	var maxRowsInPartition int64
+	require.NoError(t, catalogPool.QueryRow(t.Context(),
+		`SELECT COUNT(*), COALESCE(MAX(rows_in_partition), 0) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName).Scan(&partitionCount, &maxRowsInPartition))
+	require.Greaterf(t, partitionCount, 1, "expected a parallel snapshot, got %d partition(s)", partitionCount)
+	// allow 3x the target since the random cursor gives different boundaries on every run.
+	require.LessOrEqualf(t, maxRowsInPartition, int64(3_000),
+		"largest of %d partitions held %d of 5,002 documents; sampling should spread the clustered _ids",
+		partitionCount, maxRowsInPartition)
+
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
@@ -1266,6 +2030,225 @@ func (s MongoClickhouseSuite) Test_CDC_Excluded_Operation_Types() {
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_parallel_lookup"
+	dstTable := "test_parallel_lookup_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+
+	collection := db.Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	// Only PeerDB's lookup queries are profiled, which shows how updates were hydrated.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// More documents than one lookup window, so updates span several windows and $in batches.
+	const numDocs = 600
+	docs := make([]any, 0, numDocs)
+	for i := range numDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+	expectedIDs := make(map[bson.ObjectID]struct{}, numDocs)
+	for _, id := range insertRes.InsertedIDs {
+		expectedIDs[id.(bson.ObjectID)] = struct{}{}
+	}
+
+	// Tests that updates spanning several windows are all hydrated by batched $in lookups.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{},
+		bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(numDocs), updateRes.ModifiedCount)
+
+	// Tests lookup does not fail with deletion
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "key", Value: 0}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "key", Value: 0}})
+	require.NoError(t, err)
+
+	// Test that value converges after a mix of lookup and non-lookup operations
+	recreatedID := insertRes.InsertedIDs[2]
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}})
+	require.NoError(t, err)
+	_, err = collection.InsertOne(t.Context(),
+		bson.D{{Key: "_id", Value: recreatedID}, {Key: "key", Value: 2}, {Key: "recreated", Value: true}})
+	require.NoError(t, err)
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: recreatedID}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 2}}}})
+	require.NoError(t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "mixed events", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+
+	cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+		{Key: "command.aggregate", Value: srcTable},
+		{Key: "command.comment", Value: parallelDocumentLookupComment},
+	})
+	require.NoError(t, err)
+	defer cursor.Close(t.Context())
+	// Window boundaries depend on change stream timing, so assert which IDs were
+	// looked up, not how many queries ran.
+	lookedUpIDs := make(map[bson.ObjectID]struct{}, len(expectedIDs))
+	for cursor.Next(t.Context()) {
+		in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+		require.NoError(t, err, "expected every ObjectID lookup to be a batched $in lookup")
+		values, err := in.Array().Values()
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(values), 64, "batched lookup exceeded the query size")
+		for _, value := range values {
+			lookedUpIDs[value.ObjectID()] = struct{}{}
+		}
+	}
+	require.NoError(t, cursor.Err())
+	require.Equal(t, expectedIDs, lookedUpIDs, "every updated document must be hydrated by a batched $in lookup")
+}
+
+func (s MongoClickhouseSuite) Test_CDC_Parallel_Document_Lookup_Mixed_Id_Types() {
+	t := s.T()
+
+	const parallelDocumentLookupComment = "PeerDB parallel document lookup"
+
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_parallel_lookup_mixed_ids"
+	dstTable := "test_parallel_lookup_mixed_ids_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.Env["PEERDB_MONGODB_CLIENT_SIDE_UPDATE_LOOKUP"] = "true"
+
+	db := s.Source().(*e2e.MongoSource).AdminClient().Database(srcDatabase)
+	require.NoError(t, db.CreateCollection(t.Context(), srcTable))
+
+	collection := db.Collection(srcTable)
+
+	tc := e2e.NewTemporalClient(t)
+	// Only PeerDB's lookup queries are profiled, which shows how updates were hydrated.
+	require.NoError(t, db.RunCommand(t.Context(), bson.D{
+		{Key: "profile", Value: 2},
+		{Key: "filter", Value: bson.D{{Key: "command.comment", Value: parallelDocumentLookupComment}}},
+	}).Err())
+	t.Cleanup(func() {
+		_ = db.RunCommand(context.Background(), bson.D{{Key: "profile", Value: 0}}).Err()
+	})
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	decimal, err := bson.ParseDecimal128("12.50")
+	require.NoError(t, err)
+	// An ObjectID and its hex string are left out: both map to the same destination _id.
+	nonObjectIDs := []any{
+		"string-id",
+		"",
+		int32(7),
+		int64(1) << 40,
+		3.5,
+		decimal,
+		bson.Binary{Subtype: 4, Data: []byte("0123456789abcdef")},
+		bson.DateTime(1700000000000),
+		true,
+		// Embedded documents with the same fields in a different order are different _ids.
+		bson.D{{Key: "a", Value: 1}, {Key: "b", Value: "x"}},
+		bson.D{{Key: "b", Value: "x"}, {Key: "a", Value: 1}},
+	}
+	const numObjectIDDocs = 10
+	docs := make([]any, 0, len(nonObjectIDs)+numObjectIDDocs)
+	for i, id := range nonObjectIDs {
+		docs = append(docs, bson.D{{Key: "_id", Value: id}, {Key: "key", Value: i}, {Key: "v", Value: 0}})
+	}
+	for i := range numObjectIDDocs {
+		docs = append(docs, bson.D{{Key: "key", Value: len(nonObjectIDs) + i}, {Key: "v", Value: 0}})
+	}
+	insertRes, err := collection.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events", srcTable, dstTable, "_id,doc")
+	expectedIDs := make(map[string]struct{}, len(docs))
+	for _, id := range insertRes.InsertedIDs {
+		idType, idData, err := bson.MarshalValue(id)
+		require.NoError(t, err)
+		expectedIDs[string([]byte{byte(idType)})+string(idData)] = struct{}{}
+	}
+	require.Len(t, expectedIDs, len(docs))
+
+	// Tests that each update in a mixed window is hydrated with its own document.
+	updateRes, err := collection.UpdateMany(t.Context(), bson.D{},
+		bson.D{{Key: "$inc", Value: bson.D{{Key: "v", Value: 1}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(len(docs)), updateRes.ModifiedCount)
+
+	// Tests that repeated updates to one key keep the latest document.
+	for i := range 3 {
+		_, err := collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: "string-id"}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: 10 + i}}}})
+		require.NoError(t, err)
+	}
+
+	// Tests that the sync does not fail when a lookup finds no document.
+	_, err = collection.UpdateOne(t.Context(), bson.D{{Key: "_id", Value: int32(7)}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "v", Value: -1}}}})
+	require.NoError(t, err)
+	_, err = collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: int32(7)}})
+	require.NoError(t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "mixed events", srcTable, dstTable, "_id,doc")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+
+	cursor, err := db.Collection("system.profile").Find(t.Context(), bson.D{
+		{Key: "command.aggregate", Value: srcTable},
+		{Key: "command.comment", Value: parallelDocumentLookupComment},
+	})
+	require.NoError(t, err)
+	defer cursor.Close(t.Context())
+	// Window boundaries depend on change stream timing, so assert which IDs were
+	// looked up, not how many queries ran.
+	lookedUpIDs := make(map[string]struct{}, len(expectedIDs))
+	for cursor.Next(t.Context()) {
+		in, err := cursor.Current.LookupErr("command", "pipeline", "0", "$match", "_id", "$in")
+		require.NoError(t, err, "expected an unsharded collection lookup to batch _ids with $in")
+		values, err := in.Array().Values()
+		require.NoError(t, err)
+		for _, value := range values {
+			lookedUpIDs[string([]byte{byte(value.Type)})+string(value.Value)] = struct{}{}
+		}
+	}
+	require.NoError(t, cursor.Err())
+	require.Equal(t, expectedIDs, lookedUpIDs, "every updated document must be hydrated by a batched $in lookup")
 }
 
 func (s MongoClickhouseSuite) Test_CDC_Collection_DDL_Reported_To_User() {

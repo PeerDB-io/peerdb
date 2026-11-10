@@ -52,7 +52,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -77,7 +77,7 @@ jobs:
             -p 32 ./... -timeout 300s
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: flow-unit-test-results
           path: logs/
@@ -112,7 +112,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -125,26 +125,30 @@ jobs:
 
   flow_test:
     name: ${{ matrix.target.label }}
-    needs: [gate]
+    # Validate the common code before allocating runners for every permutation.
+    needs: [gate, unit_tests, test_selection_coverage]
     strategy:
       fail-fast: false
       matrix:
         target:
-          - {job: postgres_clickhouse,    version: '16',       ch: lts,    label: postgres-16_ch-lts}
-          - {job: postgres_clickhouse,    version: '17',       ch: stable, label: postgres-17_ch-stable}
-          - {job: postgres_clickhouse,    version: '18',       ch: latest, label: postgres-18_ch-latest}
-          - {job: postgres_other,         version: '16',       label: postgres-16_other}
-          - {job: postgres_other,         version: '17',       label: postgres-17_other}
-          - {job: postgres_other,         version: '18',       label: postgres-18_other}
-          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-11, ch: lts,    label: mysql-gtid-maria-11_ch-lts}
-          - {job: mysql_clickhouse,       version: mysql-pos,  mariadb: maria-12, ch: stable, label: mysql-pos-maria-12_ch-stable}
-          - {job: mysql_clickhouse,       version: mysql-gtid, mariadb: maria-13, ch: latest, label: mysql-gtid-maria-13_ch-latest}
-          - {job: mongo_clickhouse,       version: '6.0',      ch: lts,    label: mongo-6.0_ch-lts}
-          - {job: mongo_clickhouse,       version: '7.0',      ch: stable, label: mongo-7.0_ch-stable}
-          - {job: mongo_clickhouse,       version: '8.0',      ch: latest, label: mongo-8.0_ch-latest}
-          - {job: cockroachdb_clickhouse, version: v24,        ch: lts,    label: cockroachdb-v24_ch-lts}
-          - {job: cockroachdb_clickhouse, version: v25,        ch: stable, label: cockroachdb-v25_ch-stable}
-          - {job: cockroachdb_clickhouse, version: v26,        ch: latest, label: cockroachdb-v26_ch-latest}
+          - {job: postgres_clickhouse,    version: '16',          ch: lts,    label: postgres-16_ch-lts}
+          - {job: postgres_clickhouse,    version: '17',          ch: stable, label: postgres-17_ch-stable}
+          - {job: postgres_clickhouse,    version: '18',          ch: latest, label: postgres-18_ch-latest}
+          - {job: postgres_other,         version: '16',          label: postgres-16_other}
+          - {job: postgres_other,         version: '17',          label: postgres-17_other}
+          - {job: postgres_other,         version: '18',          label: postgres-18_other}
+          - {job: mysql_clickhouse,       version: mysql-gtid,    ch: lts,    label: mysql-gtid_ch-lts}
+          - {job: mysql_clickhouse,       version: mysql-pos,     ch: stable, label: mysql-pos_ch-stable}
+          - {job: mysql_clickhouse,       version: mysql-gtid,    ch: latest, label: mysql-gtid_ch-latest}
+          - {job: mysql_clickhouse,       version: maria-11,      ch: lts,    label: maria-11_ch-lts}
+          - {job: mysql_clickhouse,       version: maria-12,      ch: stable, label: maria-12_ch-stable}
+          - {job: mysql_clickhouse,       version: maria-13,      ch: latest, label: maria-13_ch-latest}
+          - {job: mongo_clickhouse,       version: '6.0',         ch: lts,    label: mongo-6_ch-lts}
+          - {job: mongo_clickhouse,       version: '7.0',         ch: stable, label: mongo-7_ch-stable}
+          - {job: mongo_clickhouse,       version: '8.2.12',      ch: latest, label: mongo-8_ch-latest}
+          - {job: cockroachdb_clickhouse, version: v24,           ch: lts,    label: cockroachdb-v24_ch-lts}
+          - {job: cockroachdb_clickhouse, version: v25,           ch: stable, label: cockroachdb-v25_ch-stable}
+          - {job: cockroachdb_clickhouse, version: v26,           ch: latest, label: cockroachdb-v26_ch-latest}
           - {job: bigquery_clickhouse,    ch: lts,    label: bigquery_ch-lts}
           - {job: bigquery_clickhouse,    ch: stable, label: bigquery_ch-stable}
           - {job: bigquery_clickhouse,    ch: latest, label: bigquery_ch-latest}
@@ -172,7 +176,7 @@ jobs:
                 ./e2e/switchboard_mysql/...
                 ./connectors/mysql/...
               pkg: ''
-              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mariadb
+              services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02
             mongo_clickhouse:
               packages: >-
                 ./e2e/mongo_clickhouse/...
@@ -199,8 +203,8 @@ jobs:
               maria-12: mariadb:12-ubi
               maria-13: mariadb:13.0-ubi-rc
             clickhouse:
-              lts: clickhouse/clickhouse-server:25.8.28.1
-              stable: clickhouse/clickhouse-server:26.3.16.16
+              lts: clickhouse/clickhouse-server:26.8
+              stable: clickhouse/clickhouse-server:26.9
               latest: clickhouse/clickhouse-server:latest
             cockroachdb:
               v24: cockroachdb/cockroach:v24.1.30
@@ -214,28 +218,31 @@ jobs:
       pkg_test_packages: ${{ matrix.jobs[matrix.target.job].pkg }}
       ancillary_services: >-
         ${{ matrix.jobs[matrix.target.job].services }}
-        ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
+        ${{ matrix.target.job == 'mysql_clickhouse' && (startsWith(matrix.target.version, 'maria-') && 'mariadb' || matrix.target.version) || '' }}
       postgres_image: ${{ startsWith(matrix.target.job, 'postgres_') && format('imresamu/postgis:{0}-3.5-alpine', matrix.target.version) || '' }}
       mysql_gtid_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-gtid' && matrix.images.mysql['mysql-gtid'] || '' }}
       mysql_pos_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version == 'mysql-pos' && matrix.images.mysql['mysql-pos'] || '' }}
-      mariadb_image: ${{ matrix.target.job == 'mysql_clickhouse' && matrix.images.mariadb[matrix.target.mariadb] || '' }}
+      mariadb_image: ${{ matrix.target.job == 'mysql_clickhouse' && startsWith(matrix.target.version, 'maria-') && matrix.images.mariadb[matrix.target.version] || '' }}
       mongodb_image: ${{ matrix.target.job == 'mongo_clickhouse' && format('mongo:{0}', matrix.target.version) || '' }}
       clickhouse_image: ${{ matrix.target.ch && matrix.images.clickhouse[matrix.target.ch] || '' }}
       cockroachdb_image: ${{ matrix.target.job == 'cockroachdb_clickhouse' && matrix.images.cockroachdb[matrix.target.version] || '' }}
       test_env: |
         CI_MYSQL_VERSION=${{ matrix.target.job == 'mysql_clickhouse' && matrix.target.version || '' }}
-        CI_MYSQL_PORT=${{ matrix.target.version == 'mysql-pos' && '3307' || '3306' }}
-        CI_MARIADB_VERSION=${{ matrix.target.mariadb }}
+        CI_MYSQL_PORT=${{ startsWith(matrix.target.version, 'maria-') && '3308' || matrix.target.version == 'mysql-pos' && '3307' || '3306' }}
         FLOW_TESTS_RDS_IAM_AUTH_SKIP=false
     secrets: inherit
 
+  # pull_request and pull_request_target both trigger this workflow, but only one runs tests.
+  # Give the other run a different check name so its skipped tests cannot satisfy the required check.
+  # This job must always run because GitHub does not evaluate dynamic names for skipped jobs.
   flow_tests_passed:
-    name: All flow test jobs succeeded
+    name: ${{ needs.gate.result != 'skipped' && 'All flow test jobs succeeded' || 'Flow tests not run for this event' }}
     needs: [gate, unit_tests, test_selection_coverage, flow_test]
-    if: always() && needs.gate.result != 'skipped'
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - env:
+      - if: needs.gate.result != 'skipped'
+        env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'

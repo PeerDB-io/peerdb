@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -189,12 +190,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		if err := initTableSchema(); err != nil {
 			return err
 		}
-		for _, col := range tableSchema.Columns {
-			if col.Name == mapping.PartitionKey && col.Nullable {
-				watermarkColumnNullable = true
-				break
-			}
-		}
+		watermarkColumnNullable = partitionKeyMayBeNull(tableSchema, mapping)
 	}
 
 	config := &protos.QRepConfig{
@@ -228,6 +224,20 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 
 	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
+}
+
+// excluded columns are missing from the stored schema, so their nullability is unknown;
+// keys that are never part of the schema (like ctid) can't be excluded and can't be NULL, so they fall through to false
+func partitionKeyMayBeNull(tableSchema *protos.TableSchema, mapping *protos.TableMapping) bool {
+	if slices.Contains(mapping.Exclude, mapping.PartitionKey) {
+		return true
+	}
+	for _, col := range tableSchema.Columns {
+		if col.Name == mapping.PartitionKey {
+			return col.Nullable
+		}
+	}
+	return false
 }
 
 func (s *SnapshotFlowExecution) cloneTables(
@@ -389,6 +399,10 @@ func SnapshotFlowWorkflow(
 			config.FlowJobName,
 			config.SourceName,
 			config.Env,
+			// this flow's own tables, not the mirror's: a table addition runs this workflow as a
+			// child scoped to the tables being added, and the catalog is only updated with them
+			// once the addition completes
+			config.TableMappings,
 		)
 
 		fExportSnapshot := workflow.ExecuteActivity(

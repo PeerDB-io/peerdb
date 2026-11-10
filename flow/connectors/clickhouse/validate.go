@@ -7,8 +7,11 @@ import (
 	"slices"
 	"strings"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -48,6 +51,10 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 	}
 
+	if err := checkNativeJSONSetting(ctx, cfg.Env, c.chVersion); err != nil {
+		return err
+	}
+
 	destinationTables := make([]string, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		destinationTable := tableMapping.DestinationTableIdentifier
@@ -66,50 +73,14 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return err
 	}
 
-	if cfg.Resync {
-		return nil // no need to validate schema for resync, as we will create or replace the tables
-	}
-
-	peerDBColumns := []string{versionColName}
-	if cfg.SoftDeleteColName != "" {
-		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
-	} else {
-		peerDBColumns = append(peerDBColumns, defaultIsDeletedColName)
-	}
-	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+	// Without source schemas (full mirror resync) there is nothing left to validate, as the tables are created or replaced.
+	// A table-level resync passes them to validate the new table settings.
+	if cfg.Resync && tableNameSchemaMapping == nil {
+		return nil
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
-	dstTableNames := slices.Collect(maps.Keys(processedMapping))
-
-	// In the case of resync, we don't need to check the content or structure of the original tables;
-	// they'll always get swapped out with the _resync tables which we CREATE OR REPLACE
-	// also in case of this setting; multiple source tables can be mapped to the same destination table
-	// so ignore the check in this case as well
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
-	if err != nil {
-		return err
-	}
-
-	initialLoadAllowNonEmptyTables, err := internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, cfg.Env)
-	if err != nil {
-		return err
-	}
-
-	if !sourceSchemaAsDestinationColumn {
-		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
-			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), initialLoadAllowNonEmptyTables,
-		); err != nil {
-			return err
-		}
-	}
-	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
-	if err != nil {
-		return err
-	}
 
 	for _, tableMapping := range cfg.TableMappings {
 		dstTableName := tableMapping.DestinationTableIdentifier
@@ -148,19 +119,82 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		); err != nil {
 			return err
 		}
+	}
 
-		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
-			continue
-		}
+	// In the case of resync, we don't need to check the content or structure of the original tables;
+	// they'll always get swapped out with the _resync tables which we CREATE OR REPLACE
+	if cfg.Resync {
+		return nil
+	}
 
-		// for resync, we don't need to check the content or structure of the original tables;
-		// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-		if err := c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping,
+	peerDBColumns := []string{versionColName}
+	if cfg.SoftDeleteColName != "" {
+		peerDBColumns = append(peerDBColumns, cfg.SoftDeleteColName)
+	} else {
+		peerDBColumns = append(peerDBColumns, defaultIsDeletedColName)
+	}
+	if cfg.SyncedAtColName != "" {
+		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+	}
+
+	dstTableNames := slices.Collect(maps.Keys(processedMapping))
+
+	// in case of this setting; multiple source tables can be mapped to the same destination table
+	// so ignore the check in this case
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
+	if err != nil {
+		return err
+	}
+
+	initialLoadAllowNonEmptyTables, err := internal.PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx, cfg.Env)
+	if err != nil {
+		return err
+	}
+
+	if !sourceSchemaAsDestinationColumn {
+		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
+			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), initialLoadAllowNonEmptyTables,
 		); err != nil {
 			return err
 		}
+	}
+	// optimization: fetching columns for all tables at once
+	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
+	if err != nil {
+		return err
+	}
+
+	for _, tableMapping := range cfg.TableMappings {
+		dstTableName := tableMapping.DestinationTableIdentifier
+		// if destination table does not exist, we're good
+		chColumns, ok := chTableColumnsMapping[dstTableName]
+		if !ok {
+			continue
+		}
+
+		if err := c.processTableComparison(dstTableName, processedMapping[dstTableName],
+			chColumns, peerDBColumns, tableMapping,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkNativeJSONSetting rejects a mirror that turns PEERDB_CLICKHOUSE_ENABLE_JSON on against a ClickHouse
+// without the native JSON type, which would otherwise silently fall back to String columns.
+func checkNativeJSONSetting(ctx context.Context, env map[string]string, chVersion *chproto.Version) error {
+	enabled, err := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	if err != nil {
+		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
+	}
+	if enabled && !qvalue.NativeJSONTypeSupported(chVersion) {
+		version := "unknown"
+		if chVersion != nil {
+			version = chVersion.String()
+		}
+		return fmt.Errorf("PEERDB_CLICKHOUSE_ENABLE_JSON needs ClickHouse 25.3 or newer for the native JSON type, "+
+			"the destination runs %s; turn the setting off to map JSON columns to String", version)
 	}
 	return nil
 }

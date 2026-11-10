@@ -22,6 +22,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -58,7 +59,7 @@ func NewClickHouseConnector(
 		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
 
-	staging, err := createStagingStore(ctx, env, config, clickHouseVersion.Version)
+	staging, err := createStagingStore(ctx, env, config, &clickHouseVersion.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +71,35 @@ func NewClickHouseConnector(
 		logger:           logger,
 		staging:          staging,
 		chVersion:        &clickHouseVersion.Version,
+	}, nil
+}
+
+// NewClickHouseStagingConnector returns a connector that can only stage files
+// and never connects to the ClickHouse server,
+// so staging keeps working while ClickHouse is unreachable. Anything that executes
+// queries against ClickHouse must not be called on it.
+func NewClickHouseStagingConnector(
+	ctx context.Context,
+	env map[string]string,
+	config *protos.ClickhouseConfig,
+) (*ClickHouseConnector, error) {
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// server version is unknown without a connection, so version-gated staging checks are skipped;
+	// they still run when the regular connector is built for normalization
+	staging, err := createStagingStore(ctx, env, config, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClickHouseConnector{
+		PostgresMetadata: pgMetadata,
+		Config:           config,
+		logger:           internal.LoggerFromCtx(ctx),
+		staging:          staging,
 	}, nil
 }
 
@@ -299,7 +329,7 @@ func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver
 }
 
 func (c *ClickHouseConnector) Close() error {
-	if c != nil {
+	if c != nil && c.database != nil {
 		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to ClickHouse peer: %w", err)
 		}
@@ -321,16 +351,8 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
-		colName := srcField.Name
 		// if the column is mapped to a different name, find and use that name instead
-		for _, col := range tableMapping.Columns {
-			if col.SourceName == colName {
-				if col.DestinationName != "" {
-					colName = col.DestinationName
-				}
-				break
-			}
-		}
+		colName := resolveDestinationColumnName(srcField.Name, tableMapping.GetColumns())
 		found := false
 		// compare either the source column name or the mapped destination column name to the ClickHouse schema
 		for _, dstField := range dstSchema {
@@ -377,6 +399,9 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 
 func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	var flags []string
+	if qvalue.NativeJSONTypeSupported(c.chVersion) {
+		flags = append(flags, shared.Flag_ClickHouseJSONSupported)
+	}
 
 	var time64Setting string
 	err := c.queryRow(ctx,
@@ -394,13 +419,16 @@ func (c *ClickHouseConnector) GetFlags(ctx context.Context) ([]string, error) {
 	return flags, nil
 }
 
-var parametricTypesPrefixes = []string{
-	"Nullable(",
-	"LowCardinality(",
+const arrayPrefix = "Array("
+
+var parametricTypesPrefixes = map[string]string{
+	"Nullable(":       "",
+	"LowCardinality(": "",
+	"Array(Nullable(": arrayPrefix,
 }
 
 var notNullableTypesPrefixes = []string{
-	"Array(",
+	arrayPrefix,
 	"Map(",
 	"Tuple(", // Remove once this is supported without `enable_nullable_tuple_type = 1`
 }
@@ -417,13 +445,13 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		}
 	}
 
-	for _, parametricPrefix := range parametricTypesPrefixes {
+	for parametricPrefix, replacement := range parametricTypesPrefixes {
 		if inner, found := strings.CutPrefix(columnType, parametricPrefix); found {
 			inner, found = strings.CutSuffix(inner, ")")
 			if !found {
 				return types.QValueKindInvalid, typeResolutionError(columnType)
 			}
-			return QValueKindForType(inner)
+			return QValueKindForType(replacement + inner)
 		}
 	}
 
@@ -484,6 +512,8 @@ func QValueKindForType(columnType string) (types.QValueKind, error) {
 		return types.QValueKindArrayDate, nil
 	case "JSON":
 		return types.QValueKindJSON, nil
+	case "Array(JSON)":
+		return types.QValueKindArrayJSON, nil
 	default:
 		if strings.Contains(columnType, "Decimal") {
 			if strings.HasPrefix(columnType, "Array(") {

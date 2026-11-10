@@ -176,8 +176,11 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if strings.HasPrefix(table, "_peerdb_raw") {
 		rows, rowsErr = s.queryRawTable(ch, table, cols)
 	} else {
+		// Remove this setting once clickhouse-go supports ClickHouse 26.10+ native JSON serialization.
 		rows, rowsErr = ch.Query(
-			s.t.Context(),
+			clickhouse.Context(s.t.Context(), clickhouse.WithSettings(clickhouse.Settings{
+				"output_format_native_use_flattened_dynamic_and_json_serialization": 1,
+			})),
 			fmt.Sprintf(`SELECT %s FROM "%s" FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 		)
 	}
@@ -388,6 +391,24 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 					return nil, err
 				}
 				qrow = append(qrow, types.QValueJSON{Val: string(jsonb)})
+			case *[]chcol.JSON:
+				// an array of JSON column, read back as one JSON array
+				elems := make([]*chcol.JSON, len(*v))
+				for i := range *v {
+					elems[i] = &(*v)[i]
+				}
+				text, err := jsonArrayText(elems)
+				if err != nil {
+					return nil, err
+				}
+				qrow = append(qrow, types.QValueArrayJSON{Val: text})
+			case *[]*chcol.JSON:
+				// an array of nullable JSON column, read back as one JSON array with a NULL element as null
+				text, err := jsonArrayText(*v)
+				if err != nil {
+					return nil, err
+				}
+				qrow = append(qrow, types.QValueArrayJSON{Val: text})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to types", v)
 			}
@@ -396,6 +417,42 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	}
 
 	return batch, rows.Err()
+}
+
+// jsonArrayText renders the elements of an array-of-JSON column as one JSON array, a NULL element as null.
+func jsonArrayText(elems []*chcol.JSON) (string, error) {
+	texts := make([]string, len(elems))
+	for i, elem := range elems {
+		if elem == nil {
+			texts[i] = "null"
+			continue
+		}
+		jsonb, err := elem.MarshalJSON()
+		if err != nil {
+			return "", err
+		}
+		texts[i] = string(jsonb)
+	}
+	return "[" + strings.Join(texts, ",") + "]", nil
+}
+
+// GetColumnType returns the ClickHouse type of a column on a destination table as reported by system.columns.
+func (s ClickHouseSuite) GetColumnType(table string, column string) (string, error) {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return "", err
+	}
+	defer ch.Close()
+
+	var columnType string
+	err = ch.QueryRow(s.t.Context(),
+		"SELECT type FROM system.columns WHERE database = $1 AND table = $2 AND name = $3",
+		s.connector.Config.Database, table, column,
+	).Scan(&columnType)
+	if err != nil {
+		return "", fmt.Errorf("failed to look up type of %s.%s: %w", table, column, err)
+	}
+	return columnType, nil
 }
 
 // CountNonDeletedRows returns the number of rows in table where _peerdb_is_deleted = 0.

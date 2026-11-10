@@ -17,6 +17,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 		disableTls *bool
 		name       string
 		requireTls bool
+		authType   protos.PostgresAuthType
 		expected   bool
 	}{
 		{
@@ -61,6 +62,11 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			disableTls: boolPtr(true),
 			expected:   true,
 		},
+		{
+			name:     "Cloud SQL IAM leaves TLS to the connector",
+			authType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,6 +74,7 @@ func TestPGMustUseTlsConnection(t *testing.T) {
 			config := &protos.PostgresConfig{
 				RequireTls: tt.requireTls,
 				DisableTls: tt.disableTls,
+				AuthType:   tt.authType,
 			}
 			assert.Equal(t, tt.expected, PGMustUseTlsConnection(config))
 		})
@@ -161,7 +168,7 @@ func TestGetPGConnectionString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			connStr := GetPGConnectionString(tt.config, "test")
+			connStr := GetPGConnectionString(tt.config, "test + flow")
 			cfg, err := pgx.ParseConfig(connStr)
 			require.NoError(t, err, "ParseConfig error: %v", err)
 			assert.Equal(t, tt.config.Password, cfg.Password, "Password mismatch")
@@ -172,7 +179,7 @@ func TestGetPGConnectionString(t *testing.T) {
 			}
 			assert.Equal(t, expectedHost, cfg.Host, "Host mismatch")
 			assert.Equal(t, uint16(tt.config.Port), cfg.Port, "Port mismatch")
-			assert.Equal(t, "peerdb_test", cfg.Config.RuntimeParams["application_name"], "Application name mismatch")
+			assert.Equal(t, "peerdb_test + flow", cfg.Config.RuntimeParams["application_name"], "Application name mismatch")
 			assert.Equal(t, "UTF8", cfg.Config.RuntimeParams["client_encoding"], "Client encoding mismatch")
 
 			// without explicit sslmode pgx assumes sslmode=prefer
@@ -189,4 +196,16 @@ func TestGetPGConnectionString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetPGConnectionStringCloudSQLIAMWithoutPort(t *testing.T) {
+	cfg, err := pgx.ParseConfig(GetPGConnectionString(&protos.PostgresConfig{
+		Host:     "project:region:instance",
+		Database: "testdb",
+		User:     "sa@project.iam",
+		AuthType: protos.PostgresAuthType_POSTGRES_GCP_CLOUD_SQL_IAM_AUTH,
+	}, "test"))
+	require.NoError(t, err)
+	assert.Equal(t, CloudSQLConnectorPlaceholderHost, cfg.Host)
+	assert.Equal(t, "sa@project.iam", cfg.User)
 }

@@ -13,9 +13,12 @@ import (
 	"strings"
 	"syscall"
 
+	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgerrcode"
@@ -41,22 +44,28 @@ const (
 )
 
 const (
-	MongoShutdownInProgress              = "(ShutdownInProgress) The server is in quiesce mode and will shut down"
+	MongoShutdownInProgress              = "(ShutdownInProgress)"
 	MongoInterruptedDueToReplStateChange = "(InterruptedDueToReplStateChange) operation was interrupted"
 	MongoIncompleteReadOfMessageHeader   = "incomplete read of message header"
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 	MongoInvalidResumeToken              = "Invalid resume token"
+	MongoTooManyCursorsOpened            = "Cannot open a new cursor since too many cursors are already opened"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
 	// once we already know the error came from MySQL geometry parsing.
 	mysqlGeometryLinearRingNotClosedError = "Points of LinearRing do not form a closed linestring"
 
+	// mysqlServerTLSNotSupported is raised by go-mysql when the server greeting lacks CLIENT_SSL while the client requires TLS
+	mysqlServerTLSNotSupported = "the MySQL Server does not support TLS required by the client"
+
 	// http2ClientConnectionLost is raised by golang.org/x/net/http2 in ClientConn.closeForLostPing,
 	// which tears down the connection and aborts every in-flight request when a keepalive ping goes
 	// unanswered: https://github.com/golang/net/blob/master/http2/transport.go
 	// The error is created with errors.New, so there is no sentinel or type to match on.
 	http2ClientConnectionLost = "http2: client connection lost"
+
+	bigQueryChangeHistoryBeforeTimeTravel = "change history start time is before allowed time travel interval"
 )
 
 var (
@@ -87,8 +96,19 @@ var (
 	PostgresExtensionNotAvailableRe = regexp.MustCompile(
 		`extension ".*?" is not available|could not open extension control file`,
 	)
+	// pg_dump automated schema migration failing because the destination already has an object from the source schema,
+	// e.g. `ERROR:  schema "public_v2" already exists` or `ERROR:  relation "users" already exists`.
+	PostgresSchemaMigrationObjectExistsRe = regexp.MustCompile(`ERROR:\s+[^\n]* already exists`)
+
 	MySqlRdsBinlogFileNotFoundRe = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 	MongoPoolClearedErrorRe      = regexp.MustCompile(`connection pool for .+ was cleared because another operation failed with`)
+
+	// BigQuery error reasons documented as safe to retry
+	bigQueryTransientReasons = map[string]struct{}{
+		"jobBackendError": {},
+		"backendError":    {},
+		"internalError":   {},
+	}
 )
 
 func (e ErrorAction) String() string {
@@ -105,6 +125,7 @@ const (
 	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourceBigQuery        ErrorSource = "bigquery"
 	ErrorSourceGCS             ErrorSource = "gcs"
+	ErrorSourceS3              ErrorSource = "s3"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -224,6 +245,12 @@ var (
 	ErrorNotifyPostgresExtensionNotAvailable = ErrorClass{
 		Class: "NOTIFY_POSTGRES_EXTENSION_NOT_AVAILABLE", action: NotifyUser,
 	}
+	// The pg_dump automated schema migration failed because the destination already has an object that the
+	// source schema creates; psql runs in a single transaction, so this is pre-existing destination state that
+	// the user must drop or migrate manually.
+	ErrorNotifyPostgresSchemaMigrationObjectExists = ErrorClass{
+		Class: "NOTIFY_POSTGRES_SCHEMA_MIGRATION_OBJECT_EXISTS", action: NotifyUser,
+	}
 	ErrorNotifyGeneratedAlwaysColumn = ErrorClass{
 		Class: "NOTIFY_GENERATED_ALWAYS_COLUMN", action: NotifyUser,
 	}
@@ -289,6 +316,16 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	// DocumentDB caps open cursors per instance by instance class (30 on t3/t4g.medium)
+	// https://docs.aws.amazon.com/documentdb/latest/devguide/limits.html#limits.instance
+	ErrorNotifyTooManyCursorsOpened = ErrorClass{
+		Class: "NOTIFY_TOO_MANY_CURSORS_OPENED", action: NotifyUser,
+	}
+	// BigQuery query CDC checkpoint fell out of the source table's time travel window,
+	// so APPENDS()/CHANGES() can no longer read the history since it. Needs a resync.
+	ErrorNotifyBigQueryTimeTravelExceeded = ErrorClass{
+		Class: "NOTIFY_BIGQUERY_TIME_TRAVEL_EXCEEDED", action: NotifyUser,
 	}
 	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
 		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
@@ -882,6 +919,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
+		case 14: // EE_CANT_CHSIZE, e.g. "Can't change size of file (OS errno 28 - No space left on device)"
+			// source disk is full, only the customer can free up space
+			if strings.Contains(strings.ToLower(myErr.Message), "no space left on device") {
+				return ErrorNotifyConnectivity, myErrorInfo
+			}
+			return ErrorOther, myErrorInfo
 		case 29: // EE_FILENOTFOUND
 			if MySqlRdsBinlogFileNotFoundRe.MatchString(myErr.Message) {
 				return ErrorNotifyBinlogInvalid, myErrorInfo
@@ -945,6 +988,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		case 5, // ERR_OUT_OF_MEMORY
+			1205, // ER_LOCK_WAIT_TIMEOUT, transient lock contention on source
 			1317: // ER_QUERY_INTERRUPTED
 			return ErrorRetryRecoverable, myErrorInfo
 		default:
@@ -968,6 +1012,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// this often happens on Mongo Atlas as part of maintenance and should recover
 		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
+		// The message differs between mongod and mongos, so only the code name is matched.
 		if mongoCmdErr.HasErrorMessage(MongoShutdownInProgress) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		}
@@ -985,6 +1030,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		// https://www.mongodb.com/docs/manual/reference/error-codes/
 		switch mongoCmdErr.Code {
+		case 2: // BadValue
+			// DocumentDB reports open-cursor limit as BadValue
+			if mongoCmdErr.HasErrorMessage(MongoTooManyCursorsOpened) {
+				return ErrorNotifyTooManyCursorsOpened, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 6: // HostUnreachable
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 9: // FailedToParse
@@ -1004,6 +1055,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, mongoErrorInfo
 		case 202: // NetworkInterfaceExceededTimeLimit
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 407: // PooledConnectionAcquisitionExceededTimeLimit
+			return ErrorRetryRecoverable, mongoErrorInfo
 		case 211: // KeyNotFound
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 234: // RetryChangeStream
@@ -1116,15 +1169,40 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNKNOWN",
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+			if apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
+				bqErrorInfo.Code = "CHANGE_HISTORY_BEFORE_TIME_TRAVEL"
+				return ErrorNotifyBigQueryTimeTravelExceeded, bqErrorInfo
+			}
 			bqErrorInfo.Code = strconv.Itoa(apiErr.Code)
 			switch apiErr.Code {
 			case 401, // Unauthorized
 				403, // Forbidden
 				404: // Not Found (e.g. missing dataset/table/staging bucket)
 				return ErrorNotifyConnectivity, bqErrorInfo
+			case 500, 502, 503, 504: // service-side failures, documented as safe to retry with backoff
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
+			for _, item := range apiErr.Errors {
+				if _, ok := bigQueryTransientReasons[item.Reason]; ok {
+					bqErrorInfo.Code += "(" + item.Reason + ")"
+					return ErrorRetryRecoverable, bqErrorInfo
+				}
 			}
 		} else if bqErr, ok := errors.AsType[*bigquery.Error](err); ok && bqErr.Reason != "" {
 			bqErrorInfo.Code = bqErr.Reason
+			if _, ok := bigQueryTransientReasons[bqErr.Reason]; ok {
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
+		} else if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			bqErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			switch {
+			case statusCode == 401 || statusCode == 403:
+				return ErrorNotifyConnectivity, bqErrorInfo
+			case statusCode >= 500:
+				return ErrorRetryRecoverable, bqErrorInfo
+			}
 		}
 		return ErrorOther, bqErrorInfo
 	}
@@ -1134,14 +1212,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourceGCS,
 			Code:   "UNKNOWN",
 		}
+		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
+		gcsStatusErrorClass := func(statusCode int) ErrorClass {
+			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+				return ErrorRetryRecoverable
+			}
+			return ErrorOther
+		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
-			switch apiErr.Code {
-			case 503: // Service Unavailable
-				return ErrorRetryRecoverable, gcsErrorInfo
-			default:
-				return ErrorOther, gcsErrorInfo
-			}
+			return gcsStatusErrorClass(apiErr.Code), gcsErrorInfo
+		}
+		if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
+			// token refresh failure, before the API call
+			statusCode := authErr.Response.StatusCode
+			gcsErrorInfo.Code = "AUTH_" + strconv.Itoa(statusCode)
+			return gcsStatusErrorClass(statusCode), gcsErrorInfo
 		}
 		// A lost transport connection never reaches the API layer, so it carries no googleapi.Error
 		// and is retried by dialing a new connection.
@@ -1152,24 +1238,48 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, gcsErrorInfo
 	}
 
+	if s3Err, ok := errors.AsType[*exceptions.S3Error](err); ok {
+		s3ErrorClass := ErrorOther
+		s3ErrorInfo := ErrorInfo{
+			Source: ErrorSourceS3,
+			Code:   "UNKNOWN",
+		}
+		if respErr, ok := errors.AsType[*awshttp.ResponseError](s3Err); ok {
+			if _, ok := retry.DefaultRetryableHTTPStatusCodes[respErr.HTTPStatusCode()]; ok {
+				s3ErrorClass = ErrorRetryRecoverable
+			}
+			s3ErrorInfo.Code = strconv.Itoa(respErr.HTTPStatusCode())
+		}
+		return s3ErrorClass, s3ErrorInfo
+	}
+
 	if chException, ok := errors.AsType[*clickhouse.Exception](err); ok {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
 			Code:   strconv.Itoa(int(chException.Code)),
 		}
+		execErr, isExecErr := errors.AsType[*peerdb_clickhouse.ExecError](err)
+		isViewErr := isExecErr && execErr.View()
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrUnknownTable,
 			chproto.ErrNoSuchColumnInTable,
 			// "Too large string for FixedString column: (at row 10195)"
 			// The only one created by us is FixedString(1) for PG QChar so assuming the user did it for a string and it didn't work
 			chproto.ErrTooLargeStringSize:
-			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+			if isViewErr {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrIncorrectData:
-			if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+			if isViewErr {
 				return ErrorNotifyMVOrView, chErrorInfo
+			}
+			if isExecErr && execErr.JSONParse() {
+				// When PeerDB's own query converts to JSON, a rejected source value is a PeerDB bug
+				if execErr.JSONCast() {
+					return ErrorOther, chErrorInfo
+				}
+				return ErrorNotifyDestinationModified, chErrorInfo
 			}
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
@@ -1211,6 +1321,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+			//nolint:lll
+			// PeerDB maps dates to Date32, so a Date column that rejects a value outside 1970-2149 was set by the user:
+			// https://github.com/ClickHouse/ClickHouse/blob/abbc002369b8bf2b54abbf54dd02a662a685c4db/src/Processors/Formats/Impl/AvroRowInputFormat.cpp#L380-L389
+			if strings.Contains(chException.Message, "exceeds the range of type Date, ") {
+				return ErrorNotifyDestinationModified, chErrorInfo
 			}
 		case chproto.ErrBadArguments:
 			if ClickHouseDecimalInsertRe.MatchString(chException.Message) {
@@ -1304,7 +1420,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyClickHouseError, chErrorInfo
 		}
 		// a catch-all for MV or view errors
-		if _, ok := errors.AsType[*peerdb_clickhouse.ViewError](err); ok {
+		if isViewErr {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		// a catch-all for normalization errors, which typically indicate a bad MV or view
@@ -1436,6 +1552,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		if mysqlExecuteError.Retryable {
 			errClass = ErrorRetryRecoverable
 		}
+		if strings.Contains(mysqlExecuteError.Error(), mysqlServerTLSNotSupported) {
+			errClass = ErrorNotifyConnectivity
+		}
 		return errClass, ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   "EXECUTE_ERROR",
@@ -1480,6 +1599,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyPostgresExtensionNotAvailable, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "EXTENSION_NOT_AVAILABLE",
+		}
+	}
+
+	if strings.Contains(err.Error(), "pg_dump schema migration failed") &&
+		PostgresSchemaMigrationObjectExistsRe.MatchString(err.Error()) {
+		return ErrorNotifyPostgresSchemaMigrationObjectExists, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "OBJECT_ALREADY_EXISTS",
 		}
 	}
 

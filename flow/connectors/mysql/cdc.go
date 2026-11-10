@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -334,7 +335,9 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(
+	context.Context, string, []*protos.TableMapping, map[string]string,
+) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }
@@ -386,9 +389,9 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*replication.BinlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*binlogSyncer, error) {
 	var tlsConfig *tls.Config
-	if !c.config.DisableTls {
+	if c.needToVerifyTls() {
 		var err error
 		tlsConfig, err = common.CreateTlsConfig(
 			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
@@ -416,6 +419,15 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		config = proto.CloneOf(config)
 		config.Password = token
 	}
+	host := config.Host
+	if c.cloudSQLDialer != nil {
+		c.logger.Info("Setting up Cloud SQL IAM auth for MySQL replication")
+		// no password, the connector authenticates with an ephemeral client certificate,
+		// and it ignores the address it is asked to dial
+		config = proto.CloneOf(config)
+		config.Password = ""
+		host = internal.CloudSQLConnectorPlaceholderHost
+	}
 
 	eventCacheCount, err := internal.PeerDBMySQLEventCacheCount(ctx, env)
 	if err != nil {
@@ -432,10 +444,10 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		serverId = 1000 + rand.Uint32()%(math.MaxUint32-1000) //nolint:gosec // G404: server_id does not require cryptographic randomness
 	}
 
-	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
+	return newBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:              serverId,
 		Flavor:                c.Flavor(),
-		Host:                  config.Host,
+		Host:                  host,
 		Port:                  uint16(config.Port),
 		User:                  config.User,
 		Password:              config.Password,
@@ -450,14 +462,52 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
 		RowsEventDecodeFunc:   decodeRowsEvent,
-	}), nil
+	}, c.ssh.IsActive()), nil
+}
+
+var errBinlogSyncerClosing = errors.New("binlog syncer is closing")
+
+// binlogSyncer skips go-mysql's shutdown KILL over SSH by rejecting new
+// dials after Close begins. go-mysql normally opens a separate connection
+// to kill the binlog dump thread. Over SSH, opening that connection requires
+// a reply on the same TCP connection that carries the binlog stream.
+// Queued binlog data can delay the reply long enough to trigger
+// closeSyncerWithTimeout and force-close the entire tunnel.
+// New binlogSyncer on the next batch will still have to wait for the
+// previously queued data to arrive before it can process new events.
+//
+// Closing the existing binlog channel lets the SSH server close its MySQL
+// connection, so the dump thread can terminate without an explicit KILL.
+type binlogSyncer struct {
+	*replication.BinlogSyncer
+	closing atomic.Bool
+}
+
+func newBinlogSyncer(cfg replication.BinlogSyncerConfig, overSSH bool) *binlogSyncer {
+	s := &binlogSyncer{}
+	if overSSH {
+		dial := cfg.Dialer
+		cfg.Dialer = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if s.closing.Load() {
+				return nil, errBinlogSyncerClosing
+			}
+			return dial(ctx, network, address)
+		}
+	}
+	s.BinlogSyncer = replication.NewBinlogSyncer(cfg)
+	return s
+}
+
+func (s *binlogSyncer) Close() {
+	s.closing.Store(true)
+	s.BinlogSyncer.Close()
 }
 
 func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -490,7 +540,7 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -507,7 +557,7 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
 	env map[string]string,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx, env)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -520,11 +570,11 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	return syncer, stream, gset, mysql.Position{}, nil
 }
 
-// closeSyncerWithTimeout is a safety net around syncer.Close(). go-mysql v1.15.0
-// (https://github.com/go-mysql-org/go-mysql/commit/069f15d92122ca74c563d94cfc8de77a3799bbf6)
-// fixed the bug that led to BinlogSyncer.Close hang, so this timeout should no
-// longer fire. Keeping it around a bit longer before removing to ensure no regression.
-func (c *MySqlConnector) closeSyncerWithTimeout(syncer *replication.BinlogSyncer, timeout time.Duration) {
+// closeSyncerWithTimeout limits how long the caller waits for syncer.Close.
+// If shutdown stalls, it closes the SSH tunnel to unblock pending I/O.
+// Keep this fallback even though binlogSyncer skips the shutdown KILL over
+// SSH: closing the existing channel can still block on a stalled transport.
+func (c *MySqlConnector) closeSyncerWithTimeout(syncer *binlogSyncer, timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		syncer.Close()
@@ -556,6 +606,10 @@ func (c *MySqlConnector) PullRecords(
 	defer req.RecordStream.Close()
 
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+	nativeJSONEnabled, err := internal.PeerDBEnableClickHouseJSON(ctx, req.Env)
 	if err != nil {
 		return err
 	}
@@ -593,45 +647,33 @@ func (c *MySqlConnector) PullRecords(
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
-	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
-	var receiveTime, processTime, addRecordTime atomic.Int64
+	counters := newMysqlPullCounters(otelManager)
+	gauges := newMysqlPullGauges(otelManager, mysqlClockOffset)
 	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
-		if recordCount == 0 {
-			req.RecordStream.SignalAsEmpty()
-		}
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
-			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
+			attribute.Int64(otel_metrics.BytesPulledKey, counters.totalFetchedBytes.Load()),
 		)
 		if updatedOffset != "" {
 			span.SetAttributes(attribute.String(otel_metrics.GtidKey, updatedOffset))
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 
-	defer func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
-	}()
+	defer counters.flush(ctx)
+	defer gauges.recordBatchEnd(ctx)
 	shutdown := common.Interval(ctx, time.Minute, func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, receiveTime.Swap(0))
-		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, processTime.Swap(0))
-		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, addRecordTime.Swap(0))
+		counters.flush(ctx)
 		c.logger.Info("[mysql] pulling records",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	})
@@ -650,20 +692,19 @@ func (c *MySqlConnector) PullRecords(
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		addStart := time.Now()
-		processTime.Add(int64(addStart.Sub(processStart)))
+		counters.processTime.Add(int64(addStart.Sub(processStart)))
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 			return err
 		}
 		processStart = time.Now()
-		addRecordTime.Add(int64(processStart.Sub(addStart)))
+		counters.addRecordTime.Add(int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
-			req.RecordStream.SignalAsNotEmpty()
 			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", totalFetchedBytes.Load()),
+				slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("inTx", inTx),
@@ -672,36 +713,6 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent) {
-		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
-			// A heartbeat means there is currently no source change event to lag behind.
-			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
-			// the old source-lag value.
-			otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
-			return
-		}
-
-		// GTID commit timestamps are precise transaction timestamps. Other binlog
-		// events only have the common header timestamp, which is seconds-resolution
-		// but lets older MySQL/MariaDB versions report source lag as well.
-		timestampMicros := int64(event.Header.Timestamp) * int64(time.Second/time.Microsecond)
-		switch ev := event.Event.(type) {
-		case *replication.GTIDEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				timestampMicros = int64(ev.ImmediateCommitTimestamp)
-			}
-		case *replication.GtidTaggedLogEvent:
-			if ev.ImmediateCommitTimestamp > 0 {
-				timestampMicros = int64(ev.ImmediateCommitTimestamp)
-			}
-		}
-
-		if timestampMicros > 0 {
-			otelManager.Metrics.SourceLagGauge.Record(ctx,
-				time.Now().UTC().Add(mysqlClockOffset).
-					Sub(time.UnixMicro(timestampMicros)).Milliseconds())
-		}
-	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
 		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
@@ -731,7 +742,7 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
-		recordSourceEventLag(ctx, event)
+		gauges.observeEvent(event, lastEventAt)
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
@@ -845,6 +856,10 @@ func (c *MySqlConnector) PullRecords(
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
+			columns := req.TableNameMapping[sourceTableName].Columns
+			shouldWrapJSON := func(fd *protos.FieldDescription) bool {
+				return shouldWrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
+			}
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				if isMariaDb {
@@ -860,8 +875,8 @@ func (c *MySqlConnector) PullRecords(
 					return e
 				}
 				eventSize := int64(len(event.RawData))
-				fetchedBytes.Add(eventSize)
-				totalFetchedBytes.Add(eventSize)
+				counters.fetchedBytes.Add(eventSize)
+				counters.totalFetchedBytes.Add(eventSize)
 				otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
@@ -870,7 +885,7 @@ func (c *MySqlConnector) PullRecords(
 				// Build colIdx -> encoding directly from TABLE_MAP charset metadata.
 				// This mirrors go-mysql's collation traversal without allocating its maps;
 				// when all character columns are utf8/ascii/binary, the slice stays nil.
-				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, otelManager)
+				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, counters.recordUsedCharset)
 				if err != nil {
 					return err
 				}
@@ -920,7 +935,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, shouldWrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -957,7 +972,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, shouldWrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -971,7 +986,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, shouldWrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1009,7 +1024,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported)
+								types.QValueKind(fd.Type), val, encFor(idx), c.logger, &coercionReported, shouldWrapJSON(fd))
 							if err != nil {
 								return err
 							}
@@ -1040,12 +1055,7 @@ func (c *MySqlConnector) PullRecords(
 					recordUnsupportedEvent(ctx, event, "Rows")
 				}
 			}
-			if event.Header.Timestamp > 0 {
-				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
-					ctx,
-					int64(event.Header.Timestamp),
-				)
-			}
+			gauges.observeConsumed(int64(event.Header.Timestamp))
 		case *replication.FormatDescriptionEvent, *replication.PreviousGTIDsEvent,
 			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
 			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
@@ -1068,7 +1078,7 @@ func (c *MySqlConnector) PullRecords(
 		if err == nil {
 			receiveStart := time.Now()
 			event, err = mystream.GetEvent(timeoutCtx)
-			receiveTime.Add(int64(time.Since(receiveStart)))
+			counters.receiveTime.Add(int64(time.Since(receiveStart)))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1096,7 +1106,7 @@ func (c *MySqlConnector) PullRecords(
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),
-							slog.Int64("bytes", totalFetchedBytes.Load()),
+							slog.Int64("bytes", counters.totalFetchedBytes.Load()),
 							slog.Int("channelLen", req.RecordStream.ChannelLen()),
 							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 						resetTimeout(time.Minute)
@@ -1116,7 +1126,7 @@ func (c *MySqlConnector) PullRecords(
 		lastEventAt = time.Now()
 		processStart = lastEventAt
 
-		allFetchedBytes.Add(int64(len(event.RawData)))
+		counters.allFetchedBytes.Add(int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.TransactionPayloadEvent:
@@ -1132,7 +1142,8 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
-		processTime.Add(int64(time.Since(processStart)))
+		gauges.recordPeriodic(ctx, lastEventAt)
+		counters.processTime.Add(int64(time.Since(processStart)))
 	}
 	return nil
 }

@@ -3,6 +3,7 @@
 package connpostgres
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -91,7 +92,7 @@ func setupTestSchema(t *testing.T) (string, *pgx.Conn, string) {
 	}
 	t.Cleanup(func() { tunnel.Close() })
 
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
@@ -733,6 +734,87 @@ func TestCTIDPartitioningOnEmptyInheritedTable(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.Empty(t, partitions)
+}
+
+// A child dropped after the snapshot was exported is still listed by the snapshot's
+// pg_inherits, but pg_relation_size of it is NULL; it must be skipped, not fail the scan.
+func TestCTIDPartitioningSkipsChildDroppedAfterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name        string
+		createChild string
+	}{
+		{name: "partitioned", createChild: `CREATE TABLE %[1]s PARTITION OF %[2]s FOR VALUES FROM (%[3]d) TO (%[3]d + 100)`},
+		{name: "inherited", createChild: `CREATE TABLE %[1]s () INHERITS (%[2]s)`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			schemaName, conn, connStr := setupTestSchema(t)
+
+			parentTable := schemaName + ".parent"
+			createParent := `CREATE TABLE %s (id SERIAL, partition_key INT NOT NULL, value TEXT)`
+			if tc.name == "partitioned" {
+				createParent += ` PARTITION BY RANGE (partition_key)`
+			}
+			_, err := conn.Exec(ctx, fmt.Sprintf(createParent, parentTable))
+			require.NoError(t, err)
+
+			childTables := make([]string, 3)
+			for i := range childTables {
+				childTables[i] = fmt.Sprintf("%s.child_%d", schemaName, i)
+				_, err = conn.Exec(ctx, fmt.Sprintf(tc.createChild, childTables[i], parentTable, i*100))
+				require.NoError(t, err)
+				_, err = conn.Exec(ctx, fmt.Sprintf(
+					`INSERT INTO %s (partition_key, value) SELECT %d + g, 'v' FROM generate_series(0, 49) g`,
+					childTables[i], i*100))
+				require.NoError(t, err)
+			}
+
+			exporter, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
+			require.NoError(t, err)
+			t.Cleanup(func() { exporter.Close() })
+			exportTx, err := exporter.conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = exportTx.Rollback(context.Background()) })
+			var snapshot string
+			require.NoError(t, exportTx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshot))
+
+			_, err = conn.Exec(ctx, "DROP TABLE "+childTables[1])
+			require.NoError(t, err)
+
+			c := &PostgresConnector{
+				connStr: connStr,
+				Config:  &protos.PostgresConfig{},
+				conn:    conn,
+				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testDroppedChild"))),
+			}
+			// NumPartitionsOverride exercises CTIDBlockPartitioningFunc directly; without it,
+			// ComputeNumPartitions sums per-child estimates first.
+			for _, numPartitionsOverride := range []uint32{4, 0} {
+				partitions, err := c.GetQRepPartitions(ctx, &protos.QRepConfig{
+					FlowJobName:           "test_ctid_dropped_child",
+					NumRowsPerPartition:   10,
+					NumPartitionsOverride: numPartitionsOverride,
+					WatermarkTable:        parentTable,
+					WatermarkColumn:       "ctid",
+					SnapshotName:          snapshot,
+					Env:                   map[string]string{"PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE": "true"},
+				}, nil)
+				require.NoError(t, err)
+
+				covered := make(map[string]bool)
+				for _, p := range partitions {
+					for _, ctr := range p.ChildTableRanges {
+						covered[ctr.Table] = true
+					}
+				}
+				require.Equal(t, map[string]bool{childTables[0]: true, childTables[2]: true}, covered,
+					"numPartitionsOverride=%d", numPartitionsOverride)
+			}
+		})
+	}
 }
 
 // analyzeTables runs ANALYZE on each table so that pg_class.reltuples/relpages are

@@ -150,6 +150,7 @@ var allowedCommands = map[string][]allowedCommand{
 		},
 		{Name: "hostInfo"},
 		{Name: "listCommands"},
+		{Name: "listCursors"}, // Amazon DocumentDB only
 		{Name: "lockInfo"},
 		{Name: "serverStatus"},
 		{Name: "top"},

@@ -63,17 +63,19 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	avroSync := NewClickHouseAvroSyncMethod(&protos.QRepConfig{
 		DestinationTableIdentifier: table.TableIdentifier,
 	}, conn)
-	require.NoError(t, avroSync.CopyStageToDestination(ctx, utils.AvroFile{
+	avroFile := utils.AvroFile{
 		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro.zst",
 		StorageLocation: utils.AvroS3Storage,
 		NumRecords:      3,
-	}))
+	}
+	// same file twice exercises the multi-file UNION ALL insert
+	require.NoError(t, avroSync.CopyStagesToDestination(ctx, []utils.AvroFile{avroFile, avroFile}))
 
 	query, err := conn.query(ctx, `SELECT COUNT(*) FROM default.`+table.TableIdentifier)
 	require.NoError(t, err)
 	for query.Next() {
 		var count uint64
 		require.NoError(t, query.Scan(&count))
-		require.Equal(t, uint64(3), count)
+		require.Equal(t, uint64(6), count)
 	}
 }

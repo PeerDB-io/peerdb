@@ -17,8 +17,12 @@ import (
 type SourceTableMapping struct {
 	// StructuredIngestionConfiguration is the table's structured ingestion settings, nil when it uses none.
 	StructuredIngestionConfiguration *protos.StructuredIngestionTableConfig
-	Exclude                          map[string]struct{}
-	Name                             string
+	// MongoConfiguration is the table's MongoDB specific settings, nil when it has none.
+	MongoConfiguration *protos.MongoTableConfig
+	Exclude            map[string]struct{}
+	Name               string
+	// Columns holds the table's column settings.
+	Columns []*protos.ColumnSetting
 }
 
 func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
@@ -30,6 +34,17 @@ func NewSourceTableMapping(name string, exclude []string) SourceTableMapping {
 		}
 	}
 	return SourceTableMapping{Name: name, Exclude: exset}
+}
+
+// ExplicitDestinationType returns the destination type from the first column setting that names the
+// column, which is the one the destination resolves the column's type from, or "" when it sets none.
+func ExplicitDestinationType(columns []*protos.ColumnSetting, name string) string {
+	for _, column := range columns {
+		if column.SourceName == name {
+			return column.DestinationType
+		}
+	}
+	return ""
 }
 
 func NewSourceTableMappingWithStructuredIngestion(
@@ -95,6 +110,8 @@ type PullRecordsRequest[T Items] struct {
 	OverrideReplicationSlotName string
 	// LastOffset is the latest LSN that was synced.
 	LastOffset CdcCheckpoint
+	// destination capabilities recorded at mirror creation
+	Flags []string
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// peerdb versioning to prevent breaking changes
@@ -168,15 +185,13 @@ type SyncQueryCDCRequest struct {
 	TableSchema  *protos.TableSchema
 	Records      <-chan Record[RecordItems]
 	Version      uint32
-	Flags        []string
-	SchemaDeltas []*protos.TableSchemaDelta
 	// BatchID is this table's own batch sequence number for the records being
 	// staged, persisted as its new synced_batch_id on success.
 	BatchID           int64
 	SoftDeleteColName string
 }
 
-// NormalizeQueryCDCRequest asks QueryCDCSyncConnector.NormalizeQueryCDC to
+// NormalizeQueryCDCRequest asks QueryCDCNormalizeConnector.NormalizeQueryCDC to
 // insert batches [StartBatchID, EndBatchID], previously staged by
 // SyncQueryCDC, straight into the final destination table, bypassing any
 // raw-table hop.

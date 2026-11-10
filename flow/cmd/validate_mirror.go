@@ -46,11 +46,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 	}
 	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
-	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
+	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false, !flowConnectionConfigsCore.Resync)
 }
 
 func (h *FlowRequestHandler) validateCDCMirrorImpl(
-	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool,
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool, validateTableSettings bool,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, connectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
@@ -95,6 +95,15 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	if !connectionConfigs.DoInitialSnapshot && connectionConfigs.InitialSnapshotOnly {
 		return nil, NewInvalidArgumentApiError(
 			fmt.Errorf("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
+	}
+
+	if cronExpr := connectionConfigs.GetBigqueryCdcConfig().GetQueryCdc().GetSyncCron(); cronExpr != "" {
+		if _, err := common.ParseSyncCron(cronExpr); err != nil {
+			return nil, NewInvalidArgumentApiError(fmt.Errorf("invalid sync_cron %q: %w", cronExpr, err),
+				NewMirrorErrorInfo(map[string]string{
+					common.ErrorMetadataOffendingField: "sync_cron",
+				}))
+		}
 	}
 
 	if apiErr := h.checkTableMappings(ctx, connectionConfigs); apiErr != nil {
@@ -166,7 +175,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer dstClose(ctx)
 
 	var tableSchemaMap map[string]*protos.TableSchema
-	if !connectionConfigs.Resync {
+	if validateTableSettings {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
 			connectionConfigs.System, connectionConfigs.TableMappings)
@@ -184,11 +193,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 
 // checkBigQueryCDCDestination rejects BigQuery CDC mirrors whose destination is not ClickHouse:
 // BigQuery has no streaming PullRecords, so only the query CDC sync path (ClickHouse) can consume it.
-// Snapshot-only mirrors never reach the CDC path and are unaffected.
+// Snapshot-only mirrors never reach the CDC path and are unaffected (do_initial_snapshot=false with
+// initial_snapshot_only=true is already rejected earlier in validateCDCMirrorImpl).
 func (h *FlowRequestHandler) checkBigQueryCDCDestination(
 	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 ) APIError {
-	if cfg.GetBigqueryCdcConfig() == nil || (cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
+	if cfg.GetBigqueryCdcConfig() == nil || cfg.InitialSnapshotOnly {
 		return nil
 	}
 
@@ -227,6 +237,11 @@ func (h *FlowRequestHandler) checkTableMappings(
 			peer, tm.SourceTableIdentifier, tm.StructuredIngestionConfig, tm.Columns,
 		); apiErr != nil {
 			return apiErr
+		}
+		if tm.MongoConfig != nil && peer.GetMongoConfig() == nil {
+			return NewInvalidArgumentApiError(
+				fmt.Errorf("table %s declares MongoDB settings but source peer %s is not MongoDB",
+					tm.SourceTableIdentifier, peer.Name))
 		}
 	}
 
