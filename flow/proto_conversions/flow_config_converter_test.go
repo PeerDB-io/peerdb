@@ -62,7 +62,6 @@ func TestFlowConnectionConfigsRoundTrip(t *testing.T) {
 		Env:                map[string]string{"key": "value"},
 		Version:            7,
 		Flags:              []string{"flag_a", "flag_b"},
-		SourceType:         protos.DBType_POSTGRES,
 		SkipValidation:     &skipValidation,
 		SourceConnectorConfig: &protos.FlowConnectionConfigs_BigqueryCdcConfig{
 			BigqueryCdcConfig: &protos.BigqueryCdcConfig{

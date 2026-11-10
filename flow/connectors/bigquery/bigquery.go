@@ -679,6 +679,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	_ protos.DBType,
 ) (bool, error) {
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 

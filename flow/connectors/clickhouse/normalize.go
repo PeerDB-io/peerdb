@@ -53,6 +53,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	sourceType protos.DBType,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
@@ -70,6 +71,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		sourceTableSchema,
 		c.chVersion,
 		config.Flags,
+		sourceType,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -93,6 +95,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
 	flags []string,
+	sourceType protos.DBType,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
@@ -190,7 +193,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				colNameMap[colName] = dstColName
 			}
 			clickHouseType, err := resolveClickHouseColumnType(
-				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags, config.Version, config.SourceType,
+				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags, config.Version, sourceType,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)

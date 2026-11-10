@@ -76,7 +76,6 @@ func (s *CockroachDBSource) GetRows(ctx context.Context, suffix, table, cols str
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
 	config := &protos.QRepConfig{
 		FlowJobName:    "testflow",
-		SourceType:     protos.DBType_COCKROACHDB,
 		WatermarkTable: tableName,
 		Query:          fmt.Sprintf("SELECT %s FROM %s ORDER BY id", cols, tableName),
 		Version:        shared.InternalVersion_Latest,

@@ -122,6 +122,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
 	normRequests *concurrency.LastChan,
@@ -284,7 +285,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(
-			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags, config.Version, config.SourceType,
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags, config.Version, sourceType,
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -334,7 +335,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			Env:                    config.Env,
 			Version:                config.Version,
 			Flags:                  config.Flags,
-			SourceType:             config.SourceType,
+			SourceType:             sourceType,
 		})
 		if err != nil {
 			syncSpan.RecordError(err)
@@ -696,6 +697,7 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	batchID int64,
 	normalizeResponses *concurrency.LastChan,
 ) error {
@@ -744,7 +746,7 @@ func (a *FlowableActivity) startNormalize(
 				SyncBatchID:            batchID,
 				Version:                config.Version,
 				Flags:                  config.Flags,
-				SourceType:             config.SourceType,
+				SourceType:             sourceType,
 			})
 			if err != nil {
 				normSpan.RecordError(err)
@@ -804,6 +806,7 @@ func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
@@ -839,7 +842,7 @@ func (a *FlowableActivity) normalizeLoop(
 	retryLoop:
 		for {
 			normalizingBatchID.Store(reqBatchID)
-			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
+			if err := a.startNormalize(ctx, config, sourceType, reqBatchID, normalizeResponses); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				// update req to latest normalize request & retry
 				select {

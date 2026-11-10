@@ -231,7 +231,6 @@ func (s *SetupFlowExecution) createNormalizedTables(
 		IsResync:          flowConnectionConfigs.Resync,
 		Version:           flowConnectionConfigs.Version,
 		Flags:             flowConnectionConfigs.Flags,
-		SourceType:        flowConnectionConfigs.SourceType,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {

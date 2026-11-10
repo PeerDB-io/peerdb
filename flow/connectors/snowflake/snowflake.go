@@ -308,6 +308,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	_ protos.DBType,
 ) (bool, error) {
 	normalizedSchemaTable, err := common.ParseTableIdentifier(tableIdentifier)
 	if err != nil {

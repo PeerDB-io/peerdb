@@ -476,6 +476,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	_ protos.DBType,
 ) (bool, error) {
 	createNormalizedTablesTx := tx.(pgx.Tx)
 

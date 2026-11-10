@@ -206,6 +206,7 @@ type NormalizedTablesConnector interface {
 		config *protos.SetupNormalizedTableBatchInput,
 		destinationTableIdentifier string,
 		sourceTableSchema *protos.TableSchema,
+		sourceType protos.DBType,
 	) (bool, error)
 }
 
@@ -435,6 +436,19 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 			return 0, exceptions.NewNotFoundError(fmt.Errorf("peer not found: %s", peerName))
 		}
 		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load peer type for %s: %w", peerName, err))
+	}
+	return dbtype, nil
+}
+
+func LoadFlowSourcePeerType(ctx context.Context, catalogPool shared.CatalogPool, flowName string) (protos.DBType, error) {
+	row := catalogPool.QueryRow(ctx,
+		"SELECT p.type FROM flows f JOIN peers p ON p.id = f.source_peer WHERE f.name = $1", flowName)
+	var dbtype protos.DBType
+	if err := row.Scan(&dbtype); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, exceptions.NewNotFoundError(fmt.Errorf("flow not found: %s", flowName))
+		}
+		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load source peer type for flow %s: %w", flowName, err))
 	}
 	return dbtype, nil
 }

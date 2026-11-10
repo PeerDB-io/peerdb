@@ -782,7 +782,6 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 		return &protos.QRepConfig{
 			FlowJobName:                      e2e.AddSuffix(s, flowName),
 			SourceName:                       sourceName,
-			SourceType:                       protos.DBType_MONGO,
 			DestinationName:                  s.Peer().Name,
 			WatermarkTable:                   fmt.Sprintf("%s.%s", srcDatabase, srcTable),
 			WatermarkColumn:                  "_id",

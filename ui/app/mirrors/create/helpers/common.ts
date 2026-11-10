@@ -50,7 +50,6 @@ export const blankCDCSetting: CDCConfig = {
   envString: '',
   version: 0,
   flags: [],
-  sourceType: DBType.DBTYPE_UNKNOWN,
   skipValidation: false,
   queryCdcPullSyncParallelism: 0,
 };

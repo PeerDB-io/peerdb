@@ -323,7 +323,6 @@ func (s CockroachDBSuite) Test_History_Retention_Protection() {
 	// captured HLC timestamp extends the protection
 	pullConfig := &protos.QRepConfig{
 		FlowJobName:      "clone_hr_check_" + s.suffix,
-		SourceType:       protos.DBType_COCKROACHDB,
 		ParentMirrorName: flowName,
 		SnapshotName:     setupResult.SnapshotName,
 		WatermarkTable:   schema + ".hr_check",

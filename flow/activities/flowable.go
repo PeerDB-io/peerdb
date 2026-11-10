@@ -334,6 +334,11 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
+	sourceType, err := connectors.LoadFlowSourcePeerType(ctx, a.CatalogPool, config.FlowName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for _, tableMapping := range config.TableMappings {
@@ -345,6 +350,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			config,
 			tableIdentifier,
 			tableSchema,
+			sourceType,
 		)
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowName,
@@ -419,6 +425,10 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
+	sourceType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
 
 	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
 		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
@@ -445,7 +455,7 @@ func (a *FlowableActivity) SyncFlow(
 		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
 	}
 
-	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
+	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, sourceType, &shutDown)
 }
 
 // syncFlowSharedStream runs the classic shared-stream CDC path: a single pull+sync
@@ -457,6 +467,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnectorCore,
 	destinationType protos.DBType,
+	sourceType protos.DBType,
 	shutDown *atomic.Bool,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
@@ -534,7 +545,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	defer cancelNormCtx()
 	go func() {
 		defer close(normDone)
-		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normCtx, logger, config, sourceType, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 	}()
 
 	var syncErr error
@@ -544,10 +555,10 @@ func (a *FlowableActivity) syncFlowSharedStream(
 
 		var syncResponse *model.SyncResponse
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.pullAndSync(ctx, config, sourceType, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, sourceType, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
@@ -592,6 +603,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 func (a *FlowableActivity) pullAndSync(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
 	normRequests *concurrency.LastChan,
@@ -630,7 +642,7 @@ func (a *FlowableActivity) pullAndSync(
 			return stream, nil
 		}
 	}
-	return pullAndSyncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, sourceType, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
@@ -640,6 +652,7 @@ func (a *FlowableActivity) pullAndSync(
 func (a *FlowableActivity) pullAndSyncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
 	normRequests *concurrency.LastChan,
@@ -649,7 +662,7 @@ func (a *FlowableActivity) pullAndSyncPg(
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return pullAndSyncCore(ctx, a, config, options, srcConn,
+	return pullAndSyncCore(ctx, a, config, sourceType, options, srcConn,
 		normRequests, normResponses, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
@@ -770,6 +783,13 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		slog.String("table", config.WatermarkTable),
 		slog.Int64("batchID", int64(partitions.BatchId)),
 		slog.Int("totalPartitions", numPartitions))
+
+	// only snapshots set it, standalone QRep mirrors don't
+	sourceType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+	config.SourceType = sourceType
 
 	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](
 		ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -1902,6 +1922,9 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		return "syncing xmin"
 	})
 	defer shutdown()
+
+	// xmin mirrors are standalone QRep mirrors, which don't set it
+	config.SourceType = protos.DBType_POSTGRES
 
 	switch config.System {
 	case protos.TypeSystem_Q:
