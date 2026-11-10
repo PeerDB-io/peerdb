@@ -454,6 +454,8 @@ func processTableAdditions(
 // RenameTables swaps those in for the originals. On success the new mappings replace the old ones in
 // SyncFlowOptions, and CDC resumes from the same slot. If the child fails, the old mappings are kept,
 // an alert is raised and the mirror stays paused, since some tables may already have been swapped.
+// CancelTableResyncSignal cancels the child before it swaps tables, after which CDC resumes with the
+// old mappings. Cancellations are ignored once the child signalled TableResyncSwapStartedSignal.
 func processTableResyncs(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -464,6 +466,14 @@ func processTableResyncs(
 	resyncTables := state.FlowConfigUpdate.ResyncTables
 	if len(resyncTables) == 0 {
 		return nextRunNone, nil
+	}
+
+	// drop cancellations that arrived after an earlier resync finished, they must not cancel this one.
+	cancelResyncChan := model.CancelTableResyncSignal.GetSignalChannel(ctx)
+	for {
+		if _, ok := cancelResyncChan.ReceiveAsync(); !ok {
+			break
+		}
 	}
 
 	state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
@@ -483,7 +493,7 @@ func processTableResyncs(
 		resyncCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 	}
 
-	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+	childCtx, cancelChild := workflow.WithCancel(workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        childID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -491,7 +501,8 @@ func processTableResyncs(
 		},
 		TypedSearchAttributes: mirrorNameSearch,
 		WaitForCancellation:   true,
-	})
+	}))
+	defer cancelChild()
 	childFuture := workflow.ExecuteChildWorkflow(childCtx, CDCFlowWorkflow, resyncCfg, nil)
 
 	selector := workflow.NewNamedSelector(ctx, "ResyncTables")
@@ -499,6 +510,23 @@ func processTableResyncs(
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
 	flowSignalStateChangeChan.AddToSelector(selector,
 		handleFlowSignalStateChange(ctx, cfg, state, logger, "ResyncTables"))
+	state.TableResyncSwapStarted = false
+	defer func() { state.TableResyncSwapStarted = false }()
+	swapStartedChan := model.TableResyncSwapStartedSignal.GetSignalChannel(ctx)
+	swapStartedChan.AddToSelector(selector, func(_ struct{}, _ bool) {
+		logger.Info("table resync started swapping tables")
+		state.TableResyncSwapStarted = true
+	})
+	cancelRequested := false
+	cancelResyncChan.AddToSelector(selector, func(_ struct{}, _ bool) {
+		if state.TableResyncSwapStarted {
+			logger.Warn("ignoring table resync cancellation, tables are already being swapped")
+		} else if !cancelRequested {
+			logger.Info("table resync cancellation requested")
+			cancelRequested = true
+			cancelChild()
+		}
+	})
 
 	var result *CDCFlowWorkflowResult
 	var childErr error
@@ -517,6 +545,33 @@ func processTableResyncs(
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nextRunNone, ctxErr
+		}
+		cancelled := childErr != nil && cancelRequested && temporal.IsCanceledError(childErr)
+		if cancelled {
+			// The cancellation can still reach the child mid-swap if both signals were handled in one task. The
+			// child waits for its swap signal to be delivered before swapping, so it is buffered here if sent.
+			if _, ok := swapStartedChan.ReceiveAsync(); ok {
+				state.TableResyncSwapStarted = true
+			}
+		}
+		if cancelled && !state.TableResyncSwapStarted {
+			// The child stopped before swapping any table, so the old mappings are still in place.
+			// Otherwise fall through and stay paused like a failed resync.
+			cancelCleanupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
+			})
+			if err := workflow.ExecuteActivity(cancelCleanupCtx, flowable.CleanupCancelledTableResync, cfg, resyncTables).
+				Get(cancelCleanupCtx, nil); err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nextRunNone, ctxErr
+				}
+				// only stats and schema rows of "_resync" tables are left behind, so resume anyway
+				logger.Warn("failed to cleanup cancelled table resync", slog.Any("error", err))
+			}
+			logger.Info("table resync cancelled, resuming with previous table mappings",
+				slog.Int("tableCount", len(resyncTables)))
+			return nextRunNone, nil
 		}
 		if childErr != nil {
 			// RenameTables swaps tables one by one, so a failure can leave some of them swapped. Resuming
@@ -857,9 +912,7 @@ func startSetupAndSnapshot(
 	// a suffix to the table names.
 	if cfg.Resync {
 		for _, mapping := range state.SyncFlowOptions.TableMappings {
-			if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-				mapping.DestinationTableIdentifier += shared.CDCResyncTableSuffix
-			}
+			mapping.DestinationTableIdentifier = internal.CDCResyncDestinationTable(mapping)
 		}
 		// because we have renamed the tables.
 		cfg.TableMappings = state.SyncFlowOptions.TableMappings
@@ -897,6 +950,7 @@ func startSetupAndSnapshot(
 	}
 	setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 	setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
+	defer func() { waitForCancellation(ctx, setupFlowFuture) }()
 
 	var setupFlowOutput *protos.SetupFlowOutput
 	var setupFlowError error
@@ -941,6 +995,7 @@ func startSetupAndSnapshot(
 	// during any operation that triggers another snapshot (INCLUDING add tables).
 	// this could fail for very weird Temporal resets
 	snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+	defer func() { waitForCancellation(ctx, snapshotFlowFuture) }()
 	var snapshotDone bool
 	var snapshotError error
 	setupSnapshotSelector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
@@ -990,14 +1045,29 @@ func startSetupAndSnapshot(
 			}
 		}
 
+		// The parent of a table-level resync must know the swap started before it does, so that it can
+		// reject cancellations and never resume with old mappings on top of partially swapped tables.
+		if parent := workflow.GetInfo(ctx).ParentWorkflowExecution; parent != nil && cfg.InitialSnapshotOnly {
+			if err := model.TableResyncSwapStartedSignal.SignalExternalWorkflow(ctx, parent.ID, "", struct{}{}).
+				Get(ctx, nil); err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+					return nextRunNone, ctxErr
+				}
+				state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
+				return nextRunNone, fmt.Errorf("failed to notify parent that table swap started: %w", err)
+			}
+		}
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 12 * time.Hour,
 			HeartbeatTimeout:    time.Minute,
+			WaitForCancellation: true,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval: 1 * time.Minute,
 			},
 		})
 		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		defer func() { waitForCancellation(ctx, renameTablesFuture) }()
 		var renameTablesDone bool
 		var renameTablesError error
 		setupSnapshotSelector.AddFuture(renameTablesFuture, func(f workflow.Future) {

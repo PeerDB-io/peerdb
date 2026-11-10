@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -131,6 +132,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WorkflowTaskTimeout: 5 * time.Minute,
 		TaskQueue:           taskQueue,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		ParentClosePolicy:   enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		WaitForCancellation: true,
 	})
 
 	var tableSchema *protos.TableSchema
@@ -268,6 +271,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
+	defer func() { boundSelector.WaitForCancellation(ctx) }()
 
 	sourcePeerType, err := getPeerType(ctx, s.config.SourceName)
 	if err != nil {
@@ -410,6 +414,7 @@ func SnapshotFlowWorkflow(
 			snapshot.WaitForExportSnapshot,
 			sessionInfo.SessionID,
 		)
+		defer func() { waitForCancellation(ctx, fMaintain, fExportSnapshot) }()
 
 		var sessionError error
 		var txnSnapshotState *activities.TxSnapshotState
@@ -426,6 +431,9 @@ func SnapshotFlowWorkflow(
 			sessionError = ctx.Err()
 		})
 		sessionSelector.Select(ctx)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if sessionError != nil {
 			return sessionError
 		}
