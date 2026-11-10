@@ -1,6 +1,6 @@
 //go:build tilt
 
-package connmysql
+package mysql
 
 import (
 	"fmt"
@@ -9,21 +9,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 type schemaMapping = map[common.QualifiedTable][]string
 
+func init() {
+	testutil.LoadEnv()
+}
+
+func connectMySQL(t *testing.T) *client.Conn {
+	t.Helper()
+	addr := fmt.Sprintf("%s:%d", testutil.MySQLTestHost(), testutil.MySQLTestPort())
+	conn, err := client.Connect(addr, "root", testutil.MySQLTestRootPasswordWithFallback("cipass"), "")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Logf("mysql connection close failed: %v", err)
+		}
+	})
+	return conn
+}
+
 func TestSchemaMappingCaseSensitiveIdentifiers(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+	conn := connectMySQL(t)
 
 	// make sure case-sensitive identifiers are supported server-side by the test db
-	rs, err := connector.Execute(ctx, "SELECT @@lower_case_table_names")
+	rs, err := conn.Execute("SELECT @@lower_case_table_names")
 	require.NoError(t, err)
 	lctn, err := rs.GetInt(0, 0)
 	require.NoError(t, err)
@@ -33,14 +50,14 @@ func TestSchemaMappingCaseSensitiveIdentifiers(t *testing.T) {
 
 	// Two databases differing only by case, each holding two tables differing only by
 	// case.
-	lowerDB := testDBName("cs")
+	lowerDB := testutil.MySQLTestDBName("cs")
 	upperDB := strings.ToUpper(lowerDB)
-	createTestDB(t, ctx, connector, lowerDB)
-	createTestDB(t, ctx, connector, upperDB)
+	testutil.CreateMySQLTestDB(t, conn, lowerDB)
+	testutil.CreateMySQLTestDB(t, conn, upperDB)
 
 	exec := func(sql string) {
 		t.Helper()
-		_, err := connector.Execute(ctx, sql)
+		_, err := conn.Execute(sql)
 		require.NoError(t, err)
 	}
 
@@ -51,8 +68,6 @@ func TestSchemaMappingCaseSensitiveIdentifiers(t *testing.T) {
 	exec(fmt.Sprintf("CREATE TABLE `%s`.`Widget` (a INT NOT NULL, b INT NOT NULL, PRIMARY KEY (b, a))", lowerDB))
 	exec(fmt.Sprintf("CREATE TABLE `%s`.`widget` (a INT NOT NULL, b INT NOT NULL, PRIMARY KEY (b))", upperDB))
 	exec(fmt.Sprintf("CREATE TABLE `%s`.`Widget` (a INT NOT NULL, b INT NOT NULL, PRIMARY KEY (a, b))", upperDB))
-
-	conn := connector.Conn()
 
 	lowerLower := common.QualifiedTable{Namespace: lowerDB, Table: "widget"}
 	lowerUpper := common.QualifiedTable{Namespace: lowerDB, Table: "Widget"}
@@ -96,7 +111,7 @@ func TestSchemaMappingCaseSensitiveIdentifiers(t *testing.T) {
 			wantPKeys: schemaMapping{lowerLower: {"a"}, lowerUpper: {"b", "a"}},
 		},
 	} {
-		got, err := mysql_validation.GetSchemaMapping(conn, tt.db, tt.tables)
+		got, err := GetSchemaMapping(conn, tt.db, tt.tables)
 		require.NoError(t, err, tt.name)
 		require.Equal(t, tt.wantCols, got.Columns, tt.name)
 		require.Equal(t, tt.wantPKeys, got.PrimaryKeys, tt.name)
@@ -105,15 +120,14 @@ func TestSchemaMappingCaseSensitiveIdentifiers(t *testing.T) {
 
 func TestSchemaMappingPrimaryKeyVariants(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+	conn := connectMySQL(t)
 
-	dbName := testDBName("pk_variants")
-	createTestDB(t, ctx, connector, dbName)
+	dbName := testutil.MySQLTestDBName("pk_variants")
+	testutil.CreateMySQLTestDB(t, conn, dbName)
 
 	exec := func(sql string) {
 		t.Helper()
-		_, err := connector.Execute(ctx, sql)
+		_, err := conn.Execute(sql)
 		require.NoError(t, err)
 	}
 
@@ -128,7 +142,7 @@ func TestSchemaMappingPrimaryKeyVariants(t *testing.T) {
 
 	// "absent" does not exist and must produce no entry, so callers' len(...) > 0
 	// checks behave as they did under the old LEFT JOIN.
-	got, err := mysql_validation.GetSchemaMapping(connector.Conn(), dbName,
+	got, err := GetSchemaMapping(conn, dbName,
 		[]string{"composite_pk", "no_pk", "uniq_notnull", "mixed_case_pk", "absent"})
 	require.NoError(t, err)
 
@@ -166,16 +180,15 @@ func TestSchemaMappingDoesNotScanInstance(t *testing.T) {
 	)
 
 	t.Parallel()
-	ctx := t.Context()
-	connector := newTestConnector(t, ctx)
+	conn := connectMySQL(t)
 
 	seedStart := time.Now()
 	var target string
 	for i := range schemas {
-		db := testDBName(fmt.Sprintf("scan%02d", i))
-		createTestDB(t, ctx, connector, db)
+		db := testutil.MySQLTestDBName(fmt.Sprintf("scan%02d", i))
+		testutil.CreateMySQLTestDB(t, conn, db)
 		for j := range tablesPerSchema {
-			_, err := connector.Execute(ctx, fmt.Sprintf(
+			_, err := conn.Execute(fmt.Sprintf(
 				"CREATE TABLE `%s`.t%02d (id INT PRIMARY KEY, payload VARCHAR(32))", db, j))
 			require.NoError(t, err)
 		}
@@ -192,9 +205,8 @@ func TestSchemaMappingDoesNotScanInstance(t *testing.T) {
 		requested = append(requested, fmt.Sprintf("t%02d", j))
 	}
 
-	conn := connector.Conn()
 	// Session scope keeps other tests from skewing the count, so one connection serves both
-	// readings and the measured call; the connector's Execute may retry onto a different one.
+	// readings and the measured call.
 	// Opened_table_definitions goes quiet once table_definition_cache exceeds the table count.
 	openedTables := func() int64 {
 		rs, err := conn.Execute("SHOW SESSION STATUS LIKE 'Opened_tables'")
@@ -209,7 +221,7 @@ func TestSchemaMappingDoesNotScanInstance(t *testing.T) {
 
 	before := openedTables()
 	start := time.Now()
-	got, err := mysql_validation.GetSchemaMapping(conn, target, requested)
+	got, err := GetSchemaMapping(conn, target, requested)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	delta := openedTables() - before
