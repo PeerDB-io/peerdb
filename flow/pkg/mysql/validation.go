@@ -15,6 +15,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
+// minimum binlog retention required so a paused or lagging mirror can resume without a resync
+const (
+	minBinlogRetentionHours   = 72
+	minBinlogRetentionSeconds = minBinlogRetentionHours * 3600
+)
+
 const (
 	MySQLMinVersionForBinlogRowMetadata            = "8.0.1"
 	MariaDBMinVersionForBinlogRowMetadata          = "10.5.0"
@@ -65,7 +71,8 @@ func CheckMySQL5BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	}
 
 	// binlog_expire_logs_seconds was introduced in 8.0 https://dev.mysql.com/worklog/task/?id=10924
-	// since expire_logs_days has day granularity, all settings of it work for us so not checking
+	// before that only expire_logs_days exists, so enforce the retention floor rounded up to whole days
+	query += ", @@expire_logs_days"
 	rs, err := conn.Execute(query)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve settings <5.7: %w", err)
@@ -79,11 +86,21 @@ func CheckMySQL5BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	if binlogFormat != "ROW" {
 		return fmt.Errorf("binlog_format must be set to 'ROW', currently %s", binlogFormat)
 	}
+	nextIdx := 1
 	if checkBinlogRowImage {
-		binlogRowImage := string(row[1].AsString())
+		binlogRowImage := string(row[nextIdx].AsString())
 		if binlogRowImage != "FULL" {
 			return fmt.Errorf("binlog_row_image must be set to 'FULL', currently %s", binlogRowImage)
 		}
+		nextIdx++
+	}
+
+	// 0 means binlogs are never purged automatically
+	const minExpireLogsDays = (minBinlogRetentionHours + 23) / 24
+	expireLogsDays := row[nextIdx].AsUint64()
+	if expireLogsDays < minExpireLogsDays && expireLogsDays != 0 {
+		return fmt.Errorf("expire_logs_days must be set to at least %d days (%d hours), currently %d",
+			minExpireLogsDays, minBinlogRetentionHours, expireLogsDays)
 	}
 
 	return nil
@@ -110,9 +127,9 @@ func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	row := rs.Values[0]
 
 	binlogExpireLogsSeconds := row[0].AsUint64()
-	if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
-		return fmt.Errorf("binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently %d",
-			binlogExpireLogsSeconds)
+	if binlogExpireLogsSeconds < minBinlogRetentionSeconds && binlogExpireLogsSeconds != 0 {
+		return fmt.Errorf("binlog_expire_logs_seconds must be set to at least %d (%d hours), currently %d",
+			minBinlogRetentionSeconds, minBinlogRetentionHours, binlogExpireLogsSeconds)
 	}
 	binlogFormat := string(row[1].AsString())
 	if binlogFormat != "ROW" {
@@ -201,41 +218,82 @@ func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger, requireRow
 
 	if checkBinlogExpiry {
 		binlogExpireLogsSeconds := row[3].AsUint64()
-		if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
-			return fmt.Errorf("binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently %d",
-				binlogExpireLogsSeconds)
+		if binlogExpireLogsSeconds < minBinlogRetentionSeconds && binlogExpireLogsSeconds != 0 {
+			return fmt.Errorf("binlog_expire_logs_seconds must be set to at least %d (%d hours), currently %d",
+				minBinlogRetentionSeconds, minBinlogRetentionHours, binlogExpireLogsSeconds)
 		}
 	}
 
 	return nil
 }
 
+// readRDSBinlogRetentionHours reads the RDS/Aurora 'binlog retention hours' setting.
+// found is false when the server is not RDS/Aurora or the setting has no row.
+func readRDSBinlogRetentionHours(conn *client.Conn, logger log.Logger) (string, bool, error) {
+	rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'")
+	if err == nil {
+		if len(rs.Values) == 0 {
+			logger.Warn("binlog retention hours returned nothing, skipping Aurora/RDS binlog retention check")
+			return "", false, nil
+		}
+		return string(rs.Values[0][0].AsString()), true, nil
+	}
+	mErr, isMySQLError := errors.AsType[*mysql.MyError](err)
+	if !isMySQLError {
+		return "", false, err
+	}
+	switch mErr.Code {
+	case mysql.ER_NO_SUCH_TABLE:
+		logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
+			slog.Any("error", err))
+		return "", false, nil
+	case mysql.ER_TABLEACCESS_DENIED_ERROR:
+		// Denied SELECT is ambiguous: RDS MariaDB master users lack it on the mysql schema,
+		// but so do restricted users on self-hosted servers.
+		if looksLikeRDS(conn) {
+			return "", false, fmt.Errorf("grant SELECT on mysql.rds_configuration to the replication user: %w", err)
+		}
+		logger.Warn("SELECT on mysql.rds_configuration denied and server does not look like RDS/Aurora, skipping check",
+			slog.Any("error", err))
+		return "", false, nil
+	default:
+		return "", false, err
+	}
+}
+
+// RDS/Aurora install under /rdsdbbin and keep data under /rdsdbdata; both variables are readable without privileges.
+// Not documented by AWS, observed on RDS MySQL (https://gist.github.com/blasto333/9e82b6261681303f7369c3a2652e03f2)
+// and RDS MariaDB (https://repost.aws/questions/QUMgoPwKcpRbisC8ywPhfu2w).
+func looksLikeRDS(conn *client.Conn) bool {
+	rs, err := conn.Execute("SELECT @@basedir, @@datadir")
+	if err != nil || len(rs.Values) == 0 {
+		return false
+	}
+	for _, v := range rs.Values[0] {
+		if strings.HasPrefix(string(v.AsString()), "/rdsdb") {
+			return true
+		}
+	}
+	return false
+}
+
 func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
-	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
-	// check RDS/Aurora binlog retention setting
-	if rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
-		mErr, isMySQLError := errors.AsType[*mysql.MyError](err)
-		if isMySQLError &&
-			(mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
-			// Table doesn't exist, which means this is not RDS/Aurora
-			logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
-				slog.Any("error", err))
-			return nil
-		}
+	// AWS RDS/Aurora has its own binlog retention setting that we need to check
+	binlogRetentionHoursStr, found, err := readRDSBinlogRetentionHours(conn, logger)
+	if err != nil {
 		return fmt.Errorf("failed to check RDS/Aurora binlog retention hours: %w", err)
-	} else if len(rs.Values) > 0 {
-		binlogRetentionHoursStr := string(rs.Values[0][0].AsString())
-		if binlogRetentionHoursStr == "" {
-			return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
-		}
-		if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
-			return fmt.Errorf("failed to parse RDS/Aurora setting 'binlog retention hours': %w", err)
-		} else if binlogRetentionHours < 24 {
-			return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently %s",
-				binlogRetentionHoursStr)
-		}
-	} else {
-		logger.Warn("binlog retention hours returned nothing, skipping Aurora/RDS binlog retention check")
+	}
+	if !found {
+		return nil
+	}
+	if binlogRetentionHoursStr == "" {
+		return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least %d, currently unset", minBinlogRetentionHours)
+	}
+	if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
+		return fmt.Errorf("failed to parse RDS/Aurora setting 'binlog retention hours': %w", err)
+	} else if binlogRetentionHours < minBinlogRetentionHours {
+		return fmt.Errorf("RDS/Aurora setting 'binlog retention hours' should be at least %d, currently %s",
+			minBinlogRetentionHours, binlogRetentionHoursStr)
 	}
 
 	return nil
