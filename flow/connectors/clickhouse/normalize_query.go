@@ -263,17 +263,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			// Arrays of JSON are stored in the raw data as a string holding the whole array.
 			// Extracting the array type straight from the field would find a string and yield [].
 			// A missing field or a JSON null extracts as '', so as the empty array.
-			fmt.Fprintf(&projection,
-				"JSONExtract(JSONExtractString(_peerdb_data, %s), %s) AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
-				peerdb_clickhouse.QuoteLiteral(clickHouseType),
+			fmt.Fprintf(&projection, "%s AS %s,",
+				extractJSONArray("JSONExtractString(_peerdb_data, "+peerdb_clickhouse.QuoteLiteral(colName)+")", clickHouseType),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
-				fmt.Fprintf(&projectionUpdate,
-					"JSONExtract(JSONExtractString(_peerdb_match_data, %s), %s) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
-					peerdb_clickhouse.QuoteLiteral(clickHouseType),
+				fmt.Fprintf(&projectionUpdate, "%s AS %s,",
+					extractJSONArray("JSONExtractString(_peerdb_match_data, "+peerdb_clickhouse.QuoteLiteral(colName)+")", clickHouseType),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -430,4 +426,12 @@ func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string
 			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[2]))
 		),
 		NULL)`, jsonExtractExpr)
+}
+
+// extractJSONArray parses JSON array text; for Array(JSON) it maps null elements to {}, since JSONExtract turns all-null arrays into [].
+func extractJSONArray(expr string, clickHouseType string) string {
+	if clickHouseType == "Array(JSON)" {
+		return fmt.Sprintf("arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(%s, 'Array(Nullable(JSON))'))", expr)
+	}
+	return fmt.Sprintf("JSONExtract(%s, %s)", expr, peerdb_clickhouse.QuoteLiteral(clickHouseType))
 }

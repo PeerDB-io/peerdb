@@ -110,7 +110,7 @@ func TestBuildInsertFromTableFunctionQueryDestinationName(t *testing.T) {
 // an override's, or for a column without one the type table creation picked.
 func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
 	const overrides = "JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))')," +
-		"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"
+		"arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(ifNull(`docsb`, ''), 'Array(Nullable(JSON))')),"
 	const asText = overrides + "`docs_default`,`docs_as_string`"
 	for _, tc := range []struct {
 		name           string
@@ -124,7 +124,9 @@ func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
 		{
 			name: "default mapping", nativeJSON: "true", nullable: "false",
 			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest,
-			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(JSON)'),`docs_as_string`",
+			want: overrides +
+				"arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'))," +
+				"`docs_as_string`",
 		},
 		{
 			name: "default mapping with PEERDB_NULLABLE", nativeJSON: "true", nullable: "true",

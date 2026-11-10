@@ -812,10 +812,10 @@ func jsonArrayTestCases() []jsonArrayTestCase {
 			wantElements: []string{`{}`, `{"a": 1}`},
 		},
 		{
-			// ClickHouse parses [null,null] as the empty Array(JSON), while a null among other elements becomes {}
+			// JSONExtract alone would parse [null,null] as the empty Array(JSON)
 			desc:                 "all null elements",
 			elements:             []*string{nil, nil},
-			wantElements:         []string{},
+			wantElements:         []string{`{}`, `{}`},
 			wantNullableElements: []string{`null`, `null`},
 		},
 		{

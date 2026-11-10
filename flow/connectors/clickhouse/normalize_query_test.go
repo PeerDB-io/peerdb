@@ -127,7 +127,8 @@ func TestBuildQueryArrayOfJSON(t *testing.T) {
 	require.Contains(t, query,
 		`JSONExtract(JSONExtractString(_peerdb_data, 'docs'), 'Array(Nullable(JSON))') AS `+"`docs`")
 	require.Contains(t, query,
-		`JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(JSON)') AS `+"`docs_strict`")
+		`arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(Nullable(JSON))'))`+
+			" AS `docs_strict`")
 }
 
 // TestBuildQueryNullableJSON checks the projection for native JSON columns.

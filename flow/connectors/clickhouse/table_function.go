@@ -133,8 +133,7 @@ func arrayJSONFieldExpressionConverter(
 	}
 	if strings.HasPrefix(dstType, "Array(") {
 		// a null array is staged as a null string, the empty array once parsed
-		return fmt.Sprintf("JSONExtract(ifNull(%s, ''), %s)",
-			sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(dstType)), nil
+		return extractJSONArray("ifNull("+sourceFieldIdentifier+", '')", dstType), nil
 	}
 	return sourceFieldIdentifier, nil
 }
