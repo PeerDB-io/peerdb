@@ -8,7 +8,7 @@ import {
   tableEngineToJSON,
   TableMapping,
 } from '@/grpc_generated/flow';
-import { DBType } from '@/grpc_generated/peers';
+import { DBType, dBTypeFromJSON } from '@/grpc_generated/peers';
 import { ColumnsItem } from '@/grpc_generated/route';
 import { BarLoader } from '@/lib/BarLoader';
 import { Checkbox } from '@/lib/Checkbox';
@@ -22,6 +22,7 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
   useState,
   useTransition,
@@ -29,10 +30,12 @@ import {
 import ReactSelect from 'react-select';
 import { useTheme as useStyledTheme } from 'styled-components';
 import {
+  countTableRows,
   fetchColumns,
   fetchTables,
   getDefaultDestinationTable,
 } from '../handlers';
+import { notifyErr } from '@/app/utils/notify';
 import {
   deletePreimageEnabled,
   isMongoSource,
@@ -44,18 +47,41 @@ import {
   withStructuredIngestionConfig,
 } from '../helpers/structured';
 import ColumnBox from './columnbox';
+import { cutTooltip } from './cutTooltip';
 import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
 import SelectSortingKeys from './sortingkey';
+import TableSettingsTabs from './tablesettings';
 import StructuredColumns from './structuredColumns';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
   expandableStyle,
+  redesignTableBoxStyle,
   schemaBoxStyle,
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
+// pg_size_pretty style sizes ("80 kB", "13 MB") to bytes, for schema totals.
+function parseTableSize(size: string): number {
+  const match = /^([\d.]+)\s*(bytes|kB|MB|GB|TB)$/.exec(size?.trim() ?? '');
+  if (!match) return 0;
+  const units: Record<string, number> = {
+    bytes: 1,
+    kB: 1e3,
+    MB: 1e6,
+    GB: 1e9,
+    TB: 1e12,
+  };
+  return parseFloat(match[1]) * units[match[2]];
+}
+
+function formatTableSize(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1e3))} kB`;
+}
+
 function cannotMirrorReason(row: TableMapRow): string {
   const reasons: string[] = [];
   if (!row.hasPrimaryKeyOrReplicaIdentity) {
@@ -84,6 +110,10 @@ interface SchemaBoxProps {
   peerType?: DBType;
   alreadySelectedTables: TableMapping[] | undefined;
   initialLoadOnly?: boolean;
+  // Redesigned look, only used by the create-mirror page.
+  redesign?: boolean;
+  // Redesign: the schema shown in the tables pane (others stay mounted, hidden).
+  active?: boolean;
 }
 
 export default function SchemaBox({
@@ -99,6 +129,8 @@ export default function SchemaBox({
   setStructuredIngestionSupported,
   alreadySelectedTables,
   initialLoadOnly,
+  redesign,
+  active,
 }: SchemaBoxProps) {
   const selectTheme = useSelectTheme();
   // MongoDB specific settings apply to any MongoDB source, whether or not structured ingestion is on
@@ -107,8 +139,51 @@ export default function SchemaBox({
   const [tablesLoading, startTablesTransition] = useTransition();
   const [columnsLoading, startColumnsTransition] = useTransition();
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
+  // tables whose exact count(*) is running
+  const [counting, setCounting] = useState<Set<string>>(new Set());
+  const canCount =
+    sourceType !== undefined && dBTypeFromJSON(sourceType) === DBType.POSTGRES;
+  const countExactly = async (sources: string[]) => {
+    if (!sources.length) return;
+    setCounting((prev) => new Set([...prev, ...sources]));
+    try {
+      const counts = await countTableRows(
+        sourcePeer,
+        schema,
+        sources.map((source) => source.slice(schema.length + 1))
+      );
+      setRows((prev) =>
+        prev.map((r) => {
+          const n = counts[r.source.slice(schema.length + 1)];
+          return r.schema === schema && n !== undefined
+            ? { ...r, estimatedRows: n, rowCountKind: 'exact' }
+            : r;
+        })
+      );
+    } catch (e) {
+      notifyErr(`Could not count rows: ${(e as Error).message}`);
+    } finally {
+      setCounting((prev) => {
+        const next = new Set(prev);
+        sources.forEach((source) => next.delete(source));
+        return next;
+      });
+    }
+  };
+  // redesign: which selected tables show their settings panel
+  const [openTables, setOpenTables] = useState<Set<string>>(new Set());
+  const toggleOpen = (source: string, open: boolean) =>
+    setOpenTables((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(source);
+      else next.delete(source);
+      return next;
+    });
   const [fetchedSchemas, setFetchedSchemas] = useState<Set<string>>(new Set());
   const [tableQuery, setTableQuery] = useState<string>('');
+  const [tableFilter, setTableFilter] = useState<
+    'all' | 'selected' | 'blocked'
+  >('all');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
 
@@ -136,10 +211,13 @@ export default function SchemaBox({
       .filter(
         (row) =>
           row.schema === schema &&
-          row.source.toLowerCase().includes(tableQueryLower)
+          row.source.toLowerCase().includes(tableQueryLower) &&
+          (tableFilter === 'all' ||
+            (tableFilter === 'selected' && row.selected) ||
+            (tableFilter === 'blocked' && !row.canMirror))
       )
       .sort((a, b) => a.source.localeCompare(b.source));
-  }, [schema, rows, tableQuery]);
+  }, [schema, rows, tableQuery, tableFilter]);
 
   const schemaIsExpanded = useCallback(
     (schema: string) => {
@@ -158,6 +236,8 @@ export default function SchemaBox({
 
   const handleTableSelect = (on: boolean, source: string) => {
     on ? handleAddRow(source) : handleRemoveRow(source);
+    // select-all leaves panels closed; a single pick opens its panel
+    toggleOpen(source, on);
   };
 
   const updateDestination = (source: string, destination: string) => {
@@ -291,7 +371,7 @@ export default function SchemaBox({
   };
 
   const fetchTablesForSchema = useCallback(
-    (schemaName: string) => {
+    (schemaName: string, selectAll: boolean = false) => {
       startTablesTransition(async () => {
         try {
           const { tables: newRows, structuredIngestionSupported: supported } =
@@ -300,7 +380,9 @@ export default function SchemaBox({
               schemaName,
               defaultTargetSchema,
               peerType,
-              initialLoadOnly
+              initialLoadOnly,
+              !!redesign &&
+                peerType?.toString() === DBType[DBType.CLICKHOUSE].toString()
             );
           setStructuredIngestionSupported(supported);
 
@@ -333,6 +415,16 @@ export default function SchemaBox({
             }
           }
 
+          // Checking a schema before its tables were loaded selects them on arrival
+          if (selectAll) {
+            for (const row of newRows) {
+              if (row.canMirror && !row.editingDisabled) {
+                row.selected = true;
+                addTableColumns(row.source);
+              }
+            }
+          }
+
           setRows((oldRows) => {
             const filteredRows = oldRows.filter(
               (oldRow) => oldRow.schema !== schemaName
@@ -354,6 +446,7 @@ export default function SchemaBox({
       alreadySelectedTables,
       addTableColumns,
       initialLoadOnly,
+      redesign,
       setRows,
       setStructuredIngestionSupported,
     ]
@@ -372,6 +465,18 @@ export default function SchemaBox({
     }
   };
 
+  // Redesign: the active schema is always open, its tables loaded on first view.
+  useEffect(() => {
+    if (!redesign || !active) return;
+    if (!expandedSchemas.includes(schema)) {
+      setExpandedSchemas((curr) => [...curr, schema]);
+    }
+    if (!fetchedSchemas.has(schema)) {
+      fetchTablesForSchema(schema);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [redesign, active, schema]);
+
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
@@ -379,9 +484,344 @@ export default function SchemaBox({
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
+  const gridCols =
+    '40px minmax(0, 1.3fr) minmax(0, 1.2fr) 64px 64px minmax(0, 0.8fr) 30px';
+  const tipColors = {
+    bg: styledTheme.colors.base.text.highContrast,
+    fg: styledTheme.colors.base.background.normal,
+  };
+  const schemaRows = rows.filter((row) => row.schema === schema);
+  const schemaSelected = schemaRows.filter((row) => row.selected).length;
+  const schemaMirrorable = schemaRows.filter(
+    (row) => row.canMirror && !row.editingDisabled
+  );
+  const schemaAllSelected =
+    schemaMirrorable.length > 0 && schemaMirrorable.every((row) => row.selected);
+  const schemaSomeSelected = schemaSelected > 0 && !schemaAllSelected;
+  const schemaBlocked = schemaRows.filter((row) => !row.canMirror).length;
+  const schemaBytes = schemaRows.reduce(
+    (total, row) => total + parseTableSize(row.tableSize),
+    0
+  );
+  // Selects or clears every replicable table of the schema, loading them first
+  // when the schema was never opened.
+  const toggleSchemaSelection = (checked: boolean) => {
+    if (!fetchedSchemas.has(schema)) {
+      if (!checked) return;
+      if (!schemaIsExpanded(schema)) {
+        setExpandedSchemas((curr) => [...curr, schema]);
+      }
+      fetchTablesForSchema(schema, true);
+      return;
+    }
+    const newRows = rows.map((row) => {
+      if (row.schema !== schema || !row.canMirror || row.editingDisabled) {
+        return row;
+      }
+      if (checked) addTableColumns(row.source);
+      else removeTableColumns(row.source);
+      return { ...row, selected: checked };
+    });
+    setRows(newRows);
+  };
+  const keyTag = (row: TableMapRow, columns?: ColumnsItem[]) => {
+    const ok = row.canMirror;
+    if (ok && !row.isReplicaIdentityFull) {
+      const keys = row.keyColumns?.length
+        ? row.keyColumns
+        : columns?.filter((c) => c.isKey).map((c) => c.name);
+      return (
+        <span
+          style={{
+            fontSize: 13,
+            color: styledTheme.colors.base.text.lowContrast,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          {...cutTooltip(keys?.join(', ') ?? '', tipColors)}
+        >
+          {keys?.length ? keys.join(', ') : 'Primary key'}
+        </span>
+      );
+    }
+    const tone = styledTheme.colors.warning;
+    return (
+      <span
+        title={
+          ok
+            ? 'REPLICA IDENTITY FULL: updates are matched on every column, slower than a primary key'
+            : cannotMirrorReason(row)
+        }
+        style={{
+          justifySelf: 'start',
+          fontSize: 11.5,
+          fontWeight: 600,
+          padding: '2px 8px',
+          borderRadius: 99,
+          whiteSpace: 'nowrap',
+          background: tone.surface.normal,
+          color: tone.text.lowContrast,
+        }}
+      >
+        {ok ? 'Full row' : 'No key'}
+      </span>
+    );
+  };
+  const cellMuted = {
+    fontSize: 13,
+    color: styledTheme.colors.base.text.lowContrast,
+  };
+
   return (
-    <div style={schemaBoxStyle(styledTheme)}>
-      <div>
+    <div
+      style={
+        redesign
+          ? { display: active ? 'block' : 'none', minWidth: 0 }
+          : schemaBoxStyle(styledTheme)
+      }
+    >
+      <div
+        style={
+          redesign
+            ? {
+                padding: '0 1.25rem 0.75rem',
+                borderBottom: `1px solid ${styledTheme.colors.base.border.subtle}`,
+              }
+            : undefined
+        }
+      >
+        {redesign ? (
+          <div
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 3,
+              margin: '0 -1.25rem',
+              padding: '1rem 1.25rem 0',
+              background: styledTheme.colors.base.background.normal,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 20,
+                  fontWeight: 600,
+                  letterSpacing: '-0.02em',
+                  color: styledTheme.colors.base.text.highContrast,
+                }}
+              >
+                {schema}
+              </h3>
+              {fetchedSchemas.has(schema) && (
+                <span style={cellMuted}>
+                  {schemaRows.length}{' '}
+                  {schemaRows.length === 1 ? 'table' : 'tables'}
+                  {schemaBytes > 0 ? `, ${formatTableSize(schemaBytes)}` : ''}
+                </span>
+              )}
+              <span style={{ flexGrow: 1 }} />
+              {canCount &&
+                (() => {
+                  const pending = schemaRows
+                    .filter((r) => r.rowCountKind !== 'exact')
+                    .map((r) => r.source);
+                  if (!pending.length) return null;
+                  const busy = pending.some((source) => counting.has(source));
+                  return (
+                    <button
+                      type='button'
+                      disabled={busy || tablesLoading}
+                      onClick={() => countExactly(pending)}
+                      title='Runs count(*) on these tables. Big tables take a while.'
+                      style={{
+                        height: 34,
+                        padding: '0 14px',
+                        borderRadius: 8,
+                        cursor: busy ? 'default' : 'pointer',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        border: `1px solid ${styledTheme.colors.base.border.normal}`,
+                        background: styledTheme.colors.base.background.normal,
+                        color: styledTheme.colors.base.text.highContrast,
+                      }}
+                    >
+                      {busy ? 'Counting…' : `Count ${pending.length} exactly`}
+                    </button>
+                  );
+                })()}
+              {schemaMirrorable.length > 0 && (
+                <button
+                  type='button'
+                  disabled={tablesLoading}
+                  onClick={() => toggleSchemaSelection(!schemaAllSelected)}
+                  style={{
+                    height: 34,
+                    padding: '0 14px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    border: `1px solid ${styledTheme.colors.base.border.normal}`,
+                    background: styledTheme.colors.base.background.normal,
+                    color: styledTheme.colors.base.text.highContrast,
+                  }}
+                >
+                  {schemaAllSelected
+                    ? 'Clear selection'
+                    : `Select all ${schemaMirrorable.length} replicable`}
+                </button>
+              )}
+              <div style={{ alignSelf: 'center', cursor: 'pointer' }}>
+                <SchemaSettings
+                  schema={defaultTargetSchema}
+                  setTargetSchemaOverride={applyTargetSchemaOverride}
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <div style={{ width: 260 }}>
+                <SearchField
+                  style={{ fontSize: 13 }}
+                  placeholder={`Search tables in ${schema}`}
+                  value={tableQuery}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setTableQuery(e.target.value)
+                  }
+                />
+              </div>
+              {(
+                (key: 'all' | 'selected' | 'blocked', label: string) => (
+                <button
+                  key={key}
+                  type='button'
+                  aria-pressed={tableFilter === key}
+                  onClick={() => setTableFilter(key)}
+                  style={{
+                    height: 28,
+                    padding: '0 11px',
+                    borderRadius: 99,
+                    cursor: 'pointer',
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    border: `1px solid ${
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.border.normal
+                    }`,
+                    background:
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.background.normal,
+                    color:
+                      tableFilter === key
+                        ? styledTheme.colors.base.background.normal
+                        : styledTheme.colors.base.text.highContrast,
+                  }}
+                >
+                  {label}
+                </button>
+              )
+              )('all', `All ${schemaRows.length}`)}
+              {((key: 'all' | 'selected' | 'blocked', label: string) => (
+                <button
+                  key={key}
+                  type='button'
+                  aria-pressed={tableFilter === key}
+                  onClick={() => setTableFilter(key)}
+                  style={{
+                    height: 28,
+                    padding: '0 11px',
+                    borderRadius: 99,
+                    cursor: 'pointer',
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    border: `1px solid ${
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.border.normal
+                    }`,
+                    background:
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.background.normal,
+                    color:
+                      tableFilter === key
+                        ? styledTheme.colors.base.background.normal
+                        : styledTheme.colors.base.text.highContrast,
+                  }}
+                >
+                  {label}
+                </button>
+              ))('selected', `Selected ${schemaSelected}`)}
+              {schemaBlocked > 0 &&
+                ((key: 'all' | 'selected' | 'blocked', label: string) => (
+                <button
+                  key={key}
+                  type='button'
+                  aria-pressed={tableFilter === key}
+                  onClick={() => setTableFilter(key)}
+                  style={{
+                    height: 28,
+                    padding: '0 11px',
+                    borderRadius: 99,
+                    cursor: 'pointer',
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    border: `1px solid ${
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.border.normal
+                    }`,
+                    background:
+                      tableFilter === key
+                        ? styledTheme.colors.base.text.highContrast
+                        : styledTheme.colors.base.background.normal,
+                    color:
+                      tableFilter === key
+                        ? styledTheme.colors.base.background.normal
+                        : styledTheme.colors.base.text.highContrast,
+                  }}
+                >
+                  {label}
+                </button>
+              ))('blocked', `Not replicable ${schemaBlocked}`)}
+            </div>
+            {schemaIsExpanded(schema) && searchedTables.length > 0 && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: gridCols,
+                  columnGap: 12,
+                  alignItems: 'center',
+                  height: 36,
+                  padding: '0 1rem',
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  color: styledTheme.colors.base.text.lowContrast,
+                  marginTop: 12,
+                  borderTop: `1px solid ${styledTheme.colors.base.border.subtle}`,
+                }}
+              >
+                <span />
+                <span>Source table</span>
+                <span>Target table</span>
+                <span style={{ textAlign: 'right' }}>Rows</span>
+                <span style={{ textAlign: 'right' }}>Size</span>
+                <span>Key</span>
+                <span />
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={{ ...expandableStyle, cursor: 'auto' }}>
           <div
             style={{ display: 'flex', cursor: 'pointer' }}
@@ -420,22 +860,209 @@ export default function SchemaBox({
             </div>
           </div>
         </div>
+        )}
         {/* TABLE BOX */}
         {schemaIsExpanded(schema) && (
-          <div style={{ marginLeft: '1.25rem', marginTop: '0.75rem' }}>
+          <div
+            style={
+              redesign
+                ? undefined
+                : { marginLeft: '1.25rem', marginTop: '0.75rem' }
+            }
+          >
             {searchedTables.length ? (
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
                 return (
-                  <div key={row.source} style={tableBoxStyle(styledTheme)}>
+                  <div
+                    key={row.source}
+                    style={
+                      redesign
+                        ? {
+                            ...redesignTableBoxStyle(styledTheme),
+                            padding:
+                              row.selected && openTables.has(row.source)
+                                ? '0 1rem 1.25rem'
+                                : '0 1rem',
+                          }
+                        : tableBoxStyle(styledTheme)
+                    }
+                  >
                     <div
                       style={{
-                        marginLeft: '1.25rem',
+                        marginLeft: redesign ? 0 : '1.25rem',
                         display: 'flex',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
                     >
+                      {redesign ? (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: gridCols,
+                            columnGap: 12,
+                            alignItems: 'center',
+                            minHeight: 52,
+                          }}
+                        >
+                          <Checkbox
+                            disabled={!row.canMirror}
+                            checked={row.selected}
+                            onCheckedChange={(state: boolean) =>
+                              handleTableSelect(state, row.source)
+                            }
+                          />
+                          <Tooltip
+                            style={{
+                              ...tooltipStyle(styledTheme),
+                              display: row.canMirror ? 'none' : 'block',
+                            }}
+                            content={cannotMirrorReason(row)}
+                          >
+                            <Label
+                              as='label'
+                              title={row.source}
+                              style={{
+                                display: 'block',
+                                fontSize: 13,
+                                padding: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                color: row.canMirror ? undefined : 'gray',
+                              }}
+                              {...cutTooltip(row.source.slice(schema.length + 1), tipColors)}
+                            >
+                              {row.source.slice(schema.length + 1)}
+                            </Label>
+                          </Tooltip>
+                          {row.selected ? (
+                            <div>
+                              <TextField
+                                disabled={row.editingDisabled}
+                                variant='simple'
+                                style={{ fontSize: 13 }}
+                                {...cutTooltip(row.destination, tipColors)}
+                                placeholder='Enter target table'
+                                value={row.destination}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updateDestination(row.source, e.target.value)
+                                }
+                              />
+                              {rows.some(
+                                (other) =>
+                                  other.source !== row.source &&
+                                  other.selected &&
+                                  other.destination === row.destination
+                              ) && (
+                                <div
+                                  role='alert'
+                                  style={{
+                                    marginTop: 4,
+                                    fontSize: 12,
+                                    color:
+                                      styledTheme.colors.destructive.text
+                                        .lowContrast,
+                                  }}
+                                >
+                                  Another selected table uses this name.
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={cellMuted}>
+                              {row.canMirror
+                                ? 'Not selected'
+                                : 'Cannot be mirrored'}
+                            </span>
+                          )}
+                          <button
+                            type='button'
+                            // not `disabled`: disabled buttons drop mouse events and the tooltip
+                            aria-disabled={
+                              !canCount ||
+                              row.rowCountKind === 'exact' ||
+                              counting.has(row.source)
+                            }
+                            onClick={() =>
+                              canCount &&
+                              row.rowCountKind !== 'exact' &&
+                              !counting.has(row.source) &&
+                              countExactly([row.source])
+                            }
+                            aria-label={`Count rows of ${row.source} exactly`}
+                            style={{
+                              ...cellMuted,
+                              textAlign: 'right',
+                              border: 0,
+                              padding: 0,
+                              background: 'none',
+                              fontFamily: 'inherit',
+                              cursor:
+                                canCount && row.rowCountKind !== 'exact'
+                                  ? 'pointer'
+                                  : 'default',
+                            }}
+                            {...cutTooltip(
+                              (counting.has(row.source)
+                                ? 'Counting…'
+                                : row.rowCountKind === 'exact'
+                                  ? 'Exact count'
+                                  : row.estimatedRows !== undefined
+                                    ? 'Approximate, from Postgres statistics. Can be well off if the table was not analyzed recently'
+                                    : "No estimate yet: Postgres hasn't analyzed this table. It replicates normally.") +
+                                (canCount && row.rowCountKind !== 'exact' && !counting.has(row.source)
+                                  ? ' · Click to count exactly'
+                                  : ''),
+                              tipColors,
+                              true
+                            )}
+                          >
+                            {counting.has(row.source)
+                              ? 'Counting…'
+                              : row.estimatedRows !== undefined
+                                ? `${row.rowCountKind === 'exact' ? '' : '~'}${Number(row.estimatedRows).toLocaleString('en-US')}`
+                                : '—'}
+                          </button>
+                          <span style={{ ...cellMuted, textAlign: 'right' }}>
+                            {row.tableSize || '—'}
+                          </span>
+                          {keyTag(row, columns)}
+                          {row.selected ? (
+                            <button
+                              type='button'
+                              aria-expanded={openTables.has(row.source)}
+                              aria-label={`${openTables.has(row.source) ? 'Hide' : 'Show'} settings for ${row.source}`}
+                              title={openTables.has(row.source) ? 'Hide settings' : 'Show settings'}
+                              onClick={() =>
+                                toggleOpen(row.source, !openTables.has(row.source))
+                              }
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 30,
+                                height: 30,
+                                padding: 0,
+                                border: `1px solid ${styledTheme.colors.base.border.subtle}`,
+                                borderRadius: 6,
+                                background: 'none',
+                                color: styledTheme.colors.base.text.highContrast,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Icon
+                                name={openTables.has(row.source) ? 'arrow_drop_up' : 'arrow_drop_down'}
+                              />
+                            </button>
+                          ) : (
+                            <span />
+                          )}
+                        </div>
+                      ) : (
                       <RowWithCheckbox
                         label={
                           <Tooltip
@@ -461,6 +1088,15 @@ export default function SchemaBox({
                             >
                               {row.tableSize}
                             </Label>
+                            {redesign && row.estimatedRows !== undefined && (
+                              <Label
+                                as='label'
+                                colorName='lowContrast'
+                                style={{ fontSize: 13 }}
+                              >
+                                ~{row.estimatedRows.toLocaleString('en-US')} rows
+                              </Label>
+                            )}
                           </Tooltip>
                         }
                         action={
@@ -473,16 +1109,22 @@ export default function SchemaBox({
                           />
                         }
                       />
+                      )}
                       <div
                         style={{
-                          rowGap: '0.5rem',
-                          columnGap: '3rem',
-                          display: row.selected ? 'flex' : 'none',
+                          rowGap: redesign ? '0.75rem' : '0.5rem',
+                          columnGap: redesign ? '1.25rem' : '3rem',
+                          // redesign shows these fields inside TableSettingsTabs
+                          display: row.selected && !redesign ? 'flex' : 'none',
                           flexWrap: 'wrap',
+                          gridTemplateColumns: redesign
+                            ? 'repeat(3, minmax(0, 1fr))'
+                            : undefined,
                         }}
                         key={row.source}
                       >
-                        <div style={{ width: '30%', fontSize: 12 }}>
+                        {!redesign && (
+                        <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                           Target Table:
                           <TextField
                             disabled={row.editingDisabled}
@@ -498,8 +1140,9 @@ export default function SchemaBox({
                             ) => updateDestination(row.source, e.target.value)}
                           />
                         </div>
+                        )}
 
-                        <div style={{ width: '30%', fontSize: 12 }}>
+                        <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                           Custom Partitioning Key:
                           <TextField
                             disabled={row.editingDisabled}
@@ -519,7 +1162,7 @@ export default function SchemaBox({
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (
                           <>
-                            <div style={{ width: '30%', fontSize: 12 }}>
+                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                               Engine:
                               <ReactSelect
                                 isDisabled={row.editingDisabled}
@@ -544,7 +1187,7 @@ export default function SchemaBox({
                                 }
                               />
                             </div>
-                            <div style={{ width: '30%', fontSize: 12 }}>
+                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                               Sharding Key:
                               <TextField
                                 disabled={row.editingDisabled}
@@ -562,7 +1205,7 @@ export default function SchemaBox({
                                 }
                               />
                             </div>
-                            <div style={{ width: '30%', fontSize: 12 }}>
+                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                               Policy Name:
                               <TextField
                                 disabled={row.editingDisabled}
@@ -580,7 +1223,7 @@ export default function SchemaBox({
                                 }
                               />
                             </div>
-                            <div style={{ width: '30%', fontSize: 12 }}>
+                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
                               Partition By Expr:
                               <TextField
                                 disabled={row.editingDisabled}
@@ -607,14 +1250,41 @@ export default function SchemaBox({
                     </div>
 
                     {/* COLUMN BOX */}
-                    {row.selected && (
+                    {row.selected && (!redesign || openTables.has(row.source)) && (
+                      <TableSettingsTabs
+                        enabled={!!redesign}
+                        isClickHouse={
+                          peerType?.toString() ===
+                          DBType[DBType.CLICKHOUSE].toString()
+                        }
+                        row={row}
+                        columns={columns}
+                        setRows={setRows}
+                        engineOptions={engineOptions}
+                        engineValue={
+                          typeof row.engine === 'string'
+                            ? row.engine
+                            : tableEngineToJSON(row.engine)
+                        }
+                        onEngine={(v) =>
+                          updateEngine(row.source, tableEngineFromJSON(v))
+                        }
+                        onPartitionKey={(v) => updatePartitionKey(row.source, v)}
+                        onShardingKey={(v) => updateShardingKey(row.source, v)}
+                        onPolicyName={(v) => updatePolicyName(row.source, v)}
+                        onPartitionByExpr={(v) =>
+                          updatePartitionByExpr(row.source, v)
+                        }
+                      >
                       <div
                         style={{
-                          marginLeft: '1.25rem',
-                          marginTop: '0.75rem',
+                          marginLeft: redesign ? 0 : '1.25rem',
+                          marginTop: redesign ? 0 : '0.75rem',
                           width: '100%',
                         }}
                       >
+                        {!redesign && (
+                        <>
                         <hr style={columnBoxDividerStyle} />
                         <div
                           style={{
@@ -627,24 +1297,44 @@ export default function SchemaBox({
                           <Label
                             as='label'
                             colorName='lowContrast'
-                            style={{ fontSize: 13 }}
+                            style={{
+                              fontSize: 13,
+                              padding: redesign ? 0 : undefined,
+                            }}
                           >
                             Columns
                           </Label>
                         </div>
+                        </>
+                        )}
                         {columns ? (
                           <>
-                            <ColumnBox
-                              columns={columns}
-                              tableRow={row}
-                              rows={rows}
-                              setRows={setRows}
-                              disabled={row.editingDisabled}
-                              showOrdering={
-                                peerType?.toString() ===
-                                DBType[DBType.CLICKHOUSE].toString()
+                            <div
+                              style={
+                                redesign
+                                  ? {
+                                      display: 'grid',
+                                      gridTemplateColumns:
+                                        'repeat(2, minmax(0, 1fr))',
+                                      alignItems: 'start',
+                                      columnGap: '2.5rem',
+                                    }
+                                  : undefined
                               }
-                            />
+                            >
+                              <ColumnBox
+                                compact={redesign}
+                                columns={columns}
+                                tableRow={row}
+                                rows={rows}
+                                setRows={setRows}
+                                disabled={row.editingDisabled}
+                                showOrdering={
+                                  peerType?.toString() ===
+                                  DBType[DBType.CLICKHOUSE].toString()
+                                }
+                              />
+                            </div>
                             {peerType?.toString() ===
                               DBType[DBType.CLICKHOUSE].toString() && (
                               <div
@@ -655,8 +1345,11 @@ export default function SchemaBox({
                                   rowGap: '0.5rem',
                                 }}
                               >
-                                <hr style={columnBoxDividerStyle} />
+                                {!redesign && (
+                                  <hr style={columnBoxDividerStyle} />
+                                )}
                                 <div style={{ width: '50%' }}>
+                                  {!redesign && (
                                   <SelectSortingKeys
                                     columns={columns
                                       .map((column) => column.name)
@@ -665,6 +1358,7 @@ export default function SchemaBox({
                                     tableRow={row}
                                     setRows={setRows}
                                   />
+                                  )}
                                   {structuredIngestionSupported && (
                                     <div
                                       style={{ width: '100%', fontSize: 12 }}
@@ -804,6 +1498,7 @@ export default function SchemaBox({
                           />
                         )}
                       </div>
+                      </TableSettingsTabs>
                     )}
                   </div>
                 );

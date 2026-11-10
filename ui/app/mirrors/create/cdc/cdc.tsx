@@ -10,9 +10,9 @@ import {
 
 import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
-import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
+import { useTheme } from 'styled-components';
 import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
 import {
   IsClickHousePeer,
@@ -36,6 +36,8 @@ interface MirrorConfigProps {
   sourceType: DBType;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
+  // The create page renders the table picker as its own section.
+  hideTablePicker?: boolean;
 }
 
 export default function CDCConfigForm({
@@ -46,7 +48,9 @@ export default function CDCConfigForm({
   sourceType,
   rows,
   setRows,
+  hideTablePicker,
 }: MirrorConfigProps) {
+  const theme = useTheme();
   const [publications, setPublications] = useState<string[]>();
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -307,24 +311,27 @@ export default function CDCConfigForm({
               />
             )
         )}
-        <Button
-          className='IconButton'
-          aria-label='collapse'
-          onClick={() => {
-            setShow((prev) => !prev);
-          }}
+        <button
+          type='button'
+          aria-expanded={show}
+          onClick={() => setShow((prev) => !prev)}
           style={{
-            width: '13em',
-            height: '2.5em',
-            marginTop: '2rem',
-            marginBottom: '1rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            columnGap: '0.5rem',
+            margin: '1rem 0',
+            padding: '0.4rem 0',
+            border: 0,
+            background: 'none',
+            cursor: 'pointer',
+            fontSize: 14,
+            fontWeight: 500,
+            color: theme.colors.accent.text.lowContrast,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <h3 style={{ marginRight: '10px' }}>Advanced Settings</h3>
-            <Icon name={`keyboard_double_arrow_${show ? 'up' : 'down'}`} />
-          </div>
-        </Button>
+          <Icon name={show ? 'arrow_drop_down' : 'arrow_right'} />
+          Advanced settings
+        </button>
 
         {show &&
           advancedSettings!.map(
@@ -338,6 +345,7 @@ export default function CDCConfigForm({
               )
           )}
 
+        {!hideTablePicker && (
         <TablePicker
           sourcePeerName={mirrorConfig.sourceName}
           sourceType={sourceType}
@@ -347,6 +355,7 @@ export default function CDCConfigForm({
           alreadySelectedTablesMapping={new Map<string, TableMapping[]>()}
           initialLoadOnly={mirrorConfig.initialSnapshotOnly}
         />
+        )}
       </>
     );
 }

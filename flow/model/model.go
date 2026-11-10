@@ -118,6 +118,8 @@ type PullRecordsRequest[T Items] struct {
 	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
+	// ReplicateTruncate makes the source emit TruncateRecords, for destinations that apply them
+	ReplicateTruncate bool
 }
 
 // PullTableRecordsRequest is one table's pull request in the query-based CDC

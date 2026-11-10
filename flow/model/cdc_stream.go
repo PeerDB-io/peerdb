@@ -63,7 +63,7 @@ func (r *CDCStream[T]) GetLastCheckpoint() CdcCheckpoint {
 func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 	if !r.firstRowSet {
 		switch record.(type) {
-		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T]:
+		case *InsertRecord[T], *UpdateRecord[T], *DeleteRecord[T], *TruncateRecord[T]:
 			r.firstRowSet = true
 			r.MarkFirstRowReceived(time.Now()) // no-op if the source already marked it at read time
 			r.firstRowCommitTime = record.GetCommitTime().UTC()

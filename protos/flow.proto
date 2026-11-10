@@ -335,6 +335,10 @@ message FieldDescription {
   bool nullable = 4;
   string type_schema_name = 5;
   optional string default_expr = 6;
+  // earlier source names of a renamed column, newest first; normalize reads raw rows synced before the rename by them
+  repeated string previous_names = 7;
+  // Postgres attribute number at the source, 0 when unknown; RENAME keeps it and attnums are never reused
+  int32 attnum = 8;
 }
 
 message SetupTableSchemaBatchInput {
@@ -575,6 +579,18 @@ message TableSchemaDelta {
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
+  repeated string dropped_columns = 6;
+  repeated RenamedColumn renamed_columns = 7;
+  // columns whose source type changed, carrying the new type
+  repeated FieldDescription changed_columns = 8;
+  // the change cannot be replayed in place; the destination table is re-snapshotted instead
+  bool resync_required = 9;
+  string resync_reason = 10;
+}
+
+message RenamedColumn {
+  string old_name = 1;
+  string new_name = 2;
 }
 
 message QRepFlowState {

@@ -95,3 +95,21 @@ export const engineOptionStyles = {
     padding: `${(targetHeight - 20 - 1 - 1) / 2}px`,
   }),
 };
+
+// Used only by the redesigned create-mirror page (see `redesign` props).
+export const redesignSchemaBoxStyle = (theme: DefaultTheme): CSSProperties => ({
+  width: '100%',
+  marginTop: '0.75rem',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  border: `1px solid ${theme.colors.base.border.subtle}`,
+  borderRadius: '0.75rem',
+  background: theme.colors.base.background.normal,
+});
+
+export const redesignTableBoxStyle = (theme: DefaultTheme): CSSProperties => ({
+  width: '100%',
+  padding: '0.75rem 1rem',
+  borderTop: `1px solid ${theme.colors.base.border.subtle}`,
+});

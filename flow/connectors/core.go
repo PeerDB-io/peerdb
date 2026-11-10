@@ -76,6 +76,19 @@ type GetTableSchemaConnector interface {
 	) (map[string]*protos.TableSchema, error)
 }
 
+type TableRowCountConnector interface {
+	Connector
+
+	CountTableRows(ctx context.Context, schema string, tables []string) (map[string]int64, error)
+}
+
+type ClickHouseDatabaseConnector interface {
+	Connector
+
+	ListDatabases(ctx context.Context) ([]string, error)
+	CreateDatabaseIfNotExists(ctx context.Context, database string) error
+}
+
 type GetSchemaConnector interface {
 	Connector
 
@@ -431,6 +444,11 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 	err := row.Scan(&dbtype)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if virtualPeer, virtualErr := resolveVirtualPeer(ctx, catalogPool, peerName); virtualErr != nil {
+				return 0, virtualErr
+			} else if virtualPeer != nil {
+				return virtualPeer.Type, nil
+			}
 			return 0, exceptions.NewNotFoundError(fmt.Errorf("peer not found: %s", peerName))
 		}
 		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load peer type for %s: %w", peerName, err))
@@ -461,9 +479,18 @@ func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerName
 	// Verify all requested peers were found
 	var missingPeers []string
 	for _, peerName := range peerNames {
-		if _, found := peerTypes[peerName]; !found {
-			missingPeers = append(missingPeers, peerName)
+		if _, found := peerTypes[peerName]; found {
+			continue
 		}
+		virtualPeer, err := resolveVirtualPeer(ctx, catalogPool, peerName)
+		if err != nil {
+			return nil, err
+		}
+		if virtualPeer == nil {
+			missingPeers = append(missingPeers, peerName)
+			continue
+		}
+		peerTypes[peerName] = virtualPeer.Type
 	}
 
 	if len(missingPeers) > 0 {
@@ -474,6 +501,40 @@ func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerName
 }
 
 func LoadPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error) {
+	peers, err := loadCatalogPeers(ctx, catalogPool, peerNames)
+	if err != nil {
+		return nil, err
+	}
+	if len(peerNames) == 0 {
+		return peers, nil
+	}
+
+	// Names without a catalog row may be virtual peers (see virtual_peer.go)
+	var missingPeers []string
+	for _, name := range peerNames {
+		if _, found := peers[name]; found {
+			continue
+		}
+		virtualPeer, err := resolveVirtualPeer(ctx, catalogPool, name)
+		if err != nil {
+			return nil, err
+		}
+		if virtualPeer == nil {
+			missingPeers = append(missingPeers, name)
+			continue
+		}
+		peers[name] = virtualPeer
+	}
+
+	if len(missingPeers) > 0 {
+		return nil, exceptions.NewNotFoundError(fmt.Errorf("peers not found: %v", missingPeers))
+	}
+
+	return peers, nil
+}
+
+// loadCatalogPeers loads the peers that have a catalog row; missing names are skipped.
+func loadCatalogPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error) {
 	if len(peerNames) == 0 {
 		return nil, nil
 	}
@@ -500,18 +561,6 @@ func LoadPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("error querying peer rows: %w", err)
-	}
-
-	// Verify all requested peers were found
-	var missingPeers []string
-	for _, name := range peerNames {
-		if _, found := peers[name]; !found {
-			missingPeers = append(missingPeers, name)
-		}
-	}
-
-	if len(missingPeers) > 0 {
-		return nil, exceptions.NewNotFoundError(fmt.Errorf("peers not found: %v", missingPeers))
 	}
 
 	return peers, nil
@@ -791,7 +840,10 @@ var (
 	_ CDCSyncConnector = &connpubsub.PubSubConnector{}
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickHouseConnector{}
-	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+
+	_ ClickHouseDatabaseConnector = &connclickhouse.ClickHouseConnector{}
+	_ TableRowCountConnector      = &connpostgres.PostgresConnector{}
+	_ CDCSyncConnector            = &connelasticsearch.ElasticsearchConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 

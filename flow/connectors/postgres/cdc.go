@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -78,7 +79,7 @@ type PostgresCDCSource struct {
 	internalVersion                          uint32
 	flags                                    []string
 	nativeJSONEnabled                        bool
-	warnedTypeChanges                        sync.Map
+	replicateTruncate                        bool
 }
 
 type PostgresCDCConfig struct {
@@ -98,6 +99,7 @@ type PostgresCDCConfig struct {
 	SourceSchemaAsDestinationColumn          bool
 	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
+	ReplicateTruncate                        bool
 }
 
 const clockOffsetTTL = time.Hour
@@ -198,6 +200,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 		flags:                                    cdcConfig.Flags,
+		replicateTruncate:                        cdcConfig.ReplicateTruncate,
 		nativeJSONEnabled:                        cdcConfig.NativeJSONEnabled,
 	}, nil
 }
@@ -1031,9 +1034,11 @@ func PullCdcRecords[Items model.Items](
 
 					case *model.RelationRecord[Items]:
 						tableSchemaDelta := r.TableSchemaDelta
-						if len(tableSchemaDelta.AddedColumns) > 0 {
-							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
-								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
+						if len(tableSchemaDelta.AddedColumns) > 0 || model.HasDestructiveChanges(tableSchemaDelta) ||
+							tableSchemaDelta.ResyncRequired {
+							logger.Info(fmt.Sprintf("Detected schema change for table %s, added: %v, dropped: %v, renamed: %v, retyped: %v",
+								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns, tableSchemaDelta.DroppedColumns,
+								tableSchemaDelta.RenamedColumns, tableSchemaDelta.ChangedColumns))
 							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 						}
 
@@ -1167,6 +1172,8 @@ func processMessage[Items model.Items](
 			slog.Any("Columns", msg.Columns))
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg, mappedRelID)
+	case *pglogrepl.TruncateMessage:
+		return nil, processTruncateMessage(ctx, p, batch, xld.WALStart, msg)
 	case *pglogrepl.LogicalDecodingMessage:
 		logger.Debug("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
@@ -1431,7 +1438,95 @@ func processRelationMessage[Items model.Items](
 		NullableEnabled: prevSchema.NullableEnabled,
 	}
 
+	prevColumns := make(map[string]*protos.FieldDescription, len(prevSchema.Columns))
+	var missingColumns []string
+	for _, column := range prevSchema.Columns {
+		prevColumns[column.Name] = column
+		if _, ok := currRelMap[column.Name]; !ok {
+			missingColumns = append(missingColumns, column.Name)
+		}
+	}
+	// a column missing from the relation message is renamed, dropped, or generated (pgoutput leaves those out);
+	// pg_attribute tells them apart
+	currNames := make([]string, 0, len(currRel.Columns))
+	for _, column := range currRel.Columns {
+		currNames = append(currNames, column.Name)
+	}
+	// nullability and defaults are not in relation messages either
+	liveAttrs, droppedAttnums, err := p.fetchRelationAttributes(ctx, currRel.RelationID)
+	if err != nil {
+		return nil, err
+	}
+	liveAttnums := make(map[string]int16, len(liveAttrs))
+	for name, attr := range liveAttrs {
+		liveAttnums[name] = attr.attnum
+	}
+	// attnums belong to the table the schema was read from, not to an inheritance child
+	attnumsUsable := prevSchema.TableOid != 0 && currRel.RelationID == prevSchema.TableOid
+	renamedFrom := make(map[string]string)
+	// missing columns still live at the source under a name this message does not show
+	keptColumns := make(map[string]struct{})
+	if len(missingColumns) > 0 {
+		prevNames := make([]string, 0, len(prevSchema.Columns))
+		if prevRel, ok := p.relationMessageMapping[currRel.RelationID]; ok {
+			for _, column := range prevRel.Columns {
+				prevNames = append(prevNames, column.Name)
+			}
+		} else {
+			for _, column := range prevSchema.Columns {
+				prevNames = append(prevNames, column.Name)
+			}
+		}
+		candidate, hasCandidate := findRenameCandidate(prevNames, currNames, currRelDstInfo.Exclude)
+		attnumOwner := make(map[int16]string, len(liveAttnums))
+		for name, attnum := range liveAttnums {
+			attnumOwner[attnum] = name
+		}
+		for _, name := range missingColumns {
+			attnum := int16(prevColumns[name].Attnum)
+			if !attnumsUsable || attnum == 0 {
+				// no attnum stored for this column: fall back to its position
+				if hasCandidate && candidate.oldName == name && candidate.confirmedBy(liveAttnums, droppedAttnums) {
+					renamedFrom[candidate.newName] = name
+				}
+				continue
+			}
+			if slices.Contains(droppedAttnums, attnum) {
+				continue
+			}
+			liveName, isLive := attnumOwner[attnum]
+			if !isLive {
+				keptColumns[name] = struct{}{}
+				continue
+			}
+			if _, inPrev := prevRelMap[liveName]; !inPrev && slices.Contains(currNames, liveName) {
+				renamedFrom[liveName] = name
+			} else if hasCandidate && candidate.oldName == name {
+				// renamed again since this message, which shows the name at its position
+				renamedFrom[candidate.newName] = name
+			} else {
+				keptColumns[name] = struct{}{}
+			}
+		}
+	}
+	currTypmod := func(column *pglogrepl.RelationMessageColumn) int32 {
+		if prevSchema.System == protos.TypeSystem_Q {
+			_, typmod := pkg_pg.ResolveDataType(column.DataType, column.TypeModifier, customTypeMapping)
+			return typmod
+		}
+		return column.TypeModifier
+	}
+	// numeric precision and scale live in the typmod, and decide the ClickHouse Decimal type
+	typeChanged := func(prevName string, column *pglogrepl.RelationMessageColumn) bool {
+		prevType := prevRelMap[prevName]
+		return prevType != currRelMap[column.Name] ||
+			(prevType == string(types.QValueKindNumeric) && prevColumns[prevName].TypeModifier != currTypmod(column))
+	}
+
 	shouldAddColumn := func(columnName string) bool {
+		if _, isRenamed := renamedFrom[columnName]; isRenamed {
+			return false
+		}
 		_, inPrevRel := prevRelMap[columnName]
 		_, isExcluded := currRelDstInfo.Exclude[columnName]
 		_, isDuplicated := p.addedColumnCache[currRelName][columnName]
@@ -1439,12 +1534,13 @@ func processRelationMessage[Items model.Items](
 	}
 
 	addedColumnNames := make([]string, 0)
-	addedColumnTypeOIDs := make([]uint32, 0)
+	addedColumnTypeOIDs := make([]uint32, 0, len(currRel.Columns))
 	for _, column := range currRel.Columns {
 		if shouldAddColumn(column.Name) {
 			addedColumnNames = append(addedColumnNames, column.Name)
-			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 		}
+		// retyped columns need their type's schema too
+		addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
 	}
 
 	typeSchemaNameMapping, err := p.GetSchemaNameOfColumnTypeByOID(ctx, addedColumnTypeOIDs)
@@ -1462,7 +1558,37 @@ func processRelationMessage[Items model.Items](
 		return nil, err
 	}
 
+	// only a nullable-enabled destination has Nullable columns to keep in step with the source
+	nullabilityChanged := func(prevName string, name string) bool {
+		attr, ok := liveAttrs[name]
+		return ok && prevSchema.NullableEnabled && attr.notNull == prevColumns[prevName].Nullable
+	}
+	changedColumn := func(prevName string, column *pglogrepl.RelationMessageColumn) *protos.FieldDescription {
+		nullable := prevColumns[prevName].Nullable
+		if attr, ok := liveAttrs[column.Name]; ok {
+			nullable = !attr.notNull
+		}
+		return &protos.FieldDescription{
+			Name:           column.Name,
+			Type:           currRelMap[column.Name],
+			TypeModifier:   currTypmod(column),
+			Nullable:       nullable,
+			TypeSchemaName: typeSchemaNameMapping[column.DataType],
+			Attnum:         prevColumns[prevName].Attnum,
+		}
+	}
+
 	for _, column := range currRel.Columns {
+		if oldName, isRenamed := renamedFrom[column.Name]; isRenamed {
+			schemaDelta.RenamedColumns = append(schemaDelta.RenamedColumns,
+				&protos.RenamedColumn{OldName: oldName, NewName: column.Name})
+			p.logger.Info("Detected renamed column", slog.String("table", schemaDelta.SrcTableName),
+				slog.String("from", oldName), slog.String("to", column.Name))
+			if typeChanged(oldName, column) || nullabilityChanged(oldName, column.Name) {
+				schemaDelta.ChangedColumns = append(schemaDelta.ChangedColumns, changedColumn(oldName, column))
+			}
+			continue
+		}
 		if shouldAddColumn(column.Name) {
 			catalogInfo := addedColumnCatalogInfo[column.Name]
 			// json/jsonb take the JSON form of the missing value, which keeps a top-level string quoted
@@ -1494,6 +1620,9 @@ func processRelationMessage[Items model.Items](
 				TypeSchemaName: typeSchemaNameMapping[column.DataType],
 				DefaultExpr:    defaultExpr,
 			}
+			if attnumsUsable {
+				addedColumn.Attnum = int32(liveAttnums[column.Name])
+			}
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, addedColumn)
 			p.logger.Info("Detected added column",
 				slog.String("columnName", addedColumn.Name),
@@ -1519,36 +1648,68 @@ func processRelationMessage[Items model.Items](
 				slog.String("column", column.Name),
 				slog.String("type", currRelMap[column.Name]),
 				slog.String("reason", skipReason))
-		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
-			key := fmt.Sprintf("%s.%s.%s.%s", schemaDelta.SrcTableName, column.Name,
-				prevRelMap[column.Name], currRelMap[column.Name])
-			if _, ok := p.warnedTypeChanges.LoadOrStore(key, struct{}{}); !ok {
-				p.logger.Warn("column type change detected, not propagating",
-					slog.String("table", schemaDelta.SrcTableName),
-					slog.String("column", column.Name),
-					slog.String("from", prevRelMap[column.Name]),
-					slog.String("to", currRelMap[column.Name]),
-					slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
-				)
-				p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
-					attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
-					attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
-				)))
-			}
+		} else if nullabilityChanged(column.Name, column.Name) && !typeChanged(column.Name, column) {
+			p.logger.Info("Detected column nullability change", slog.String("table", schemaDelta.SrcTableName),
+				slog.String("column", column.Name), slog.Bool("nullable", !liveAttrs[column.Name].notNull))
+			schemaDelta.ChangedColumns = append(schemaDelta.ChangedColumns, changedColumn(column.Name, column))
+		} else if typeChanged(column.Name, column) {
+			p.logger.Info("Detected column type change",
+				slog.String("table", schemaDelta.SrcTableName),
+				slog.String("column", column.Name),
+				slog.String("from", prevRelMap[column.Name]),
+				slog.String("to", currRelMap[column.Name]),
+				slog.String("event", otel_metrics.SourceEventTypeEventMetadata),
+			)
+			p.otelManager.Metrics.ColumnTypeChangesCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.TypeChangeFromKey, prevRelMap[column.Name]),
+				attribute.String(otel_metrics.TypeChangeToKey, currRelMap[column.Name]),
+				attribute.String(otel_metrics.SourceEventTypeKey, otel_metrics.SourceEventTypeEventMetadata),
+			)))
+			schemaDelta.ChangedColumns = append(schemaDelta.ChangedColumns, changedColumn(column.Name, column))
 		}
 	}
-	for _, column := range prevSchema.Columns {
-		// present in previous relation message, but not in current one, so dropped.
-		if _, ok := currRelMap[column.Name]; !ok {
-			p.logger.Warn(fmt.Sprintf("Detected dropped column %s in table %s, but not propagating", column,
-				schemaDelta.SrcTableName))
+	renamedOld := make(map[string]struct{}, len(renamedFrom))
+	for _, oldName := range renamedFrom {
+		renamedOld[oldName] = struct{}{}
+	}
+	for _, name := range missingColumns {
+		if _, isRenamed := renamedOld[name]; isRenamed {
+			continue
 		}
+		_, isLive := liveAttnums[name]
+		if _, isKept := keptColumns[name]; isKept || isLive {
+			// generated columns are not in relation messages
+			p.logger.Warn("column missing from relation message still exists at source, not dropping",
+				slog.String("table", schemaDelta.SrcTableName), slog.String("column", name))
+			continue
+		}
+		schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, name)
+		p.logger.Info("Detected dropped column", slog.String("table", schemaDelta.SrcTableName), slog.String("column", name))
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
+	if reason := p.resyncReason(ctx, mappedRelID, prevSchema, schemaDelta, liveAttrs); reason != "" {
+		p.logger.Warn("schema change needs the table re-snapshotted", slog.String("table", currRelName), slog.String("reason", reason))
+		// the catalog schema stays as it was, so the change is detected again until the resync replaces it
+		schemaDelta = &protos.TableSchemaDelta{
+			SrcTableName:    schemaDelta.SrcTableName,
+			DstTableName:    schemaDelta.DstTableName,
+			System:          schemaDelta.System,
+			NullableEnabled: schemaDelta.NullableEnabled,
+			ResyncRequired:  true,
+			ResyncReason:    reason,
+		}
+		return &model.RelationRecord[Items]{
+			BaseRecord:       p.baseRecord(lsn),
+			TableSchemaDelta: schemaDelta,
+		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+	}
 	// only log audit if there is actionable delta
-	if len(schemaDelta.AddedColumns) > 0 {
+	if len(schemaDelta.AddedColumns) > 0 || model.HasDestructiveChanges(schemaDelta) {
+		// later relation messages in this pull compare against the changed schema, so the delta is not emitted twice
+		nextSchema := proto.CloneOf(prevSchema)
+		model.ApplyTableSchemaDelta(nextSchema, schemaDelta)
+		p.tableNameSchemaMapping[currRelDstInfo.Name] = nextSchema
 		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
@@ -1779,4 +1940,47 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	}
 
 	return relID, p.idToRelKindMap[relID], nil
+}
+
+func processTruncateMessage[Items model.Items](
+	ctx context.Context,
+	p *PostgresCDCSource,
+	batch *model.CDCStream[Items],
+	lsn pglogrepl.LSN,
+	msg *pglogrepl.TruncateMessage,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	for _, relID := range msg.RelationIDs {
+		mappedRelID, _, err := p.checkIfUnknownTableInherits(ctx, relID)
+		if err != nil {
+			return err
+		}
+		srcTableName, ok := p.srcTableIDNameMapping[mappedRelID]
+		if !ok {
+			continue
+		}
+		dstInfo, ok := p.tableNameMapping[srcTableName]
+		if !ok {
+			continue
+		}
+		if !p.replicateTruncate {
+			logger.Warn("TRUNCATE not replicated to this destination", slog.String("table", srcTableName))
+			continue
+		}
+		if mappedRelID != relID {
+			// the destination table also holds the other children's rows
+			logger.Warn("TRUNCATE of a child table not replicated to its parent's destination table",
+				slog.String("table", srcTableName), slog.Uint64("childRelID", uint64(relID)))
+			continue
+		}
+		logger.Info("Detected TRUNCATE", slog.String("table", srcTableName), slog.String("destination", dstInfo.Name))
+		if err := batch.AddRecord(ctx, &model.TruncateRecord[Items]{
+			BaseRecord:           p.baseRecord(lsn),
+			SourceTableName:      srcTableName,
+			DestinationTableName: dstInfo.Name,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

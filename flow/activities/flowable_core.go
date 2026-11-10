@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -69,6 +70,19 @@ func (a *FlowableActivity) applySchemaDeltas(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+	replaysDestructive := false
+	if slices.ContainsFunc(schemaDeltas, model.HasDestructiveChanges) {
+		dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+		if err != nil {
+			return err
+		}
+		// only ClickHouse replays dropped, renamed and retyped columns
+		replaysDestructive = dstType == protos.DBType_CLICKHOUSE
+	}
+
 	dstTableNamesInDeltas := make([]string, 0, len(schemaDeltas))
 	for _, schemaDelta := range schemaDeltas {
 		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
@@ -92,22 +106,15 @@ func (a *FlowableActivity) applySchemaDeltas(
 
 			for _, schemaDelta := range schemaDeltas {
 				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
-					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-					for _, col := range schema.GetColumns() {
-						columnNames[col.Name] = struct{}{}
+					if !replaysDestructive {
+						// the destination kept these columns, so normalize must keep reading them as before
+						schemaDelta = model.WithoutDestructiveChanges(schemaDelta)
 					}
-					for _, newCol := range schemaDelta.GetAddedColumns() {
-						// only add columns that don't already exist
-						if _, exists := columnNames[newCol.Name]; !exists {
-							schema.Columns = append(schema.Columns, newCol)
-							columnNames[newCol.Name] = struct{}{}
-						} else {
-							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-								newCol.Name, newCol.Type, schemaDelta.DstTableName))
-						}
+					for _, skipped := range model.ApplyTableSchemaDelta(schema, schemaDelta) {
+						logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' in table %s", skipped, schemaDelta.DstTableName))
 					}
 				} else {
-					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
+					logger.Warn(fmt.Sprintf("skip schema delta for table '%s' because it's not in catalog", schemaDelta.DstTableName))
 				}
 			}
 			return schemasCopy, nil
@@ -228,6 +235,11 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	syncBatchID += 1
 	batchSpan.SetAttributes(attribute.Int64(otel_metrics.BatchIdKey, syncBatchID))
 
+	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+	}
+
 	startTime := time.Now()
 	syncState.Store(new("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
@@ -250,6 +262,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			OverridePublicationName:     config.PublicationName,
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
+			ReplicateTruncate:           dstType == protos.DBType_CLICKHOUSE,
 			Env:                         config.Env,
 			InternalVersion:             config.Version,
 			Flags:                       config.Flags,
@@ -289,7 +302,10 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		if err := a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas); err != nil {
+			return nil, err
+		}
+		return nil, a.requestTableResyncs(ctx, config, options.TableMappings, recordBatchSync.SchemaDeltas, dstType)
 	}
 
 	var res *model.SyncResponse
@@ -413,6 +429,9 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	syncState.Store(new("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
+		return nil, err
+	}
+	if err := a.requestTableResyncs(ctx, config, options.TableMappings, res.TableSchemaDeltas, dstType); err != nil {
 		return nil, err
 	}
 

@@ -343,6 +343,11 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("failed to read PEERDB_CLICKHOUSE_ENABLE_JSON: %w", err)
 	}
 
+	if err := c.backfillAttnums(ctx, catalogPool, req.FlowJobName, req.TableNameSchemaMapping); err != nil {
+		// renames then fall back to matching by column position
+		c.logger.Warn("failed to backfill column attnums", slog.Any("error", err))
+	}
+
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
 		OtelManager:                              otelManager,
@@ -360,6 +365,7 @@ func pullCore[Items model.Items](
 		InternalVersion:                          req.InternalVersion,
 		Flags:                                    req.Flags,
 		NativeJSONEnabled:                        nativeJSONEnabled,
+		ReplicateTruncate:                        req.ReplicateTruncate,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))
@@ -659,6 +665,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 			TypeModifier:   fieldDescription.TypeModifier,
 			Nullable:       nullable,
 			TypeSchemaName: typeSchemaNameMapping[fieldDescription.DataTypeOID],
+			Attnum:         int32(fieldDescription.TableAttributeNumber),
 		})
 	}
 

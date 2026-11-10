@@ -56,6 +56,13 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	var id pgtype.Int4
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A virtual peer (<base>__<database>) is stored against its base ClickHouse peer
+		if base, _, ok := connectors.SplitVirtualPeerName(peerName); ok {
+			err = h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1 AND type = $2",
+				base, protos.DBType_CLICKHOUSE).Scan(&id, &peerType)
+		}
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)

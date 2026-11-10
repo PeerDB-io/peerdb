@@ -28,4 +28,19 @@ const MirrorCardStyle: CSSProperties = {
   borderRadius: '1rem',
 };
 
-export { MirrorButtonContainer, MirrorButtonStyle, MirrorCardStyle };
+// Styles for the redesigned create page. The exports above are still used by
+// the edit-mirror page, so they stay as they are.
+const CreateButtonStyle: CSSProperties = {
+  height: '2.75rem',
+  padding: '0 1.25rem',
+  borderRadius: '0.6rem',
+  fontWeight: 500,
+  whiteSpace: 'nowrap',
+};
+
+export {
+  CreateButtonStyle,
+  MirrorButtonContainer,
+  MirrorButtonStyle,
+  MirrorCardStyle,
+};

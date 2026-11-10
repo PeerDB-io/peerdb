@@ -9,6 +9,7 @@ func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(DropFlowWorkflow)
 	w.RegisterWorkflow(SetupFlowWorkflow)
 	w.RegisterWorkflow(QRepFlowWorkflow)
+	w.RegisterWorkflow(TableResyncWorkflow)
 	w.RegisterWorkflow(QRepWaitForNewRowsWorkflow)
 	w.RegisterWorkflow(QRepPartitionWorkflow)
 	w.RegisterWorkflow(XminFlowWorkflow)
