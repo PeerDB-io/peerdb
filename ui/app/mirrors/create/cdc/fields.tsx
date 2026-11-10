@@ -3,7 +3,7 @@ import { useSelectTheme } from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { Label } from '@/lib/Label';
-import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
+import { SettingRow } from '../bands';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import ReactSelect from 'react-select';
@@ -23,140 +23,109 @@ export default function CDCField({
   optionsLoading,
 }: FieldProps) {
   const selectTheme = useSelectTheme();
-  return setting.type === 'switch' ? (
-    <RowWithSwitch
-      label={
-        <Label>
-          {setting.label}
-          {RequiredIndicator(setting.required)}
-        </Label>
-      }
-      action={
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <Switch
-            defaultChecked={setting.default as boolean}
-            onCheckedChange={(state: boolean) => handleChange(state, setting)}
-          />
-          {setting.tips && (
-            <InfoPopover
-              tips={setting.tips}
-              link={setting.helpfulLink}
-              command={setting.command}
-            />
-          )}
-        </div>
-      }
-    />
-  ) : setting.type === 'select' ? (
-    <RowWithSelect
-      label={
-        <Label>
-          {setting.label}
-          {RequiredIndicator(setting.required)}
-        </Label>
-      }
-      action={
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ width: '100%' }}>
-            <ReactSelect
-              onChange={(val, action) =>
-                val && handleChange(val.option, setting)
+  const label = (
+    <>
+      {setting.label}
+      {RequiredIndicator(setting.required)}
+    </>
+  );
+  // The tip text is shown under the label; the popover only stays when it
+  // carries a link or a command.
+  const popover =
+    setting.tips && (setting.helpfulLink || setting.command) ? (
+      <InfoPopover
+        tips={setting.tips}
+        link={setting.helpfulLink}
+        command={setting.command}
+      />
+    ) : null;
+
+  if (setting.type === 'switch') {
+    return (
+      <SettingRow
+        label={label}
+        description={setting.tips}
+        control={
+          <>
+            <Switch
+              defaultChecked={setting.default as boolean}
+              onCheckedChange={(state: boolean) =>
+                handleChange(state, setting)
               }
-              options={options?.map((option) => ({ option, label: option }))}
-              getOptionLabel={(option) => option.label}
-              getOptionValue={(option) => option.option}
-              theme={selectTheme}
-              isLoading={optionsLoading}
-              isClearable={true}
+            />
+            {popover}
+          </>
+        }
+      />
+    );
+  }
+  if (setting.type === 'select') {
+    return (
+      <SettingRow
+        label={label}
+        description={setting.tips}
+        control={
+          <>
+            <div style={{ width: 260 }}>
+              <ReactSelect
+                aria-label={setting.label}
+                onChange={(val, action) =>
+                  val && handleChange(val.option, setting)
+                }
+                options={options?.map((option) => ({ option, label: option }))}
+                getOptionLabel={(option) => option.label}
+                getOptionValue={(option) => option.option}
+                theme={selectTheme}
+                isLoading={optionsLoading}
+                isClearable={true}
+              />
+            </div>
+            {popover}
+          </>
+        }
+      />
+    );
+  }
+  if (setting.type === 'textarea') {
+    return (
+      <SettingRow
+        label={label}
+        description={setting.tips}
+        control={
+          <>
+            <div style={{ width: 320 }}>
+              <TextField
+                variant='text-area'
+                defaultValue={setting.default as string}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  handleChange(e.target.value, setting)
+                }
+              />
+            </div>
+            {popover}
+          </>
+        }
+      />
+    );
+  }
+  return (
+    <SettingRow
+      label={label}
+      description={setting.tips}
+      control={
+        <>
+          <div style={{ width: setting.type === 'number' ? 120 : 260 }}>
+            <TextField
+              variant='simple'
+              type={setting.type}
+              defaultValue={setting.default as string}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                handleChange(e.target.value, setting)
+              }
             />
           </div>
-          {setting.tips && (
-            <InfoPopover
-              tips={setting.tips}
-              link={setting.helpfulLink}
-              command={setting.command}
-            />
-          )}
-        </div>
-      }
-    />
-  ) : setting.type === 'textarea' ? (
-    <RowWithTextField
-      label={
-        <Label>
-          {setting.label}
-          {RequiredIndicator(setting.required)}
-        </Label>
-      }
-      action={
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <TextField
-            variant='text-area'
-            defaultValue={setting.default as string}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-              handleChange(e.target.value, setting)
-            }
-          />
-          {setting.tips && (
-            <InfoPopover
-              tips={setting.tips}
-              link={setting.helpfulLink}
-              command={setting.command}
-            />
-          )}
-        </div>
-      }
-    />
-  ) : (
-    <RowWithTextField
-      label={
-        <Label>
-          {setting.label}
-          {RequiredIndicator(setting.required)}
-        </Label>
-      }
-      action={
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <TextField
-            variant='simple'
-            type={setting.type}
-            defaultValue={setting.default as string}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              handleChange(e.target.value, setting)
-            }
-          />
-          {setting.tips && (
-            <InfoPopover
-              tips={setting.tips}
-              link={setting.helpfulLink}
-              command={setting.command}
-            />
-          )}
-        </div>
+          {popover}
+        </>
       }
     />
   );

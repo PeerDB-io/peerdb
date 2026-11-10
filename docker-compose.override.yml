@@ -1,0 +1,32 @@
+services:
+  peerdb-ui:
+    image: peerdb-ui:custom-login
+    build:
+      context: .
+      dockerfile: stacks/peerdb-ui.Dockerfile
+      target: runner
+    environment:
+      PEERDB_USERS: ${PEERDB_USERS}
+      PEERDB_PASSWORD: ${PEERDB_PASSWORD}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+  flow-api:
+    image: peerdb-flow-api:custom
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
+  flow-migrate:
+    image: peerdb-flow-api:custom
+  flow-worker:
+    image: peerdb-flow-worker:custom
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
+  flow-snapshot-worker:
+    image: peerdb-flow-snapshot-worker:custom
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-snapshot-worker

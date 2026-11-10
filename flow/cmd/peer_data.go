@@ -164,6 +164,25 @@ func (h *FlowRequestHandler) GetSchemas(
 	return wrapErrorAsFailedPrecondition(conn.GetSchemas(ctx))
 }
 
+func (h *FlowRequestHandler) CountTableRows(
+	ctx context.Context,
+	req *protos.CountTableRowsRequest,
+) (*protos.CountTableRowsResponse, APIError) {
+	conn, connClose, err := connectors.GetByNameAs[connectors.TableRowCountConnector](ctx, nil, h.pool, req.PeerName)
+	if err != nil {
+		return nil, NewInvalidArgumentApiError(fmt.Errorf("peer %s cannot count table rows: %w", req.PeerName, err))
+	}
+	defer connClose(ctx)
+	// big tables take a while; bound it so a forgotten request can't scan for ever
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	counts, err := conn.CountTableRows(ctx, req.SchemaName, req.TableNames)
+	if err != nil {
+		return nil, NewFailedPreconditionApiError(err)
+	}
+	return &protos.CountTableRowsResponse{RowCounts: counts}, nil
+}
+
 func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,

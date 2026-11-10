@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -240,7 +241,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 
 	onCluster := c.onCluster()
 	for _, schemaDelta := range schemaDeltas {
-		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+		if schemaDelta == nil || (len(schemaDelta.AddedColumns) == 0 && !model.HasDestructiveChanges(schemaDelta)) {
 			continue
 		}
 
@@ -264,6 +265,10 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			if err != nil {
 				return fmt.Errorf("failed to resolve shard table for %s: %w", schemaDelta.DstTableName, err)
 			}
+		}
+
+		if err := c.replayDestructiveColumnChanges(ctx, env, schemaDelta, tm, shardTableName, flags); err != nil {
+			return err
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
@@ -478,5 +483,119 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		c.logger.Info("successfully removed entries for tables from raw table", slog.Any("tables", chunk))
 	}
 
+	return nil
+}
+
+// replayDestructiveColumnChanges renames, retypes and drops destination columns, in the order
+// model.ApplyTableSchemaDelta applies them to the catalog schema. Every statement is idempotent so a
+// retried sync can replay the delta again.
+func (c *ClickHouseConnector) replayDestructiveColumnChanges(
+	ctx context.Context,
+	env map[string]string,
+	schemaDelta *protos.TableSchemaDelta,
+	tm *protos.TableMapping,
+	shardTableName string,
+	flags []string,
+) error {
+	onCluster := c.onCluster()
+	alter := func(action string) error {
+		tables := []string{schemaDelta.DstTableName}
+		if shardTableName != "" {
+			tables = []string{shardTableName, schemaDelta.DstTableName}
+		}
+		for _, table := range tables {
+			if err := c.execWithLogging(ctx, fmt.Sprintf("ALTER TABLE %s%s %s",
+				peerdb_clickhouse.QuoteIdentifier(table), onCluster, action)); err != nil {
+				return fmt.Errorf("failed to alter table %s: %w", table, err)
+			}
+		}
+		return nil
+	}
+	// ClickHouse refuses to alter key columns; fail the mirror loudly instead of replicating wrong data
+	keyTable := schemaDelta.DstTableName
+	if shardTableName != "" {
+		keyTable = shardTableName
+	}
+	ensureNotKey := func(column string, change string) error {
+		var isKey uint8
+		if err := c.queryRow(ctx, fmt.Sprintf(
+			"SELECT is_in_sorting_key OR is_in_primary_key OR is_in_partition_key FROM system.columns"+
+				" WHERE database = %s AND table = %s AND name = %s",
+			peerdb_clickhouse.QuoteLiteral(c.Config.Database), peerdb_clickhouse.QuoteLiteral(keyTable), peerdb_clickhouse.QuoteLiteral(column),
+		)).Scan(&isKey); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("failed to check key columns of %s: %w", keyTable, err)
+		}
+		if isKey != 0 {
+			return fmt.Errorf("source %s column %s of %s, but it is part of the ClickHouse table key: resync the table",
+				change, column, schemaDelta.SrcTableName)
+		}
+		return nil
+	}
+
+	for _, rename := range schemaDelta.RenamedColumns {
+		oldDst := resolveDestinationColumnName(rename.OldName, tm.GetColumns())
+		if err := ensureNotKey(oldDst, "renamed"); err != nil {
+			return err
+		}
+		if err := alter(fmt.Sprintf("RENAME COLUMN IF EXISTS %s TO %s",
+			peerdb_clickhouse.QuoteIdentifier(oldDst), peerdb_clickhouse.QuoteIdentifier(rename.NewName))); err != nil {
+			return err
+		}
+		c.logger.Info("[schema delta replay] renamed column",
+			slog.String("from", oldDst), slog.String("to", rename.NewName), slog.String("table", schemaDelta.DstTableName))
+	}
+	for _, changed := range schemaDelta.ChangedColumns {
+		colSetting := findColumnSetting(changed.Name, tm.GetColumns())
+		if colSetting.GetDestinationType() != "" {
+			c.logger.Warn("[schema delta replay] keeping explicit destination type of retyped column",
+				slog.String("column", changed.Name), slog.String("table", schemaDelta.DstTableName))
+			continue
+		}
+		dstName := resolveDestinationColumnName(changed.Name, tm.GetColumns())
+		if err := ensureNotKey(dstName, "changed the type of"); err != nil {
+			return err
+		}
+		chType, err := resolveClickHouseColumnType(ctx, changed, colSetting, schemaDelta.NullableEnabled, env, c.chVersion, flags)
+		if err != nil {
+			return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", changed.Type, err)
+		}
+		// MODIFY COLUMN converts the rows already in ClickHouse, and fails rather than losing values it cannot convert
+		if err := alter(fmt.Sprintf("MODIFY COLUMN IF EXISTS %s %s", peerdb_clickhouse.QuoteIdentifier(dstName), chType)); err != nil {
+			return err
+		}
+		c.logger.Info("[schema delta replay] changed column type",
+			slog.String("column", dstName), slog.String("type", chType), slog.String("table", schemaDelta.DstTableName))
+	}
+	for _, dropped := range schemaDelta.DroppedColumns {
+		dstName := resolveDestinationColumnName(dropped, tm.GetColumns())
+		if err := ensureNotKey(dstName, "dropped"); err != nil {
+			return err
+		}
+		if err := alter("DROP COLUMN IF EXISTS " + peerdb_clickhouse.QuoteIdentifier(dstName)); err != nil {
+			return err
+		}
+		c.logger.Info("[schema delta replay] dropped column",
+			slog.String("column", dstName), slog.String("table", schemaDelta.DstTableName))
+	}
+	return nil
+}
+
+// DropTableForResync drops a destination table, and its shard table on a cluster, before it is re-snapshotted.
+func (c *ClickHouseConnector) DropTableForResync(ctx context.Context, table string) error {
+	dropSQL := dropTableIfExistsSQL + chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingMaxTableSizeToDrop, "0")
+	tables := []string{table}
+	if c.Config.Cluster != "" {
+		if shard, err := c.getDistributedShardTable(ctx, table); err == nil {
+			tables = append(tables, shard)
+		}
+	}
+	for _, t := range tables {
+		if err := c.execWithLogging(ctx, fmt.Sprintf(dropSQL, peerdb_clickhouse.QuoteIdentifier(t), c.onCluster())); err != nil {
+			return fmt.Errorf("failed to drop %s for resync: %w", t, err)
+		}
+	}
 	return nil
 }

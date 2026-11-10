@@ -6,7 +6,7 @@ x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
   MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
-  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://172.17.0.1:9001
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
 
 x-catalog-config: &catalog-config
@@ -38,7 +38,7 @@ services:
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
-      - 9901:5432
+      - 127.0.0.1:9901:5432
     environment:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
@@ -72,7 +72,7 @@ services:
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     image: temporalio/auto-setup:1.29@sha256:f14912b699cf73015ad5c4fc18d522d4b014db90e794039214dfb7c022c2644f
     ports:
-      - 7233:7233
+      - 127.0.0.1:7233:7233
     volumes:
       - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
@@ -110,7 +110,7 @@ services:
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.57.0@sha256:d944f959d0923c35cd991a17a0edbe087770eff843724b181933e0cfdd563ab2
     ports:
-      - 8085:8080
+      - 127.0.0.1:8085:8080
 
   # applies catalog schema migrations and exits
   flow-migrate:
@@ -128,8 +128,8 @@ services:
     image: ghcr.io/peerdb-io/flow-api:stable-v0.37.15
     restart: unless-stopped
     ports:
-      - 8112:8112
-      - 8113:8113
+      - 127.0.0.1:8112:8112
+      - 127.0.0.1:8113:8113
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
@@ -180,7 +180,7 @@ services:
       RUST_LOG: info
       RUST_BACKTRACE: 1
     ports:
-      - 9900:9900
+      - 127.0.0.1:9900:9900
     depends_on:
       flow-migrate:
         condition: service_completed_successfully
@@ -190,7 +190,7 @@ services:
     image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.15
     restart: unless-stopped
     ports:
-      - 3000:3000
+      - 127.0.0.1:3000:3000
     environment:
       <<: *catalog-config
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
@@ -208,8 +208,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9000"
-      - "9002:36987"
+      - "172.17.0.1:9001:9000"
+      - "172.17.0.1:9002:36987"
     environment:
       <<: *minio-config
     entrypoint: >

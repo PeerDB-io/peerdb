@@ -197,3 +197,31 @@ func (r *MessageRecord[T]) GetItems() T {
 
 func (r *MessageRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
 }
+
+// TruncateRecord marks a TRUNCATE of a source table at its position in the stream: rows synced before it
+// are removed from the destination, rows after it stay.
+type TruncateRecord[T Items] struct {
+	SourceTableName      string
+	DestinationTableName string
+	BaseRecord
+}
+
+func (*TruncateRecord[T]) Kind() string {
+	return "truncate"
+}
+
+func (r *TruncateRecord[T]) GetDestinationTableName() string {
+	return r.DestinationTableName
+}
+
+func (r *TruncateRecord[T]) GetSourceTableName() string {
+	return r.SourceTableName
+}
+
+func (r *TruncateRecord[T]) GetItems() T {
+	var none T
+	return none
+}
+
+func (r *TruncateRecord[T]) PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts) {
+}

@@ -371,6 +371,25 @@ export async function handleCreateQRep(
   route();
 }
 
+// Exact count(*) per table; reads the tables fully, so only on request.
+export async function countTableRows(
+  peerName: string,
+  schemaName: string,
+  tableNames: string[]
+): Promise<Record<string, number>> {
+  const res = await fetch('/api/v1/peers/tables/count', {
+    method: 'POST',
+    cache: 'no-store',
+    body: JSON.stringify({ peerName, schemaName, tableNames }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.message ?? 'Row count failed');
+  // int64 values arrive as JSON strings
+  return Object.fromEntries(
+    Object.entries(body.rowCounts ?? {}).map(([k, v]) => [k, Number(v)])
+  );
+}
+
 export async function fetchSchemas(peer_name: string) {
   const schemasRes: PeerSchemasResponse = await fetch(
     `/api/v1/peers/schemas?peer_name=${encodeURIComponent(peer_name)}`,
@@ -378,7 +397,7 @@ export async function fetchSchemas(peer_name: string) {
       cache: 'no-store',
     }
   ).then((res) => res.json());
-  return schemasRes.schemas;
+  return schemasRes;
 }
 
 export function getDefaultDestinationTable(
@@ -425,7 +444,10 @@ export async function fetchTables(
   schemaName: string,
   targetSchemaName: string,
   peerType?: DBType,
-  initialLoadOnly?: boolean
+  initialLoadOnly?: boolean,
+  // Use the bare table name as the default destination, without the schema
+  // prefix (the destination database is already chosen in the peer).
+  tableNameOnly?: boolean
 ): Promise<{ tables: TableMapRow[]; structuredIngestionSupported: boolean }> {
   if (schemaName.length === 0) {
     return { tables: [], structuredIngestionSupported: false };
@@ -443,11 +465,13 @@ export async function fetchTables(
   const tableRes = tablesRes.tables;
   if (tableRes) {
     for (const tableObject of tableRes) {
-      const dstName = getDefaultDestinationTable(
-        peerType!,
-        targetSchemaName,
-        tableObject.tableName
-      );
+      const dstName = tableNameOnly
+        ? tableObject.tableName
+        : getDefaultDestinationTable(
+            peerType!,
+            targetSchemaName,
+            tableObject.tableName
+          );
       tables.push({
         schema: schemaName,
         source: `${schemaName}.${tableObject.tableName}`,
@@ -457,6 +481,9 @@ export async function fetchTables(
         selected: false,
         canMirror: tableObject.canMirror,
         tableSize: tableObject.tableSize,
+        estimatedRows: tableObject.estimatedRows,
+        rowCountKind: tableObject.rowCountKind,
+        keyColumns: tableObject.primaryKeyColumns,
         editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,

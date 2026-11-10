@@ -197,7 +197,11 @@ message TableRowCount {
 
 message RowCountResponse { repeated TableRowCount table_counts = 1; }
 
-message PeerSchemasResponse { repeated string schemas = 1; }
+message PeerSchemasResponse {
+  repeated string schemas = 1;
+  // tables per schema, counted like GetTablesInSchema lists them; empty when the connector doesn't report it
+  map<string, int32> table_counts = 2;
+}
 
 message PeerPublicationsResponse { repeated string publication_names = 1; }
 
@@ -219,9 +223,40 @@ message TableResponse {
   bool is_replica_identity_full = 4;
   bool is_unlogged = 5;
   bool has_primary_key_or_replica_identity = 6;
+  optional int64 estimated_rows = 7;
+  // replica identity index columns when relreplident = 'i', else primary key columns
+  repeated string primary_key_columns = 8;
+  reserved 9;
+  // what estimated_rows is: "exact" (count(*)) or "estimate" (reltuples); empty when unknown
+  string row_count_kind = 10;
 }
 
+message CountTableRowsRequest {
+  string peer_name = 1;
+  string schema_name = 2;
+  repeated string table_names = 3;
+}
+
+message CountTableRowsResponse { map<string, int64> row_counts = 1; }
+
 message AllTablesResponse { repeated string tables = 1; }
+
+message ClickHouseDatabasesRequest { string peer_name = 1; }
+
+message ClickHouseDatabasesResponse {
+  repeated string databases = 1;
+  string current_database = 2;
+}
+
+// Returns a peer that writes to `database`: the same ClickHouse server and
+// credentials as `peer_name`, only with another database.
+message UseClickHouseDatabaseRequest {
+  string peer_name = 1;
+  string database = 2;
+  bool create_database = 3;
+}
+
+message UseClickHouseDatabaseResponse { string peer_name = 1; }
 
 message TableColumnsRequest {
   string peer_name = 1;
@@ -712,6 +747,21 @@ service FlowService {
     };
   }
 
+  rpc GetClickHouseDatabases(ClickHouseDatabasesRequest)
+      returns (ClickHouseDatabasesResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/clickhouse/databases"
+    };
+  }
+
+  rpc UseClickHouseDatabase(UseClickHouseDatabaseRequest)
+      returns (UseClickHouseDatabaseResponse) {
+    option (google.api.http) = {
+      post : "/v1/peers/clickhouse/use_database"
+      body : "*"
+    };
+  }
+
   rpc GetPublications(PostgresPeerActivityInfoRequest)
       returns (PeerPublicationsResponse) {
     option (google.api.http) = {
@@ -722,6 +772,14 @@ service FlowService {
   rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
     option (google.api.http) = {
       get : "/v1/peers/tables"
+    };
+  }
+
+  // Exact count(*) for the given tables: reads them fully, so only on request.
+  rpc CountTableRows(CountTableRowsRequest) returns (CountTableRowsResponse) {
+    option (google.api.http) = {
+      post : "/v1/peers/tables/count"
+      body : "*"
     };
   }
 

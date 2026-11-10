@@ -8,6 +8,7 @@ import (
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
@@ -135,6 +136,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		colType := types.QValueKind(column.Type)
 		colSetting := findColumnSetting(colName, tableMapping.GetColumns())
 		dstColName := resolveDestinationColumnName(colName, tableMapping.GetColumns())
+		jsonKey := rawDataKey(column)
 
 		fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 		clickHouseType, err := resolveClickHouseColumnType(
@@ -148,13 +150,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		case "Time64(6)", "Nullable(Time64(6))":
 			fmt.Fprintf(&projection,
 				"toTime64OrNull(JSONExtractString(_peerdb_data, %s), 6) AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
+				jsonKey,
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"toTime64OrNull(JSONExtractString(_peerdb_match_data, %s), 6) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -162,14 +164,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			fmt.Fprintf(&projection,
 				"%s AS %s,",
 				clampDates(fmt.Sprintf("toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC'))",
-					peerdb_clickhouse.QuoteLiteral(colName))),
+					jsonKey)),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"%s AS %s,",
 					clampDates(fmt.Sprintf("toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC'))",
-						peerdb_clickhouse.QuoteLiteral(colName))),
+						jsonKey)),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -179,13 +181,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				time64Supported := slices.Contains(t.flags, shared.Flag_ClickHouseTime64Enabled)
 				fmt.Fprintf(&projection, "%s AS %s,",
 					extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_data, %s)",
-						peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
+						jsonKey), time64Supported),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate, "%s AS %s,",
 						extendedTimeToDateTime(fmt.Sprintf("JSONExtractString(_peerdb_match_data, %s)",
-							peerdb_clickhouse.QuoteLiteral(colName)), time64Supported),
+							jsonKey), time64Supported),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -193,14 +195,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				fmt.Fprintf(&projection,
 					"%s AS %s,",
 					clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')",
-						peerdb_clickhouse.QuoteLiteral(colName))),
+						jsonKey)),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
 						"%s AS %s,",
 						clampTimestamps(fmt.Sprintf("parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC')",
-							peerdb_clickhouse.QuoteLiteral(colName))),
+							jsonKey)),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -214,14 +216,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				fmt.Fprintf(&projection,
 					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
 					extendedTimeToDateTime("x", time64Supported),
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
 						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
 						extendedTimeToDateTime("x", time64Supported),
-						peerdb_clickhouse.QuoteLiteral(colName),
+						jsonKey,
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -229,14 +231,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				fmt.Fprintf(&projection,
 					`arrayMap(x -> %s,JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
 					clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
 						`arrayMap(x -> %s,JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
 						clampTimestamps("parseDateTime64BestEffortOrNull(x,6,'UTC')"),
-						peerdb_clickhouse.QuoteLiteral(colName),
+						jsonKey,
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
@@ -246,13 +248,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			// ::JSON raises; every other type lands as its zero value on NULL, so write {} instead.
 			fmt.Fprintf(&projection,
 				"CAST(ifNull(nullIf(JSONExtractString(_peerdb_data, %s), ''), '{}'), 'JSON') AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
+				jsonKey,
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"CAST(ifNull(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), '{}'), 'JSON') AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -262,14 +264,14 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			// A missing field or a JSON null extracts as '', so as the empty array.
 			fmt.Fprintf(&projection,
 				"JSONExtract(JSONExtractString(_peerdb_data, %s), %s) AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
+				jsonKey,
 				peerdb_clickhouse.QuoteLiteral(clickHouseType),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"JSONExtract(JSONExtractString(_peerdb_match_data, %s), %s) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteLiteral(clickHouseType),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -279,13 +281,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			// '' (or NULL) with ::JSON raises; route those to NULL instead.
 			fmt.Fprintf(&projection,
 				"CAST(nullIf(JSONExtractString(_peerdb_data, %s), ''), 'Nullable(JSON)') AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
+				jsonKey,
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
 					"CAST(nullIf(JSONExtractString(_peerdb_match_data, %s), ''), 'Nullable(JSON)') AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
@@ -301,25 +303,25 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				case internal.BinaryFormatRaw:
 					fmt.Fprintf(&projection,
 						"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+						jsonKey,
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 					if t.enablePrimaryUpdate {
 						fmt.Fprintf(&projectionUpdate,
 							"base64Decode(JSONExtractString(_peerdb_match_data, %s)) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
+							jsonKey,
 							peerdb_clickhouse.QuoteIdentifier(dstColName),
 						)
 					}
 				case internal.BinaryFormatHex:
 					fmt.Fprintf(&projection, "hex(base64Decode(JSONExtractString(_peerdb_data, %s))) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+						jsonKey,
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 					if t.enablePrimaryUpdate {
 						fmt.Fprintf(&projectionUpdate,
 							"hex(base64Decode(JSONExtractString(_peerdb_match_data, %s))) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
+							jsonKey,
 							peerdb_clickhouse.QuoteIdentifier(dstColName),
 						)
 					}
@@ -331,7 +333,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				fmt.Fprintf(
 					&projection,
 					"JSONExtract(_peerdb_data, %s, %s) AS %s,",
-					peerdb_clickhouse.QuoteLiteral(colName),
+					jsonKey,
 					peerdb_clickhouse.QuoteLiteral(clickHouseType),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -339,7 +341,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					fmt.Fprintf(
 						&projectionUpdate,
 						"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
+						jsonKey,
 						peerdb_clickhouse.QuoteLiteral(clickHouseType),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
@@ -363,8 +365,10 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	selectQuery.WriteString(projection.String())
 	fmt.Fprintf(&selectQuery,
-		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s"+
+			" AND _peerdb_record_type != %d",
+		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.lastNormBatchID, t.endBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName),
+		utils.RawRecordTypeTruncate)
 
 	if t.enablePrimaryUpdate {
 		if t.sourceSchemaAsDestinationColumn {
@@ -427,4 +431,20 @@ func extendedTimeToDateTime(jsonExtractExpr string, time64Supported bool) string
 			 toInt64(splitByChar('.', splitByChar(':', if(startsWith(%[1]s, '-'), substring(%[1]s, 2), %[1]s))[3])[2]))
 		),
 		NULL)`, jsonExtractExpr)
+}
+
+// rawDataKey is the _peerdb_data key holding a column. For a renamed column it falls back to the
+// earlier names, which raw rows synced before the rename were written with.
+func rawDataKey(column *protos.FieldDescription) string {
+	if len(column.PreviousNames) == 0 {
+		return peerdb_clickhouse.QuoteLiteral(column.Name)
+	}
+	var key strings.Builder
+	key.WriteString("multiIf(")
+	for _, name := range append([]string{column.Name}, column.PreviousNames...) {
+		fmt.Fprintf(&key, "JSONHas(_peerdb_data, %[1]s), %[1]s, ", peerdb_clickhouse.QuoteLiteral(name))
+	}
+	key.WriteString(peerdb_clickhouse.QuoteLiteral(column.Name))
+	key.WriteByte(')')
+	return key.String()
 }

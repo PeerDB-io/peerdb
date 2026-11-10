@@ -82,6 +82,9 @@ func RecordsToRawTableStream(
 	return recordStream, nil
 }
 
+// RawRecordTypeTruncate is the _peerdb_record_type of TRUNCATE marker rows in the raw table.
+const RawRecordTypeTruncate = 3
+
 func recordToQRecordOrError(
 	batchID int64, record model.Record[model.RecordItems], targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
@@ -135,6 +138,16 @@ func recordToQRecordOrError(
 
 	case *model.MessageRecord[model.RecordItems]:
 		return nil, nil
+
+	case *model.TruncateRecord[model.RecordItems]:
+		if targetDWH != protos.DBType_CLICKHOUSE {
+			return nil, nil
+		}
+		// a marker row: ClickHouse normalize removes destination rows older than its timestamp
+		entries[3] = types.QValueString{Val: "{}"}
+		entries[4] = types.QValueInt64{Val: RawRecordTypeTruncate}
+		entries[5] = types.QValueString{Val: ""}
+		entries[7] = types.QValueString{Val: ""}
 
 	default:
 		return nil, fmt.Errorf("unknown record type: %T", typedRecord)

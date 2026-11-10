@@ -512,6 +512,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						slog.Any("error", err))
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", q.table, err)
 				}
+				// before the table's batch id moves, so a failed delete is retried with the insert
+				if err := c.applyTruncates(errCtx, chConn, rawTbl, q.table, q.lastNormBatchID, endBatchID, req.TableMappings); err != nil {
+					return err
+				}
 
 				c.logger.Info("[clickhouse] set last normalized batch id for table",
 					slog.String("table", q.table),
@@ -744,4 +748,48 @@ func getColName(overrides map[string]string, name string) string {
 		return newName
 	}
 	return name
+}
+
+// applyTruncates removes destination rows older than the newest TRUNCATE marker the batch range holds for
+// table. Normalize stamps every row with the raw row's timestamp as its version, so rows normalized
+// from before the TRUNCATE are exactly those with a lower version, however far normalize lags behind sync.
+func (c *ClickHouseConnector) applyTruncates(
+	ctx context.Context,
+	conn clickhouse.Conn,
+	rawTbl string,
+	table string,
+	lastNormBatchID int64,
+	endBatchID int64,
+	tableMappings []*protos.TableMapping,
+) error {
+	var truncatedAt int64
+	if err := peerdb_clickhouse.QueryRow(ctx, c.logger, conn, fmt.Sprintf(
+		"SELECT max(_peerdb_timestamp) FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
+			" AND _peerdb_destination_table_name = %s AND _peerdb_record_type = %d",
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), lastNormBatchID, endBatchID,
+		peerdb_clickhouse.QuoteLiteral(table), utils.RawRecordTypeTruncate,
+	)).Scan(&truncatedAt); err != nil {
+		return fmt.Errorf("failed to look up TRUNCATE of %s: %w", table, err)
+	}
+	if truncatedAt == 0 {
+		return nil
+	}
+	if findTableMappingByDestination(tableMappings, table).GetEngine() == protos.TableEngine_CH_ENGINE_NULL {
+		return nil
+	}
+	target := table
+	if c.Config.Cluster != "" {
+		shard, err := c.getDistributedShardTable(ctx, table)
+		if err != nil {
+			return fmt.Errorf("failed to resolve shard table for %s: %w", table, err)
+		}
+		target = shard
+	}
+	query := fmt.Sprintf("DELETE FROM %s%s WHERE %s < %d",
+		peerdb_clickhouse.QuoteIdentifier(target), c.onCluster(), peerdb_clickhouse.QuoteIdentifier(versionColName), truncatedAt)
+	c.logger.Info("[clickhouse] replaying source TRUNCATE", slog.String("table", table), slog.String("query", query))
+	if err := c.execWithConnection(ctx, conn, query); err != nil {
+		return fmt.Errorf("failed to replay TRUNCATE of %s: %w", table, err)
+	}
+	return nil
 }

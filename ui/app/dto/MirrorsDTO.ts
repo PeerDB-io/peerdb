@@ -22,6 +22,10 @@ export type TableMapRow = Omit<
   selected: boolean;
   canMirror: boolean;
   tableSize: string;
+  estimatedRows?: number;
+  // 'exact' | 'estimate' (see TableResponse.row_count_kind)
+  rowCountKind?: string;
+  keyColumns?: string[];
   editingDisabled: boolean;
   isReplicaIdentityFull: boolean;
   isUnlogged: boolean;
