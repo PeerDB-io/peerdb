@@ -66,6 +66,7 @@ const (
 	FlowService_GetFlowTags_FullMethodName                 = "/peerdb_route.FlowService/GetFlowTags"
 	FlowService_TotalRowsSyncedByMirror_FullMethodName     = "/peerdb_route.FlowService/TotalRowsSyncedByMirror"
 	FlowService_CancelTableAddition_FullMethodName         = "/peerdb_route.FlowService/CancelTableAddition"
+	FlowService_CancelTableResync_FullMethodName           = "/peerdb_route.FlowService/CancelTableResync"
 	FlowService_ResetMirrorSequences_FullMethodName        = "/peerdb_route.FlowService/ResetMirrorSequences"
 	FlowService_GetMirrorRowCounts_FullMethodName          = "/peerdb_route.FlowService/GetMirrorRowCounts"
 )
@@ -121,6 +122,9 @@ type FlowServiceClient interface {
 	GetFlowTags(ctx context.Context, in *GetFlowTagsRequest, opts ...grpc.CallOption) (*GetFlowTagsResponse, error)
 	TotalRowsSyncedByMirror(ctx context.Context, in *TotalRowsSyncedByMirrorRequest, opts ...grpc.CallOption) (*TotalRowsSyncedByMirrorResponse, error)
 	CancelTableAddition(ctx context.Context, in *CancelTableAdditionInput, opts ...grpc.CallOption) (*CancelTableAdditionOutput, error)
+	// Asynchronously cancels an in-progress table-level resync. Fails with FailedPrecondition
+	// once the resync started swapping tables.
+	CancelTableResync(ctx context.Context, in *CancelTableResyncRequest, opts ...grpc.CallOption) (*CancelTableResyncResponse, error)
 	ResetMirrorSequences(ctx context.Context, in *ResetMirrorSequencesRequest, opts ...grpc.CallOption) (*ResetMirrorSequencesResponse, error)
 	GetMirrorRowCounts(ctx context.Context, in *RowCountRequest, opts ...grpc.CallOption) (*RowCountResponse, error)
 }
@@ -603,6 +607,16 @@ func (c *flowServiceClient) CancelTableAddition(ctx context.Context, in *CancelT
 	return out, nil
 }
 
+func (c *flowServiceClient) CancelTableResync(ctx context.Context, in *CancelTableResyncRequest, opts ...grpc.CallOption) (*CancelTableResyncResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelTableResyncResponse)
+	err := c.cc.Invoke(ctx, FlowService_CancelTableResync_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) ResetMirrorSequences(ctx context.Context, in *ResetMirrorSequencesRequest, opts ...grpc.CallOption) (*ResetMirrorSequencesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResetMirrorSequencesResponse)
@@ -674,6 +688,9 @@ type FlowServiceServer interface {
 	GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error)
 	TotalRowsSyncedByMirror(context.Context, *TotalRowsSyncedByMirrorRequest) (*TotalRowsSyncedByMirrorResponse, error)
 	CancelTableAddition(context.Context, *CancelTableAdditionInput) (*CancelTableAdditionOutput, error)
+	// Asynchronously cancels an in-progress table-level resync. Fails with FailedPrecondition
+	// once the resync started swapping tables.
+	CancelTableResync(context.Context, *CancelTableResyncRequest) (*CancelTableResyncResponse, error)
 	ResetMirrorSequences(context.Context, *ResetMirrorSequencesRequest) (*ResetMirrorSequencesResponse, error)
 	GetMirrorRowCounts(context.Context, *RowCountRequest) (*RowCountResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
@@ -826,6 +843,9 @@ func (UnimplementedFlowServiceServer) TotalRowsSyncedByMirror(context.Context, *
 }
 func (UnimplementedFlowServiceServer) CancelTableAddition(context.Context, *CancelTableAdditionInput) (*CancelTableAdditionOutput, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelTableAddition not implemented")
+}
+func (UnimplementedFlowServiceServer) CancelTableResync(context.Context, *CancelTableResyncRequest) (*CancelTableResyncResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelTableResync not implemented")
 }
 func (UnimplementedFlowServiceServer) ResetMirrorSequences(context.Context, *ResetMirrorSequencesRequest) (*ResetMirrorSequencesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResetMirrorSequences not implemented")
@@ -1700,6 +1720,24 @@ func _FlowService_CancelTableAddition_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_CancelTableResync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelTableResyncRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CancelTableResync(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CancelTableResync_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CancelTableResync(ctx, req.(*CancelTableResyncRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_ResetMirrorSequences_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResetMirrorSequencesRequest)
 	if err := dec(in); err != nil {
@@ -1930,6 +1968,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelTableAddition",
 			Handler:    _FlowService_CancelTableAddition_Handler,
+		},
+		{
+			MethodName: "CancelTableResync",
+			Handler:    _FlowService_CancelTableResync_Handler,
 		},
 		{
 			MethodName: "ResetMirrorSequences",
