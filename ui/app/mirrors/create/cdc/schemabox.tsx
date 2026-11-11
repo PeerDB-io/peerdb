@@ -236,8 +236,6 @@ export default function SchemaBox({
 
   const handleTableSelect = (on: boolean, source: string) => {
     on ? handleAddRow(source) : handleRemoveRow(source);
-    // select-all leaves panels closed; a single pick opens its panel
-    toggleOpen(source, on);
   };
 
   const updateDestination = (source: string, destination: string) => {
@@ -381,8 +379,7 @@ export default function SchemaBox({
               defaultTargetSchema,
               peerType,
               initialLoadOnly,
-              !!redesign &&
-                peerType?.toString() === DBType[DBType.CLICKHOUSE].toString()
+              peerType?.toString() === DBType[DBType.CLICKHOUSE].toString()
             );
           setStructuredIngestionSupported(supported);
 
@@ -1063,6 +1060,41 @@ export default function SchemaBox({
                           )}
                         </div>
                       ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type='button'
+                        aria-expanded={openTables.has(row.source)}
+                        aria-label={
+                          openTables.has(row.source)
+                            ? 'Hide settings'
+                            : 'Show settings'
+                        }
+                        onClick={() =>
+                          toggleOpen(row.source, !openTables.has(row.source))
+                        }
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 28,
+                          height: 28,
+                          padding: 0,
+                          border: 0,
+                          background: 'none',
+                          color: styledTheme.colors.base.text.highContrast,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon
+                          name={
+                            openTables.has(row.source)
+                              ? 'arrow_drop_down'
+                              : 'arrow_right'
+                          }
+                        />
+                      </button>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                       <RowWithCheckbox
                         label={
                           <Tooltip
@@ -1109,22 +1141,21 @@ export default function SchemaBox({
                           />
                         }
                       />
+                      </div>
+                      </div>
                       )}
                       <div
                         style={{
-                          rowGap: redesign ? '0.75rem' : '0.5rem',
-                          columnGap: redesign ? '1.25rem' : '3rem',
-                          // redesign shows these fields inside TableSettingsTabs
-                          display: row.selected && !redesign ? 'flex' : 'none',
-                          flexWrap: 'wrap',
-                          gridTemplateColumns: redesign
-                            ? 'repeat(3, minmax(0, 1fr))'
-                            : undefined,
+                          display: !redesign && openTables.has(row.source) ? 'grid' : 'none',
+                          gridTemplateColumns:
+                            'minmax(0, 1.6fr) minmax(180px, 0.7fr)',
+                          gap: '14px 20px',
+                          width: '100%',
                         }}
                         key={row.source}
                       >
                         {!redesign && (
-                        <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
+                        <div style={{ width: '100%', minWidth: 0, fontSize: 12 }}>
                           Target Table:
                           <TextField
                             disabled={row.editingDisabled}
@@ -1142,115 +1173,61 @@ export default function SchemaBox({
                         </div>
                         )}
 
-                        <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
-                          Custom Partitioning Key:
-                          <TextField
-                            disabled={row.editingDisabled}
-                            style={{
-                              marginTop: '0.5rem',
-                              cursor: 'pointer',
-                            }}
-                            variant='simple'
-                            placeholder='Enter optional custom partiton key'
-                            value={row.partitionKey}
-                            onChange={(
-                              e: React.ChangeEvent<HTMLInputElement>
-                            ) => updatePartitionKey(row.source, e.target.value)}
-                          />
-                        </div>
-
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (
-                          <>
-                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
-                              Engine:
-                              <ReactSelect
-                                isDisabled={row.editingDisabled}
-                                styles={engineOptionStyles}
-                                theme={selectTheme}
-                                options={engineOptions}
-                                value={
-                                  engineOptions.find(
-                                    (x) =>
-                                      x.value ===
-                                      (typeof row.engine === 'string'
-                                        ? row.engine
-                                        : tableEngineToJSON(row.engine))
-                                  ) ?? engineOptions[0]
-                                }
-                                onChange={(selectedOption) =>
-                                  selectedOption &&
-                                  updateEngine(
-                                    row.source,
-                                    tableEngineFromJSON(selectedOption.value)
-                                  )
-                                }
-                              />
-                            </div>
-                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
-                              Sharding Key:
-                              <TextField
-                                disabled={row.editingDisabled}
-                                style={{
+                          <div style={{ width: '100%', minWidth: 0, fontSize: 12 }}>
+                            Engine:
+                            <ReactSelect
+                              isDisabled={row.editingDisabled}
+                              styles={{
+                                ...engineOptionStyles,
+                                container: (base: any) => ({
+                                  ...base,
+                                  width: '100%',
                                   marginTop: '0.5rem',
-                                  cursor: 'pointer',
-                                }}
-                                variant='simple'
-                                placeholder='Sharding key expression (optional)'
-                                value={row.shardingKey}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) =>
-                                  updateShardingKey(row.source, e.target.value)
-                                }
-                              />
-                            </div>
-                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
-                              Policy Name:
-                              <TextField
-                                disabled={row.editingDisabled}
-                                style={{
-                                  marginTop: '0.5rem',
-                                  cursor: 'pointer',
-                                }}
-                                variant='simple'
-                                placeholder='Policy name (optional)'
-                                value={row.policyName}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) =>
-                                  updatePolicyName(row.source, e.target.value)
-                                }
-                              />
-                            </div>
-                            <div style={{ width: redesign ? '100%' : '30%', fontSize: 12 }}>
-                              Partition By Expr:
-                              <TextField
-                                disabled={row.editingDisabled}
-                                style={{
-                                  marginTop: '0.5rem',
-                                  cursor: 'pointer',
-                                }}
-                                variant='simple'
-                                placeholder='Partition By expression (optional)'
-                                value={row.partitionByExpr}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) =>
-                                  updatePartitionByExpr(
-                                    row.source,
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </div>
-                          </>
+                                }),
+                                control: (base: any) => ({
+                                  ...engineOptionStyles.control(base),
+                                  width: '100%',
+                                  minHeight: 28,
+                                  height: 28,
+                                }),
+                                valueContainer: (base: any) => ({
+                                  ...engineOptionStyles.valueContainer(base),
+                                  height: 26,
+                                }),
+                                indicatorsContainer: (base: any) => ({
+                                  ...base,
+                                  height: 26,
+                                }),
+                              }}
+                              theme={selectTheme}
+                              options={engineOptions}
+                              value={
+                                engineOptions.find(
+                                  (x) =>
+                                    x.value ===
+                                    (typeof row.engine === 'string'
+                                      ? row.engine
+                                      : tableEngineToJSON(row.engine))
+                                ) ?? engineOptions[0]
+                              }
+                              onChange={(selectedOption) =>
+                                selectedOption &&
+                                updateEngine(
+                                  row.source,
+                                  tableEngineFromJSON(selectedOption.value)
+                                )
+                              }
+                            />
+                          </div>
                         )}
                       </div>
                     </div>
 
                     {/* COLUMN BOX */}
-                    {row.selected && (!redesign || openTables.has(row.source)) && (
+                    {((redesign && row.selected && openTables.has(row.source)) ||
+                      (!redesign && openTables.has(row.source))) && (
                       <TableSettingsTabs
                         enabled={!!redesign}
                         isClickHouse={
@@ -1278,9 +1255,9 @@ export default function SchemaBox({
                       >
                       <div
                         style={{
-                          marginLeft: redesign ? 0 : '1.25rem',
                           marginTop: redesign ? 0 : '0.75rem',
                           width: '100%',
+                          minWidth: 0,
                         }}
                       >
                         {!redesign && (
@@ -1310,17 +1287,13 @@ export default function SchemaBox({
                         {columns ? (
                           <>
                             <div
-                              style={
-                                redesign
-                                  ? {
-                                      display: 'grid',
-                                      gridTemplateColumns:
-                                        'repeat(2, minmax(0, 1fr))',
-                                      alignItems: 'start',
-                                      columnGap: '2.5rem',
-                                    }
-                                  : undefined
-                              }
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns:
+                                  'repeat(2, minmax(0, 1fr))',
+                                alignItems: 'start',
+                                columnGap: '2.5rem',
+                              }}
                             >
                               <ColumnBox
                                 compact={redesign}
@@ -1335,6 +1308,25 @@ export default function SchemaBox({
                                 }
                               />
                             </div>
+                            {!redesign &&
+                              peerType?.toString() !==
+                                DBType[DBType.CLICKHOUSE].toString() && (
+                                <div style={{ minWidth: 0, fontSize: 12, marginTop: '0.75rem' }}>
+                                  Custom Partitioning Key:
+                                  <TextField
+                                    disabled={row.editingDisabled}
+                                    style={{ marginTop: '0.5rem' }}
+                                    variant='simple'
+                                    placeholder='Enter optional custom partiton key'
+                                    value={row.partitionKey}
+                                    onChange={(
+                                      e: React.ChangeEvent<HTMLInputElement>
+                                    ) =>
+                                      updatePartitionKey(row.source, e.target.value)
+                                    }
+                                  />
+                                </div>
+                              )}
                             {peerType?.toString() ===
                               DBType[DBType.CLICKHOUSE].toString() && (
                               <div
@@ -1346,9 +1338,97 @@ export default function SchemaBox({
                                 }}
                               >
                                 {!redesign && (
-                                  <hr style={columnBoxDividerStyle} />
+                                  <>
+                                    <hr style={columnBoxDividerStyle} />
+                                    <Label as='label' style={{ fontSize: 13 }}>
+                                      ClickHouse
+                                    </Label>
+                                    <div
+                                      style={{
+                                        display: 'grid',
+                                        gridTemplateColumns:
+                                          'repeat(4, minmax(0, 1fr))',
+                                        gap: '14px 16px',
+                                        width: '100%',
+                                        minWidth: 0,
+                                      }}
+                                    >
+                                      <div style={{ minWidth: 0, fontSize: 12 }}>
+                                        Custom Partitioning Key:
+                                        <TextField
+                                          disabled={row.editingDisabled}
+                                          style={{ marginTop: '0.5rem' }}
+                                          variant='simple'
+                                          placeholder='Enter optional custom partiton key'
+                                          value={row.partitionKey}
+                                          onChange={(
+                                            e: React.ChangeEvent<HTMLInputElement>
+                                          ) =>
+                                            updatePartitionKey(
+                                              row.source,
+                                              e.target.value
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                      <div style={{ minWidth: 0, fontSize: 12 }}>
+                                        Sharding Key:
+                                        <TextField
+                                          disabled={row.editingDisabled}
+                                          style={{ marginTop: '0.5rem' }}
+                                          variant='simple'
+                                          placeholder='Sharding key expression (optional)'
+                                          value={row.shardingKey}
+                                          onChange={(
+                                            e: React.ChangeEvent<HTMLInputElement>
+                                          ) =>
+                                            updateShardingKey(
+                                              row.source,
+                                              e.target.value
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                      <div style={{ minWidth: 0, fontSize: 12 }}>
+                                        Policy Name:
+                                        <TextField
+                                          disabled={row.editingDisabled}
+                                          style={{ marginTop: '0.5rem' }}
+                                          variant='simple'
+                                          placeholder='Policy name (optional)'
+                                          value={row.policyName}
+                                          onChange={(
+                                            e: React.ChangeEvent<HTMLInputElement>
+                                          ) =>
+                                            updatePolicyName(
+                                              row.source,
+                                              e.target.value
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                      <div style={{ minWidth: 0, fontSize: 12 }}>
+                                        Partition By Expr:
+                                        <TextField
+                                          disabled={row.editingDisabled}
+                                          style={{ marginTop: '0.5rem' }}
+                                          variant='simple'
+                                          placeholder='Partition By expression (optional)'
+                                          value={row.partitionByExpr}
+                                          onChange={(
+                                            e: React.ChangeEvent<HTMLInputElement>
+                                          ) =>
+                                            updatePartitionByExpr(
+                                              row.source,
+                                              e.target.value
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+                                  </>
                                 )}
-                                <div style={{ width: '50%' }}>
+                                <div style={{ width: '100%' }}>
                                   {!redesign && (
                                   <SelectSortingKeys
                                     columns={columns

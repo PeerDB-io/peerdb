@@ -14,8 +14,6 @@ import {
 } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
 import { Button } from '@/lib/Button';
-import { Label } from '@/lib/Label';
-import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { useRouter } from 'next/navigation';
@@ -24,9 +22,7 @@ import TablePicker from '../../create/cdc/tablemapping';
 import { changesToTablesMapping } from '../../create/handlers';
 import { blankCDCSetting } from '../../create/helpers/common';
 import { tableMappingSchema } from '../../create/schema';
-import * as styles from '../../create/styles';
 import {
-  fieldStyle,
   notPausedCalloutStyle,
   tablesSelectedCalloutHeaderStyle,
   tablesSelectedCalloutStyle,
@@ -89,7 +85,6 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
       res.cdcStatus?.config?.idleTimeoutSeconds || defaultIdleTimeout,
     additionalTables: [],
     removedTables: [],
-    resyncTables: [],
     updatedEnv: {},
     removedEnv: [],
     snapshotNumRowsPerPartition:
@@ -209,139 +204,119 @@ export default function EditMirror({
     mirrorState.currentFlowState.toString() !==
     FlowStatus[FlowStatus.STATUS_PAUSED];
 
+  const settingLabel: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: 500,
+  };
+
   return (
     <div>
-      <RowWithTextField
-        key={1}
-        label={<Label>{'Pull Batch Size'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='simple'
-              type={'number'}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setConfig({
-                  ...config,
-                  batchSize: e.target.valueAsNumber,
-                })
-              }
-              value={Number.isNaN(config.batchSize) ? '' : config.batchSize}
-            />
-          </div>
-        }
-      />
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr)) minmax(0, 1.4fr)',
+          gap: 12,
+          alignItems: 'end',
+        }}
+      >
+        <label style={settingLabel}>
+          Pull Batch Size
+          <TextField
+            variant='simple'
+            type={'number'}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setConfig({
+                ...config,
+                batchSize: e.target.valueAsNumber,
+              })
+            }
+            value={Number.isNaN(config.batchSize) ? '' : config.batchSize}
+          />
+        </label>
+        <label style={settingLabel}>
+          Sync Interval (Seconds)
+          <TextField
+            variant='simple'
+            type={'number'}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setConfig({
+                ...config,
+                idleTimeout: e.target.valueAsNumber,
+              })
+            }
+            value={Number.isNaN(config.idleTimeout) ? '' : config.idleTimeout}
+          />
+        </label>
+        <label style={settingLabel}>
+          Snapshot Rows Per Partition
+          <TextField
+            variant='simple'
+            type={'number'}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setConfig({
+                ...config,
+                snapshotNumRowsPerPartition: e.target.valueAsNumber,
+              })
+            }
+            value={
+              Number.isNaN(config.snapshotNumRowsPerPartition)
+                ? ''
+                : config.snapshotNumRowsPerPartition
+            }
+          />
+        </label>
+        <label style={settingLabel}>
+          Snapshot Max Parallel Workers
+          <TextField
+            variant='simple'
+            type={'number'}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setConfig({
+                ...config,
+                snapshotMaxParallelWorkers: e.target.valueAsNumber,
+              })
+            }
+            value={
+              Number.isNaN(config.snapshotMaxParallelWorkers)
+                ? ''
+                : config.snapshotMaxParallelWorkers
+            }
+          />
+        </label>
+        <label style={settingLabel}>
+          Snapshot Tables In Parallel
+          <TextField
+            variant='simple'
+            type={'number'}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setConfig({
+                ...config,
+                snapshotNumTablesInParallel: e.target.valueAsNumber,
+              })
+            }
+            value={
+              Number.isNaN(config.snapshotNumTablesInParallel)
+                ? ''
+                : config.snapshotNumTablesInParallel
+            }
+          />
+        </label>
+        <label style={settingLabel}>
+          Settings override
+          <TextField
+            variant='simple'
+            value={envString}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setEnvString(e.target.value)
+            }
+          />
+        </label>
+      </div>
 
-      <RowWithTextField
-        key={2}
-        label={<Label>{'Sync Interval (Seconds)'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='simple'
-              type={'number'}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setConfig({
-                  ...config,
-                  idleTimeout: e.target.valueAsNumber,
-                })
-              }
-              value={Number.isNaN(config.idleTimeout) ? '' : config.idleTimeout}
-            />
-          </div>
-        }
-      />
-
-      <RowWithTextField
-        key={3}
-        label={<Label>{'Snapshot Rows Per Partition'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='simple'
-              type={'number'}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setConfig({
-                  ...config,
-                  snapshotNumRowsPerPartition: e.target.valueAsNumber,
-                })
-              }
-              value={
-                Number.isNaN(config.snapshotNumRowsPerPartition)
-                  ? ''
-                  : config.snapshotNumRowsPerPartition
-              }
-            />
-          </div>
-        }
-      />
-
-      <RowWithTextField
-        key={4}
-        label={<Label>{'Snapshot Max Parallel Workers'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='simple'
-              type={'number'}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setConfig({
-                  ...config,
-                  snapshotMaxParallelWorkers: e.target.valueAsNumber,
-                })
-              }
-              value={
-                Number.isNaN(config.snapshotMaxParallelWorkers)
-                  ? ''
-                  : config.snapshotMaxParallelWorkers
-              }
-            />
-          </div>
-        }
-      />
-
-      <RowWithTextField
-        key={5}
-        label={<Label>{'Snapshot Tables In Parallel'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='simple'
-              type={'number'}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setConfig({
-                  ...config,
-                  snapshotNumTablesInParallel: e.target.valueAsNumber,
-                })
-              }
-              value={
-                Number.isNaN(config.snapshotNumTablesInParallel)
-                  ? ''
-                  : config.snapshotNumTablesInParallel
-              }
-            />
-          </div>
-        }
-      />
-
-      <RowWithTextField
-        key={6}
-        label={<Label>{'Settings override'} </Label>}
-        action={
-          <div style={fieldStyle}>
-            <TextField
-              variant='text-area'
-              value={envString}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setEnvString(e.target.value)
-              }
-            />
-          </div>
-        }
-      />
-
-      <Label variant='action' as='label' style={{ marginTop: '1rem' }}>
-        Add or Remove Tables
-      </Label>
       {!isNotPaused && additionalTables.length > 0 && (
         <div style={tablesSelectedCalloutStyle(theme.theme)}>
           <div style={tablesSelectedCalloutHeaderStyle}>
@@ -371,6 +346,7 @@ export default function EditMirror({
       )}
 
       <TablePicker
+        redesign
         sourcePeerName={mirrorState.cdcStatus?.config?.sourceName ?? ''}
         sourceType={mirrorState.cdcStatus?.sourceType}
         peerType={mirrorState.cdcStatus?.destinationType}
@@ -386,9 +362,18 @@ export default function EditMirror({
         </div>
       )}
 
-      <div style={styles.MirrorButtonContainer}>
+      <div
+        style={{
+          position: 'fixed',
+          right: '1.5rem',
+          bottom: '1.5rem',
+          zIndex: 20,
+          display: 'flex',
+          gap: '0.75rem',
+        }}
+      >
         <Button
-          style={styles.MirrorButtonStyle}
+          style={{ height: '3.25rem', minWidth: '8rem', borderRadius: '2rem', fontWeight: 600, fontSize: 16 }}
           onClick={() => {
             push(`/mirrors/${mirrorId}`);
           }}
@@ -396,7 +381,7 @@ export default function EditMirror({
           Back
         </Button>
         <Button
-          style={styles.MirrorButtonStyle}
+          style={{ height: '3.25rem', minWidth: '10rem', borderRadius: '2rem', fontWeight: 600, fontSize: 16 }}
           variant='normalSolid'
           disabled={loading || isNotPaused}
           onClick={sendFlowStateChangeRequest}

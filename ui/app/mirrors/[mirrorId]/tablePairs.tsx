@@ -1,10 +1,9 @@
 'use client';
-import { tableStyle } from '@/app/peers/[peerName]/style';
 import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import React, { useMemo, useState } from 'react';
-import styled, { useTheme as useStyledTheme } from 'styled-components';
+import styled from 'styled-components';
 import ColumnDisplayModal from './columnDisplayModal';
 
 const ClickableTableRow = styled(TableRow)`
@@ -26,7 +25,6 @@ export default function TablePairs({
   tables?: TableMapping[];
   sourcePeerName: string;
 }) {
-  const styledTheme = useStyledTheme();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTable, setSelectedTable] = useState<TableMapping | null>(null);
@@ -55,8 +53,8 @@ export default function TablePairs({
 
   return (
     tables && (
-      <div style={{ height: '30em' }}>
-        <div style={{ width: '20%', marginTop: '2rem' }}>
+      <div>
+        <div style={{ width: 'min(100%, 280px)', marginTop: '0.75rem' }}>
           <SearchField
             placeholder='Search by table name'
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,16 +64,14 @@ export default function TablePairs({
         </div>
         <div
           style={{
-            ...tableStyle(styledTheme),
-            maxHeight: '40vh',
-            marginTop: '1rem',
+            marginTop: '0.75rem',
           }}
         >
           <Table
             header={
               <TableRow>
-                <TableCell>Source Table</TableCell>
-                <TableCell>Destination Table</TableCell>
+                <TableCell>Source table</TableCell>
+                <TableCell>Destination table</TableCell>
               </TableRow>
             }
           >

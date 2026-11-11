@@ -7,13 +7,20 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@radix-ui/react-tabs';
 import styled from 'styled-components';
-import CdcDetails from './cdcDetails';
+import CdcDetails, { CdcFacts } from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
 import { TabListStyle, TabsRootStyle } from './styles/tab.styles';
 
 const StyledTabTrigger = styled(TabsTrigger)`
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 8px 0;
+  cursor: pointer;
   &[data-state='active'] {
-    font-weight: bold;
+    font-weight: 500;
+    box-shadow: inset 0 -2px 0 currentColor;
   }
 `;
 
@@ -48,7 +55,9 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
   }
 
   return (
-    <Tabs
+    <>
+      <CdcFacts mirrorConfig={status.cdcStatus!} />
+      <Tabs
       style={TabsRootStyle}
       className='TabsRoot'
       value={selectedTab.toString()}
@@ -74,6 +83,7 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       <TabsContent className='TabsContent' value='2'>
         {snapshot}
       </TabsContent>
-    </Tabs>
+      </Tabs>
+    </>
   );
 }

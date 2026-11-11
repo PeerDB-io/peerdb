@@ -8,12 +8,13 @@ export const TabsRootStyle: CSSProperties = {
 export const TabListStyle = (theme: Theme): CSSProperties => ({
   display: 'flex',
   flexDirection: 'row',
-  justifyContent: 'space-around',
+  justifyContent: 'flex-start',
+  gap: '1.5rem',
   borderBottom:
     theme === 'dark'
       ? '1px solid rgba(255,255,255,0.1)'
       : '1px solid rgba(0,0,0,0.1)',
-  paddingBottom: '1rem',
+  paddingBottom: 0,
 });
 
 export const notPausedCalloutStyle = (theme: Theme): CSSProperties => ({

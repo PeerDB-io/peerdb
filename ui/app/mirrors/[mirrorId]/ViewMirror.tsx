@@ -50,7 +50,15 @@ export default function ViewMirror({
             paddingRight: '2rem',
           }}
         >
-          <Header variant='title2'>{mirrorId}</Header>
+          <div>
+            <Header variant='title2'>{mirrorId}</Header>
+            <Label colorName='lowContrast' variant='body'>
+              {FormatStatus(mirrorState.currentFlowState)} · CDC
+              {mirrorState.createdAt
+                ? ` · ${new Date(mirrorState.createdAt).toLocaleString()}`
+                : ''}
+            </Label>
+          </div>
           <MirrorActions
             mirrorName={mirrorId}
             mirrorStatus={mirrorState.currentFlowState}
