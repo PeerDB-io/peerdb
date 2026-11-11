@@ -89,17 +89,11 @@ func (s ClickHouseSuite) Test_JSON_CH_ClassicReader() {
 // the source for the snapshot and the CDC path.
 func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	mysqlUtf8mb4Support := true
-	if mySource, ok := s.source.(*MySqlSource); ok {
-		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-			if cfg.nativeJSON || cfg.overrideToJSON {
-				s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
-			}
-		} else {
-			cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
-			require.NoError(s.t, err)
-			if cmp < 0 {
-				mysqlUtf8mb4Support = false
-			}
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			mysqlUtf8mb4Support = false
 		}
 	}
 
@@ -289,8 +283,10 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{
-		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
-		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
+		"PEERDB_NULLABLE": strconv.FormatBool(cfg.nullableDestinationColumns),
+	}
+	if cfg.nativeJSON {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
 	}
 	if cfg.overrideToJSON {
 		for _, column := range jsonColumns {
@@ -341,8 +337,7 @@ type jsonColumnMirrorConfig struct {
 	sourceNullLandsAs  *string
 	tableName          string
 	expectedColumnType string
-	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON
-	nativeJSON bool
+	nativeJSON         bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
 	// overrideToJSON gives every JSON column the destination type JSON through its column settings
@@ -483,7 +478,7 @@ func jsonColumnsMatch(
 // surfaces as a flow error, since the reader does not wrap for such a mirror.
 func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
 	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+		s.t.Skip("a mirror below InternalVersion_MariaDBJSONColumns types a MariaDB JSON column as String, so there is no JSON column to test")
 	}
 
 	srcTableName := "test_json_old"
@@ -588,10 +583,6 @@ func (s ClickHouseSuite) Test_JSON_CH_AddColumnDefault() {
 // Test_JSON_CH_StringOverride pins a JSON column to String on a native JSON mirror. The snapshot has to
 // leave that column out of its JSON cast, as the DDL and the normalize query already honour the override.
 func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
-	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
-	}
-
 	srcTableName := "test_json_string_override"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := srcTableName + "_dst"

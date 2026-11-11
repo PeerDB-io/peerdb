@@ -40,6 +40,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -213,6 +214,53 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
+// hasLongText reports whether a columns result, with column_name and column_type as its first two columns,
+// has a LONGTEXT column outside exclude, the only type MariaDB's JSON alias creates
+func hasLongText(rs *mysql.Result, exclude []string) bool {
+	for idx := range rs.RowNumber() {
+		if columnType, err := rs.GetString(idx, 1); err == nil && strings.EqualFold(columnType, "longtext") {
+			if name, err := rs.GetString(idx, 0); err == nil && !slices.Contains(exclude, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getMariaDBJSONColumns returns the LONGTEXT columns of a MariaDB table that carry a json_valid check constraint
+func (c *MySqlConnector) getMariaDBJSONColumns(
+	ctx context.Context, schema string, table string, version uint32,
+) ([]string, error) {
+	if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA || version < shared.InternalVersion_MariaDBJSONColumns {
+		return nil, nil
+	}
+	cmp, err := c.CompareServerVersion(ctx, mysql_validation.MariaDBMinVersionForJSONCheck)
+	if err != nil {
+		return nil, err
+	}
+	if cmp < 0 {
+		return nil, nil
+	}
+	rs, err := c.Execute(ctx, fmt.Sprintf(`
+		select check_clause from information_schema.check_constraints
+		where constraint_schema = '%s' and table_name = '%s'`,
+		mysql.Escape(schema), mysql.Escape(table)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the check constraints of %s.%s: %w", schema, table, err)
+	}
+	var columns []string
+	for idx := range rs.RowNumber() {
+		clause, err := rs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+		if column, ok := jsonValidCheckColumn(clause); ok {
+			columns = append(columns, column)
+		}
+	}
+	return columns, nil
+}
+
 func (c *MySqlConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
@@ -258,6 +306,13 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
+	var jsonColumns []string
+	if hasLongText(rs, tm.Exclude) {
+		jsonColumns, err = c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var primaryEntries []pkEntry
 	for idx := range rs.RowNumber() {
@@ -289,6 +344,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
+		qkind = mariaDBJSONKind(qkind, columnName, dataType, jsonColumns)
 
 		column := &protos.FieldDescription{
 			Name:         columnName,
