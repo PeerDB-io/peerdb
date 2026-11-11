@@ -78,21 +78,7 @@ func (c *S3Connector) writeToAvroFile(
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 	}
 
-	var codec utils.AvroCompressionCodec
-	switch c.codec {
-	case protos.AvroCodec_Null:
-		codec = utils.AvroNullCodec
-	case protos.AvroCodec_Deflate:
-		codec = utils.AvroDeflateCodec
-	case protos.AvroCodec_Snappy:
-		codec = utils.AvroSnappyCodec
-	case protos.AvroCodec_ZStandard:
-		codec = utils.AvroZstdCodec
-	default:
-		return 0, fmt.Errorf("unsupported codec %s", c.codec)
-	}
-
-	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3, nil)
+	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, c.codec, protos.DBType_S3, nil)
 	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)

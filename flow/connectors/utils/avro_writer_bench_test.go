@@ -103,8 +103,8 @@ func BenchmarkWriteOCF(b *testing.B) {
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 	b.Cleanup(func() { slog.SetDefault(defaultLogger) })
 
-	for _, codec := range []AvroCompressionCodec{AvroZstdCodec, AvroNullCodec} {
-		b.Run(string(codec), func(b *testing.B) {
+	for _, codec := range []protos.AvroCodec{protos.AvroCodec_ZStandard, protos.AvroCodec_Null} {
+		b.Run(codec.String(), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				b.StopTimer()

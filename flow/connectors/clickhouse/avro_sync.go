@@ -399,7 +399,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
-	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, utils.AvroZstdCodec, protos.DBType_CLICKHOUSE, sizeTracker)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, protos.AvroCodec_ZStandard, protos.DBType_CLICKHOUSE, sizeTracker)
 	prefix := s.staging.KeyPrefix()
 
 	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)

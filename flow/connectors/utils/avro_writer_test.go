@@ -31,7 +31,7 @@ func writeTestOCF(t *testing.T, schema types.QRecordSchema, records [][]types.QV
 	stream.Close(nil)
 
 	var buf bytes.Buffer
-	writer := NewPeerDBOCFWriter(stream, avroSchema, AvroZstdCodec, protos.DBType_CLICKHOUSE, nil)
+	writer := NewPeerDBOCFWriter(stream, avroSchema, protos.AvroCodec_ZStandard, protos.DBType_CLICKHOUSE, nil)
 	numRows, err := writer.WriteOCF(t.Context(), benchAvroEnv, &buf, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(len(records)), numRows)

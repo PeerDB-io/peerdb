@@ -34,25 +34,16 @@ const (
 	AvroGCSStorage
 )
 
-type AvroCompressionCodec string
-
-const (
-	AvroNullCodec    AvroCompressionCodec = "null"
-	AvroDeflateCodec AvroCompressionCodec = "deflate"
-	AvroSnappyCodec  AvroCompressionCodec = "snappy"
-	AvroZstdCodec    AvroCompressionCodec = "zstandard"
-)
-
-// newCodec returns a fresh codec, the OCF writer takes ownership and closes it
-func (c AvroCompressionCodec) newCodec() (ocf.Codec, error) {
+// newOCFCodec returns a fresh codec, the OCF writer takes ownership and closes it
+func newOCFCodec(c protos.AvroCodec) (ocf.Codec, error) {
 	switch c {
-	case AvroNullCodec:
+	case protos.AvroCodec_Null:
 		return nil, nil
-	case AvroDeflateCodec:
+	case protos.AvroCodec_Deflate:
 		return ocf.DeflateCodec(flate.DefaultCompression), nil
-	case AvroSnappyCodec:
+	case protos.AvroCodec_Snappy:
 		return ocf.SnappyCodec(), nil
-	case AvroZstdCodec:
+	case protos.AvroCodec_ZStandard:
 		return ocf.ZstdCodec(nil, nil)
 	default:
 		return nil, fmt.Errorf("unsupported Avro compression codec %s", c)
@@ -63,7 +54,7 @@ type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
 	sizeTracker          *model.QRecordAvroChunkSizeTracker
-	avroCompressionCodec AvroCompressionCodec
+	avroCompressionCodec protos.AvroCodec
 	targetDWH            protos.DBType
 }
 
@@ -84,7 +75,7 @@ func (l *AvroFile) Cleanup(ctx context.Context) {
 func NewPeerDBOCFWriter(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
-	avroCompressionCodec AvroCompressionCodec,
+	avroCompressionCodec protos.AvroCodec,
 	targetDWH protos.DBType,
 	sizeTracker *model.QRecordAvroChunkSizeTracker,
 ) *peerDBOCFWriter {
@@ -104,7 +95,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
-	codec, err := p.avroCompressionCodec.newCodec()
+	codec, err := newOCFCodec(p.avroCompressionCodec)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF codec: %w", err)
 	}
@@ -265,7 +256,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 			slog.Int64("records", numRows.Load()),
 			slog.Int("channelLen", len(p.stream.Records)),
 			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
-			slog.String("compression", string(p.avroCompressionCodec)))
+			slog.String("compression", p.avroCompressionCodec.String()))
 	})
 	defer shutdown()
 
@@ -301,7 +292,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	logger.Info("finished writing records to OCF",
 		slog.Int64("records", numRows.Load()),
 		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()),
-		slog.String("compression", string(p.avroCompressionCodec)),
+		slog.String("compression", p.avroCompressionCodec.String()),
 	)
 
 	if avroConverter.NullMismatchTracker != nil {
