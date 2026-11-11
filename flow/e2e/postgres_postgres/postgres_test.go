@@ -1839,6 +1839,66 @@ func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityF
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+// Swapping values of a non-deferrable unique column needs an intermediate state.
+// MERGE of the batch-final rows applies them one at a time and hits the unique index:
+// ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)
+func (s PeerFlowE2ETestSuitePG) Test_Unique_Swap_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_unique_swap")
+	dstTableName := s.attachSchemaSuffix("test_unique_swap_dst")
+
+	for _, table := range []string{srcTableName, dstTableName} {
+		_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id INT PRIMARY KEY,
+				code TEXT NOT NULL UNIQUE
+			);`, table))
+		require.NoError(s.t, err)
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_unique_swap"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.System = protos.TypeSystem_PG
+	flowConnConfig.SyncedAtColName = ""
+	flowConnConfig.SoftDeleteColName = ""
+	flowConnConfig.MaxBatchSize = 100
+
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id,code) VALUES (1,'a'),(2,'b'),(3,'c')`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize inserts", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,code") == nil
+	})
+
+	tx, err := s.Conn().Begin(s.t.Context())
+	e2e.EnvNoError(s.t, env, err)
+	for _, stmt := range []string{
+		`UPDATE %s SET code='tmp' WHERE id=1`,
+		`UPDATE %s SET code='a' WHERE id=2`,
+		`UPDATE %s SET code='b' WHERE id=1`,
+	} {
+		_, err = tx.Exec(s.t.Context(), fmt.Sprintf(stmt, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+	}
+	e2e.EnvNoError(s.t, env, tx.Commit(s.t.Context()))
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize swap", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,code") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_PG_PG_Target_Foreign_Keys() {
 	tc := e2e.NewTemporalClient(s.t)
 
