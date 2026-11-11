@@ -29,7 +29,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -124,8 +123,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
@@ -418,23 +416,18 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(new("normalizing"))
-		normRequests.Update(res.CurrentSyncBatchID)
-		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
-		if normResponses.Load() <= normWaitThreshold {
+		progress.RecordSyncedBatch(res.CurrentSyncBatchID)
+		if res.CurrentSyncBatchID-progress.NormalizedBatchID() >= normBufferSize {
 			logger.Warn("sync waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
-				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normalizeBatchID", progress.NormalizedBatchID()),
 				slog.Int64("normBufferSize", normBufferSize))
-			for normResponses.Load() <= normWaitThreshold {
-				select {
-				case <-normResponses.Wait():
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
+			if err := progress.WaitForNormalizeCatchup(ctx, normBufferSize); err != nil {
+				return nil, err
 			}
 			logger.Info("done waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
-				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normalizeBatchID", progress.NormalizedBatchID()),
 				slog.Int64("normBufferSize", normBufferSize))
 		}
 	}
@@ -696,13 +689,13 @@ func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
 	batchID int64,
-	normalizeResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
 	// record gauge on error as well
 	defer func() {
-		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, normalizeResponses.Load(),
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, progress.NormalizedBatchID(),
 			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 	}()
 
@@ -713,7 +706,7 @@ func (a *FlowableActivity) startNormalize(
 		config.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
-		normalizeResponses.Update(batchID)
+		progress.RecordNormalizedBatch(batchID)
 		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
 		return fmt.Errorf("failed to get normalize connector: %w", err)
@@ -726,6 +719,9 @@ func (a *FlowableActivity) startNormalize(
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
 		res, err := func() (model.NormalizeResponse, error) {
 			normCtx, normSpan := a.OtelManager.Tracer.Start(ctx, "cdc.normalize", trace.WithAttributes(
@@ -768,7 +764,7 @@ func (a *FlowableActivity) startNormalize(
 
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
-		normalizeResponses.Update(res.EndBatchID)
+		progress.RecordNormalizedBatch(res.EndBatchID)
 		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, res.EndBatchID,
 			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 		if res.EndBatchID >= batchID {
@@ -797,56 +793,39 @@ func (a *FlowableActivity) recordDeliveryLag(ctx context.Context, flowJobName st
 	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(commitTime).Milliseconds(), attrs)
 }
 
-// Suitable to be run as goroutine
+// normalizeLoop processes pending batches and retries failures until ctx is cancelled.
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
-	normalizeRequests *concurrency.LastChan,
-	normalizeResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
 	defer normalizeWaiting.Store(false)
 
 	for {
-		// Check for pending work before waiting on the channel.
-		// This avoids a race where Update() replaces the channel while we're
-		// processing, causing Wait() to return the new (unclosed) channel
-		// and missing the signal entirely until the next Update.
-		reqBatchID := normalizeRequests.Load()
-		lastNormalizedBatchID := normalizingBatchID.Load()
-		if reqBatchID <= lastNormalizedBatchID {
-			normalizeWaiting.Store(true)
-			ch := normalizeRequests.Wait()
-			if ch == nil {
-				logger.Info("[normalize-loop] lastChan closed")
-				return
-			}
-			select {
-			case <-ctx.Done():
-				logger.Info("[normalize-loop] context closed")
-				return
-			case <-ch:
-				continue
-			}
+		normalizeWaiting.Store(true)
+		targetBatchID, err := progress.WaitForUnnormalizedBatch(ctx)
+		if err != nil {
+			logger.Info("[normalize-loop] context closed")
+			return
 		}
 		normalizeWaiting.Store(false)
 
 		retryInterval := time.Minute
 	retryLoop:
 		for {
-			normalizingBatchID.Store(reqBatchID)
-			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
+			normalizingBatchID.Store(targetBatchID)
+			if err := a.startNormalize(ctx, config, targetBatchID, progress); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				// update req to latest normalize request & retry
 				select {
 				case <-ctx.Done():
 					logger.Info("[normalize-loop] context closed before retry")
 					return
 				case <-time.After(retryInterval):
 					retryInterval = min(retryInterval*2, 5*time.Minute)
-					reqBatchID = normalizeRequests.Load()
+					targetBatchID = progress.SyncedBatchID()
 					continue retryLoop
 				}
 			}

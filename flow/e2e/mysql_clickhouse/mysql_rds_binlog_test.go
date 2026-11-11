@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	e2e "github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
@@ -85,7 +86,7 @@ func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	require.True(s.t, ok)
 	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector "+s.source.Name+": binlog configuration error: "+
-		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
+		"RDS/Aurora setting 'binlog retention hours' should be at least 72, currently unset", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
 	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
@@ -95,12 +96,39 @@ func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	require.True(s.t, ok)
 	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector "+s.source.Name+": binlog configuration error: "+
-		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
+		"RDS/Aurora setting 'binlog retention hours' should be at least 72, currently 1", st.Message())
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '72' WHERE name = 'binlog retention hours';"))
 	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, res)
 
+	// Without SELECT on mysql.rds_configuration the server cannot be told apart from self-hosted
+	// and the container does not look like RDS, so the check is skipped rather than enforced.
+	restrictedUser := "rds_restricted"
+	for _, stmt := range []string{
+		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY 'cipass'", restrictedUser),
+		fmt.Sprintf("GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '%s'@'%%'", restrictedUser),
+		fmt.Sprintf("GRANT SELECT ON e2e_test_%s.* TO '%s'@'%%'", s.suffix, restrictedUser),
+	} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), stmt))
+	}
+	restrictedConfig := proto.CloneOf(s.source.Config)
+	restrictedConfig.User = restrictedUser
+	restrictedConfig.Password = "cipass"
+	restrictedPeer := &protos.Peer{
+		Name:   "mysql_rds_restricted_" + s.suffix,
+		Type:   protos.DBType_MYSQL,
+		Config: &protos.Peer_MysqlConfig{MysqlConfig: restrictedConfig},
+	}
+	e2e.CreatePeer(s.t, restrictedPeer)
+	flowConnConfig.SourceName = restrictedPeer.Name
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
+	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, res)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("DROP USER IF EXISTS '%s'@'%%'", restrictedUser)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }

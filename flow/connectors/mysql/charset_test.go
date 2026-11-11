@@ -61,3 +61,18 @@ func TestQValueFromMysqlRowEvent_Transcodes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "café", decoded.(types.QValueString).Val)
 }
+
+// TestQValueFromMysqlRowEvent_TranscodesMariaDBJSON verifies that a MariaDB JSON column, a LONGTEXT on the
+// wire, is decoded from its charset like any text column.
+func TestQValueFromMysqlRowEvent_TranscodesMariaDBJSON(t *testing.T) {
+	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_BLOB}}
+	logger := log.NewStructuredLogger(nil)
+	var coercionReported bool
+
+	latin1 := []byte{'"', 0x63, 0x61, 0x66, 0xE9, '"'} // the JSON string "café" in latin1
+
+	decoded, err := QValueFromMysqlRowEvent(
+		ev, 0, nil, nil, types.QValueKindJSON, latin1, mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
+	require.NoError(t, err)
+	require.Equal(t, `"café"`, decoded.(types.QValueJSON).Val)
+}

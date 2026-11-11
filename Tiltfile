@@ -381,11 +381,11 @@ def connector_test(connector, extra_deps=[], vars_overrides={}, name=''):
         allow_parallel=True,
     )
 
-def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run=''):
+def pkg_test(pkg, extra_deps=[], vars_overrides={}, test_run='', name=''):
     overrides_str = ' '.join(['%s=%s' % (var, value) for var, value in vars_overrides.items()])
     test_run_arg = (' -run %s' % test_run) if test_run else ''
     local_resource(
-        'pkg_' + pkg,
+        'pkg_' + (name or pkg),
         cmd='cd flow/pkg && %s go test -tags tilt -count=1 -v%s ./%s/...' % (overrides_str, test_run_arg, pkg),
         labels=['Test'],
         auto_init=False,
@@ -480,3 +480,7 @@ connector_test('clickhouse', ['provision-clickhouse'])
 pkg_test('mongo', ['provision-mongodb'])
 
 pkg_test('clickhouse', ['provision-clickhouse'])
+
+pkg_test('mysql', ['provision-mysql-gtid'], vars_overrides=mysql_gtid_vars, name='mysql-gtid')
+pkg_test('mysql', ['provision-mysql-pos'], vars_overrides=mysql_pos_vars, name='mysql-pos')
+pkg_test('mysql', ['provision-mariadb'], vars_overrides=mariadb_vars, name='mariadb')

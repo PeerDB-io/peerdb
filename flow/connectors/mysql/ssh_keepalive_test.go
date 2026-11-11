@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -34,9 +35,9 @@ const (
 
 func resolveMySQL(t *testing.T) (string, uint32, string) {
 	t.Helper()
-	return internal.MySQLSSHUpstreamHost(),
-		internal.MySQLTestPortWithFallback(3306),
-		internal.MySQLTestRootPasswordWithFallback("cipass")
+	return testutil.MySQLSSHUpstreamHost(),
+		testutil.MySQLTestPortWithFallback(3306),
+		testutil.MySQLTestRootPasswordWithFallback("cipass")
 }
 
 // Connector -> Toxi -> SSH -> MySQL

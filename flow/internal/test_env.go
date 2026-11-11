@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 )
 
 // repoRoot returns the repository root (the directory containing .env.example) so test fixtures can
@@ -105,42 +105,6 @@ func PostgresSSHUpstreamHostWithFallback(fallback string) string {
 	return GetEnvString("SSH_POSTGRES_HOST", fallback)
 }
 
-func MySQLSSHUpstreamHost() string {
-	return GetEnvString("CI_SSH_MYSQL_HOST", "")
-}
-
-func MySQLTestHostWithFallback(fallback string) string {
-	return GetEnvString("CI_MYSQL_HOST", fallback)
-}
-
-func MySQLTestHost() string {
-	return MySQLTestHostWithFallback("localhost")
-}
-
-func MySQLTestPortWithFallback(fallback uint32) uint32 {
-	return mysqlTestPortWithEnvFallback("CI_MYSQL_PORT", fallback)
-}
-
-func mysqlTestPortWithEnvFallback(envName string, fallback uint32) uint32 {
-	envPortStr, ok := os.LookupEnv(envName)
-	if !ok {
-		return fallback
-	}
-	envPort, err := strconv.ParseUint(strings.TrimSpace(strings.Split(envPortStr, "#")[0]), 10, 32)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to parse %s: %v", envName, err))
-	}
-	return uint32(envPort)
-}
-
-func MySQLTestPort() uint32 {
-	return MySQLTestPortWithFallback(3306)
-}
-
-func MySQLTestRootPasswordWithFallback(fallback string) string {
-	return GetEnvString("CI_MYSQL_ROOT_PASSWORD", fallback)
-}
-
 func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySqlReplicationMechanism) {
 	t.Helper()
 	switch version := os.Getenv("CI_MYSQL_VERSION"); {
@@ -158,10 +122,10 @@ func MySQLTestFlavorAndMechanism(t *testing.T) (protos.MySqlFlavor, protos.MySql
 
 func GetMySQLConfigFromEnv(flavor protos.MySqlFlavor, mechanism protos.MySqlReplicationMechanism) *protos.MySqlConfig {
 	return &protos.MySqlConfig{
-		Host:                 MySQLTestHost(),
-		Port:                 MySQLTestPort(),
+		Host:                 testutil.MySQLTestHost(),
+		Port:                 testutil.MySQLTestPort(),
 		User:                 "root",
-		Password:             MySQLTestRootPasswordWithFallback("cipass"),
+		Password:             testutil.MySQLTestRootPasswordWithFallback("cipass"),
 		Database:             "",
 		DisableTls:           true,
 		Flavor:               flavor,
