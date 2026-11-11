@@ -8,7 +8,7 @@ edition = "2024"
 [features]
 default = ["aws", "gcp"]
 aws = ["dep:aws-config", "dep:aws-sdk-kms"]
-gcp = ["dep:reqwest"]
+gcp = ["dep:reqwest", "dep:webpki-root-certs"]
 
 [dependencies]
 anyhow = "1"
@@ -33,3 +33,4 @@ tokio-postgres = { version = "0.7.6", features = [
 ] }
 tracing.workspace = true
 postgres-connection = { path = "../postgres-connection" }
+webpki-root-certs = { version = "1", optional = true }
