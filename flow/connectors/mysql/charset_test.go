@@ -1,15 +1,56 @@
 package connmysql
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func TestCollationEncodingRecordsUsedCharsets(t *testing.T) {
+	ctx := t.Context()
+	om, reader := newMetricsTestOtelManager(t)
+	var err error
+	om.Metrics.UsedMySQLCharsetsCounter, err = om.GetOrInitInt64Counter(
+		otel_metrics.BuildMetricName(otel_metrics.UsedMySQLCharsetsName))
+	require.NoError(t, err)
+	c := &MySqlConnector{logger: log.NewStructuredLogger(slog.Default())}
+	collations := map[uint64]string{1: "utf8mb4", 2: "latin1", 3: "made_up"}
+	c.collationCharset.Store(&collations)
+
+	for _, collationID := range []uint64{1, 1, 2, 3, 0} {
+		_, err := c.collationEncoding(ctx, collationID, om)
+		require.NoError(t, err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	counts := make(map[string]int64)
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != otel_metrics.BuildMetricName(otel_metrics.UsedMySQLCharsetsName) {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				charset, _ := dp.Attributes.Value("charset")
+				status, _ := dp.Attributes.Value("status")
+				counts[charset.AsString()+"/"+status.AsString()] += dp.Value
+			}
+		}
+	}
+	require.Equal(t, map[string]int64{
+		"utf8mb4/not_transcoded": 2,
+		"latin1/transcoded":      1,
+		"made_up/unsupported":    1,
+	}, counts)
+}
 
 func TestDecodeMySQLBytes(t *testing.T) {
 	for _, tc := range []struct {
@@ -60,4 +101,19 @@ func TestQValueFromMysqlRowEvent_Transcodes(t *testing.T) {
 		ev, 0, nil, nil, types.QValueKindString, latin1, mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
 	require.NoError(t, err)
 	require.Equal(t, "café", decoded.(types.QValueString).Val)
+}
+
+// TestQValueFromMysqlRowEvent_TranscodesMariaDBJSON verifies that a MariaDB JSON column, a LONGTEXT on the
+// wire, is decoded from its charset like any text column.
+func TestQValueFromMysqlRowEvent_TranscodesMariaDBJSON(t *testing.T) {
+	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_BLOB}}
+	logger := log.NewStructuredLogger(nil)
+	var coercionReported bool
+
+	latin1 := []byte{'"', 0x63, 0x61, 0x66, 0xE9, '"'} // the JSON string "café" in latin1
+
+	decoded, err := QValueFromMysqlRowEvent(
+		ev, 0, nil, nil, types.QValueKindJSON, latin1, mysqlCharsetEncodings["latin1"], logger, &coercionReported, false)
+	require.NoError(t, err)
+	require.Equal(t, `"café"`, decoded.(types.QValueJSON).Val)
 }

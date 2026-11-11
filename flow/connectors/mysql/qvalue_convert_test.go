@@ -224,3 +224,37 @@ func TestQValueFromMysql_WrapNonObjectJSON(t *testing.T) {
 		}
 	}
 }
+
+// TestQValueFromMysql_MariaDBJSONKeepsText covers a MariaDB JSON column, which is a LONGTEXT on the wire:
+// neither path compacts the text, and both still wrap non-object documents when asked.
+func TestQValueFromMysql_MariaDBJSONKeepsText(t *testing.T) {
+	ev := &replication.TableMapEvent{ColumnType: []byte{mysql.MYSQL_TYPE_BLOB}}
+	logger := log.NewStructuredLogger(nil)
+	var coercionReported bool
+
+	for _, tc := range []struct {
+		in          string
+		wantWrapped string
+	}{
+		{`{"a": 1}`, `{"a": 1}`},
+		{` {"a": 1} `, ` {"a": 1} `},
+		{`"dark"`, `{"_value":"dark"}`},
+		{`[1, 2]`, `{"_value":[1, 2]}`},
+	} {
+		for _, wrap := range []bool{false, true} {
+			want := tc.in
+			if wrap {
+				want = tc.wantWrapped
+			}
+
+			fv := mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte(tc.in))
+			got, err := QValueFromMysqlFieldValue(types.QValueKindJSON, mysql.MYSQL_TYPE_BLOB, fv, wrap)
+			require.NoError(t, err)
+			require.Equal(t, want, got.(types.QValueJSON).Val, "snapshot in=%q wrap=%v", tc.in, wrap)
+
+			got, err = QValueFromMysqlRowEvent(ev, 0, nil, nil, types.QValueKindJSON, []byte(tc.in), nil, logger, &coercionReported, wrap)
+			require.NoError(t, err)
+			require.Equal(t, want, got.(types.QValueJSON).Val, "cdc in=%q wrap=%v", tc.in, wrap)
+		}
+	}
+}

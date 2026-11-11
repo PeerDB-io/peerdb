@@ -32,32 +32,38 @@ func TestWrapNonObjectJSON(t *testing.T) {
 }
 
 func TestShouldWrapJSONArrayElements(t *testing.T) {
+	// a ClickHouse with the JSON type
 	clickhouse := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
 	otherDestination := []string{shared.Flag_ClickHouseTime64Enabled}
+	latest := shared.InternalVersion_Latest
 
 	for _, tc := range []struct {
-		destinationType string
-		flags           []string
-		version         uint32
-		want            bool
+		destinationType   string
+		flags             []string
+		version           uint32
+		nativeJSONEnabled bool
+		want              bool
 	}{
+		// the default mapping: setting on, JSON-capable ClickHouse, from the array version on
+		{flags: clickhouse, version: shared.InternalVersion_JSONArrayAsArrayJSON, nativeJSONEnabled: true, want: true},
+		{flags: clickhouse, version: latest, nativeJSONEnabled: true, want: true},
+		{flags: clickhouse, version: shared.InternalVersion_JSONArrayAsArrayJSON - 1, nativeJSONEnabled: true, want: false},
+		{flags: clickhouse, version: latest, want: false},
+		{flags: otherDestination, version: latest, nativeJSONEnabled: true, want: false},
+		{flags: nil, version: latest, nativeJSONEnabled: true, want: false},
+		// an explicit array type selects it from the wrapping version on, whatever the setting
 		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements, destinationType: "Array(JSON)", want: true},
-		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(JSON)", want: true},
-		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(Nullable(JSON))", want: true},
-		// a mirror from before the change keeps its elements unwrapped
+		{flags: clickhouse, version: latest, destinationType: "Array(Nullable(JSON))", want: true},
 		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements - 1, destinationType: "Array(JSON)", want: false},
-		// without an explicit array type the column is a String, whatever the settings
-		{flags: clickhouse, version: shared.InternalVersion_Latest, want: false},
-		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "String", want: false},
-		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Array(String)", want: false},
-		// the scalar JSON types are not array types
-		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "JSON", want: false},
-		// an explicit array type is only honoured where the destination has the JSON type
-		{flags: otherDestination, version: shared.InternalVersion_Latest, destinationType: "Array(JSON)", want: false},
-		{flags: nil, version: shared.InternalVersion_Latest, destinationType: "Array(Nullable(JSON))", want: false},
+		{flags: otherDestination, version: latest, destinationType: "Array(JSON)", want: false},
+		// other explicit types never wrap
+		{flags: clickhouse, version: latest, nativeJSONEnabled: true, destinationType: "String", want: false},
+		{flags: clickhouse, version: latest, nativeJSONEnabled: true, destinationType: "Array(String)", want: false},
+		{flags: clickhouse, version: latest, nativeJSONEnabled: true, destinationType: "JSON", want: false},
 	} {
-		got := ShouldWrapJSONArrayElements(tc.flags, tc.version, tc.destinationType)
-		require.Equal(t, tc.want, got, "flags=%v version=%d destinationType=%q", tc.flags, tc.version, tc.destinationType)
+		got := ShouldWrapJSONArrayElements(tc.flags, tc.version, tc.nativeJSONEnabled, tc.destinationType)
+		require.Equal(t, tc.want, got, "flags=%v version=%d nativeJSONEnabled=%t destinationType=%q",
+			tc.flags, tc.version, tc.nativeJSONEnabled, tc.destinationType)
 	}
 }
 

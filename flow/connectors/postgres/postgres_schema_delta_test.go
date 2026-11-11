@@ -85,7 +85,7 @@ func (s PostgresSchemaDeltaTestSuite) testSimpleAddColumn(t *testing.T, system p
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -151,7 +151,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddAllColumnTypes(t *testing.T, system
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -195,7 +195,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddTrickyColumnNames(t *testing.T, sys
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -239,7 +239,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testin
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -312,6 +312,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		{
 			name: "c_jsonb_null", colDef: `jsonb DEFAULT 'null'`, qkind: types.QValueKindJSONB,
 			want: `'null'`, wantWrapped: `'{"_value":null}'`,
+		},
+		// json arrays take a default only as Array(JSON), with each element wrapped; a String column keeps none
+		{
+			name: "c_jsonb_arr", colDef: `jsonb[] DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, 'null'::jsonb, NULL]`,
+			qkind:       types.QValueKindArrayJSONB,
+			wantWrapped: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},{"_value":null}]', 'Array(JSON)')`,
+		},
+		{
+			name: "c_json_arr_empty", colDef: `json[] DEFAULT ARRAY[]::json[]`, qkind: types.QValueKindArrayJSON,
+			wantWrapped: `JSONExtract('[]', 'Array(JSON)')`,
 		},
 		{name: "c_inet", colDef: "inet DEFAULT '10.0.0.1'", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
 		{name: "c_date", colDef: "date DEFAULT '2020-01-02'", qkind: types.QValueKindDate, want: "'2020-01-02'"},

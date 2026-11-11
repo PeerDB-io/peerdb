@@ -1095,6 +1095,19 @@ func startSetupAndSnapshot(
 		}
 	}
 
+	// A state change can arrive in the same workflow task that completed the last step. Drain it,
+	// otherwise ContinueAsNew drops it and a terminate or resync request is silently lost.
+	for ctx.Err() == nil && setupSnapshotSelector.HasPending() {
+		setupSnapshotSelector.Select(ctx)
+	}
+	if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+		return nextRunDrop, nil
+	}
+	if err := ctx.Err(); err != nil {
+		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+		return nextRunNone, err
+	}
+
 	// if initial_copy_only is opted for, we end the flow here.
 	if cfg.InitialSnapshotOnly {
 		logger.Info("initial snapshot only, ending flow")

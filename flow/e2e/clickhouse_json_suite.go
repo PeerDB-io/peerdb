@@ -89,17 +89,11 @@ func (s ClickHouseSuite) Test_JSON_CH_ClassicReader() {
 // the source for the snapshot and the CDC path.
 func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	mysqlUtf8mb4Support := true
-	if mySource, ok := s.source.(*MySqlSource); ok {
-		if mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-			if cfg.nativeJSON || cfg.overrideToJSON {
-				s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
-			}
-		} else {
-			cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
-			require.NoError(s.t, err)
-			if cmp < 0 {
-				mysqlUtf8mb4Support = false
-			}
+	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		cmp, err := mySource.CompareServerVersion(s.t.Context(), "8")
+		require.NoError(s.t, err)
+		if cmp < 0 {
+			mysqlUtf8mb4Support = false
 		}
 	}
 
@@ -289,8 +283,10 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{
-		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
-		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
+		"PEERDB_NULLABLE": strconv.FormatBool(cfg.nullableDestinationColumns),
+	}
+	if cfg.nativeJSON {
+		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
 	}
 	if cfg.overrideToJSON {
 		for _, column := range jsonColumns {
@@ -341,8 +337,7 @@ type jsonColumnMirrorConfig struct {
 	sourceNullLandsAs  *string
 	tableName          string
 	expectedColumnType string
-	// nativeJSON sets PEERDB_CLICKHOUSE_ENABLE_JSON
-	nativeJSON bool
+	nativeJSON         bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
 	// overrideToJSON gives every JSON column the destination type JSON through its column settings
@@ -483,7 +478,7 @@ func jsonColumnsMatch(
 // surfaces as a flow error, since the reader does not wrap for such a mirror.
 func (s ClickHouseSuite) Test_JSON_CH_OldMirror() {
 	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
+		s.t.Skip("a mirror below InternalVersion_MariaDBJSONColumns types a MariaDB JSON column as String, so there is no JSON column to test")
 	}
 
 	srcTableName := "test_json_old"
@@ -588,10 +583,6 @@ func (s ClickHouseSuite) Test_JSON_CH_AddColumnDefault() {
 // Test_JSON_CH_StringOverride pins a JSON column to String on a native JSON mirror. The snapshot has to
 // leave that column out of its JSON cast, as the DDL and the normalize query already honour the override.
 func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
-	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		s.t.Skip("skip maria, where JSON is stored as LONGTEXT and PeerDB does not map it to JSON yet")
-	}
-
 	srcTableName := "test_json_string_override"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := srcTableName + "_dst"
@@ -633,7 +624,55 @@ func (s ClickHouseSuite) Test_JSON_CH_StringOverride() {
 	RequireEnvCanceled(s.t, env)
 }
 
-// Tests for Postgres json[]/jsonb[] columns with an Array(JSON) or Array(Nullable(JSON)) destination type.
+// Postgres json[]/jsonb[] into ClickHouse: Array(JSON) by default with native JSON on, Array(Nullable(JSON)) with
+// PEERDB_NULLABLE, explicit Array types as overrides, String otherwise.
+
+// Test_JSON_CH_Array: with native JSON on, json[]/jsonb[] land in Array(JSON) by default.
+func (s ClickHouseSuite) Test_JSON_CH_Array() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr",
+		nativeJSON:         true,
+		expectedColumnType: "Array(JSON)",
+	})
+}
+
+// Test_JSON_CH_Array_ClassicReader is Test_JSON_CH_Array with the Postgres reader taking the unmarshal/marshal path.
+func (s ClickHouseSuite) Test_JSON_CH_Array_ClassicReader() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:                     "test_json_arr_classic",
+		nativeJSON:                    true,
+		disableFastProcessJSONColumns: true,
+		expectedColumnType:            "Array(JSON)",
+	})
+}
+
+// Test_JSON_CH_Array_Nullable: with PEERDB_NULLABLE a SQL NULL element stays NULL; a SQL NULL array is still [].
+func (s ClickHouseSuite) Test_JSON_CH_Array_Nullable() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:                  "test_json_arr_nullable",
+		nativeJSON:                 true,
+		nullableDestinationColumns: true,
+		expectedColumnType:         "Array(Nullable(JSON))",
+	})
+}
+
+// Test_JSON_CH_Array_Disabled: with native JSON off the whole array lands as one String.
+func (s ClickHouseSuite) Test_JSON_CH_Array_Disabled() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_off",
+		expectedColumnType: "String",
+	})
+}
+
+// Test_JSON_CH_Array_OldMirror: a mirror from before InternalVersion_JSONArrayAsArrayJSON keeps String.
+func (s ClickHouseSuite) Test_JSON_CH_Array_OldMirror() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_old",
+		nativeJSON:         true,
+		version:            shared.InternalVersion_JSONArrayAsArrayJSON - 1,
+		expectedColumnType: "String",
+	})
+}
 
 // Test_JSON_CH_Array_Override: an Array(JSON) override gets wrapped elements.
 func (s ClickHouseSuite) Test_JSON_CH_Array_Override() {
@@ -668,7 +707,18 @@ func (s ClickHouseSuite) Test_JSON_CH_Array_Override_OldMirror() {
 	s.testJSONArrayColumns(jsonArrayMirrorConfig{
 		tableName:          "test_json_arr_override_old",
 		overrideType:       "Array(JSON)",
-		oldMirror:          true,
+		version:            shared.InternalVersion_WrapJSONArrayElements - 1,
+		expectedColumnType: "Array(JSON)",
+	})
+}
+
+// Test_JSON_CH_Array_Domain: columns declared through domains over json[]/jsonb[] map and wrap like the base types.
+// CDC sees the domain's OID, while the snapshot sees the base type's, so both paths must resolve the domain alike.
+func (s ClickHouseSuite) Test_JSON_CH_Array_Domain() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_domain",
+		nativeJSON:         true,
+		domainColumns:      true,
 		expectedColumnType: "Array(JSON)",
 	})
 }
@@ -679,11 +729,16 @@ type jsonArrayMirrorConfig struct {
 	expectedColumnType string
 	// overrideType is given to every array column as its destination type through the column settings
 	overrideType string
-	// oldMirror pins the mirror to the version before InternalVersion_WrapJSONArrayElements
-	oldMirror bool
+	// version, when set, pins the mirror to that internal version through PEERDB_FORCE_INTERNAL_VERSION
+	version    uint32
+	nativeJSON bool
+	// nullableDestinationColumns sets PEERDB_NULLABLE
+	nullableDestinationColumns bool
 	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
 	// takes the unmarshal/marshal path instead of the token walk
 	disableFastProcessJSONColumns bool
+	// domainColumns declares the columns through domains over json[] and jsonb[]
+	domainColumns bool
 }
 
 // jsonArrayTestCase is one json[]/jsonb[] value. elements are the JSON documents of the Postgres array, nil for a
@@ -748,9 +803,10 @@ func jsonArrayTestCases() []jsonArrayTestCase {
 			wantElements: []string{`{}`, `{"a": 1}`},
 		},
 		{
+			// JSONExtract alone would parse [null,null] as the empty Array(JSON)
 			desc:                 "all null elements",
 			elements:             []*string{nil, nil},
-			wantElements:         []string{},
+			wantElements:         []string{`{}`, `{}`},
 			wantNullableElements: []string{`null`, `null`},
 		},
 		{
@@ -798,8 +854,16 @@ func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
 	arrayColumns := []string{"json_arr", "jsonb_arr"}
 	cases := jsonArrayTestCases()
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json_arr JSON[], jsonb_arr JSONB[])`, srcFullName)))
+	jsonArrayType, jsonbArrayType := "JSON[]", "JSONB[]"
+	if cfg.domainColumns {
+		jsonArrayType = s.attachSchemaSuffix(srcTableName + "_json_dom")
+		jsonbArrayType = s.attachSchemaSuffix(srcTableName + "_jsonb_dom")
+		require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE DOMAIN "+jsonArrayType+" AS json[]"))
+		require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE DOMAIN "+jsonbArrayType+" AS jsonb[]"))
+	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json_arr %s, jsonb_arr %s)`,
+		srcFullName, jsonArrayType, jsonbArrayType)))
 	insertCases := func() {
 		for _, tc := range cases {
 			require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json_arr, jsonb_arr) VALUES (%s, %s)`,
@@ -815,13 +879,18 @@ func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{}
-	for _, column := range arrayColumns {
-		flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
-			&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": strconv.FormatBool(cfg.nativeJSON),
+		"PEERDB_NULLABLE":               strconv.FormatBool(cfg.nullableDestinationColumns),
 	}
-	if cfg.oldMirror {
-		flowConnConfig.Version = shared.InternalVersion_WrapJSONArrayElements - 1
+	if cfg.overrideType != "" {
+		for _, column := range arrayColumns {
+			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
+				&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
+		}
+	}
+	if cfg.version != 0 {
+		flowConnConfig.Version = cfg.version
 		flowConnConfig.Env["PEERDB_FORCE_INTERNAL_VERSION"] = strconv.FormatUint(uint64(flowConnConfig.Version), 10)
 	}
 	if cfg.disableFastProcessJSONColumns {
@@ -844,11 +913,17 @@ func (s ClickHouseSuite) testJSONArrayColumns(cfg jsonArrayMirrorConfig) {
 
 	cols := "id," + strings.Join(arrayColumns, ",")
 	// rows are ordered by id and the cases were inserted in order, once per load, so row i is cases[i % len(cases)]
+	elementsWrapped := cfg.version == 0 || cfg.version >= shared.InternalVersion_WrapJSONArrayElements
 	rowsMatch := jsonColumnsMatch(arrayColumns, func(t *testing.T, label string, rowIdx int, _ types.QValue, dst types.QValue) bool {
 		t.Helper()
 		tc := cases[rowIdx%len(cases)]
-		return destinationJSONArrayMatches(t, label+" ("+tc.desc+")", tc, dst, cfg.expectedColumnType, !cfg.oldMirror)
+		return destinationJSONArrayMatches(t, label+" ("+tc.desc+")", tc, dst, cfg.expectedColumnType, elementsWrapped)
 	})
+	if cfg.expectedColumnType == "String" {
+		// a String column holds the source array text as it is, and '' for a SQL NULL array
+		emptyString := ""
+		rowsMatch = jsonBatchesMatch(arrayColumns, &emptyString, false)
+	}
 	EnvWaitForEqualTablesWithNamesFunc(env, s, "compare initial load", srcTableName, dstTableName, cols, rowsMatch)
 
 	insertCases()
@@ -901,4 +976,75 @@ func destinationJSONArrayMatches(
 		}
 	}
 	return true
+}
+
+// Test_JSON_CH_Array_AddColumnDefault: a jsonb[] column added with a default, older rows get the wrapped default.
+func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault() {
+	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_default", false)
+}
+
+// Test_JSON_CH_Array_AddColumnDefault_Nullable: the same with PEERDB_NULLABLE; a NULL element of the default lands as {}.
+func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault_Nullable() {
+	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_def_null", true)
+}
+
+func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, nullable bool) {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("json arrays only exist on postgres")
+	}
+
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := srcTableName + "_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
+		"PEERDB_NULLABLE":               strconv.FormatBool(nullable),
+	}
+	expectedColumnType := "Array(JSON)"
+	if nullable {
+		expectedColumnType = "Array(Nullable(JSON))"
+	}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	for _, stmt := range []string{
+		`ALTER TABLE %s ADD COLUMN c_arr JSONB[] DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, NULL, 'null'::jsonb]`,
+		`INSERT INTO %s (id, c_arr) VALUES (2, ARRAY['[1, 2]'::jsonb, '{"b": 2}'::jsonb])`,
+	} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(stmt, srcFullName)))
+	}
+
+	// row 1 takes the column default, row 2 its own value
+	cases := []jsonArrayTestCase{
+		{desc: "default", wantElements: []string{`{"a": 1}`, `{"_value":"dark"}`, `{}`, `{}`}},
+		{desc: "explicit", wantElements: []string{`{"_value":[1, 2]}`, `{"b": 2}`}},
+	}
+	rowsMatch := jsonColumnsMatch([]string{"c_arr"}, func(t *testing.T, label string, rowIdx int, _ types.QValue, dst types.QValue) bool {
+		t.Helper()
+		tc := cases[rowIdx]
+		return destinationJSONArrayMatches(t, label+" ("+tc.desc+")", tc, dst, expectedColumnType, true)
+	})
+	EnvWaitForEqualTablesWithNamesFunc(env, s, "waiting on cdc add column with default", srcTableName, dstTableName,
+		"id,c_arr", rowsMatch)
+
+	columnType, err := s.GetColumnType(dstTableName, "c_arr")
+	require.NoError(s.t, err)
+	require.Equal(s.t, expectedColumnType, columnType)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }

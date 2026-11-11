@@ -111,7 +111,7 @@ func arrayTimeFieldExpressionConverter(
 
 // arrayJSONFieldExpressionConverter parses arrays of JSON going into an array column.
 func arrayJSONFieldExpressionConverter(
-	_ context.Context,
+	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	sourceFieldIdentifier string,
 	field types.QField,
@@ -119,10 +119,21 @@ func arrayJSONFieldExpressionConverter(
 	if field.Type != types.QValueKindArrayJSON && field.Type != types.QValueKindArrayJSONB {
 		return sourceFieldIdentifier, nil
 	}
-	if dstType := findColumnSetting(field.Name, config.config.GetColumns()).GetDestinationType(); strings.HasPrefix(dstType, "Array(") {
+	colSetting := findColumnSetting(field.Name, config.config.GetColumns())
+	dstType := colSetting.GetDestinationType()
+	if dstType == "" && qvalue.ShouldUseArrayJSONType(
+		ctx, config.config.Env, config.connector.chVersion, config.config.Version, config.config.SourceType,
+	) {
+		// the same type table creation picked, whose nullable setting comes from the same env
+		nullable, err := internal.PeerDBNullable(ctx, config.config.Env)
+		if err != nil {
+			return "", err
+		}
+		dstType = qvalue.ClickHouseArrayJSONType(nullable || colSetting.GetNullableEnabled())
+	}
+	if strings.HasPrefix(dstType, "Array(") {
 		// a null array is staged as a null string, the empty array once parsed
-		return fmt.Sprintf("JSONExtract(ifNull(%s, ''), %s)",
-			sourceFieldIdentifier, peerdb_clickhouse.QuoteLiteral(dstType)), nil
+		return extractJSONArray("ifNull("+sourceFieldIdentifier+", '')", dstType), nil
 	}
 	return sourceFieldIdentifier, nil
 }

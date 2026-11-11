@@ -53,6 +53,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	sourceType protos.DBType,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
@@ -70,6 +71,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		sourceTableSchema,
 		c.chVersion,
 		config.Flags,
+		sourceType,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -93,6 +95,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
 	flags []string,
+	sourceType protos.DBType,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
@@ -193,7 +196,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				colNameMap[colName] = dstColName
 			}
 			clickHouseType, err := resolveClickHouseColumnType(
-				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags,
+				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags, config.Version, sourceType,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -571,6 +574,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.SoftDeleteColName,
 				req.Version,
 				req.Flags,
+				req.SourceType,
 			)
 			query, err := queryGenerator.BuildQuery(errCtx)
 			if err != nil {
@@ -725,12 +729,15 @@ func resolveClickHouseColumnType(
 	env map[string]string,
 	chVersion *chproto.Version,
 	flags []string,
+	version uint32,
+	sourceType protos.DBType,
 ) (string, error) {
 	colType := types.QValueKind(column.Type)
 	nullableEnabled := tableNullableEnabled || colSetting.GetNullableEnabled()
 	clickHouseType := colSetting.GetDestinationType()
 	if clickHouseType == "" {
-		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags)
+		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags, version,
+			sourceType)
 	}
 	if nullableEnabled && column.Nullable && !colType.IsArray() && !strings.HasPrefix(clickHouseType, "Nullable(") {
 		// a nullable-enabled column must be Nullable(...), or JSON nulls turn into the type's default value

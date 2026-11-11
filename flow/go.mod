@@ -25,15 +25,15 @@ require (
 	github.com/Shopify/toxiproxy/v2 v2.13.0
 	github.com/apache/arrow-go/v18 v18.8.0
 	github.com/aws/aws-sdk-go-v2 v1.47.5
-	github.com/aws/aws-sdk-go-v2/config v1.33.12
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.12
+	github.com/aws/aws-sdk-go-v2/config v1.33.13
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.13
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.7.8
-	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.5.1
-	github.com/aws/aws-sdk-go-v2/service/kms v1.62.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.5.2
+	github.com/aws/aws-sdk-go-v2/service/kms v1.62.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.6
 	github.com/aws/aws-sdk-go-v2/service/ses v1.42.6
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.6
-	github.com/aws/smithy-go v1.28.7
+	github.com/aws/smithy-go v1.28.8
 	github.com/cockroachdb/pebble/v2 v2.1.7
 	github.com/elastic/go-elasticsearch/v8 v8.19.7
 	github.com/go-logr/logr v1.4.4
@@ -45,7 +45,7 @@ require (
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pglogrepl v0.0.0-20261003132456-662581bb6bb6
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/json-iterator/go v1.1.12
 	github.com/lestrrat-go/httprc/v3 v3.0.6
 	github.com/lestrrat-go/jwx/v3 v3.4.0
@@ -62,8 +62,8 @@ require (
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shopspring/decimal v1.6.0
-	github.com/slack-go/slack v0.32.0
-	github.com/snowflakedb/gosnowflake/v2 v2.3.0
+	github.com/slack-go/slack v0.34.0
+	github.com/snowflakedb/gosnowflake/v2 v2.4.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/twmb/franz-go v1.22.2
@@ -71,10 +71,10 @@ require (
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.23.0
 	github.com/urfave/cli/v3 v3.14.0
-	github.com/xdg-go/scram v1.2.0
+	github.com/xdg-go/scram v1.3.0
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.2
-	go.mongodb.org/mongo-driver/v2 v2.9.2
+	go.mongodb.org/mongo-driver/v2 v2.9.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0
@@ -84,14 +84,14 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
-	go.temporal.io/api v1.64.0
+	go.temporal.io/api v1.64.1
 	go.temporal.io/sdk v1.50.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.8.1
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/text v0.43.0
 	golang.org/x/tools v0.52.0
 	google.golang.org/api v0.308.0
@@ -141,9 +141,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.8 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.12.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.39.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.12.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.39.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

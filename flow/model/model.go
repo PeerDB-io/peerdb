@@ -278,6 +278,7 @@ type SyncRecordsRequest[T Items] struct {
 	SyncBatchID   int64
 	Version       uint32
 	Flags         []string
+	SourceType    protos.DBType
 }
 type NormalizeRecordsRequest struct {
 	Env                    map[string]string
@@ -289,6 +290,7 @@ type NormalizeRecordsRequest struct {
 	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
 	Version                uint32
+	SourceType             protos.DBType
 }
 
 //nolint:govet // no need to save on fieldalignment

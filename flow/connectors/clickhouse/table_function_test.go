@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	chinternal "github.com/PeerDB-io/peerdb/flow/internal/clickhouse"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -105,37 +106,88 @@ func TestBuildInsertFromTableFunctionQueryDestinationName(t *testing.T) {
 		query)
 }
 
-// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks arrays of JSON, staged as a string holding the
-// whole array, are parsed when their column is declared an array, a null one into the empty array, and
-// left as is otherwise, as when they land in a String column.
+// TestBuildInsertFromTableFunctionQueryArrayOfJSON checks staged JSON arrays are parsed into their array column's type:
+// an override's, or for a column without one the type table creation picked.
 func TestBuildInsertFromTableFunctionQueryArrayOfJSON(t *testing.T) {
-	config := &insertFromTableFunctionConfig{
-		destinationTable: "t1",
-		schema: types.QRecordSchema{Fields: []types.QField{
-			{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
-			{Name: "docsb", Type: types.QValueKindArrayJSONB, Nullable: true},
-			{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
-		}},
-		config: &protos.QRepConfig{
-			Env: map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
-			Columns: []*protos.ColumnSetting{
-				{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
-				{SourceName: "docsb", DestinationType: "Array(JSON)"},
-			},
+	const overrides = "JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))')," +
+		"arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(ifNull(`docsb`, ''), 'Array(Nullable(JSON))')),"
+	const asText = overrides + "`docs_default`,`docs_as_string`"
+	for _, tc := range []struct {
+		name           string
+		nativeJSON     string
+		nullable       string
+		want           string
+		sourceType     protos.DBType
+		version        uint32
+		columnNullable bool
+	}{
+		{
+			name: "default mapping", nativeJSON: "true", nullable: "false",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest,
+			want: overrides +
+				"arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'))," +
+				"`docs_as_string`",
 		},
-	}
+		{
+			name: "default mapping with PEERDB_NULLABLE", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest,
+			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
+		},
+		{
+			name: "default mapping with a nullable column setting", nativeJSON: "true", nullable: "false",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest, columnNullable: true,
+			want: overrides + "JSONExtract(ifNull(`docs_default`, ''), 'Array(Nullable(JSON))'),`docs_as_string`",
+		},
+		{
+			name: "setting off", nativeJSON: "false", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_Latest, want: asText,
+		},
+		{
+			name: "non-Postgres source", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_COCKROACHDB, version: shared.InternalVersion_Latest, want: asText,
+		},
+		{
+			name: "mirror from before the mapping", nativeJSON: "true", nullable: "true",
+			sourceType: protos.DBType_POSTGRES, version: shared.InternalVersion_JSONArrayAsArrayJSON - 1, want: asText,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &insertFromTableFunctionConfig{
+				destinationTable: "t1",
+				schema: types.QRecordSchema{Fields: []types.QField{
+					{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
+					{Name: "docsb", Type: types.QValueKindArrayJSONB, Nullable: true},
+					{Name: "docs_default", Type: types.QValueKindArrayJSON, Nullable: true},
+					{Name: "docs_as_string", Type: types.QValueKindArrayJSON, Nullable: true},
+				}},
+				config: &protos.QRepConfig{
+					Env: map[string]string{
+						"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
+						"PEERDB_CLICKHOUSE_ENABLE_JSON":              tc.nativeJSON,
+						"PEERDB_NULLABLE":                            tc.nullable,
+					},
+					Columns: []*protos.ColumnSetting{
+						{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
+						{SourceName: "docsb", DestinationType: "Array(JSON)"},
+						{SourceName: "docs_default", NullableEnabled: tc.columnNullable},
+						{SourceName: "docs_as_string", DestinationType: "String"},
+					},
+					SourceType: tc.sourceType,
+					Version:    tc.version,
+				},
+				connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
+			}
 
-	query, err := buildInsertFromTableFunctionQuery(
-		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
-	)
-	require.NoError(t, err)
-	require.Equal(t,
-		"INSERT INTO `t1`(`docs`,`docsb`,`docs_as_string`) SELECT "+
-			"JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))'),"+
-			"JSONExtract(ifNull(`docsb`, ''), 'Array(JSON)'),"+
-			"`docs_as_string` "+
-			"FROM s3('s3://bucket/key', 'Avro')",
-		query)
+			query, err := buildInsertFromTableFunctionQuery(
+				context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
+			)
+			require.NoError(t, err)
+			require.Equal(t,
+				"INSERT INTO `t1`(`docs`,`docsb`,`docs_default`,`docs_as_string`) SELECT "+tc.want+
+					" FROM s3('s3://bucket/key', 'Avro')",
+				query)
+		})
+	}
 }
 
 // TestBuildInsertFromTableFunctionQueryJSON checks the native JSON casts: CAST(NULL, 'JSON') fails, so a

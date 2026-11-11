@@ -365,8 +365,15 @@ func QValueFromMysqlFieldValue(
 		case types.QValueKindBytes:
 			return types.QValueBytes{Val: slices.Clone(v)}, nil
 		case types.QValueKindJSON:
-			// keep snapshot and cdc json representation consistent
-			doc := compactMySQLJSON(v)
+			var doc string
+			if mytype == mysql.MYSQL_TYPE_JSON {
+				// MySQL prints its JSON type with spaces while the binlog decodes it compact; compact
+				// here so snapshot and cdc agree
+				doc = compactMySQLJSON(v)
+			} else {
+				// a MariaDB JSON column is a LONGTEXT on the wire and both paths carry the text as written
+				doc = string(v)
+			}
 			if wrapNonObjectJSON {
 				doc = qvalue.WrapNonObjectJSON(doc)
 			}
@@ -609,8 +616,18 @@ func QValueFromMysqlRowEvent(
 			}
 			return types.QValueEnum{Val: s}, nil
 		case types.QValueKindJSON:
-			// MySQL always stores JSON internally as utf8mb4, so it never needs transcoding.
-			doc := string(val)
+			var doc string
+			if mytype == mysql.MYSQL_TYPE_JSON {
+				// MySQL always stores JSON internally as utf8mb4, so it never needs transcoding.
+				doc = string(val)
+			} else {
+				// a MariaDB JSON column is a LONGTEXT on the wire, in the column's own charset
+				decoded, err := decodeMySQLBytes(enc, val)
+				if err != nil {
+					return nil, err
+				}
+				doc = decoded
+			}
 			if wrapNonObjectJSON {
 				doc = qvalue.WrapNonObjectJSON(doc)
 			}
