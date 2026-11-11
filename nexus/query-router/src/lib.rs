@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use catalog::Catalog;
 use parser::{PeerDBStatement, dialect::PostgreSqlDialect};
 use pgwire::{
-    api::{ClientInfo, Type, stmt::QueryParser},
+    api::{ClientInfo, Type, portal::Format, results::FieldInfo, stmt::QueryParser},
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
 use sqlparser::ast::Statement as SqlStatement;
@@ -173,7 +173,7 @@ impl QueryParser for QueryRouter {
         _client: &C,
         sql: &str,
         _types: &[Option<Type>],
-    ) -> PgWireResult<Self::Statement>
+    ) -> PgWireResult<Option<Self::Statement>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -187,18 +187,18 @@ impl QueryParser for QueryRouter {
                 err_msg,
             ))))
         } else if stmts.is_empty() {
-            Ok(ParsedStatement {
+            Ok(Some(ParsedStatement {
                 statement: Route::Empty,
                 query: sql.to_owned(),
-            })
+            }))
         } else {
             let peerdb_stmt = stmts.remove(0);
 
             if let Some(nexus_stmt) = Self::classify_peerdb_stmt(&peerdb_stmt)? {
-                return Ok(ParsedStatement {
+                return Ok(Some(ParsedStatement {
                     statement: nexus_stmt,
                     query: sql.to_owned(),
-                });
+                }));
             }
 
             let PeerDBStatement::Statement(stmt) = peerdb_stmt else {
@@ -208,10 +208,29 @@ impl QueryParser for QueryRouter {
 
             let peers = self.get_peers_bridge().await?;
             let nexus_stmt = Route::new(peers, &stmt)?;
-            Ok(ParsedStatement {
+            Ok(Some(ParsedStatement {
                 statement: nexus_stmt,
                 query: sql.to_owned(),
-            })
+            }))
         }
+    }
+
+    // pgwire only calls these from its default do_describe_statement/do_describe_portal,
+    // which NexusBackend overrides (server/src/main.rs). Fail loudly if that ever changes
+    // instead of describing zero parameters or columns.
+    fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+        Err(PgWireError::ApiError(
+            "QueryRouter::get_parameter_types is not used: NexusBackend implements describe".into(),
+        ))
+    }
+
+    fn get_result_schema(
+        &self,
+        _stmt: &Self::Statement,
+        _column_format: Option<&Format>,
+    ) -> PgWireResult<Vec<FieldInfo>> {
+        Err(PgWireError::ApiError(
+            "QueryRouter::get_result_schema is not used: NexusBackend implements describe".into(),
+        ))
     }
 }
