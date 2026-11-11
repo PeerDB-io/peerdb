@@ -247,26 +247,28 @@ func QValueToAvro(
 		binaryFormat:             binaryFormat,
 	}
 
+	// Values are returned as is, even for nullable fields: the Avro encoder picks the ["null", T] union
+	// branch from the Go type of the value, with nil selecting null.
 	switch v := value.(type) {
 	case types.QValueInvalid:
-		return c.processNullableUnion(v.Val), stringSize(v.Val, sizeOpt), nil
+		return v.Val, stringSize(v.Val, sizeOpt), nil
 	case types.QValueTime:
 		val, size := c.processGoTime(v.Val, sizeOpt)
-		return c.processNullableUnion(val), size, nil
+		return val, size, nil
 	case types.QValueTimeTZ:
 		val, size := c.processGoTime(v.Val, sizeOpt)
-		return c.processNullableUnion(val), size, nil
+		return val, size, nil
 	case types.QValueTimestamp:
 		val, size := c.processGoTimestamp(v.Val, sizeOpt)
-		return c.processNullableUnion(val), size, nil
+		return val, size, nil
 	case types.QValueTimestampTZ:
 		val, size := c.processGoTimestampTZ(v.Val, sizeOpt)
-		return c.processNullableUnion(val), size, nil
+		return val, size, nil
 	case types.QValueDate:
 		val, size := c.processGoDate(v.Val, sizeOpt)
-		return c.processNullableUnion(val), size, nil
+		return val, size, nil
 	case types.QValueQChar:
-		return c.processNullableUnion(string(v.Val)), constSize(2, sizeOpt), nil
+		return string(v.Val), constSize(2, sizeOpt), nil
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
 		types.QValueInterval, types.QValueEnum,
@@ -283,41 +285,41 @@ func QValueToAvro(
 				return "", size, nil
 			}
 		}
-		return c.processNullableUnion(v.Value()), size, nil
+		return v.Value(), size, nil
 	case types.QValueFloat32:
 		size := constSize(4, sizeOpt)
 		if c.TargetDWH == protos.DBType_BIGQUERY {
-			return c.processNullableUnion(float64(v.Val)), size, nil
+			return float64(v.Val), size, nil
 		}
-		return c.processNullableUnion(v.Val), size, nil
+		return v.Val, size, nil
 	case types.QValueFloat64:
-		return c.processNullableUnion(v.Val), constSize(8, sizeOpt), nil
+		return v.Val, constSize(8, sizeOpt), nil
 	case types.QValueInt8:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt16:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt32:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueInt64:
-		return c.processNullableUnion(v.Val), varIntSize(v.Val, sizeOpt), nil
+		return v.Val, varIntSize(v.Val, sizeOpt), nil
 	case types.QValueInt256:
 		return c.processInt256(v.Val), constSize(32, sizeOpt), nil
 	case types.QValueUInt8:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt16:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUint16Enum:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUint64Set:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt32:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt64:
-		return c.processNullableUnion(int64(v.Val)), varIntSize(int64(v.Val), sizeOpt), nil
+		return int64(v.Val), varIntSize(int64(v.Val), sizeOpt), nil
 	case types.QValueUInt256:
 		return c.processUInt256(v.Val), constSize(32, sizeOpt), nil
 	case types.QValueBoolean:
-		return c.processNullableUnion(v.Val), constSize(1, sizeOpt), nil
+		return v.Val, constSize(1, sizeOpt), nil
 	case types.QValueNumeric:
 		val, size := c.processNumeric(v.Val, sizeOpt)
 		return val, size, nil
@@ -452,14 +454,6 @@ func (c *QValueAvroConverter) processGoDate(t time.Time, so sizeOpt) (any, int64
 	return c.processGeneralTime(t, "2006-01-02", true, so)
 }
 
-// processNullableUnion returns value as is: the Avro encoder picks the ["null", T] union branch
-// from the Go type of the value, with nil selecting null, so no pointer wrapping is needed.
-func (c *QValueAvroConverter) processNullableUnion(
-	value any,
-) any {
-	return value
-}
-
 // Avro size of zero: varint(1) + 1 byte = 2
 const zeroDecimalSize = 2
 
@@ -467,7 +461,7 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal, so sizeOpt) (a
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
 		s := num.String()
-		return c.processNullableUnion(s), stringSize(s, so)
+		return s, stringSize(s, so)
 	}
 
 	num, intDigits, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
@@ -478,7 +472,7 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal, so sizeOpt) (a
 		return big.Rat{}, constSize(zeroDecimalSize, so)
 	}
 
-	return c.processNullableUnion(num.Rat()), decimalSize(num, intDigits, int(destType.Scale), so)
+	return num.Rat(), decimalSize(num, intDigits, int(destType.Scale), so)
 }
 
 // decimalSize estimates Avro-encoded size from integer digit count and scale.
@@ -530,7 +524,7 @@ func (c *QValueAvroConverter) processInt256(num *big.Int) any {
 		num = new(big.Int).Add(num, twoPow256)
 	}
 
-	return c.processNullableUnion(bigIntTo32Bytes(num))
+	return bigIntTo32Bytes(num)
 }
 
 func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
@@ -542,7 +536,7 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	return c.processNullableUnion(bigIntTo32Bytes(num))
+	return bigIntTo32Bytes(num)
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal, so sizeOpt) (any, int64) {
