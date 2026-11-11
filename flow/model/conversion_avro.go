@@ -145,8 +145,6 @@ func GetAvroSchemaDefinition(
 	if targetDWH == protos.DBType_CLICKHOUSE {
 		dstTableName = qvalue.ConvertToAvroCompatibleName(dstTableName)
 	}
-	// Avro named types (fixed, enum, record) must only be defined once per schema;
-	// SchemaNode.Schema emits later occurrences as references to the type name.
 	avroSchema, err := (&avro.SchemaNode{Type: atype.Record, Name: dstTableName, Fields: avroFields}).Schema()
 	if err != nil {
 		return nil, err
