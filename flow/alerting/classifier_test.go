@@ -1789,6 +1789,21 @@ func TestClickHouseTooManyTablesDuringTableCreationShouldNotifyUser(t *testing.T
 	}, errInfo)
 }
 
+func TestInvalidRawSQLSettingDuringTableCreationShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error while generating create table sql: %w",
+		exceptions.NewClickHouseNormalizedTableCreationError(peerdb_clickhouse.ValidateExpression("id) --"), "test")))
+	assert.Equal(t, ErrorNotifyInvalidDestinationTableDefinition, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "test",
+		},
+	}, errInfo)
+}
+
 func TestClickHouseTooManyPartsWithoutTableName(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrTooManyParts),

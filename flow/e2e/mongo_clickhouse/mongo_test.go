@@ -199,7 +199,7 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 			columns: []*protos.ColumnSetting{
 				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
 			},
-			expectedError: "invalid custom column type",
+			expectedError: "invalid column type",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -823,7 +823,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 			name: "invalid destination type",
 			config: newQRepConfig("qrep_structured_invalid_type", s.Source().GeneratePeer(t).Name,
 				[]*protos.ColumnSetting{{SourceName: "pts", DestinationType: "Int64 NOT NULL"}}),
-			expectedError: "invalid custom column type",
+			expectedError: "invalid column type",
 		},
 		{
 			name:          "unsupported source peer",

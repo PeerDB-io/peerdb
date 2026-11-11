@@ -3868,24 +3868,56 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
-	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConnConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
-		FlowConfigUpdate: &protos.FlowConfigUpdate{
-			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
-				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
-					AdditionalTables: []*protos.TableMapping{
-						{
-							SourceTableIdentifier:      AttachSchema(s, "added"),
-							DestinationTableIdentifier: "added",
-						},
+	addTable := func(mapping *protos.TableMapping) error {
+		mapping.SourceTableIdentifier = AttachSchema(s, "added")
+		mapping.DestinationTableIdentifier = "added"
+		_, err := s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+			FlowJobName:        flowConnConfig.FlowJobName,
+			RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+			FlowConfigUpdate: &protos.FlowConfigUpdate{
+				Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+					CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+						AdditionalTables:                     []*protos.TableMapping{mapping},
+						SkipInitialSnapshotForTableAdditions: true,
 					},
-					SkipInitialSnapshotForTableAdditions: true,
 				},
 			},
+		})
+		return err
+	}
+	// Invalid table additions are rejected by the API and leave the mirror paused.
+	for _, tc := range []struct {
+		name     string
+		mapping  *protos.TableMapping
+		errorMsg string
+	}{
+		{
+			name:     "column type with an extra column",
+			mapping:  &protos.TableMapping{Columns: []*protos.ColumnSetting{{SourceName: "val", DestinationType: "String, extra String"}}},
+			errorMsg: "column val: invalid column type",
 		},
-	})
-	require.NoError(s.t, err)
+		{
+			name:     "column type with a column option",
+			mapping:  &protos.TableMapping{Columns: []*protos.ColumnSetting{{SourceName: "val", DestinationType: "String DEFAULT(1)"}}},
+			errorMsg: "column val: invalid column type",
+		},
+		{
+			name:     "partition expression closing the clause",
+			mapping:  &protos.TableMapping{PartitionByExpr: "id) SETTINGS index_granularity = 1 --"},
+			errorMsg: "partition_by_expr: invalid expression",
+		},
+		{
+			name:     "sharding key with a string literal",
+			mapping:  &protos.TableMapping{ShardingKey: "rand(), 'policy'"},
+			errorMsg: "sharding_key: invalid expression",
+		},
+	} {
+		err := addTable(tc.mapping)
+		require.Equal(s.t, codes.InvalidArgument, status.Code(err), tc.name)
+		require.ErrorContains(s.t, err, tc.errorMsg, tc.name)
+		require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t), tc.name)
+	}
+	require.NoError(s.t, addTable(&protos.TableMapping{}))
 	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), flowConnConfig.FlowJobName, []string{
 			AttachSchema(s, "added"),

@@ -154,6 +154,10 @@ type ErrorInfo struct {
 	Code                 string
 }
 
+func unknownErrorInfo(source ErrorSource) ErrorInfo {
+	return ErrorInfo{Source: source, Code: "UNKNOWN"}
+}
+
 type ErrorClass struct {
 	Class  string
 	action ErrorAction
@@ -399,10 +403,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if pgErr != nil {
 				return errorClass, pgErrorInfo
 			}
-			return errorClass, ErrorInfo{
-				Source: ErrorSourcePostgresCatalog,
-				Code:   "UNKNOWN",
-			}
+			return errorClass, unknownErrorInfo(ErrorSourcePostgresCatalog)
 		}
 
 		if _, ok := errors.AsType[*exceptions.DropFlowError](err); ok {
@@ -411,10 +412,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return errorClass, pgErrorInfo
 			}
 			// For now we are not making it as verbose, will take this up later
-			return errorClass, ErrorInfo{
-				Source: ErrorSourceOther,
-				Code:   "UNKNOWN",
-			}
+			return errorClass, unknownErrorInfo(ErrorSourceOther)
 		}
 
 		if _, ok := errors.AsType[*exceptions.PostgresSetupError](err); ok {
@@ -422,10 +420,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if pgErr != nil {
 				return errorClass, pgErrorInfo
 			}
-			return errorClass, ErrorInfo{
-				Source: pgErrSource,
-				Code:   "UNKNOWN",
-			}
+			return errorClass, unknownErrorInfo(pgErrSource)
 		}
 	}
 
@@ -588,10 +583,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if _, ok := errors.AsType[*exceptions.SSHTunnelSetupError](err); ok {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   "UNKNOWN",
-		}
+		return ErrorNotifyConnectivity, unknownErrorInfo(ErrorSourceSSH)
 	}
 
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
@@ -645,10 +637,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: pgErrSource,
-			Code:   "UNKNOWN",
-		}
+		return ErrorNotifyConnectivity, unknownErrorInfo(pgErrSource)
 	}
 
 	// Consolidated PostgreSQL error handling
@@ -1166,10 +1155,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if _, ok := errors.AsType[*exceptions.BigQueryError](err); ok {
-		bqErrorInfo := ErrorInfo{
-			Source: ErrorSourceBigQuery,
-			Code:   "UNKNOWN",
-		}
+		bqErrorInfo := unknownErrorInfo(ErrorSourceBigQuery)
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			if apiErr.Code == 400 && strings.Contains(apiErr.Message, bigQueryChangeHistoryBeforeTimeTravel) {
 				bqErrorInfo.Code = "CHANGE_HISTORY_BEFORE_TIME_TRAVEL"
@@ -1210,10 +1196,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if _, ok := errors.AsType[*exceptions.GCSError](err); ok {
-		gcsErrorInfo := ErrorInfo{
-			Source: ErrorSourceGCS,
-			Code:   "UNKNOWN",
-		}
+		gcsErrorInfo := unknownErrorInfo(ErrorSourceGCS)
 		// https://docs.cloud.google.com/storage/docs/retry-strategy#retryable
 		gcsStatusErrorClass := func(statusCode int) ErrorClass {
 			if statusCode == 408 || statusCode == 429 || statusCode >= 500 {
@@ -1242,10 +1225,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	if s3Err, ok := errors.AsType[*exceptions.S3Error](err); ok {
 		s3ErrorClass := ErrorOther
-		s3ErrorInfo := ErrorInfo{
-			Source: ErrorSourceS3,
-			Code:   "UNKNOWN",
-		}
+		s3ErrorInfo := unknownErrorInfo(ErrorSourceS3)
 		if respErr, ok := errors.AsType[*awshttp.ResponseError](s3Err); ok {
 			if _, ok := retry.DefaultRetryableHTTPStatusCodes[respErr.HTTPStatusCode()]; ok {
 				s3ErrorClass = ErrorRetryRecoverable
@@ -1434,6 +1414,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, chErrorInfo
 	}
 
+	if _, ok := errors.AsType[*peerdb_clickhouse.InvalidFragmentError](err); ok {
+		errInfo := unknownErrorInfo(ErrorSourceOther)
+		if tableCreationErr, ok := errors.AsType[*exceptions.ClickHouseNormalizedTableCreationError](err); ok {
+			errInfo.AdditionalAttributes = map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: tableCreationErr.DestinationTable,
+			}
+		}
+		return ErrorNotifyInvalidDestinationTableDefinition, errInfo
+	}
+
 	if numericOutOfRangeError, ok := errors.AsType[*exceptions.NumericOutOfRangeError](err); ok {
 		return ErrorLossyConversion, ErrorInfo{
 			Source: "typeConversion",
@@ -1612,8 +1602,5 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	return ErrorOther, ErrorInfo{
-		Source: ErrorSourceOther,
-		Code:   "UNKNOWN",
-	}
+	return ErrorOther, unknownErrorInfo(ErrorSourceOther)
 }

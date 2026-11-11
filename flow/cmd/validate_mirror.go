@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -170,6 +171,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 	defer dstClose(ctx)
 
+	if tableValidationConn, ok := dstConn.(connectors.DestinationTableValidationConnector); ok {
+		if err := tableValidationConn.ValidateDestinationTables(ctx, connectionConfigs.TableMappings); err != nil {
+			return nil, NewInvalidArgumentApiError(err)
+		}
+	}
+
 	var tableSchemaMap map[string]*protos.TableSchema
 	if validateTableSettings {
 		var getTableSchemaError error
@@ -222,6 +229,27 @@ func (h *FlowRequestHandler) checkTableMappings(
 	return nil
 }
 
+// checkAdditionalTables validates the tables being added to a mirror, given as cfg's table mappings.
+func (h *FlowRequestHandler) checkAdditionalTables(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) APIError {
+	if apiErr := h.checkTableMappings(ctx, cfg); apiErr != nil {
+		return apiErr
+	}
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.DestinationTableValidationConnector](
+		ctx, cfg.Env, h.pool, cfg.DestinationName,
+	)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		return NewFailedPreconditionApiError(fmt.Errorf("failed to create destination connector: %w", err))
+	}
+	defer dstClose(ctx)
+	if err := dstConn.ValidateDestinationTables(ctx, cfg.TableMappings); err != nil {
+		return NewInvalidArgumentApiError(err)
+	}
+	return nil
+}
+
 // checkSourceTableConfig validates one table's columns.
 // If maybeStructuredIngestionConfig is non-nil, column types are validated too.
 func checkSourceTableConfig(
@@ -244,8 +272,11 @@ func checkSourceTableConfig(
 		return nil
 	}
 	for _, col := range columns {
-		if !structured.ColumnTypeRegex.MatchString(col.DestinationType) {
-			return NewInvalidArgumentApiError(fmt.Errorf("invalid custom column type %s", col.DestinationType))
+		if col.DestinationType == "" {
+			continue
+		}
+		if err := chvalidate.ValidateColumnType(col.DestinationType); err != nil {
+			return NewInvalidArgumentApiError(fmt.Errorf("table %s: column %s: %w", tableIdentifier, col.SourceName, err))
 		}
 	}
 	return nil
