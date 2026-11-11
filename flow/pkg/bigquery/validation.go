@@ -113,9 +113,8 @@ func (t TableInfo) HasPrimaryKey() bool {
 // allows 100 API requests per second per user per method, so stay well below that.
 const metadataConcurrency = 16
 
-// GetTables returns information about the specified tables. Tables (or
-// datasets) that do not exist are omitted from the result; any other failure
-// is returned.
+// GetTables returns information about the specified tables. It fails with a
+// *common.SourceTablesMissingError if any table (or its dataset) does not exist.
 func GetTables(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]TableInfo, error) {
@@ -144,14 +143,16 @@ func GetTables(
 }
 
 // GetTablesMetadata fetches BigQuery metadata for the specified tables
-// concurrently, with at most metadataConcurrency requests in flight. Tables (or
-// datasets) that do not exist are omitted from the result; any other failure
-// cancels outstanding requests and is returned.
+// concurrently, with at most metadataConcurrency requests in flight. If any
+// table (or its dataset) does not exist, it returns a
+// *common.SourceTablesMissingError listing every missing table. Any other
+// failure cancels outstanding requests and is returned.
 func GetTablesMetadata(
 	ctx context.Context, client *bigquery.Client, tables []DatasetTable,
 ) (map[DatasetTable]*bigquery.TableMetadata, error) {
 	var mu sync.Mutex
 	result := make(map[DatasetTable]*bigquery.TableMetadata, len(tables))
+	var missingTables []common.QualifiedTable
 
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(metadataConcurrency)
@@ -171,6 +172,9 @@ func GetTablesMetadata(
 			tableMeta, err := client.Dataset(dt.Dataset).Table(dt.Table).Metadata(gCtx)
 			if err != nil {
 				if apiErr, ok := errors.AsType[*googleapi.Error](err); ok && apiErr.Code == http.StatusNotFound {
+					mu.Lock()
+					missingTables = append(missingTables, common.QualifiedTable{Namespace: dt.Dataset, Table: dt.Table})
+					mu.Unlock()
 					return nil
 				}
 				return fmt.Errorf("failed to get metadata for table %q: %w", dt, err)
@@ -187,6 +191,12 @@ func GetTablesMetadata(
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if len(missingTables) > 0 {
+		slices.SortFunc(missingTables, func(a, b common.QualifiedTable) int {
+			return strings.Compare(a.String(), b.String())
+		})
+		return nil, common.NewSourceTablesMissingError(missingTables)
 	}
 
 	return result, nil
@@ -401,17 +411,10 @@ func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTab
 
 	tablesByKey, err := GetTables(ctx, cfg.Client, cfg.ProjectID, validateTables)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for tables: %w", &ExternalError{err})
-	}
-
-	var missingTables []common.QualifiedTable
-	for _, key := range validateTables {
-		if _, ok := tablesByKey[key]; !ok {
-			missingTables = append(missingTables, common.QualifiedTable{Namespace: key.Dataset, Table: key.Table})
+		if _, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
+			return nil, err
 		}
-	}
-	if len(missingTables) > 0 {
-		return nil, common.NewSourceTablesMissingError(missingTables)
+		return nil, fmt.Errorf("failed to get columns for tables: %w", &ExternalError{err})
 	}
 
 	for i, t := range cfg.Tables {
