@@ -928,7 +928,7 @@
     ]
   },
   "clickhouse": {
-    "name": "golden_dst_table",
+    "name": "ch_golden_dst_table",
     "type": "record",
     "fields": [
       {
@@ -1836,7 +1836,7 @@
     ]
   },
   "clickhouse_numeric_as_string_base64": {
-    "name": "golden_dst_table",
+    "name": "ch_golden_dst_table",
     "type": "record",
     "fields": [
       {

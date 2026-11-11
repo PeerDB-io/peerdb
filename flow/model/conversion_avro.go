@@ -143,7 +143,9 @@ func GetAvroSchemaDefinition(
 	}
 
 	if targetDWH == protos.DBType_CLICKHOUSE {
-		dstTableName = qvalue.ConvertToAvroCompatibleName(dstTableName)
+		// Prefix table name in schema with `ch_` to avoid conflicts with tables names as
+		// scalar Go lang types.
+		dstTableName = qvalue.ConvertToAvroCompatibleName("ch_" + dstTableName)
 	}
 	avroSchema, err := (&avro.SchemaNode{Type: atype.Record, Name: dstTableName, Fields: avroFields}).Schema()
 	if err != nil {
