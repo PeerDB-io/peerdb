@@ -113,8 +113,6 @@ func (t TableInfo) HasPrimaryKey() bool {
 // allows 100 API requests per second per user per method, so stay well below that.
 const metadataConcurrency = 16
 
-// GetTables returns information about the specified tables. It fails with a
-// *common.SourceTablesMissingError if any table (or its dataset) does not exist.
 func GetTables(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]TableInfo, error) {
@@ -143,10 +141,7 @@ func GetTables(
 }
 
 // GetTablesMetadata fetches BigQuery metadata for the specified tables
-// concurrently, with at most metadataConcurrency requests in flight. If any
-// table (or its dataset) does not exist, it returns a
-// *common.SourceTablesMissingError listing every missing table. Any other
-// failure cancels outstanding requests and is returned.
+// concurrently, with at most metadataConcurrency requests in flight.
 func GetTablesMetadata(
 	ctx context.Context, client *bigquery.Client, tables []DatasetTable,
 ) (map[DatasetTable]*bigquery.TableMetadata, error) {
