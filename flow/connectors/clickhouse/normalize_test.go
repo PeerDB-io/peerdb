@@ -547,7 +547,8 @@ func TestGenerateCreateTableSQLForNormalizedTableRawSQLSettings(t *testing.T) {
 			Env:           map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
 			TableMappings: []*protos.TableMapping{tableMapping},
 		}
-		return c.generateCreateTableSQLForNormalizedTable(t.Context(), config, tableIdentifier, tableSchema, chVersion, nil)
+		return c.generateCreateTableSQLForNormalizedTable(t.Context(), config, tableIdentifier, tableSchema, chVersion, nil,
+			protos.DBType_DBTYPE_UNKNOWN)
 	}
 
 	t.Run("valid settings are written as is", func(t *testing.T) {
