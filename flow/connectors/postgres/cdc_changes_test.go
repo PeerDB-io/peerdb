@@ -18,10 +18,12 @@ func TestProcessUpdateMessageKeepsUnchangedToastOnKeyChange(t *testing.T) {
 		srcTableIDNameMapping: map[uint32]string{1: "s.t"},
 		tableNameMapping:      map[string]model.SourceTableMapping{"s.t": {Name: "d.t"}},
 		relationMessageMapping: model.RelationMessageMapping{1: {RelationID: 1, Columns: []*pglogrepl.RelationMessageColumn{
-			{Name: "id", DataType: 23, Flags: 1}, {Name: "big", DataType: 25}}}},
+			{Name: "id", DataType: 23, Flags: 1}, {Name: "big", DataType: 25},
+		}}},
 	}
 	update := func(oldType uint8, old *pglogrepl.TupleDataColumn) *model.UpdateRecord[model.PgItems] {
-		rec, err := processUpdateMessage(p, 0, &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: oldType,
+		rec, err := processUpdateMessage(p, 0, &pglogrepl.UpdateMessage{
+			RelationID: 1, OldTupleType: oldType,
 			OldTuple: &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{DataType: 't', Data: []byte("1")}, old}},
 			NewTuple: &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{DataType: 't', Data: []byte("2")}, {DataType: 'u'}}},
 		}, pgProcessor{}, nil, map[string]struct{}{})
