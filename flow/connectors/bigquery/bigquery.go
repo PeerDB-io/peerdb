@@ -268,6 +268,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 	_ []string,
+	_ uint32, _ protos.DBType,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
@@ -678,6 +679,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	_ protos.DBType,
 ) (bool, error) {
 	datasetTablesSet := tx.(map[datasetTable]struct{})
 

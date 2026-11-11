@@ -1480,8 +1480,8 @@ func processRelationMessage[Items model.Items](
 			// destinations on the PG type system splice the column type in verbatim, so a literal
 			// rendered for a QValueKind would not fit their DDL
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
-				destinationType := model.ExplicitDestinationType(currRelDstInfo.Columns, column.Name)
-				wrapJSON := qvalue.ShouldWrapNonObjectJSON(p.flags, p.internalVersion, p.nativeJSONEnabled, destinationType)
+				wrapJSON := shouldWrapJSONColumn(column.DataType, column.Name, customTypeMapping,
+					p.flags, p.internalVersion, p.nativeJSONEnabled, currRelDstInfo.Columns)
 				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON); ok {
 					defaultExpr = &literal
 				}
@@ -1566,7 +1566,7 @@ type addedColumnCatalogInfo struct {
 	// ADD COLUMN. nil means either there is no missing value or that value is SQL NULL.
 	missingValue *string
 	// missingJSON is the same value as JSON text, which keeps a top-level JSON string quoted and a JSON
-	// null distinct from SQL NULL; only meaningful for json/jsonb columns.
+	// null distinct from SQL NULL; only meaningful for json/jsonb and json[]/jsonb[] columns.
 	missingJSON *string
 	hasMissing  bool
 	notNull     bool
@@ -1575,10 +1575,12 @@ type addedColumnCatalogInfo struct {
 // missingValueFor returns the stored missing value in the form defaultExprFromPostgresMissingValue
 // expects for a column of kind qkind.
 func (info addedColumnCatalogInfo) missingValueFor(qkind types.QValueKind) *string {
-	if qkind == types.QValueKindJSON || qkind == types.QValueKindJSONB {
+	switch qkind {
+	case types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		return info.missingJSON
+	default:
+		return info.missingValue
 	}
-	return info.missingValue
 }
 
 // fetchAddedColumnCatalogInfo reads nullability and the value PostgreSQL uses for rows that predate
@@ -1683,6 +1685,23 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, w
 			value = qvalue.WrapNonObjectJSON(value)
 		}
 		return quoteDefaultLiteral(value), true
+
+	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+		// Array(JSON) only: wrap each element and parse with JSONExtract, ClickHouse does not cast a string
+		// literal to Array(JSON). A NULL element looks like a JSON null in to_json, so it lands as {}.
+		if !wrapNonObjectJSON {
+			return "", false
+		}
+		var elems []json.RawMessage
+		if err := json.Unmarshal([]byte(value), &elems); err != nil {
+			return "", false
+		}
+		wrapped := make([]string, len(elems))
+		for i, elem := range elems {
+			wrapped[i] = qvalue.WrapNonObjectJSON(string(elem))
+		}
+		return fmt.Sprintf("JSONExtract(%s, 'Array(JSON)')",
+			quoteDefaultLiteral("["+strings.Join(wrapped, ",")+"]")), true
 
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
 		types.QValueKindINET, types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:
