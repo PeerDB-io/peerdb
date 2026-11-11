@@ -46,10 +46,10 @@ func TestValidatorsAgreeWithClickHouseParser(t *testing.T) {
 			// ClickHouse rewrites what it parses, so compare against the type as it parses on its own.
 			cast := formatted(t, "concat('SELECT CAST(1 AS ', {fragment:String}, ')')", columnType)
 			require.NotNil(t, cast, "column type %q parses in CREATE TABLE but not in CAST", columnType)
-			canonicalType, ok := strings.CutPrefix(*cast, "SELECT CAST(1, '")
-			require.True(t, ok, *cast)
-			canonicalType, ok = strings.CutSuffix(canonicalType, "')")
-			require.True(t, ok, *cast)
+			// The type is the CAST's last argument; how the value is formatted varies across versions.
+			typeStart := strings.LastIndex(*cast, ", '")
+			require.True(t, typeStart >= 0 && strings.HasSuffix(*cast, "')"), *cast)
+			canonicalType := (*cast)[typeStart+len(", '") : len(*cast)-len("')")]
 			require.True(t, strings.HasPrefix(*ddl, "CREATE TABLE t (`x` "+canonicalType+", `y` UInt8) ENGINE = "),
 				"column type %q changed the statement: %s", columnType, *ddl)
 		}
