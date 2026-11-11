@@ -27,6 +27,8 @@ const (
 	MySQLMinVersionForBinlogTransactionCompression = "8.0.20"
 	MySQLMinVersionForInvisibleColumns             = "8.0.23"
 	MariaDBMinVersionForInvisibleColumns           = "10.3.0"
+	// MDEV-13916: from 10.4.3 MariaDB adds a json_valid check to a column declared JSON
+	MariaDBMinVersionForJSONCheck                  = "10.4.3"
 	MySQLMinVersionForGeneratedInvisiblePrimaryKey = "8.0.30"
 )
 
