@@ -25,7 +25,6 @@ fn json_to_expr(val: JsonValue) -> Expr {
                 Value::SingleQuotedString(JsonValue::Object(x).to_string()).into(),
             )),
             format: None,
-            array: false,
         },
     }
 }
