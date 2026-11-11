@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -547,19 +548,22 @@ func TestHasLongText(t *testing.T) {
 
 	result := func(columnTypes ...string) *mysql.Result {
 		rs := mysql.NewResultset(2)
-		for _, columnType := range columnTypes {
+		for idx, columnType := range columnTypes {
 			rs.Values = append(rs.Values, []mysql.FieldValue{
-				mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte("c")),
+				mysql.NewFieldValue(mysql.FieldValueTypeString, 0, fmt.Appendf(nil, "c%d", idx)),
 				mysql.NewFieldValue(mysql.FieldValueTypeString, 0, []byte(columnType)),
 			})
 		}
 		return mysql.NewResult(rs)
 	}
 
-	require.True(t, hasLongText(result("int(11)", "longtext")))
-	require.True(t, hasLongText(result("LONGTEXT")))
-	require.False(t, hasLongText(result("int(11)", "text", "mediumtext", "varchar(10)")))
-	require.False(t, hasLongText(result()))
+	require.True(t, hasLongText(result("int(11)", "longtext"), nil))
+	require.True(t, hasLongText(result("LONGTEXT"), nil))
+	require.False(t, hasLongText(result("int(11)", "text", "mediumtext", "varchar(10)"), nil))
+	require.False(t, hasLongText(result(), nil))
+	// an excluded LONGTEXT column does not count, another one still does
+	require.False(t, hasLongText(result("int(11)", "longtext"), []string{"c1"}))
+	require.True(t, hasLongText(result("longtext", "longtext"), []string{"c1"}))
 }
 
 func TestClassifyOnlineSchemaMigrationTool(t *testing.T) {

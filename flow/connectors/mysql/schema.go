@@ -100,7 +100,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		return nil, err
 	}
 	var jsonColumns []string
-	if hasLongText(rs) {
+	if hasLongText(rs, nil) {
 		jsonColumns, err = c.getMariaDBJSONColumns(ctx, schema, table, version)
 		if err != nil {
 			return nil, err

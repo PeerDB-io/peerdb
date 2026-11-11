@@ -214,12 +214,14 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
-// hasLongText reports whether a columns result, with column_type as its second column, has a LONGTEXT column,
-// the only type MariaDB's JSON alias creates
-func hasLongText(rs *mysql.Result) bool {
+// hasLongText reports whether a columns result, with column_name and column_type as its first two columns,
+// has a LONGTEXT column outside exclude, the only type MariaDB's JSON alias creates
+func hasLongText(rs *mysql.Result, exclude []string) bool {
 	for idx := range rs.RowNumber() {
 		if columnType, err := rs.GetString(idx, 1); err == nil && strings.EqualFold(columnType, "longtext") {
-			return true
+			if name, err := rs.GetString(idx, 0); err == nil && !slices.Contains(exclude, name) {
+				return true
+			}
 		}
 	}
 	return false
@@ -305,7 +307,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
 	var jsonColumns []string
-	if hasLongText(rs) {
+	if hasLongText(rs, tm.Exclude) {
 		jsonColumns, err = c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
 		if err != nil {
 			return nil, err
