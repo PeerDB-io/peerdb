@@ -6,14 +6,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	"cloud.google.com/go/bigquery"
 	storageapi "cloud.google.com/go/bigquery/storage/apiv1"
 	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
 	"cloud.google.com/go/storage"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -105,49 +109,84 @@ func (t TableInfo) HasPrimaryKey() bool {
 	return false
 }
 
-// GetTables returns information about the specified tables
+// metadataConcurrency bounds concurrent per-table BigQuery API calls. BigQuery
+// allows 100 API requests per second per user per method, so stay well below that.
+const metadataConcurrency = 16
+
+// GetTables returns information about the specified tables. Tables (or
+// datasets) that do not exist are omitted from the result; any other failure
+// is returned.
 func GetTables(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]TableInfo, error) {
-	tablesByDataset := make(map[string][]string)
-	for _, dt := range tables {
-		tablesByDataset[dt.Dataset] = append(tablesByDataset[dt.Dataset], dt.Table)
+	metadataByTable, err := GetTablesMetadata(ctx, client, tables)
+	if err != nil {
+		return nil, err
 	}
 
-	result := make(map[DatasetTable]TableInfo, len(tables))
-	for dataset, tableNames := range tablesByDataset {
-		ds := client.Dataset(dataset)
-		tables := ds.Tables(ctx)
-		for {
-			table, err := tables.Next()
-			if err != nil {
-				if errors.Is(err, iterator.Done) {
-					break
-				}
-				return nil, err
-			}
-			if !slices.Contains(tableNames, table.TableID) {
-				continue
-			}
-
-			tableInfo := TableInfo{Columns: make(map[string]ColumnInfo)}
-			tableMeta, err := table.Metadata(ctx)
-			if err != nil {
-				return nil, err
-			}
-			var primaryKeyColumns []string
-			if tableMeta.TableConstraints != nil && tableMeta.TableConstraints.PrimaryKey != nil {
-				primaryKeyColumns = tableMeta.TableConstraints.PrimaryKey.Columns
-			}
-			for _, col := range tableMeta.Schema {
-				tableInfo.Columns[col.Name] = ColumnInfo{
-					Type: col.Type,
-					IsPK: slices.Contains(primaryKeyColumns, col.Name),
-				}
-			}
-
-			result[DatasetTable{Dataset: dataset, Table: table.TableID}] = tableInfo
+	result := make(map[DatasetTable]TableInfo, len(metadataByTable))
+	for dt, tableMeta := range metadataByTable {
+		var primaryKeyColumns []string
+		if tableMeta.TableConstraints != nil && tableMeta.TableConstraints.PrimaryKey != nil {
+			primaryKeyColumns = tableMeta.TableConstraints.PrimaryKey.Columns
 		}
+		tableInfo := TableInfo{Columns: make(map[string]ColumnInfo, len(tableMeta.Schema))}
+		for _, col := range tableMeta.Schema {
+			tableInfo.Columns[col.Name] = ColumnInfo{
+				Type: col.Type,
+				IsPK: slices.Contains(primaryKeyColumns, col.Name),
+			}
+		}
+		result[dt] = tableInfo
+	}
+
+	return result, nil
+}
+
+// GetTablesMetadata fetches BigQuery metadata for the specified tables
+// concurrently, with at most metadataConcurrency requests in flight. Tables (or
+// datasets) that do not exist are omitted from the result; any other failure
+// cancels outstanding requests and is returned.
+func GetTablesMetadata(
+	ctx context.Context, client *bigquery.Client, tables []DatasetTable,
+) (map[DatasetTable]*bigquery.TableMetadata, error) {
+	var mu sync.Mutex
+	result := make(map[DatasetTable]*bigquery.TableMetadata, len(tables))
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(metadataConcurrency)
+	seen := make(map[DatasetTable]struct{}, len(tables))
+	for _, dt := range tables {
+		if _, ok := seen[dt]; ok {
+			continue
+		}
+		seen[dt] = struct{}{}
+		if gCtx.Err() != nil {
+			break
+		}
+		g.Go(func() error {
+			if gCtx.Err() != nil {
+				return nil
+			}
+			tableMeta, err := client.Dataset(dt.Dataset).Table(dt.Table).Metadata(gCtx)
+			if err != nil {
+				if apiErr, ok := errors.AsType[*googleapi.Error](err); ok && apiErr.Code == http.StatusNotFound {
+					return nil
+				}
+				return fmt.Errorf("failed to get metadata for table %q: %w", dt, err)
+			}
+
+			mu.Lock()
+			result[dt] = tableMeta
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	return result, nil
@@ -377,14 +416,29 @@ func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTab
 
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
-
 		if err := validateColumnSelection(key, tablesByKey[key], t.Include, t.Exclude); err != nil {
 			return nil, err
 		}
+	}
 
-		if err := validateTableDataAccess(ctx, cfg.Client, cfg.ProjectID, key); err != nil {
-			return nil, err
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(metadataConcurrency)
+	for _, key := range validateTables {
+		if gCtx.Err() != nil {
+			break
 		}
+		g.Go(func() error {
+			if gCtx.Err() != nil {
+				return nil
+			}
+			return validateTableDataAccess(gCtx, cfg.Client, cfg.ProjectID, key)
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	return tablesByKey, nil
