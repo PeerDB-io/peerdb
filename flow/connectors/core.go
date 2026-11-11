@@ -57,6 +57,13 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema) error
 }
 
+type DestinationTableValidationConnector interface {
+	Connector
+
+	// ValidateDestinationTables checks table mapping settings that need neither the server nor source schemas.
+	ValidateDestinationTables(context.Context, []*protos.TableMapping) error
+}
+
 type StatActivityConnector interface {
 	Connector
 
@@ -871,6 +878,8 @@ var (
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ MirrorDestinationValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorDestinationValidationConnector = &connbigquery.BigQueryConnector{}
+
+	_ DestinationTableValidationConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 

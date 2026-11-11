@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -514,6 +516,87 @@ func TestGenerateCreateTableSQLForNormalizedTable(t *testing.T) {
 			for _, notContain := range tc.notContains {
 				require.NotContains(t, sql, notContain)
 			}
+		})
+	}
+}
+
+func TestGenerateCreateTableSQLForNormalizedTableRawSQLSettings(t *testing.T) {
+	tableIdentifier := "tbl"
+	tableSchema := &protos.TableSchema{
+		Columns: []*protos.FieldDescription{
+			{Name: "id", Type: string(types.QValueKindInt64)},
+			{Name: "doc", Type: string(types.QValueKindJSON)},
+		},
+		PrimaryKeyColumns: []string{"id"},
+	}
+	chVersion := &chproto.Version{Major: 25, Minor: 8, Patch: 0}
+
+	generate := func(t *testing.T, cluster string, tableMapping *protos.TableMapping) ([]string, error) {
+		t.Helper()
+		tableMapping.SourceTableIdentifier = tableIdentifier
+		tableMapping.DestinationTableIdentifier = tableIdentifier
+		c := &ClickHouseConnector{
+			Config:    &protos.ClickhouseConfig{Database: "db", Cluster: cluster},
+			chVersion: chVersion,
+		}
+		config := &protos.SetupNormalizedTableBatchInput{
+			Env:           map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false"},
+			TableMappings: []*protos.TableMapping{tableMapping},
+		}
+		return c.generateCreateTableSQLForNormalizedTable(t.Context(), config, tableIdentifier, tableSchema, chVersion, nil)
+	}
+
+	t.Run("valid settings are written as is", func(t *testing.T) {
+		result, err := generate(t, "cluster", &protos.TableMapping{
+			Columns:         []*protos.ColumnSetting{{SourceName: "doc", DestinationType: "Nullable(String)"}},
+			PartitionByExpr: "id % 4",
+			ShardingKey:     "cityHash64(id)",
+		})
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		require.Contains(t, result[0], "`doc` Nullable(String),")
+		require.Contains(t, result[0], "PARTITION BY (id % 4)")
+		require.Contains(t, result[1], ",(cityHash64(id)))")
+	})
+
+	for _, tc := range []struct {
+		name         string
+		tableMapping *protos.TableMapping
+		wantErr      string
+	}{
+		{
+			name:    "column type with extra column",
+			wantErr: "column doc: invalid column type",
+			tableMapping: &protos.TableMapping{Columns: []*protos.ColumnSetting{
+				{SourceName: "doc", DestinationType: "JSON, extra String DEFAULT 'x'"},
+			}},
+		},
+		{
+			name:    "column type with column option",
+			wantErr: "column doc: invalid column type",
+			tableMapping: &protos.TableMapping{Columns: []*protos.ColumnSetting{
+				{SourceName: "doc", DestinationType: "Nullable(String)DEFAULT(hostName())"},
+			}},
+		},
+		{
+			name:         "partition expression closing the clause",
+			tableMapping: &protos.TableMapping{PartitionByExpr: "id) SETTINGS index_granularity = 1 --"},
+			wantErr:      "partition_by_expr: invalid expression",
+		},
+		{
+			name:         "sharding key with a string literal",
+			tableMapping: &protos.TableMapping{ShardingKey: "rand(), 'policy'"},
+			wantErr:      "sharding_key: invalid expression",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := generate(t, "cluster", tc.tableMapping)
+			require.ErrorContains(t, err, tc.wantErr)
+			var tableCreationErr *exceptions.ClickHouseNormalizedTableCreationError
+			require.ErrorAs(t, err, &tableCreationErr)
+			require.Equal(t, tableIdentifier, tableCreationErr.DestinationTable)
+			var fragmentErr *peerdb_clickhouse.InvalidFragmentError
+			require.ErrorAs(t, err, &fragmentErr)
 		})
 	}
 }

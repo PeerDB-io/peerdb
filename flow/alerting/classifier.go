@@ -1432,6 +1432,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, chErrorInfo
 	}
 
+	if _, ok := errors.AsType[*peerdb_clickhouse.InvalidFragmentError](err); ok {
+		errInfo := ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "UNKNOWN",
+		}
+		if tableCreationErr, ok := errors.AsType[*exceptions.ClickHouseNormalizedTableCreationError](err); ok {
+			errInfo.AdditionalAttributes = map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable: tableCreationErr.DestinationTable,
+			}
+		}
+		return ErrorNotifyInvalidDestinationTableDefinition, errInfo
+	}
+
 	if numericOutOfRangeError, ok := errors.AsType[*exceptions.NumericOutOfRangeError](err); ok {
 		return ErrorLossyConversion, ErrorInfo{
 			Source: "typeConversion",

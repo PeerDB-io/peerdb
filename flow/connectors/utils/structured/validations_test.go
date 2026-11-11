@@ -28,7 +28,7 @@ func TestValidateColumns(t *testing.T) {
 		"no columns are specified for table db.coll")
 	require.ErrorContains(t, ValidateColumns("db.coll", []*protos.ColumnSetting{
 		{SourceName: "pts", DestinationType: "Int64 NOT NULL"},
-	}), "invalid custom column type")
+	}), "invalid column type")
 	require.ErrorContains(t, ValidateColumns("db.coll", []*protos.ColumnSetting{
 		{SourceName: "team", DestinationType: "Nullable(String)"},
 		{SourceName: "pts"},

@@ -101,6 +101,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	if tableMapping != nil {
 		tmEngine = tableMapping.Engine
 	}
+	if err := validateRawSQLSettings(tableMapping); err != nil {
+		return nil, exceptions.NewClickHouseNormalizedTableCreationError(err, tableIdentifier)
+	}
 
 	isDeletedColumn := defaultIsDeletedColName
 	isDeletedColumnPart := ""
@@ -267,8 +270,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+shardSuffix),
 			)
 			if tableMapping.ShardingKey != "" {
-				stmtBuilderDistributed.WriteByte(',')
-				stmtBuilderDistributed.WriteString(tableMapping.ShardingKey)
+				fmt.Fprintf(&stmtBuilderDistributed, ",(%s)", tableMapping.ShardingKey)
 				if tableMapping.PolicyName != "" {
 					stmtBuilderDistributed.WriteByte(',')
 					stmtBuilderDistributed.WriteString(peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
@@ -730,7 +732,6 @@ func resolveClickHouseColumnType(
 	if clickHouseType == "" {
 		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags)
 	}
-	// TODO basic validation to avoid injection
 	if nullableEnabled && column.Nullable && !colType.IsArray() && !strings.HasPrefix(clickHouseType, "Nullable(") {
 		// a nullable-enabled column must be Nullable(...), or JSON nulls turn into the type's default value
 		return fmt.Sprintf("Nullable(%s)", clickHouseType), nil

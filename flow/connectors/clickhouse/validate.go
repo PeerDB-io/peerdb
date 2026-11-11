@@ -83,9 +83,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	for _, tableMapping := range cfg.TableMappings {
 		dstTableName := tableMapping.DestinationTableIdentifier
-		if dstTableName == "" {
-			return fmt.Errorf("destination table identifier is empty")
-		}
 		processedSchema, ok := processedMapping[dstTableName]
 		if !ok {
 			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
@@ -175,6 +172,42 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 			chColumns, peerDBColumns, tableMapping,
 		); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (c *ClickHouseConnector) ValidateDestinationTables(_ context.Context, tableMappings []*protos.TableMapping) error {
+	for _, tableMapping := range tableMappings {
+		if tableMapping.DestinationTableIdentifier == "" {
+			return fmt.Errorf("destination table identifier is empty for table %s", tableMapping.SourceTableIdentifier)
+		}
+		if err := validateRawSQLSettings(tableMapping); err != nil {
+			return fmt.Errorf("table %s: %w", tableMapping.SourceTableIdentifier, err)
+		}
+	}
+	return nil
+}
+
+// validateRawSQLSettings checks the settings written unquoted into CREATE TABLE.
+// Table creation checks them again, as stored configs may have skipped API validation.
+func validateRawSQLSettings(tableMapping *protos.TableMapping) error {
+	for _, col := range tableMapping.GetColumns() {
+		if col.DestinationType == "" {
+			continue
+		}
+		if err := chvalidate.ValidateColumnType(col.DestinationType); err != nil {
+			return fmt.Errorf("column %s: %w", col.SourceName, err)
+		}
+	}
+	if partitionByExpr := tableMapping.GetPartitionByExpr(); partitionByExpr != "" {
+		if err := chvalidate.ValidateExpression(partitionByExpr); err != nil {
+			return fmt.Errorf("partition_by_expr: %w", err)
+		}
+	}
+	if shardingKey := tableMapping.GetShardingKey(); shardingKey != "" {
+		if err := chvalidate.ValidateExpression(shardingKey); err != nil {
+			return fmt.Errorf("sharding_key: %w", err)
 		}
 	}
 	return nil

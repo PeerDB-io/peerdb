@@ -572,6 +572,10 @@ func ValidatePartitionByExpression(
 		return nil
 	}
 
+	if err := ValidateExpression(expression); err != nil {
+		return fmt.Errorf("invalid partition expression (%s) for table %s: %w", expression, targetTable, err)
+	}
+
 	// If the validation query fails to execute in CH, we deem the expression invalid
 	rows, err := Query(ctx, logger, conn, buildPartitionByValidationQuery(expression, columnNames, excludedColumns))
 	if err != nil {
