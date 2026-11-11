@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 // syncFlowQueryCDC replaces pullAndSync/normalizeLoop for the query-based CDC
@@ -120,19 +119,28 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 		return err
 	}
 
-	group, groupCtx := errgroup.WithContext(ctx)
-	for _, tableMapping := range options.TableMappings {
-		normRequests := concurrency.NewLastChan()
-		normResponses := concurrency.NewLastChan()
+	// Load all saved batch IDs before starting any workers. If a read fails,
+	// we can return without leaving workers running for earlier tables.
+	progressByTable := make([]*syncNormalizeProgress, len(options.TableMappings))
+	for i, tableMapping := range options.TableMappings {
+		state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, tableMapping.SourceTableIdentifier)
+		if err != nil {
+			return a.Alerter.LogFlowError(ctx, flowName, err)
+		}
+		progressByTable[i] = newSyncNormalizeProgress(state.SyncedBatchID, state.NormalizedBatchID)
+	}
 
+	group, groupCtx := errgroup.WithContext(ctx)
+	for i, tableMapping := range options.TableMappings {
+		progress := progressByTable[i]
 		group.Go(func() error {
 			return a.queryCDCNormalizeLoop(groupCtx, config, tableMapping, tableNameSchemaMapping,
-				normSem, normRequests, normResponses)
+				normSem, progress)
 		})
 		group.Go(func() error {
 			return a.queryCDCPullSyncLoop(groupCtx, config, srcConn, pgMetadata, tableMapping, tableNameSchemaMapping,
 				channelBufferSize, idleTimeout, syncSchedule, queryCDCSafetyLag, queryCDCMaxQueryWindow, normBufferSize,
-				pullSyncSem, &totalRecordsSynced, normRequests, normResponses)
+				pullSyncSem, &totalRecordsSynced, progress)
 		})
 	}
 
@@ -341,8 +349,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	normBufferSize int64,
 	pullSyncSem chan struct{},
 	totalRecordsSynced *atomic.Int64,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 ) error {
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
@@ -364,25 +371,17 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 	// keep polling until caught up.
 	catchingUp := false
 	for ctx.Err() == nil {
-		// captured before the state read so a concurrent normalize commit can't land in the
-		// gap between reading a stale state and waiting, which would wait on a channel that
-		// already fired (or never will) and stall this table's replication forever
-		normWaitCh := normResponses.Wait()
+		if progress.SyncedBatchID()-progress.NormalizedBatchID() >= normBufferSize {
+			logger.Warn("query-based CDC table waiting on its own normalize backpressure",
+				slog.Int64("syncedBatchID", progress.SyncedBatchID()),
+				slog.Int64("normalizedBatchID", progress.NormalizedBatchID()), slog.Int64("normBufferSize", normBufferSize))
+		}
+		if err := progress.WaitForNormalizeCatchup(ctx, normBufferSize); err != nil {
+			return err
+		}
 		state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
-		}
-
-		if state.SyncedBatchID-state.NormalizedBatchID >= normBufferSize {
-			logger.Warn("query-based CDC table waiting on its own normalize backpressure",
-				slog.Int64("syncedBatchID", state.SyncedBatchID),
-				slog.Int64("normalizedBatchID", state.NormalizedBatchID), slog.Int64("normBufferSize", normBufferSize))
-			select {
-			case <-normWaitCh:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
 		}
 
 		if wait := queryCDCPollWait(
@@ -548,7 +547,7 @@ func (a *FlowableActivity) queryCDCPullSyncLoop(
 		if numSynced > 0 {
 			totalRecordsSynced.Add(numSynced)
 			a.recordSyncMetrics(ctx, destTable, rowCounts, pullResult.BytesProcessed, newBatchID)
-			normRequests.Update(newBatchID)
+			progress.RecordSyncedBatch(newBatchID)
 		}
 	}
 	return ctx.Err()
@@ -602,8 +601,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 	tableMapping *protos.TableMapping,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	normSem chan struct{},
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 ) error {
 	flowName := config.FlowJobName
 	sourceTable := tableMapping.SourceTableIdentifier
@@ -614,34 +612,14 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		attribute.String(otel_metrics.DestinationTableNameKey, destTable),
 	))
 
-	state, err := pgMetadata.GetQueryCDCReplicationState(ctx, flowName, sourceTable)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, flowName, err)
-	}
-	normResponses.Update(state.NormalizedBatchID)
-	if state.SyncedBatchID > state.NormalizedBatchID {
-		// Resume any batches synced but not normalized before a prior activity attempt stopped.
-		normRequests.Update(state.SyncedBatchID)
-	}
-
 	wasLagging := false
 	retryInterval := time.Minute
 	for {
-		reqBatchID := normRequests.Load()
-		lastNormalized := normResponses.Load()
-		if reqBatchID <= lastNormalized {
-			logger.Info("[cdc] waiting for next normalize request", slog.Int64("lastNormalizedBatchID", lastNormalized))
-			ch := normRequests.Wait()
-			if ch == nil {
-				return nil
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ch:
-				continue
-			}
+		targetBatchID, err := progress.WaitForUnnormalizedBatch(ctx)
+		if err != nil {
+			return err
 		}
+		lastNormalized := progress.NormalizedBatchID()
 
 		// bounded parallelism: only normalize into the destination for up to
 		// normParallelism tables at once.
@@ -661,7 +639,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 			defer dstClose(ctx)
 
 			logger.Info("[cdc] starting normalize",
-				slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", reqBatchID))
+				slog.Int64("startBatchID", startBatchID), slog.Int64("endBatchID", targetBatchID))
 			normCounts, err := dstConn.NormalizeQueryCDC(ctx, &model.NormalizeQueryCDCRequest{
 				Env:               config.Env,
 				FlowJobName:       flowName,
@@ -670,7 +648,7 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 				Version:           config.Version,
 				Flags:             config.Flags,
 				StartBatchID:      startBatchID,
-				EndBatchID:        reqBatchID,
+				EndBatchID:        targetBatchID,
 				SoftDeleteColName: config.SoftDeleteColName,
 			})
 			return normCounts, err, nil
@@ -699,16 +677,16 @@ func (a *FlowableActivity) queryCDCNormalizeLoop(
 		wasLagging = false
 		retryInterval = time.Minute
 
-		if err := pgMetadata.RecordQueryCDCNormalize(ctx, flowName, sourceTable, reqBatchID, normCounts, time.Now()); err != nil {
+		if err := pgMetadata.RecordQueryCDCNormalize(ctx, flowName, sourceTable, targetBatchID, normCounts, time.Now()); err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
-		normResponses.Update(reqBatchID)
-		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metricsOptions)
+		progress.RecordNormalizedBatch(targetBatchID)
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, targetBatchID, metricsOptions)
 		numReplicated := normCounts.InsertCount.Load() + normCounts.UpdateCount.Load() + normCounts.DeleteCount.Load()
 		if numReplicated > 0 {
 			a.Alerter.LogFlowInfo(ctx, flowName,
 				fmt.Sprintf("replicated %d rows to destination for table %s", numReplicated, destTable))
 		}
-		logger.Info("[cdc] normalize done", slog.Int64("normalizedBatchID", reqBatchID))
+		logger.Info("[cdc] normalize done", slog.Int64("normalizedBatchID", targetBatchID))
 	}
 }

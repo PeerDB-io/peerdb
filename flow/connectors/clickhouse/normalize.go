@@ -532,12 +532,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		})
 	}
 
-	// wrap query generation logic in a function to ensure queriesCh always closes once
-	if err := func() error {
+	// A query-generation error must cancel the INSERT workers.
+	// group.Wait below joins all workers before normalization can return.
+	group.Go(func() error {
 		defer close(queriesCh)
 
 		for _, tbl := range destinationTableNames {
-			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, tbl)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
 				return err
@@ -569,7 +570,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.Version,
 				req.Flags,
 			)
-			query, err := queryGenerator.BuildQuery(ctx)
+			query, err := queryGenerator.BuildQuery(errCtx)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while building insert into select query",
 					slog.String("table", tbl),
@@ -593,9 +594,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 		}
 		return nil
-	}(); err != nil {
-		return model.NormalizeResponse{}, err
-	}
+	})
 
 	if err := group.Wait(); err != nil {
 		return model.NormalizeResponse{}, err
