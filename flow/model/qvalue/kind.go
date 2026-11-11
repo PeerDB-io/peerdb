@@ -30,6 +30,10 @@ func GetNumericDestinationType(
 		if precision > datatypes.PeerDBClickHouseMaxPrecision {
 			return NumericDestinationType{IsString: true}
 		}
+		// ClickHouse rejects a Decimal whose scale is negative or above its precision; Postgres allows both since 15.
+		if scale < 0 || scale > precision {
+			return NumericDestinationType{IsString: true}
+		}
 	}
 	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 	return NumericDestinationType{
