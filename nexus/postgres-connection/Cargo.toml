@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 pt = { path = "../pt" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
