@@ -376,6 +376,7 @@ func TestContextAwareCounterConcurrentAdds(t *testing.T) {
 			ctx := flowContext("test-flow")
 			for range adds {
 				counter.Add(ctx, 1)
+				counter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(attribute.String("charset", "latin1"))))
 			}
 		})
 	}
@@ -395,5 +396,35 @@ func TestContextAwareCounterConcurrentAdds(t *testing.T) {
 	}
 	collect()
 
-	require.Equal(t, int64(workers*adds), exported)
+	require.Equal(t, int64(2*workers*adds), exported)
+}
+
+// Each round races one Record against one collection. The recorded value must be reported by that
+// collection or the next one, never dropped.
+func TestContextAwareGaugeConcurrentRecordAndCollect(t *testing.T) {
+	var gauge contextAwareGauge
+	gauge.init()
+	ctx := flowContext("test-flow")
+	gauge.record(ctx, 0, attribute.Set{})
+
+	var reported []uint64
+	collect := func() {
+		gauge.collect(func(bits uint64, _ attribute.Set) { reported = append(reported, bits) })
+	}
+	const rounds = 200000
+	lost := 0
+	for i := uint64(1); i <= rounds; i++ {
+		reported = reported[:0]
+		var start, wg sync.WaitGroup
+		start.Add(1)
+		wg.Go(func() { start.Wait(); gauge.record(ctx, i, attribute.Set{}) })
+		wg.Go(func() { start.Wait(); collect() })
+		start.Done()
+		wg.Wait()
+		collect()
+		if len(reported) == 0 || reported[len(reported)-1] != i {
+			lost++
+		}
+	}
+	require.Zero(t, lost, "latest value dropped in %d/%d rounds", lost, rounds)
 }
