@@ -1114,12 +1114,8 @@ func startSetupAndSnapshot(
 	for ctx.Err() == nil && setupSnapshotSelector.HasPending() {
 		setupSnapshotSelector.Select(ctx)
 	}
-	if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-		return nextRunDrop, nil
-	}
-	if err := ctx.Err(); err != nil {
-		state.UpdateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
-		return nextRunNone, err
+	if next, stop, err := interrupted(); stop {
+		return next, err
 	}
 
 	// if initial_copy_only is opted for, we end the flow here.
