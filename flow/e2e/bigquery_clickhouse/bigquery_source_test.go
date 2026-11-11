@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -490,6 +491,164 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
 	require.NoError(t, err, "should succeed with valid configuration")
+}
+
+// Test_BigQuery_Source_Validation_Multiple_Tables validates tables with
+// different schemas across two datasets in one mirror, covering the
+// per-dataset INFORMATION_SCHEMA lookup and the batched data-access dry-run.
+func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Validation_Multiple_Tables() {
+	t := s.T()
+	ctx := t.Context()
+
+	source := s.Source().(*bigQuerySource)
+	bqConn := source.conn
+	mainDataset := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId)
+
+	mainDatasetMeta, err := mainDataset.Metadata(ctx)
+	require.NoError(t, err)
+	otherDatasetID := e2e.AddSuffix(s, "validation_ds")
+	otherDataset := source.client.DatasetInProject(source.config.ProjectId, otherDatasetID)
+	require.NoError(t, otherDataset.Create(ctx, &bigquery.DatasetMetadata{Location: mainDatasetMeta.Location}))
+	t.Cleanup(func() {
+		if err := otherDataset.DeleteWithContents(context.Background()); err != nil {
+			t.Logf("Warning: failed to delete test dataset %s: %v", otherDatasetID, err)
+		}
+	})
+
+	createTable := func(dataset *bigquery.Dataset, name string, md *bigquery.TableMetadata) string {
+		table := dataset.Table(e2e.AddSuffix(s, name))
+		require.NoError(t, table.Create(ctx, md), "should create table %s", table.TableID)
+		t.Cleanup(func() {
+			if err := table.Delete(context.Background()); err != nil {
+				t.Logf("Warning: failed to delete test table %s: %v", table.TableID, err)
+			}
+		})
+		return table.DatasetID + "." + table.TableID
+	}
+
+	simpleTable := createTable(mainDataset, "validation_simple", &bigquery.TableMetadata{
+		Schema: bigquery.Schema{
+			{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+			{Name: "name", Type: bigquery.StringFieldType},
+		},
+	})
+	compositePKTable := createTable(mainDataset, "validation_composite_pk", &bigquery.TableMetadata{
+		Schema: bigquery.Schema{
+			{Name: "v", Type: bigquery.StringFieldType},
+			{Name: "id2", Type: bigquery.IntegerFieldType},
+			{Name: "id1", Type: bigquery.IntegerFieldType},
+		},
+		TableConstraints: &bigquery.TableConstraints{PrimaryKey: &bigquery.PrimaryKey{Columns: []string{"id1", "id2"}}},
+	})
+	// Ingestion-time partitioning adds the hidden _PARTITIONTIME pseudo column.
+	partitionedTable := createTable(mainDataset, "validation_partitioned", &bigquery.TableMetadata{
+		Schema: bigquery.Schema{
+			{Name: "a", Type: bigquery.StringFieldType, MaxLength: 10},
+			{Name: "b", Type: bigquery.NumericFieldType, Precision: 10, Scale: 2},
+			{Name: "c", Type: bigquery.IntegerFieldType, Required: true},
+			{Name: "items", Type: bigquery.RecordFieldType, Repeated: true, Schema: bigquery.Schema{
+				{Name: "x", Type: bigquery.IntegerFieldType},
+			}},
+		},
+		TimePartitioning: &bigquery.TimePartitioning{Type: bigquery.DayPartitioningType},
+		Clustering:       &bigquery.Clustering{Fields: []string{"c", "a"}},
+	})
+	otherDatasetTable := createTable(otherDataset, "validation_other", &bigquery.TableMetadata{
+		Schema: bigquery.Schema{
+			{Name: "ts", Type: bigquery.TimestampFieldType},
+			{Name: "payload", Type: bigquery.JSONFieldType},
+		},
+	})
+
+	resolve := func(identifier string) bqvalidate.DatasetTable {
+		dt, err := bqvalidate.ResolveDatasetTable(identifier, source.config.DatasetId)
+		require.NoError(t, err)
+		return dt
+	}
+
+	t.Run("GetTables reads columns, keys and types", func(t *testing.T) {
+		tables, err := bqvalidate.GetTables(ctx, source.client, source.config.ProjectId, []bqvalidate.DatasetTable{
+			resolve(simpleTable), resolve(compositePKTable), resolve(partitionedTable), resolve(otherDatasetTable),
+		})
+		require.NoError(t, err)
+		require.Len(t, tables, 4)
+
+		simple := tables[resolve(simpleTable)]
+		require.Equal(t, []string{"id", "name"}, simple.ColumnNames)
+		require.False(t, simple.HasPrimaryKey())
+		require.Equal(t, bqvalidate.ColumnInfo{
+			Type: bigquery.IntegerFieldType, DataType: "INT64", IsNullable: false,
+		}, simple.Columns["id"])
+
+		compositePK := tables[resolve(compositePKTable)]
+		require.Equal(t, []string{"v", "id2", "id1"}, compositePK.ColumnNames)
+		require.Equal(t, []string{"id1", "id2"}, compositePK.PrimaryKey, "primary key must keep constraint order")
+		require.True(t, compositePK.Columns["id1"].IsPK)
+		require.False(t, compositePK.Columns["v"].IsPK)
+
+		partitioned := tables[resolve(partitionedTable)]
+		require.Equal(t, []string{"a", "b", "c", "items"}, partitioned.ColumnNames, "pseudo columns must be excluded")
+		require.Equal(t, []string{"c", "a"}, partitioned.ClusteringKeys, "clustering keys must keep clustering order")
+		require.Equal(t, "STRING(10)", partitioned.Columns["a"].DataType)
+		require.Equal(t, "NUMERIC(10, 2)", partitioned.Columns["b"].DataType)
+		require.Equal(t, bqvalidate.ColumnInfo{
+			Type: bigquery.RecordFieldType, DataType: "ARRAY<STRUCT<x INT64>>", IsRepeated: true,
+		}, partitioned.Columns["items"])
+
+		other := tables[resolve(otherDatasetTable)]
+		require.Equal(t, []string{"ts", "payload"}, other.ColumnNames)
+		require.Equal(t, bigquery.TimestampFieldType, other.Columns["ts"].Type)
+	})
+
+	newFlowConfig := func(mappings ...*protos.TableMapping) *protos.FlowConnectionConfigsCore {
+		return &protos.FlowConnectionConfigsCore{
+			InitialSnapshotOnly: true,
+			DoInitialSnapshot:   true,
+			TableMappings:       mappings,
+			SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
+		}
+	}
+	mapping := func(source string) *protos.TableMapping {
+		return &protos.TableMapping{SourceTableIdentifier: source, DestinationTableIdentifier: strings.ReplaceAll(source, ".", "_")}
+	}
+
+	t.Run("accepts tables with different schemas across datasets", func(t *testing.T) {
+		compositePKMapping := mapping(compositePKTable)
+		compositePKMapping.Engine = protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+		err := bqConn.ValidateMirrorSource(ctx, newFlowConfig(
+			mapping(source.config.DatasetId+".trips_1k"),
+			mapping(simpleTable),
+			compositePKMapping,
+			mapping(partitionedTable),
+			mapping(otherDatasetTable),
+		))
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects excluding every real column of a partitioned table", func(t *testing.T) {
+		partitionedMapping := mapping(partitionedTable)
+		partitionedMapping.Exclude = []string{"a", "b", "c", "items"}
+		err := bqConn.ValidateMirrorSource(ctx, newFlowConfig(mapping(simpleTable), partitionedMapping))
+		require.ErrorContains(t, err, "all columns are excluded")
+	})
+
+	t.Run("reports every missing table and dataset", func(t *testing.T) {
+		missingDataset := e2e.AddSuffix(s, "missing_ds")
+		err := bqConn.ValidateMirrorSource(ctx, newFlowConfig(
+			mapping(simpleTable),
+			mapping(source.config.DatasetId+".missing_b"),
+			mapping(otherDatasetTable),
+			mapping(missingDataset+".t"),
+			mapping(source.config.DatasetId+".missing_a"),
+		))
+		missing, ok := errors.AsType[*common.SourceTablesMissingError](err)
+		require.True(t, ok, "expected SourceTablesMissingError, got %T: %v", err, err)
+		require.ElementsMatch(t, []common.QualifiedTable{
+			{Namespace: source.config.DatasetId, Table: "missing_a"},
+			{Namespace: source.config.DatasetId, Table: "missing_b"},
+			{Namespace: missingDataset, Table: "t"},
+		}, missing.Tables)
+	})
 }
 
 func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Get_Columns() {
