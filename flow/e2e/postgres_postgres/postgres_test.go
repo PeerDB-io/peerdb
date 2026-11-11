@@ -632,6 +632,61 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+// A primary key update sends a key-only old tuple, so an unchanged TOAST value
+// must come from the destination row at the old key, not from that old tuple.
+func (s PeerFlowE2ETestSuitePG) Test_PKey_Update_Unchanged_Toast_PG() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_pkey_upd_toast")
+	dstTableName := s.attachSchemaSuffix("test_pkey_upd_toast_dst")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			c INT,
+			big TEXT NOT NULL
+		);`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_pkey_upd_toast_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	// key-moving updates are replayed in source order only for the PG type system
+	flowConnConfig.System = protos.TypeSystem_PG
+
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id,c,big) SELECT i,i,random_string(9000) FROM generate_series(1,4) i`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize inserts", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,c,big") == nil
+	})
+
+	tx, err := s.Conn().Begin(s.t.Context())
+	e2e.EnvNoError(s.t, env, err)
+	_, err = tx.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+100 WHERE id=1`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = tx.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+100,c=c+1 WHERE id=2`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	_, err = tx.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET c=c+1 WHERE id=3`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvNoError(s.t, env, tx.Commit(s.t.Context()))
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize key updates", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, "id,c,big") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	tc := e2e.NewTemporalClient(s.t)
 
