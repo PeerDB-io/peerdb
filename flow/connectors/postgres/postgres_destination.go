@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -264,6 +266,11 @@ func (c *PostgresConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	alwaysIdentityColumns, err := c.getAlwaysIdentityColumns(ctx, slices.Collect(maps.Keys(req.TableNameSchemaMapping)))
+	if err != nil {
+		return model.NormalizeResponse{}, err
+	}
+
 	normalizeStmtGen := normalizeStmtGenerator{
 		Logger:             c.logger,
 		rawTableName:       rawTableIdentifier,
@@ -272,8 +279,9 @@ func (c *PostgresConnector) NormalizeRecords(
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
 		},
-		supportsMerge:  pgversion >= shared.POSTGRES_15,
-		metadataSchema: c.metadataSchema,
+		supportsMerge:         pgversion >= shared.POSTGRES_15,
+		metadataSchema:        c.metadataSchema,
+		alwaysIdentityColumns: alwaysIdentityColumns,
 	}
 
 	totalRowsAffected := 0
@@ -345,6 +353,39 @@ func (c *PostgresConnector) cleanupOldRawBatches(
 		slog.Int64("cutoffBatchID", cutoffBatchID),
 		slog.Int64("rowsDeleted", result.RowsAffected()),
 	)
+}
+
+// getAlwaysIdentityColumns returns, per destination table, the GENERATED ALWAYS AS IDENTITY columns
+// (e.g. recreated by pg_dump from the source), which normalize must insert with OVERRIDING SYSTEM VALUE
+// and must not update.
+func (c *PostgresConnector) getAlwaysIdentityColumns(ctx context.Context, tables []string) (map[string][]string, error) {
+	quotedTables := make([]string, 0, len(tables))
+	for _, table := range tables {
+		parsed, err := common.ParseTableIdentifier(table)
+		if err != nil {
+			return nil, err
+		}
+		quotedTables = append(quotedTables, parsed.String())
+	}
+
+	rows, err := c.conn.Query(ctx, `SELECT t.idx, a.attname
+		FROM unnest($1::text[]) WITH ORDINALITY AS t(name, idx)
+		JOIN pg_attribute a ON a.attrelid = to_regclass(t.name)
+		WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attidentity = 'a'`, quotedTables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get identity columns of destination tables: %w", err)
+	}
+	result := make(map[string][]string)
+	var idx int64
+	var column string
+	if _, err := pgx.ForEachRow(rows, []any{&idx, &column}, func() error {
+		table := tables[idx-1]
+		result[table] = append(result[table], column)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to scan identity columns of destination tables: %w", err)
+	}
+	return result, nil
 }
 
 type batchEntry struct {
