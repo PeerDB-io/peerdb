@@ -36,15 +36,21 @@ func applySchema(c applyCase) *protos.TableSchema {
 			keys = append(keys, col[0])
 		}
 	}
-	return &protos.TableSchema{TableIdentifier: c.table, PrimaryKeyColumns: keys, IsReplicaIdentityFull: c.full,
-		Columns: fields, System: protos.TypeSystem_PG}
+	return &protos.TableSchema{
+		TableIdentifier: c.table, PrimaryKeyColumns: keys, IsReplicaIdentityFull: c.full,
+		Columns: fields, System: protos.TypeSystem_PG,
+	}
 }
 
 var applyCases = []applyCase{
-	{table: "ida", ddl: "create table ida(id int generated always as identity primary key, n int generated always as identity (maxvalue 5 cycle) unique, v text)",
+	{
+		table: "ida",
+		ddl: "create table ida(id int generated always as identity primary key, " +
+			"n int generated always as identity (maxvalue 5 cycle) unique, v text)",
 		keys: []string{"id"}, cols: [][2]string{{"id", "int4"}, {"n", "int4"}, {"v", "text"}},
 		raw:    []string{`0|{"id":"1000","n":"3","v":"x"}|{}|`, `1|{"id":"1000","n":"3","v":"y"}|{}|`},
-		expect: "1000:3:y"},
+		expect: "1000:3:y",
+	},
 }
 
 func TestNormalizeRecords(t *testing.T) {
@@ -69,8 +75,10 @@ func TestNormalizeRecords(t *testing.T) {
 					c.metadataSchema, getRawTableIdentifier(job)), i+1, name, f[1], f[0], f[2], f[3])
 				require.NoError(t, err)
 			}
-			_, err = c.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{FlowJobName: job, SyncBatchID: 1,
-				TableNameSchemaMapping: map[string]*protos.TableSchema{name: applySchema(ac)}})
+			_, err = c.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
+				FlowJobName: job, SyncBatchID: 1,
+				TableNameSchemaMapping: map[string]*protos.TableSchema{name: applySchema(ac)},
+			})
 			require.NoError(t, err)
 			cols := make([]string, 0, len(ac.cols))
 			for _, col := range ac.cols {
