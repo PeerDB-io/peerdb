@@ -16,7 +16,7 @@ aws-config = { version = "1", optional = true }
 aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"], optional = true }
 async-trait = "0.1"
-base64 = "0.23"
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 chacha20poly1305 = { version = "0.11.0-rc.1", default-features = false, features = ["alloc"] }
 chrono.workspace = true
 peer-cursor = { path = "../peer-cursor" }

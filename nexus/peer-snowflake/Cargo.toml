@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1.57"
-base64 = "0.23"
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 chrono.workspace = true
 futures = "0.3"
 hex = "0.4"
