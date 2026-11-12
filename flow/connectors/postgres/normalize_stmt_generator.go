@@ -30,7 +30,7 @@ type normalizeStmtGenerator struct {
 	// OVERRIDING SYSTEM VALUE on insert and can't be updated to a non-default value
 	alwaysIdentityColumns map[string][]string
 	// destination table catalog info, read per batch
-	dst map[string]dstTable
+	dst map[string]destinationTableIndexInfo
 	// Postgres metadata schema
 	metadataSchema string
 	// Postgres version 15 introduced MERGE, fallback statements before that
