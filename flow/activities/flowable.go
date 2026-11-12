@@ -41,11 +41,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
-// syncFlowHeartbeatInterval spaces out SyncFlow heartbeats, which are billable Temporal actions,
-// beyond the worker's MaxHeartbeatThrottleInterval. Keep it well under the SyncFlow HeartbeatTimeout
-// in CDCFlowWorkflow so several lost heartbeat RPCs are tolerated.
-// Cancels (pause, terminate, resync) reach SyncFlow through Temporal proactive activity cancellation,
-// or, where that is disabled, in the next heartbeat response.
 const syncFlowHeartbeatInterval = 30 * time.Second
 
 type CheckMetadataTablesResult struct {

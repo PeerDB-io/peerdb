@@ -15,8 +15,6 @@ func HeartbeatRoutine(
 	return HeartbeatRoutineEvery(ctx, 2*time.Second, message)
 }
 
-// HeartbeatRoutineEvery records a heartbeat every freq. The worker's MaxHeartbeatThrottleInterval
-// caps how far apart heartbeat RPCs can be, so a freq above it sends one RPC per call, at freq.
 func HeartbeatRoutineEvery(
 	ctx context.Context,
 	freq time.Duration,
