@@ -17,6 +17,8 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
@@ -3421,4 +3423,125 @@ func (s MySQLClickHouseSuite) Test_MySQL_GIPK_Consistency() {
 
 	env.Cancel(s.T().Context())
 	e2e.RequireEnvCanceled(s.T(), env)
+}
+
+// Test_MySQL_ResetCdcCheckpoint moves the checkpoint of a paused MySQL mirror past a transaction
+// and checks that the mirror resumes after it, skipping that transaction.
+func (s MySQLClickHouseSuite) Test_MySQL_ResetCdcCheckpoint() {
+	mySource, ok := s.Source().(*e2e.MySqlSource)
+	if !ok {
+		s.T().Skip("resetting the CDC checkpoint is only supported for MySQL sources")
+	}
+
+	t := s.T()
+	ctx := t.Context()
+	srcTableName := "reset_checkpoint"
+	source := e2e.AttachSchema(s, srcTableName)
+	destination := e2e.AddSuffix(s, srcTableName)
+	require.NoError(t, s.Source().Exec(ctx, fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", source)))
+	require.NoError(t, s.Source().Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (1, 'snapshot')", source)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTableName),
+		TableMappings: []*protos.TableMapping{{SourceTableIdentifier: source, DestinationTableIdentifier: destination}},
+		Destination:   s.Peer().Name,
+	}
+	flowConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConfig.DoInitialSnapshot = true
+
+	client, err := e2e.NewApiClient()
+	require.NoError(t, err)
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConfig)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConfig)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for mirror to enter CDC", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial snapshot", srcTableName, destination, "id,val")
+
+	resetCheckpoint := func(requestedState protos.FlowStatus, checkpoint string) error {
+		_, err := client.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+			FlowJobName:        flowConfig.FlowJobName,
+			RequestedFlowState: requestedState,
+			FlowConfigUpdate: &protos.FlowConfigUpdate{
+				Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+					CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{ResetCheckpoint: checkpoint},
+				},
+			},
+		})
+		return err
+	}
+	requireInvalid := func(err error, errorMsg string) {
+		t.Helper()
+		require.Error(t, err)
+		require.Equal(t, codes.InvalidArgument, status.Code(err), err.Error())
+		require.ErrorContains(t, err, errorMsg)
+	}
+
+	requireInvalid(resetCheckpoint(protos.FlowStatus_STATUS_RUNNING, "!f:binlog.000001,4"),
+		"requires the mirror to be paused")
+
+	_, err = client.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(t, err)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for pause before checkpoint reset", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	var currentCheckpoint string
+	require.NoError(t, s.Catalog().QueryRow(ctx,
+		"SELECT last_text FROM metadata_last_sync_state WHERE job_name = $1", flowConfig.FlowJobName,
+	).Scan(&currentCheckpoint))
+	isFilePos := strings.HasPrefix(currentCheckpoint, "!f:")
+
+	otherMechanismCheckpoint := "!f:binlog.000001,4"
+	if isFilePos {
+		otherMechanismCheckpoint = "3e11fa47-71ca-11e1-9e33-c80aa9429562:1"
+		if mySource.Flavor() == mysql.MariaDBFlavor {
+			otherMechanismCheckpoint = "0-1-1"
+		}
+	}
+	// Invalid checkpoints are rejected by the API and leave the mirror paused.
+	requireInvalid(resetCheckpoint(protos.FlowStatus_STATUS_RUNNING, "not-a-checkpoint"), "invalid CDC checkpoint reset")
+	requireInvalid(resetCheckpoint(protos.FlowStatus_STATUS_RUNNING, otherMechanismCheckpoint), "but the mirror uses")
+	require.Equal(t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(t))
+
+	require.NoError(t, s.Source().Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (2, 'skipped')", source)))
+	var skipTo string
+	if isFilePos {
+		pos, err := mySource.GetMasterPos(ctx)
+		require.NoError(t, err)
+		skipTo = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+	} else {
+		gset, err := mySource.GetMasterGTIDSet(ctx)
+		require.NoError(t, err)
+		skipTo = gset.String()
+	}
+	require.NoError(t, s.Source().Exec(ctx, fmt.Sprintf("INSERT INTO %s(id, val) VALUES (3, 'replicated')", source)))
+
+	require.NoError(t, resetCheckpoint(protos.FlowStatus_STATUS_RUNNING, skipTo))
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for mirror to resume after checkpoint reset", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Row 3 was committed after row 2, so once it arrives row 2 would have arrived too
+	// had the mirror resumed from the old checkpoint.
+	var ids []string
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "wait for the transaction after the new checkpoint", func() bool {
+		rows, err := s.GetRows(destination, "id")
+		if err != nil {
+			return false
+		}
+		ids = ids[:0]
+		for _, row := range rows.Records {
+			ids = append(ids, fmt.Sprint(row[0].Value()))
+		}
+		return len(ids) > 0 && ids[len(ids)-1] == "3"
+	})
+	require.Equal(t, []string{"1", "3"}, ids)
+
+	env.Cancel(ctx)
+	e2e.RequireEnvCanceled(t, env)
 }

@@ -116,6 +116,23 @@ func processCDCFlowConfigUpdate(
 ) (nextRun, error) {
 	flowConfigUpdate := state.FlowConfigUpdate
 
+	// Only runs in the pause loop, so no sync can overwrite the new checkpoint before it is read.
+	if flowConfigUpdate.ResetCheckpoint != "" {
+		resetCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 5},
+		})
+		if err := workflow.ExecuteActivity(resetCtx, flowable.ResetCdcCheckpoint, cfg, flowConfigUpdate.ResetCheckpoint).
+			Get(resetCtx, nil); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nextRunNone, ctxErr
+			}
+			alertFlowError(ctx, logger, cfg.FlowJobName,
+				fmt.Sprintf("CDC checkpoint reset failed, config update discarded and mirror kept paused: %v", err))
+			return nextRunPause, nil
+		}
+	}
+
 	// Capture old values for logging before updates are applied
 	oldValues := telemetry.OldCDCFlowValues{
 		BatchSize:                     state.SyncFlowOptions.BatchSize,
@@ -792,6 +809,7 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
 			slog.Uint64("SnapshotNumTablesInParallel", uint64(cdcConfigUpdate.SnapshotNumTablesInParallel)),
 			slog.Bool("SkipInitialSnapshotForTableAdditions", cdcConfigUpdate.SkipInitialSnapshotForTableAdditions),
+			slog.String("ResetCheckpoint", cdcConfigUpdate.ResetCheckpoint),
 		)
 	})
 }
