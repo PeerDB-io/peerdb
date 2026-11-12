@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"slices"
 
+	"cloud.google.com/go/bigquery"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
@@ -148,6 +150,8 @@ func (c *BigQueryConnector) GetTablesInSchema(ctx context.Context, schema string
 	}, nil
 }
 
+// GetTableSchema reads the source schemas with one INFORMATION_SCHEMA query per
+// dataset, the same source mirror validation reads.
 func (c *BigQueryConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
@@ -155,53 +159,57 @@ func (c *BigQueryConnector) GetTableSchema(
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
-
 	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}
 
+	datasetTables := make([]bqvalidate.DatasetTable, 0, len(tableMappings))
 	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, nullableEnabled)
+		dt, err := bqvalidate.ResolveDatasetTable(tm.SourceTableIdentifier, c.datasetID)
 		if err != nil {
-			c.logger.Error("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
 		}
-		res[tm.SourceTableIdentifier] = tableSchema
-		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
+		datasetTables = append(datasetTables, dt)
 	}
+
+	tables, err := bqvalidate.GetTables(ctx, c.client, c.projectID, datasetTables)
+	if err != nil {
+		c.logger.Error("error fetching schemas", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to get source table schemas: %w", err)
+	}
+
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for i, tm := range tableMappings {
+		res[tm.SourceTableIdentifier] = tableSchemaFromTableInfo(tm, tables[datasetTables[i]], system, nullableEnabled)
+	}
+	c.logger.Info("fetched schemas", slog.Int("tables", len(res)))
 
 	return res, nil
 }
 
-func (c *BigQueryConnector) getTableSchemaForTable(
-	ctx context.Context,
+func tableSchemaFromTableInfo(
 	tm *protos.TableMapping,
+	info bqvalidate.TableInfo,
 	system protos.TypeSystem,
 	nullableEnabled bool,
-) (*protos.TableSchema, error) {
-	dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
-	}
-
-	table := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
-	metadata, err := table.Metadata(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata for table %s: %w", tm.SourceTableIdentifier, err)
-	}
-
-	columns := make([]*protos.FieldDescription, 0, len(metadata.Schema))
-
-	excludedCols := make(map[string]struct{})
-	for _, col := range tm.Exclude {
-		excludedCols[col] = struct{}{}
-	}
-
-	for _, field := range metadata.Schema {
-		if _, excluded := excludedCols[field.Name]; excluded {
+) *protos.TableSchema {
+	columns := make([]*protos.FieldDescription, 0, len(info.ColumnNames))
+	for _, name := range info.ColumnNames {
+		if slices.Contains(tm.Exclude, name) {
 			continue
+		}
+
+		col := info.Columns[name]
+		// INFORMATION_SCHEMA reports ARRAY columns as not nullable, while the
+		// table API reports them as REPEATED, which is not REQUIRED.
+		field := &bigquery.FieldSchema{
+			Name:      name,
+			Type:      col.Type,
+			Repeated:  col.IsRepeated,
+			Required:  !col.IsNullable && !col.IsRepeated,
+			Precision: col.Precision,
+			Scale:     col.Scale,
 		}
 
 		var colType string
@@ -212,30 +220,23 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 			colType = string(field.Type)
 		}
 
-		nullable := !field.Required
-
 		precision, scale := bigQueryNumericPrecisionAndScale(field)
 
 		columns = append(columns, &protos.FieldDescription{
-			Name:         field.Name,
+			Name:         name,
 			Type:         colType,
-			Nullable:     nullable,
+			Nullable:     !field.Required,
 			TypeModifier: datatypes.MakeNumericTypmod(int32(precision), int32(scale)),
 		})
-	}
-
-	var primaryKeyColumns []string
-	if metadata.TableConstraints != nil && metadata.TableConstraints.PrimaryKey != nil {
-		primaryKeyColumns = metadata.TableConstraints.PrimaryKey.Columns
 	}
 
 	return &protos.TableSchema{
 		TableIdentifier:   tm.SourceTableIdentifier,
 		Columns:           columns,
-		PrimaryKeyColumns: primaryKeyColumns,
+		PrimaryKeyColumns: info.PrimaryKey,
 		System:            system,
 		NullableEnabled:   nullableEnabled,
-	}, nil
+	}
 }
 
 func (c *BigQueryConnector) GetDefaultPartitionKeyForTables(

@@ -95,3 +95,40 @@ func TestIsAccessDeniedError(t *testing.T) {
 		})
 	}
 }
+
+func TestNumericPrecisionAndScale(t *testing.T) {
+	tests := []struct {
+		dataType      string
+		wantPrecision int64
+		wantScale     int64
+		wantErr       bool
+	}{
+		{dataType: "INT64"},
+		{dataType: "NUMERIC"},
+		{dataType: "BIGNUMERIC"},
+		{dataType: "STRING(10)"},
+		{dataType: "NUMERIC(10, 2)", wantPrecision: 10, wantScale: 2},
+		{dataType: "NUMERIC(10)", wantPrecision: 10},
+		{dataType: "BIGNUMERIC(40, 10)", wantPrecision: 40, wantScale: 10},
+		{dataType: "BIGNUMERIC(40)", wantPrecision: 40},
+		{dataType: "ARRAY<NUMERIC(12, 3)>", wantPrecision: 12, wantScale: 3},
+		{dataType: "ARRAY<NUMERIC>"},
+		{dataType: "STRUCT<a NUMERIC(10, 2)>"},
+		{dataType: "ARRAY<STRUCT<a BIGNUMERIC(40)>>"},
+		{dataType: "NUMERIC(10, 2", wantErr: true},
+		{dataType: "NUMERIC(x)", wantErr: true},
+		{dataType: "NUMERIC(10, y)", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.dataType, func(t *testing.T) {
+			precision, scale, err := numericPrecisionAndScale(tt.dataType)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPrecision, precision)
+			require.Equal(t, tt.wantScale, scale)
+		})
+	}
+}

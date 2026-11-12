@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -93,7 +94,11 @@ type ColumnInfo struct {
 	// Type is the field type; for ARRAY columns, the element type.
 	Type bigquery.FieldType
 	// DataType is the INFORMATION_SCHEMA type, e.g. "NUMERIC(10, 2)".
-	DataType   string
+	DataType string
+	// Precision and Scale are the NUMERIC/BIGNUMERIC type parameters, 0 when
+	// the column has none.
+	Precision  int64
+	Scale      int64
 	IsRepeated bool
 	IsNullable bool
 	IsPK       bool // part of a real (NOT ENFORCED) primary key constraint
@@ -276,9 +281,15 @@ func getDatasetTables(
 			}
 		}
 		fieldType, repeated := fieldTypeFromDataType(row.DataType)
+		precision, scale, err := numericPrecisionAndScale(row.DataType)
+		if err != nil {
+			return nil, fmt.Errorf("column %s.%s: %w", row.TableName, row.ColumnName, err)
+		}
 		info.Columns[row.ColumnName] = ColumnInfo{
 			Type:       fieldType,
 			DataType:   row.DataType,
+			Precision:  precision,
+			Scale:      scale,
 			IsRepeated: repeated,
 			IsNullable: strings.EqualFold(row.IsNullable, "YES"),
 			IsPK:       row.PKPosition.Valid,
@@ -339,6 +350,38 @@ func fieldTypeFromDataType(dataType string) (bigquery.FieldType, bool) {
 	default:
 		return bigquery.FieldType(dataType), repeated
 	}
+}
+
+// numericPrecisionAndScale parses the parameters of a NUMERIC or BIGNUMERIC
+// type, or of an ARRAY of one: "NUMERIC(10, 2)" is (10, 2) and "BIGNUMERIC(40)"
+// is (40, 0). Other types and unparameterized numerics yield (0, 0).
+func numericPrecisionAndScale(dataType string) (int64, int64, error) {
+	dataType = strings.TrimSpace(dataType)
+	if inner, ok := strings.CutPrefix(dataType, "ARRAY<"); ok {
+		dataType = strings.TrimSuffix(inner, ">")
+	}
+	params, ok := strings.CutPrefix(dataType, "NUMERIC(")
+	if !ok {
+		if params, ok = strings.CutPrefix(dataType, "BIGNUMERIC("); !ok {
+			return 0, 0, nil
+		}
+	}
+	params, ok = strings.CutSuffix(params, ")")
+	if !ok {
+		return 0, 0, fmt.Errorf("invalid numeric type %q", dataType)
+	}
+	precisionParam, scaleParam, hasScale := strings.Cut(params, ",")
+	precision, err := strconv.ParseInt(strings.TrimSpace(precisionParam), 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid precision in numeric type %q: %w", dataType, err)
+	}
+	var scale int64
+	if hasScale {
+		if scale, err = strconv.ParseInt(strings.TrimSpace(scaleParam), 10, 64); err != nil {
+			return 0, 0, fmt.Errorf("invalid scale in numeric type %q: %w", dataType, err)
+		}
+	}
+	return precision, scale, nil
 }
 
 // ReplicationMethod selects how CDC events are produced for a BigQuery source mirror.
