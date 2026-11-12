@@ -6,14 +6,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	"cloud.google.com/go/bigquery"
 	storageapi "cloud.google.com/go/bigquery/storage/apiv1"
 	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
 	"cloud.google.com/go/storage"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
@@ -86,71 +90,255 @@ func TablesHaveChangeHistoryEnabled(
 
 // ColumnInfo describes a single column of a BigQuery table.
 type ColumnInfo struct {
-	Type bigquery.FieldType // BigQuery data type, e.g. "TIMESTAMP"
-	IsPK bool               // part of a real (NOT ENFORCED) primary key constraint
+	// Type is the field type; for ARRAY columns, the element type.
+	Type bigquery.FieldType
+	// DataType is the INFORMATION_SCHEMA type, e.g. "NUMERIC(10, 2)".
+	DataType   string
+	IsRepeated bool
+	IsNullable bool
+	IsPK       bool // part of a real (NOT ENFORCED) primary key constraint
 }
 
 // TableInfo describes a BigQuery table's columns, keyed by column name.
 type TableInfo struct {
 	Columns map[string]ColumnInfo
+	// ColumnNames lists the columns in table order.
+	ColumnNames []string
+	// PrimaryKey lists the primary key columns in constraint order.
+	PrimaryKey []string
+	// ClusteringKeys lists the clustering columns in clustering order.
+	ClusteringKeys []string
+	SizeBytes      int64
 }
 
 // HasPrimaryKey reports whether any column is part of a primary key constraint.
 func (t TableInfo) HasPrimaryKey() bool {
-	for _, col := range t.Columns {
-		if col.IsPK {
-			return true
-		}
-	}
-	return false
+	return len(t.PrimaryKey) > 0
 }
 
-// GetTables returns information about the specified tables
+// queryConcurrency bounds concurrent BigQuery query jobs issued by validation.
+const queryConcurrency = 8
+
+// tableColumnsQuery reads columns, keys and size of tables in one dataset,
+// excluding pseudo columns such as _PARTITIONTIME.
+const tableColumnsQuery = `SELECT
+  c.table_name, c.column_name, c.is_nullable, c.data_type, c.clustering_ordinal_position,
+  k.ordinal_position AS pk_position, s.size_bytes
+FROM %[1]s.INFORMATION_SCHEMA.COLUMNS AS c
+LEFT JOIN %[1]s.INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+  ON tc.table_name = c.table_name AND tc.constraint_type = 'PRIMARY KEY'
+LEFT JOIN %[1]s.INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS k
+  ON k.constraint_name = tc.constraint_name AND k.table_name = c.table_name AND k.column_name = c.column_name
+LEFT JOIN %[1]s.__TABLES__ AS s
+  ON s.table_id = c.table_name
+WHERE c.table_name IN UNNEST(@table_names) AND c.is_hidden = 'NO'
+ORDER BY c.table_name, c.ordinal_position`
+
+type tableColumnRow struct {
+	TableName          string             `bigquery:"table_name"`
+	ColumnName         string             `bigquery:"column_name"`
+	IsNullable         string             `bigquery:"is_nullable"`
+	DataType           string             `bigquery:"data_type"`
+	ClusteringPosition bigquery.NullInt64 `bigquery:"clustering_ordinal_position"`
+	PKPosition         bigquery.NullInt64 `bigquery:"pk_position"`
+	SizeBytes          bigquery.NullInt64 `bigquery:"size_bytes"`
+}
+
+// GetTables reads table info with one INFORMATION_SCHEMA query per dataset.
+// Missing tables and datasets yield a *common.SourceTablesMissingError.
 func GetTables(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]TableInfo, error) {
 	tablesByDataset := make(map[string][]string)
 	for _, dt := range tables {
-		tablesByDataset[dt.Dataset] = append(tablesByDataset[dt.Dataset], dt.Table)
-	}
-
-	result := make(map[DatasetTable]TableInfo, len(tables))
-	for dataset, tableNames := range tablesByDataset {
-		ds := client.Dataset(dataset)
-		tables := ds.Tables(ctx)
-		for {
-			table, err := tables.Next()
-			if err != nil {
-				if errors.Is(err, iterator.Done) {
-					break
-				}
-				return nil, err
-			}
-			if !slices.Contains(tableNames, table.TableID) {
-				continue
-			}
-
-			tableInfo := TableInfo{Columns: make(map[string]ColumnInfo)}
-			tableMeta, err := table.Metadata(ctx)
-			if err != nil {
-				return nil, err
-			}
-			var primaryKeyColumns []string
-			if tableMeta.TableConstraints != nil && tableMeta.TableConstraints.PrimaryKey != nil {
-				primaryKeyColumns = tableMeta.TableConstraints.PrimaryKey.Columns
-			}
-			for _, col := range tableMeta.Schema {
-				tableInfo.Columns[col.Name] = ColumnInfo{
-					Type: col.Type,
-					IsPK: slices.Contains(primaryKeyColumns, col.Name),
-				}
-			}
-
-			result[DatasetTable{Dataset: dataset, Table: table.TableID}] = tableInfo
+		if !slices.Contains(tablesByDataset[dt.Dataset], dt.Table) {
+			tablesByDataset[dt.Dataset] = append(tablesByDataset[dt.Dataset], dt.Table)
 		}
 	}
 
+	var mu sync.Mutex
+	result := make(map[DatasetTable]TableInfo, len(tables))
+	var missingTables []common.QualifiedTable
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(queryConcurrency)
+	for dataset, tableNames := range tablesByDataset {
+		g.Go(func() error {
+			datasetTables, err := getDatasetTables(gCtx, client, projectID, dataset, tableNames)
+			if err != nil {
+				if err := checkDatasetMissing(gCtx, client, projectID, dataset, err); err != nil {
+					return err
+				}
+				// The dataset does not exist, so none of its tables do.
+				datasetTables = nil
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			for _, table := range tableNames {
+				dt := DatasetTable{Dataset: dataset, Table: table}
+				info, ok := datasetTables[table]
+				if !ok {
+					missingTables = append(missingTables, common.QualifiedTable{Namespace: dataset, Table: table})
+					continue
+				}
+				result[dt] = info
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if len(missingTables) > 0 {
+		slices.SortFunc(missingTables, func(a, b common.QualifiedTable) int {
+			return strings.Compare(a.String(), b.String())
+		})
+		return nil, common.NewSourceTablesMissingError(missingTables)
+	}
+
 	return result, nil
+}
+
+// checkDatasetMissing returns nil if queryErr means the dataset does not exist.
+// Queries return 403 for both missing and unreadable datasets; datasets.get
+// tells them apart.
+func checkDatasetMissing(ctx context.Context, client *bigquery.Client, projectID, dataset string, queryErr error) error {
+	if isNotFoundError(queryErr) {
+		return nil
+	}
+	if !isAccessDeniedError(queryErr) {
+		return fmt.Errorf("failed to get tables of dataset %q: %w", dataset, queryErr)
+	}
+	if _, err := client.DatasetInProject(projectID, dataset).Metadata(ctx); isNotFoundError(err) {
+		return nil
+	}
+	return fmt.Errorf("no permission to read dataset %q, grant roles/bigquery.dataViewer on it: %w", dataset, queryErr)
+}
+
+// isNotFoundError matches both the jobs.query and the job-polling error forms.
+func isNotFoundError(err error) bool {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		return apiErr.Code == http.StatusNotFound
+	}
+	if bqErr, ok := errors.AsType[*bigquery.Error](err); ok {
+		return bqErr.Reason == "notFound"
+	}
+	return false
+}
+
+// isAccessDeniedError checks the reason, not the code: 403 also means quota errors.
+func isAccessDeniedError(err error) bool {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		return slices.ContainsFunc(apiErr.Errors, func(item googleapi.ErrorItem) bool {
+			return item.Reason == "accessDenied"
+		})
+	}
+	if bqErr, ok := errors.AsType[*bigquery.Error](err); ok {
+		return bqErr.Reason == "accessDenied"
+	}
+	return false
+}
+
+// getDatasetTables returns the found tables of one dataset, keyed by name.
+func getDatasetTables(
+	ctx context.Context, client *bigquery.Client, projectID, dataset string, tableNames []string,
+) (map[string]TableInfo, error) {
+	q := client.Query(fmt.Sprintf(tableColumnsQuery, fmt.Sprintf("`%s.%s`", projectID, dataset)))
+	q.Parameters = []bigquery.QueryParameter{{Name: "table_names", Value: tableNames}}
+	it, err := q.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	type positionedColumn struct {
+		column   string
+		position int64
+	}
+	clustering := make(map[string][]positionedColumn)
+	pks := make(map[string][]positionedColumn)
+
+	result := make(map[string]TableInfo, len(tableNames))
+	for {
+		var row tableColumnRow
+		if err := it.Next(&row); err != nil {
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			return nil, err
+		}
+
+		info, ok := result[row.TableName]
+		if !ok {
+			info = TableInfo{Columns: make(map[string]ColumnInfo)}
+			if row.SizeBytes.Valid {
+				info.SizeBytes = row.SizeBytes.Int64
+			}
+		}
+		fieldType, repeated := fieldTypeFromDataType(row.DataType)
+		info.Columns[row.ColumnName] = ColumnInfo{
+			Type:       fieldType,
+			DataType:   row.DataType,
+			IsRepeated: repeated,
+			IsNullable: strings.EqualFold(row.IsNullable, "YES"),
+			IsPK:       row.PKPosition.Valid,
+		}
+		info.ColumnNames = append(info.ColumnNames, row.ColumnName)
+		result[row.TableName] = info
+
+		if row.PKPosition.Valid {
+			pks[row.TableName] = append(pks[row.TableName], positionedColumn{row.ColumnName, row.PKPosition.Int64})
+		}
+		if row.ClusteringPosition.Valid {
+			clustering[row.TableName] = append(clustering[row.TableName],
+				positionedColumn{row.ColumnName, row.ClusteringPosition.Int64})
+		}
+	}
+
+	sortedColumns := func(keys []positionedColumn) []string {
+		slices.SortFunc(keys, func(a, b positionedColumn) int { return int(a.position - b.position) })
+		columns := make([]string, 0, len(keys))
+		for _, k := range keys {
+			columns = append(columns, k.column)
+		}
+		return columns
+	}
+	for table, info := range result {
+		if keys := pks[table]; len(keys) > 0 {
+			info.PrimaryKey = sortedColumns(keys)
+		}
+		if keys := clustering[table]; len(keys) > 0 {
+			info.ClusteringKeys = sortedColumns(keys)
+		}
+		result[table] = info
+	}
+
+	return result, nil
+}
+
+// fieldTypeFromDataType maps an INFORMATION_SCHEMA type to the table-API field
+// type and whether it is an ARRAY.
+func fieldTypeFromDataType(dataType string) (bigquery.FieldType, bool) {
+	dataType = strings.TrimSpace(dataType)
+	inner, repeated := strings.CutPrefix(dataType, "ARRAY<")
+	if repeated {
+		dataType = strings.TrimSuffix(inner, ">")
+	}
+	if i := strings.IndexAny(dataType, "<("); i >= 0 {
+		dataType = dataType[:i]
+	}
+	switch dataType = strings.TrimSpace(dataType); dataType {
+	case "INT64":
+		return bigquery.IntegerFieldType, repeated
+	case "FLOAT64":
+		return bigquery.FloatFieldType, repeated
+	case "BOOL":
+		return bigquery.BooleanFieldType, repeated
+	case "STRUCT":
+		return bigquery.RecordFieldType, repeated
+	default:
+		return bigquery.FieldType(dataType), repeated
+	}
 }
 
 // ReplicationMethod selects how CDC events are produced for a BigQuery source mirror.
@@ -362,29 +550,21 @@ func validateSourceTables(ctx context.Context, cfg SourceConfig) (map[DatasetTab
 
 	tablesByKey, err := GetTables(ctx, cfg.Client, cfg.ProjectID, validateTables)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for tables: %w", &ExternalError{err})
-	}
-
-	var missingTables []common.QualifiedTable
-	for _, key := range validateTables {
-		if _, ok := tablesByKey[key]; !ok {
-			missingTables = append(missingTables, common.QualifiedTable{Namespace: key.Dataset, Table: key.Table})
+		if _, ok := errors.AsType[*common.SourceTablesMissingError](err); ok {
+			return nil, err
 		}
-	}
-	if len(missingTables) > 0 {
-		return nil, common.NewSourceTablesMissingError(missingTables)
+		return nil, fmt.Errorf("failed to get columns for tables: %w", &ExternalError{err})
 	}
 
 	for i, t := range cfg.Tables {
 		key := validateTables[i]
-
 		if err := validateColumnSelection(key, tablesByKey[key], t.Include, t.Exclude); err != nil {
 			return nil, err
 		}
+	}
 
-		if err := validateTableDataAccess(ctx, cfg.Client, cfg.ProjectID, key); err != nil {
-			return nil, err
-		}
+	if err := validateTablesDataAccess(ctx, cfg.Client, cfg.ProjectID, validateTables); err != nil {
+		return nil, err
 	}
 
 	return tablesByKey, nil
@@ -417,15 +597,37 @@ func validateColumnSelection(key DatasetTable, info TableInfo, include, exclude 
 	return nil
 }
 
-// validateTableDataAccess checks bigquery.tables.getData permission via a
-// zero-row dry-run query, without actually executing it.
-func validateTableDataAccess(ctx context.Context, client *bigquery.Client, projectID string, key DatasetTable) error {
-	query := client.Query(fmt.Sprintf("SELECT * FROM `%s.%s.%s` LIMIT 0", projectID, key.Dataset, key.Table))
-	query.DryRun = true
-	if _, err := query.Run(ctx); err != nil {
-		return fmt.Errorf("failed to validate data access for table %q: %w", key, &ExternalError{err})
+// dataAccessTablesPerQuery stays under BigQuery's 1,000 tables per query.
+const dataAccessTablesPerQuery = 500
+
+// validateTablesDataAccess checks bigquery.tables.getData with batched
+// UNION ALL dry-run queries.
+func validateTablesDataAccess(ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable) error {
+	tables = slices.Clone(tables)
+	slices.SortFunc(tables, func(a, b DatasetTable) int {
+		return strings.Compare(a.String(), b.String())
+	})
+	tables = slices.Compact(tables)
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(queryConcurrency)
+	for batch := range slices.Chunk(tables, dataAccessTablesPerQuery) {
+		g.Go(func() error {
+			selects := make([]string, 0, len(batch))
+			for _, key := range batch {
+				selects = append(selects, fmt.Sprintf("(SELECT TO_JSON_STRING(t) FROM `%s.%s.%s` AS t LIMIT 0)",
+					projectID, key.Dataset, key.Table))
+			}
+			query := client.Query(strings.Join(selects, " UNION ALL "))
+			query.DryRun = true
+			if _, err := query.Run(gCtx); err != nil {
+				return fmt.Errorf("failed to validate data access for tables %q..%q: %w",
+					batch[0].String(), batch[len(batch)-1].String(), &ExternalError{err})
+			}
+			return nil
+		})
 	}
-	return nil
+	return g.Wait()
 }
 
 // validateSourceCDC checks that every configured source table meets the
