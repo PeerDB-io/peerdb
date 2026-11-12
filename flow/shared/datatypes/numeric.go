@@ -103,6 +103,15 @@ func GetNumericTypeForWarehousePrecisionScale(precision int16, scale int16, ware
 		return warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
+	// Postgres allows a scale above the precision.
+	// Reference: https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL
+	// For example, NUMERIC(3, 5) can represent numbers from -0.00999 to 0.00999.
+	// Destinations and Avro decimals require scale <= precision, so in these cases,
+	// we widen the precision to the scale, which holds every such value exactly.
+	if scale > precision {
+		precision = scale
+	}
+
 	if !IsValidPrecision(precision, warehouseNumeric) {
 		precision = warehouseNumeric.MaxPrecision()
 	}
