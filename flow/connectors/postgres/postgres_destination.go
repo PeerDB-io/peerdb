@@ -410,7 +410,6 @@ func (c *PostgresConnector) normalizeBatch(
 		}
 	}
 
-	normalizeStmtGen.dst = make(map[string]dstTable, len(destinationTableNames))
 	totalRowsAffected := 0
 	for _, table := range destinationTableNames {
 		rows, err := c.normalizeTable(ctx, tx, batchID, table, normalizeStmtGen)
