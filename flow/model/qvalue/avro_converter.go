@@ -413,6 +413,23 @@ func ClampToClickHouseTime(t time.Time) time.Time {
 	return t
 }
 
+var (
+	// avroMinTime and avroMaxTime bound the timestamp-micros logical type: int64 microseconds since the epoch.
+	avroMinTime = time.UnixMicro(math.MinInt64).UTC()
+	avroMaxTime = time.UnixMicro(math.MaxInt64).UTC()
+)
+
+// ClampToAvroRanges moves a time that int64 microseconds since the epoch cannot hold to the closest one it can.
+// Postgres accepts timestamps up to 294276 AD, beyond that range, which the Avro encoder rejects.
+func ClampToAvroRanges(t time.Time) time.Time {
+	if t.Before(avroMinTime) {
+		return avroMinTime.In(t.Location())
+	} else if t.After(avroMaxTime) {
+		return avroMaxTime.In(t.Location())
+	}
+	return t
+}
+
 func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isDate bool, so sizeOpt) (any, int64) {
 	switch c.TargetDWH {
 	case protos.DBType_BIGQUERY:
@@ -617,9 +634,30 @@ func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) any {
 	return arrayData
 }
 
+// NOTE: This method might mutate `arrayTime` values. This is a performance focused trade-off.
+// It is safe because the destination is fixed and the clamped values depend on the destination type.
 func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time, so sizeOpt) (any, int64) {
 	if c.Nullable && arrayTime == nil {
 		return nil, so.nullableSize()
+	}
+
+	var clampFunction func(t time.Time) time.Time
+
+	switch c.TargetDWH {
+	case protos.DBType_CLICKHOUSE:
+		clampFunction = ClampToClickHouseTime
+	case protos.DBType_SNOWFLAKE:
+		// No clamping needed for Snowflake
+	default:
+		clampFunction = ClampToAvroRanges
+	}
+
+	// Make sure PG timestamps are clamped to the supported ranges before encoding
+	if clampFunction != nil {
+		// In place mutation to reduce impact on performance. For this flow the destination is fixed, so mutating the array is safe.
+		for i, t := range arrayTime {
+			arrayTime[i] = clampFunction(t)
+		}
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {

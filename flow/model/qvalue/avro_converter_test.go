@@ -2,6 +2,7 @@ package qvalue
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -231,6 +232,59 @@ func TestBytesToAvroNullVsEmpty(t *testing.T) {
 			assert.Equal(t, tc.nonNullable, encoded)
 			assert.Equal(t, int64(len(encoded)), computedSize)
 		})
+	}
+}
+
+// TestNumericScaleAbovePrecisionToAvro round-trips values of a Postgres NUMERIC(2,4) column, which holds
+// -0.0099 to 0.0099, through the widened decimal(4,4) schema.
+func TestNumericScaleAbovePrecisionToAvro(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{"PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING": "false"}
+	field := types.QField{Type: types.QValueKindNumeric, Precision: 2, Scale: 4}
+	schema := getAvroSchema(t, ctx, env, types.QValueNumeric{}, &field)
+	for _, value := range []string{"0.0099", "-0.0099", "0.0001", "0"} {
+		t.Run(value, func(t *testing.T) {
+			avroVal, computedSize := qvalueToAvro(t, ctx, types.QValueNumeric{Val: decimal.RequireFromString(value)}, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			// decimalSize is an estimate that may overestimate by a byte
+			assert.GreaterOrEqual(t, computedSize, int64(len(encoded)))
+			assert.LessOrEqual(t, computedSize, int64(len(encoded))+1)
+			var decoded big.Rat
+			_, err = schema.Decode(encoded, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, decimal.RequireFromString(value).Rat().String(), decoded.String())
+		})
+	}
+}
+
+// TestTimestampBeyondInt64MicrosToAvro encodes a timestamp Postgres accepts but int64 microseconds since the
+// epoch cannot hold, 294276-12-31 12:00:00, alone and in arrays, for ClickHouse. Scalars are clamped to the
+// ClickHouse range before encoding; arrays must be too, or the encoder rejects the value and fails the snapshot.
+func TestTimestampBeyondInt64MicrosToAvro(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{}
+	beyond := time.Date(294276, 12, 31, 12, 0, 0, 0, time.UTC)
+	before := time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC) // 4714-11-24 BC, the Postgres minimum
+	values := []time.Time{beyond, time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC), before}
+
+	tests := []types.QValue{
+		types.QValueTimestamp{Val: beyond},
+		types.QValueTimestampTZ{Val: beyond},
+		types.QValueArrayTimestamp{Val: values},
+		types.QValueArrayTimestampTZ{Val: values},
+	}
+	for _, qv := range tests {
+		for _, nullable := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nullable=%t", qv.Kind(), nullable), func(t *testing.T) {
+				field := types.QField{Type: qv.Kind(), Nullable: nullable}
+				schema := getAvroSchema(t, ctx, env, qv, &field)
+				avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
+				encoded, err := schema.Encode(avroVal)
+				require.NoError(t, err)
+				assert.Equal(t, int64(len(encoded)), computedSize)
+			})
+		}
 	}
 }
 
