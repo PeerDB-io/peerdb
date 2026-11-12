@@ -758,9 +758,17 @@ func (env WorkflowRun) Error(ctx context.Context) error {
 }
 
 func (env WorkflowRun) Cancel(ctx context.Context) {
+	catalog, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err == nil {
+		// cancelling the workflow can't write status itself (its context is already canceled), so publish it first
+		// to let SyncFlow's catalog poll stop the sync without waiting for a heartbeat response to deliver the cancel
+		_, _ = catalog.Exec(ctx,
+			"update flows set status = $1 where workflow_id = $2",
+			int32(protos.FlowStatus_STATUS_TERMINATING), env.GetID())
+	}
 	_ = env.c.CancelWorkflow(ctx, env.GetID(), "")
 	// otherwise mirrors status stays running forever
-	if catalog, err := internal.GetCatalogConnectionPoolFromEnv(ctx); err == nil {
+	if err == nil {
 		_, _ = catalog.Exec(ctx,
 			"update flows set status = $1 where workflow_id = $2",
 			int32(protos.FlowStatus_STATUS_TERMINATED), env.GetID())
