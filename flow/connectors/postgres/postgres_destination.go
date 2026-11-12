@@ -205,20 +205,20 @@ func syncRecordsCore[Items model.Items](
 	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY",
 		syncedRecordsCount, rawTableIdentifier))
 
-	// updating metadata with new offset and syncBatchID
+	if len(req.Records.SchemaDeltas) != 0 {
+		if err := c.prepareSyncSchema(ctx, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+			return nil, err
+		}
+	}
+
+	// Take the metadata row lock only after DDL finishes. Normalize holds table
+	// locks before updating this row, so the reverse order can deadlock.
 	lastCP := req.Records.GetLastCheckpoint()
 	if err := c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx); err != nil {
 		return nil, err
 	}
-	// transaction commits
 	if err := syncRecordsTx.Commit(ctx); err != nil {
 		return nil, err
-	}
-
-	if err := c.ReplayTableSchemaDeltas(
-		ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas, nil, req.Version, req.SourceType,
-	); err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{
@@ -228,6 +228,26 @@ func syncRecordsCore[Items model.Items](
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
+}
+
+// Destination DDL must commit before the catalog schema: once the catalog knows a
+// column, source replay may no longer emit its schema delta.
+func (c *PostgresConnector) prepareSyncSchema(ctx context.Context, flowName string, deltas []*protos.TableSchemaDelta) error {
+	// c.conn has an open transaction containing the raw records. Use a separate
+	// connection so DDL can commit before that transaction saves the checkpoint.
+	ddlConn, err := NewPostgresConnFromConfig(ctx, c.conn.Config(), c.Config.TlsHost, c.rdsAuth, c.cloudSQLDialer, c.ssh)
+	if err != nil {
+		return fmt.Errorf("failed to connect for sync schema changes: %w", err)
+	}
+	defer ddlConn.Close(ctx)
+	if err := c.replayTableSchemaDeltas(ctx, ddlConn, deltas); err != nil {
+		return fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return err
+	}
+	return internal.ApplySchemaDeltasToCatalog(ctx, catalogPool, flowName, deltas)
 }
 
 func (c *PostgresConnector) NormalizeRecords(
@@ -555,8 +575,6 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	return false, nil
 }
 
-// replayTableSchemaDeltaCore changes a destination table to match the schema at source
-// This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	_ map[string]string,
@@ -566,12 +584,16 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	_ []string,
 	_ uint32, _ protos.DBType,
 ) error {
+	return c.replayTableSchemaDeltas(ctx, c.conn, schemaDeltas)
+}
+
+func (c *PostgresConnector) replayTableSchemaDeltas(ctx context.Context, conn *pgx.Conn, schemaDeltas []*protos.TableSchemaDelta) error {
 	if len(schemaDeltas) == 0 {
 		return nil
 	}
 
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
-	tableSchemaModifyTx, err := c.conn.Begin(ctx)
+	tableSchemaModifyTx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
 			err)

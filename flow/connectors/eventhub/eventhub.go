@@ -330,7 +330,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint, req.Records.SchemaDeltas); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}

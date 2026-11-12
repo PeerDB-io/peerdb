@@ -335,7 +335,7 @@ Loop:
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("[pubsub] FinishBatch error: %w", err)
 	}
 

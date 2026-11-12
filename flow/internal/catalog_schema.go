@@ -47,6 +47,19 @@ func ReadModifyWriteTableSchemasToCatalog(
 	}
 	defer shared.RollbackTx(tx, logger)
 
+	if err := ReadModifyWriteTableSchemasToCatalogTx(ctx, tx, logger, flowName, tableNames, modifyFn); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+// ReadModifyWriteTableSchemasToCatalogTx leaves commit and rollback to the caller.
+func ReadModifyWriteTableSchemasToCatalogTx(ctx context.Context, tx pgx.Tx, logger log.Logger, flowName string,
+	tableNames []string, modifyFn func(map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error),
+) error {
 	// read
 	tableSchemas, err := LoadTableSchemasFromCatalog(ctx, tx, flowName, tableNames)
 	if err != nil {
@@ -104,9 +117,6 @@ func ReadModifyWriteTableSchemasToCatalog(
 		return fmt.Errorf("failed to close batch results: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
 	return nil
 }
 
