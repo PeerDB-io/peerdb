@@ -1603,9 +1603,7 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
 	// string while returning SQL NULL for a missing value of NULL. -> keeps the element as JSON text,
 	// which is what a json/jsonb column needs.
-	// to_json renders both a SQL NULL and a 'null' element of a json[]/jsonb[] value as null, so the last
-	// column also reads the elements as text[], which keeps SQL NULL apart: attmissingval's text form is a
-	// one-element array holding the value's own array text.
+	// to_json renders SQL NULL and 'null' elements alike; the last column reads the elements as text[], which keeps them apart.
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
 		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END,
 		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END,
