@@ -61,9 +61,12 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 	return tableNameSchemaMapping, nil
 }
 
-func (a *FlowableActivity) applySchemaDeltas(
+// applySchemaDeltas adds the columns of schema deltas to the catalog schemas of their destination tables,
+// skipping columns a schema already has
+func applySchemaDeltas(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
+	catalogPool shared.CatalogPool,
+	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
@@ -75,9 +78,9 @@ func (a *FlowableActivity) applySchemaDeltas(
 
 	if err := internal.ReadModifyWriteTableSchemasToCatalog(
 		ctx,
-		a.CatalogPool,
+		catalogPool,
 		logger,
-		config.FlowJobName,
+		flowJobName,
 		dstTableNamesInDeltas,
 		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
 			// deep copy to avoid mutating input
@@ -288,7 +291,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		return nil, applySchemaDeltas(ctx, a.CatalogPool, config.FlowJobName, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -412,7 +415,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(new("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
+	if err := applySchemaDeltas(ctx, a.CatalogPool, config.FlowJobName, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 
