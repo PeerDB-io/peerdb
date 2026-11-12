@@ -17,7 +17,6 @@ import (
 )
 
 type dstTable struct {
-	identity  []string
 	keyUnique bool
 	secondary bool
 }
@@ -28,9 +27,7 @@ type batchTable struct {
 }
 
 const (
-	dstTableSQL = `SELECT (SELECT coalesce(array_agg('"' || replace(attname, '"', '""') || '"'), '{}') FROM pg_attribute
-		WHERE attrelid = $1::regclass AND attnum > 0 AND NOT attisdropped AND attidentity = 'a'),
-	coalesce(bool_or(indisunique AND indpred IS NULL AND keyed = indnkeyatts), false),
+	dstTableSQL = `SELECT coalesce(bool_or(indisunique AND indpred IS NULL AND keyed = indnkeyatts), false),
 	coalesce(bool_or((indisunique OR indisexclusion) AND indimmediate
 		AND NOT (indpred IS NULL AND keyed = indnkeyatts AND keyed = cardinality($2::text[]))), false)
 	FROM (SELECT i.*, (SELECT count(*) FROM pg_attribute a WHERE a.attrelid = i.indrelid
@@ -49,7 +46,7 @@ func (c *PostgresConnector) getDstTable(ctx context.Context, tx pgx.Tx, table st
 	if err != nil {
 		return d, err
 	}
-	if err := tx.QueryRow(ctx, dstTableSQL, qt.String(), keys).Scan(&d.identity, &d.keyUnique, &d.secondary); err != nil {
+	if err := tx.QueryRow(ctx, dstTableSQL, qt.String(), keys).Scan(&d.keyUnique, &d.secondary); err != nil {
 		return d, fmt.Errorf("failed to read destination table %s: %w", table, err)
 	}
 	return d, nil
