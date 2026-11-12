@@ -42,7 +42,7 @@ func (a *FlowableActivity) syncFlowQueryCDC(
 	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
 
 	var totalRecordsSynced atomic.Int64
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutineEvery(ctx, syncFlowHeartbeatInterval, func() string {
 		return fmt.Sprintf("query-based CDC: %d tables, totalRecordsSynced:%d",
 			len(options.TableMappings), totalRecordsSynced.Load())
 	})
