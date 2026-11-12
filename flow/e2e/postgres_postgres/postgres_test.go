@@ -1843,8 +1843,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Table_With_Excluded_PK_And_ReplicaIdentityF
 // MERGE of the batch-final rows applies them one at a time and hits the unique index:
 // ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)
 func (s PeerFlowE2ETestSuitePG) Test_Unique_Swap_PG() {
-	tc := e2e.NewTemporalClient(s.t)
-
 	srcTableName := s.attachSchemaSuffix("test_unique_swap")
 	dstTableName := s.attachSchemaSuffix("test_unique_swap_dst")
 
@@ -1857,20 +1855,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Unique_Swap_PG() {
 		require.NoError(s.t, err)
 	}
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_unique_swap"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer().Name,
-	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.System = protos.TypeSystem_PG
-	flowConnConfig.SyncedAtColName = ""
-	flowConnConfig.SoftDeleteColName = ""
-	flowConnConfig.MaxBatchSize = 100
-
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	env := s.startMigrationFlow("test_unique_swap", srcTableName, dstTableName)
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
 		`INSERT INTO %s(id,code) VALUES (1,'a'),(2,'b'),(3,'c')`, srcTableName))
@@ -1879,20 +1864,192 @@ func (s PeerFlowE2ETestSuitePG) Test_Unique_Swap_PG() {
 		return s.comparePGTables(srcTableName, dstTableName, "id,code") == nil
 	})
 
-	tx, err := s.Conn().Begin(s.t.Context())
-	e2e.EnvNoError(s.t, env, err)
-	for _, stmt := range []string{
+	s.execInTx(env, srcTableName,
 		`UPDATE %s SET code='tmp' WHERE id=1`,
 		`UPDATE %s SET code='a' WHERE id=2`,
 		`UPDATE %s SET code='b' WHERE id=1`,
-	} {
-		_, err = tx.Exec(s.t.Context(), fmt.Sprintf(stmt, srcTableName))
-		e2e.EnvNoError(s.t, env, err)
-	}
-	e2e.EnvNoError(s.t, env, tx.Commit(s.t.Context()))
+	)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize swap", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, "id,code") == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// startMigrationFlow starts a PG to PG mirror the way a migration runs it:
+// PG type system and no _PEERDB_SYNCED_AT / _PEERDB_IS_DELETED columns.
+func (s PeerFlowE2ETestSuitePG) startMigrationFlow(flowName, srcTableName, dstTableName string) e2e.WorkflowRun {
+	tc := e2e.NewTemporalClient(s.t)
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(flowName),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	config := connectionGen.GenerateFlowConnectionConfigs(s)
+	config.System = protos.TypeSystem_PG
+	config.SyncedAtColName = ""
+	config.SoftDeleteColName = ""
+	config.MaxBatchSize = 100
+	env := e2e.ExecutePeerflow(s.t, tc, config)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+	return env
+}
+
+// execInTx runs the statements, each formatted with table, in one source transaction so they land in one batch.
+func (s PeerFlowE2ETestSuitePG) execInTx(env e2e.WorkflowRun, table string, stmts ...string) {
+	tx, err := s.Conn().Begin(s.t.Context())
+	e2e.EnvNoError(s.t, env, err)
+	for _, stmt := range stmts {
+		_, err = tx.Exec(s.t.Context(), fmt.Sprintf(stmt, table))
+		e2e.EnvNoError(s.t, env, err)
+	}
+	e2e.EnvNoError(s.t, env, tx.Commit(s.t.Context()))
+}
+
+// compareTablesWithDuplicates is comparePGTables for tables that can hold identical rows: EXCEPT ALL counts them.
+func (s PeerFlowE2ETestSuitePG) compareTablesWithDuplicates(srcTableName, dstTableName, selector string) error {
+	var diff int64
+	if err := s.Conn().QueryRow(s.t.Context(), fmt.Sprintf(
+		`SELECT count(*) FROM ((SELECT %[1]s FROM %[2]s EXCEPT ALL SELECT %[1]s FROM %[3]s)
+		UNION ALL (SELECT %[1]s FROM %[3]s EXCEPT ALL SELECT %[1]s FROM %[2]s)) d`,
+		selector, srcTableName, dstTableName)).Scan(&diff); err != nil {
+		return err
+	}
+	if diff != 0 {
+		return fmt.Errorf("%d rows differ between %s and %s", diff, srcTableName, dstTableName)
+	}
+	return nil
+}
+
+// A primary key move makes the batch replay in source order. One transaction mixes it with inserts,
+// updates that leave a TOAST column unchanged, an explicit NULL, update-then-delete, and delete-then-reinsert.
+func (s PeerFlowE2ETestSuitePG) Test_Migration_Ordered_Mixed_Tx_Toast_PG() {
+	srcTableName := s.attachSchemaSuffix("test_mig_mixed_toast")
+	dstTableName := s.attachSchemaSuffix("test_mig_mixed_toast_dst")
+	const cols = "id,c,note,big"
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			c INT NOT NULL,
+			note TEXT,
+			big TEXT NOT NULL
+		);`, srcTableName))
+	require.NoError(s.t, err)
+
+	env := s.startMigrationFlow("test_mig_mixed_toast", srcTableName, dstTableName)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id,c,note,big) SELECT i,i,'n'||i,random_string(9000) FROM generate_series(1,6) i`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize inserts", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
+	})
+
+	s.execInTx(env, srcTableName,
+		`INSERT INTO %s(id,c,note,big) VALUES (7,7,'n7',random_string(9000))`,
+		`UPDATE %s SET c=c+10 WHERE id=1`,
+		`UPDATE %s SET id=102,big=random_string(9000) WHERE id=2`,
+		`UPDATE %s SET c=c+1 WHERE id=102`,
+		`DELETE FROM %s WHERE id=3`,
+		`INSERT INTO %s(id,c,note,big) VALUES (3,33,'again',random_string(9000))`,
+		`UPDATE %s SET note=NULL WHERE id=4`,
+		`UPDATE %s SET c=c+1 WHERE id=5`,
+		`DELETE FROM %s WHERE id=5`,
+	)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize mixed transaction", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// Shifting a non-deferrable unique column through negative values over several transactions passes through states
+// a batch-final MERGE can't reach, so it falls back to replaying in source order; TOAST values stay unchanged.
+func (s PeerFlowE2ETestSuitePG) Test_Migration_Ordered_Unique_Shift_Multi_Tx_Toast_PG() {
+	srcTableName := s.attachSchemaSuffix("test_mig_shift_toast")
+	dstTableName := s.attachSchemaSuffix("test_mig_shift_toast_dst")
+	const cols = "id,pos,big"
+
+	for _, table := range []string{srcTableName, dstTableName} {
+		_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id INT PRIMARY KEY,
+				pos INT NOT NULL UNIQUE,
+				big TEXT NOT NULL
+			);`, table))
+		require.NoError(s.t, err)
+	}
+
+	env := s.startMigrationFlow("test_mig_shift_toast", srcTableName, dstTableName)
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(id,pos,big) SELECT i,i,random_string(9000) FROM generate_series(1,3) i`, srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize inserts", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
+	})
+
+	s.execInTx(env, srcTableName, `UPDATE %s SET pos=-pos`)
+	s.execInTx(env, srcTableName, `UPDATE %s SET pos=-pos+1`)
+	s.execInTx(env, srcTableName,
+		`INSERT INTO %s(id,pos,big) VALUES (4,1,random_string(9000))`,
+		`DELETE FROM %s WHERE id=2`,
+	)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize shift", func() bool {
+		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// A REPLICA IDENTITY FULL table without a primary key is replayed by whole old row: one of two identical rows is
+// deleted, rows whose old values include NULL are found, and a TOAST value left unchanged is kept.
+func (s PeerFlowE2ETestSuitePG) Test_Migration_Ordered_ReplIdent_Full_No_PKey_PG() {
+	srcTableName := s.attachSchemaSuffix("test_mig_full_nopk")
+	dstTableName := s.attachSchemaSuffix("test_mig_full_nopk_dst")
+	const cols = "id,v,big"
+
+	// the destination is in the same (published) database in this suite, and a published table without a
+	// primary key rejects DELETE unless it has a replica identity, so create it up front with one
+	for _, table := range []string{srcTableName, dstTableName} {
+		_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %[1]s (
+				id INT,
+				v TEXT,
+				big TEXT
+			);
+			ALTER TABLE %[1]s REPLICA IDENTITY FULL;`, table))
+		require.NoError(s.t, err)
+	}
+
+	env := s.startMigrationFlow("test_mig_full_nopk", srcTableName, dstTableName)
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		INSERT INTO %[1]s(id,v,big) SELECT 1,'a',s FROM (SELECT random_string(9000) s) r, generate_series(1,2);
+		INSERT INTO %[1]s(id,v,big) VALUES (2,NULL,random_string(9000)),(3,'c',random_string(9000)),(6,'f',NULL)`,
+		srcTableName))
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize inserts", func() bool {
+		return s.compareTablesWithDuplicates(srcTableName, dstTableName, cols) == nil
+	})
+
+	s.execInTx(env, srcTableName,
+		`DELETE FROM %s WHERE ctid = (SELECT ctid FROM %[1]s WHERE id=1 LIMIT 1)`,
+		`UPDATE %s SET v='z' WHERE id=2`,
+		`UPDATE %s SET id=4 WHERE id=3`,
+		`UPDATE %s SET v=NULL WHERE id=6`,
+		`INSERT INTO %s(id,v,big) VALUES (5,NULL,'small')`,
+	)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize replica identity full changes", func() bool {
+		return s.compareTablesWithDuplicates(srcTableName, dstTableName, cols) == nil
 	})
 
 	env.Cancel(s.t.Context())
