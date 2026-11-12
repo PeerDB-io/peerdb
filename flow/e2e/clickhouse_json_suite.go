@@ -983,7 +983,7 @@ func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault() {
 	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_default", false)
 }
 
-// Test_JSON_CH_Array_AddColumnDefault_Nullable: the same with PEERDB_NULLABLE; a NULL element of the default lands as {}.
+// Test_JSON_CH_Array_AddColumnDefault_Nullable: the same with PEERDB_NULLABLE; a NULL element of the default stays NULL.
 func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault_Nullable() {
 	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_def_null", true)
 }
@@ -1030,7 +1030,11 @@ func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, null
 
 	// row 1 takes the column default, row 2 its own value
 	cases := []jsonArrayTestCase{
-		{desc: "default", wantElements: []string{`{"a": 1}`, `{"_value":"dark"}`, `{}`, `{}`}},
+		{
+			desc:                 "default",
+			wantElements:         []string{`{"a": 1}`, `{"_value":"dark"}`, `{}`, `{}`},
+			wantNullableElements: []string{`{"a": 1}`, `{"_value":"dark"}`, `null`, `{}`},
+		},
 		{desc: "explicit", wantElements: []string{`{"_value":[1, 2]}`, `{"b": 2}`}},
 	}
 	rowsMatch := jsonColumnsMatch([]string{"c_arr"}, func(t *testing.T, label string, rowIdx int, _ types.QValue, dst types.QValue) bool {

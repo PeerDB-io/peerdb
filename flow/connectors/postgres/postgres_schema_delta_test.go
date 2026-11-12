@@ -269,6 +269,10 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		wantWrapped  string // literal with non-object JSON wrapping on; empty means the same as want
 		wantNonEmpty bool
 		notNull      bool
+
+		// literal for an Array(Nullable(JSON)) column, with the SQL NULL elements the catalog reports;
+		// empty means the catalog reports none
+		wantWrappedNullable string
 	}{
 		// Integer missing values are exposed directly in their text form.
 		{name: "c_int", colDef: "int DEFAULT 5", qkind: types.QValueKindInt32, want: "5"},
@@ -321,6 +325,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			name: "c_jsonb_arr", colDef: `jsonb[] DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, 'null'::jsonb, NULL]`,
 			qkind:       types.QValueKindArrayJSONB,
 			wantWrapped: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},{"_value":null}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},null]', 'Array(Nullable(JSON))')`,
+		},
+		// the cells of a multidimensional value are not its top-level elements, so the catalog marks none:
+		// the NULL cell must not turn the first element, the array [null], into NULL
+		{
+			name: "c_json_arr_2d", colDef: `json[] DEFAULT '{{NULL},{1}}'`, qkind: types.QValueKindArrayJSON,
+			wantWrapped: `JSONExtract('[{"_value":[null]},{"_value":[1]}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"_value":[null]},{"_value":[1]}]', 'Array(Nullable(JSON))')`,
 		},
 		{
 			name: "c_json_arr_empty", colDef: `json[] DEFAULT ARRAY[]::json[]`, qkind: types.QValueKindArrayJSON,
@@ -391,8 +405,16 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 
 			var literal, wrappedLiteral string
 			if missingValue := catalogInfo[tc.name].missingValueFor(tc.qkind); missingValue != nil {
-				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, false)
-				wrappedLiteral, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true)
+				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, false, false, nil)
+				wrappedLiteral, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true, false, nil)
+				if tc.wantWrappedNullable != "" {
+					nullableLiteral, _ := defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true, true,
+						catalogInfo[tc.name].missingNullElements)
+					require.Equal(t, tc.wantWrappedNullable, nullableLiteral)
+				}
+			}
+			if tc.wantWrappedNullable == "" {
+				require.Nil(t, catalogInfo[tc.name].missingNullElements)
 			}
 			if tc.wantNonEmpty {
 				require.NotEmpty(t, literal)
