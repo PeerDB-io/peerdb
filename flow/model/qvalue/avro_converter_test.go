@@ -188,6 +188,52 @@ func TestAvroQValueSize(t *testing.T) {
 	}
 }
 
+// TestBytesToAvroNullVsEmpty checks that a nil []byte inside QValueBytes encodes as empty bytes and only
+// QValueNull takes the null branch. Connectors such as MySQL can hand over an empty binary value as a nil
+// slice, and twmb/avro treats a pointer to a nil slice as null in a ["null", "bytes"] union.
+func TestBytesToAvroNullVsEmpty(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{"PEERDB_CLICKHOUSE_BINARY_FORMAT": "raw"}
+
+	tests := []struct {
+		value types.QValue
+		name  string
+		// wire bytes for the ["null", "bytes"] union, and for plain bytes when nullable is false
+		nullable, nonNullable []byte
+	}{
+		// union branch 1 (bytes), length 0
+		{name: "nil slice", value: types.QValueBytes{Val: nil}, nullable: []byte{0x02, 0x00}, nonNullable: []byte{0x00}},
+		{name: "empty slice", value: types.QValueBytes{Val: []byte{}}, nullable: []byte{0x02, 0x00}, nonNullable: []byte{0x00}},
+		// union branch 1 (bytes), length 1, 0x07
+		{name: "one byte", value: types.QValueBytes{Val: []byte{0x07}}, nullable: []byte{0x02, 0x02, 0x07}, nonNullable: []byte{0x02, 0x07}},
+		// union branch 0 (null); a non-nullable column has no null to encode
+		{name: "SQL NULL", value: types.QValueNull(types.QValueKindBytes), nullable: []byte{0x00}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name+"_nullable", func(t *testing.T) {
+			field := types.QField{Type: types.QValueKindBytes, Nullable: true}
+			schema := getAvroSchema(t, ctx, env, types.QValueBytes{}, &field)
+			avroVal, computedSize := qvalueToAvro(t, ctx, tc.value, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.nullable, encoded)
+			assert.Equal(t, int64(len(encoded)), computedSize)
+		})
+		if tc.nonNullable == nil {
+			continue
+		}
+		t.Run(tc.name+"_non_nullable", func(t *testing.T) {
+			field := types.QField{Type: types.QValueKindBytes}
+			schema := getAvroSchema(t, ctx, env, types.QValueBytes{}, &field)
+			avroVal, computedSize := qvalueToAvro(t, ctx, tc.value, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.nonNullable, encoded)
+			assert.Equal(t, int64(len(encoded)), computedSize)
+		})
+	}
+}
+
 func TestVarIntSize(t *testing.T) {
 	ctx := context.Background()
 	env := map[string]string{}

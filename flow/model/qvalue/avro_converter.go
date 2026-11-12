@@ -584,11 +584,15 @@ func (c *QValueAvroConverter) processBytes(byteData []byte, so sizeOpt) (any, in
 		}
 		return encoded, size
 	}
-	size := stringSize(shared.UnsafeFastReadOnlyBytesToString(byteData), so)
-	if c.Nullable {
-		return &byteData, size
+	safeByteDataPtr := &byteData
+	if byteData == nil {
+		safeByteDataPtr = &[]byte{}
 	}
-	return byteData, size
+	size := stringSize(shared.UnsafeFastReadOnlyBytesToString(*safeByteDataPtr), so)
+	if c.Nullable {
+		return safeByteDataPtr, size
+	}
+	return *safeByteDataPtr, size
 }
 
 func (c *QValueAvroConverter) processJSON(jsonString string) any {
