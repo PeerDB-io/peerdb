@@ -608,8 +608,13 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Validation_Multiple_Tables
 			SnapshotStagingPath: bigQueryTestStagingPath(s, "test"),
 		}
 	}
+	// The default engine (ReplacingMergeTree) needs a sort key, which keyless test tables lack.
 	mapping := func(source string) *protos.TableMapping {
-		return &protos.TableMapping{SourceTableIdentifier: source, DestinationTableIdentifier: strings.ReplaceAll(source, ".", "_")}
+		return &protos.TableMapping{
+			SourceTableIdentifier:      source,
+			DestinationTableIdentifier: strings.ReplaceAll(source, ".", "_"),
+			Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
+		}
 	}
 
 	t.Run("accepts tables with different schemas across datasets", func(t *testing.T) {

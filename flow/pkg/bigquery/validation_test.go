@@ -1,10 +1,14 @@
 package bigquery
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 )
 
 func TestFieldTypeFromDataType(t *testing.T) {
@@ -39,6 +43,26 @@ func TestFieldTypeFromDataType(t *testing.T) {
 			gotType, gotRepeated := fieldTypeFromDataType(tt.dataType)
 			require.Equal(t, tt.wantType, gotType)
 			require.Equal(t, tt.wantRepeated, gotRepeated)
+		})
+	}
+}
+
+func TestIsNotFoundError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "googleapi 404", err: &googleapi.Error{Code: http.StatusNotFound}, want: true},
+		{name: "googleapi 403", err: &googleapi.Error{Code: http.StatusForbidden}, want: false},
+		{name: "bigquery notFound", err: &bigquery.Error{Reason: "notFound"}, want: true},
+		{name: "bigquery accessDenied", err: &bigquery.Error{Reason: "accessDenied"}, want: false},
+		{name: "wrapped bigquery notFound", err: fmt.Errorf("read: %w", &bigquery.Error{Reason: "notFound"}), want: true},
+		{name: "other error", err: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isNotFoundError(tt.err))
 		})
 	}
 }

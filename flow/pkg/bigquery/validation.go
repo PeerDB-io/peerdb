@@ -171,7 +171,7 @@ func GetTables(
 		g.Go(func() error {
 			datasetTables, err := getDatasetTables(gCtx, client, projectID, dataset, tableNames)
 			if err != nil {
-				if apiErr, ok := errors.AsType[*googleapi.Error](err); !ok || apiErr.Code != http.StatusNotFound {
+				if !isNotFoundError(err) {
 					return fmt.Errorf("failed to get tables of dataset %q: %w", dataset, err)
 				}
 				// The dataset does not exist, so none of its tables do.
@@ -203,6 +203,16 @@ func GetTables(
 	}
 
 	return result, nil
+}
+
+func isNotFoundError(err error) bool {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		return apiErr.Code == http.StatusNotFound
+	}
+	if bqErr, ok := errors.AsType[*bigquery.Error](err); ok {
+		return bqErr.Reason == "notFound"
+	}
+	return false
 }
 
 // getDatasetTables runs tableColumnsQuery for tableNames in one dataset and
@@ -590,7 +600,8 @@ func validateTablesDataAccess(ctx context.Context, client *bigquery.Client, proj
 			query := client.Query(strings.Join(selects, " UNION ALL "))
 			query.DryRun = true
 			if _, err := query.Run(gCtx); err != nil {
-				return fmt.Errorf("failed to validate data access for tables: %w", &ExternalError{err})
+				return fmt.Errorf("failed to validate data access for tables %q..%q: %w",
+					batch[0].String(), batch[len(batch)-1].String(), &ExternalError{err})
 			}
 			return nil
 		})
