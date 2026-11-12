@@ -90,11 +90,9 @@ func TablesHaveChangeHistoryEnabled(
 
 // ColumnInfo describes a single column of a BigQuery table.
 type ColumnInfo struct {
-	// Type is the column's BigQuery field type, e.g. "TIMESTAMP". For ARRAY
-	// columns it is the element type and IsRepeated is set.
+	// Type is the field type; for ARRAY columns, the element type.
 	Type bigquery.FieldType
-	// DataType is the full GoogleSQL type as reported by INFORMATION_SCHEMA,
-	// e.g. "ARRAY<STRING>", "NUMERIC(10, 2)" or "STRUCT<a BOOL, b BYTES>".
+	// DataType is the INFORMATION_SCHEMA type, e.g. "NUMERIC(10, 2)".
 	DataType   string
 	IsRepeated bool
 	IsNullable bool
@@ -121,9 +119,8 @@ func (t TableInfo) HasPrimaryKey() bool {
 // queryConcurrency bounds concurrent BigQuery query jobs issued by validation.
 const queryConcurrency = 8
 
-// tableColumnsQuery reads column, primary key, clustering and size information
-// for the requested tables of one dataset. Hidden pseudo columns such as
-// _PARTITIONTIME are excluded, matching the table schema.
+// tableColumnsQuery reads columns, keys and size of tables in one dataset,
+// excluding pseudo columns such as _PARTITIONTIME.
 const tableColumnsQuery = `SELECT
   c.table_name, c.column_name, c.is_nullable, c.data_type, c.clustering_ordinal_position,
   k.ordinal_position AS pk_position, s.size_bytes
@@ -147,10 +144,8 @@ type tableColumnRow struct {
 	SizeBytes          bigquery.NullInt64 `bigquery:"size_bytes"`
 }
 
-// GetTables returns information about the specified tables, read from
-// INFORMATION_SCHEMA with one query per dataset. It fails with a
-// *common.SourceTablesMissingError listing every table that (or whose dataset)
-// does not exist.
+// GetTables reads table info with one INFORMATION_SCHEMA query per dataset.
+// Missing tables and datasets yield a *common.SourceTablesMissingError.
 func GetTables(
 	ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable,
 ) (map[DatasetTable]TableInfo, error) {
@@ -171,8 +166,8 @@ func GetTables(
 		g.Go(func() error {
 			datasetTables, err := getDatasetTables(gCtx, client, projectID, dataset, tableNames)
 			if err != nil {
-				if !isNotFoundError(err) {
-					return fmt.Errorf("failed to get tables of dataset %q: %w", dataset, err)
+				if err := checkDatasetMissing(gCtx, client, projectID, dataset, err); err != nil {
+					return err
 				}
 				// The dataset does not exist, so none of its tables do.
 				datasetTables = nil
@@ -205,6 +200,23 @@ func GetTables(
 	return result, nil
 }
 
+// checkDatasetMissing returns nil if queryErr means the dataset does not exist.
+// Queries return 403 for both missing and unreadable datasets; datasets.get
+// tells them apart.
+func checkDatasetMissing(ctx context.Context, client *bigquery.Client, projectID, dataset string, queryErr error) error {
+	if isNotFoundError(queryErr) {
+		return nil
+	}
+	if !isAccessDeniedError(queryErr) {
+		return fmt.Errorf("failed to get tables of dataset %q: %w", dataset, queryErr)
+	}
+	if _, err := client.DatasetInProject(projectID, dataset).Metadata(ctx); isNotFoundError(err) {
+		return nil
+	}
+	return fmt.Errorf("no permission to read dataset %q, grant roles/bigquery.dataViewer on it: %w", dataset, queryErr)
+}
+
+// isNotFoundError matches both the jobs.query and the job-polling error forms.
 func isNotFoundError(err error) bool {
 	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 		return apiErr.Code == http.StatusNotFound
@@ -215,8 +227,20 @@ func isNotFoundError(err error) bool {
 	return false
 }
 
-// getDatasetTables runs tableColumnsQuery for tableNames in one dataset and
-// returns the tables found, keyed by table name.
+// isAccessDeniedError checks the reason, not the code: 403 also means quota errors.
+func isAccessDeniedError(err error) bool {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		return slices.ContainsFunc(apiErr.Errors, func(item googleapi.ErrorItem) bool {
+			return item.Reason == "accessDenied"
+		})
+	}
+	if bqErr, ok := errors.AsType[*bigquery.Error](err); ok {
+		return bqErr.Reason == "accessDenied"
+	}
+	return false
+}
+
+// getDatasetTables returns the found tables of one dataset, keyed by name.
 func getDatasetTables(
 	ctx context.Context, client *bigquery.Client, projectID, dataset string, tableNames []string,
 ) (map[string]TableInfo, error) {
@@ -292,9 +316,8 @@ func getDatasetTables(
 	return result, nil
 }
 
-// fieldTypeFromDataType maps a GoogleSQL type name from INFORMATION_SCHEMA to
-// the field type the BigQuery table API reports, along with whether the column
-// is an ARRAY (repeated) of that type.
+// fieldTypeFromDataType maps an INFORMATION_SCHEMA type to the table-API field
+// type and whether it is an ARRAY.
 func fieldTypeFromDataType(dataType string) (bigquery.FieldType, bool) {
 	dataType = strings.TrimSpace(dataType)
 	inner, repeated := strings.CutPrefix(dataType, "ARRAY<")
@@ -574,13 +597,11 @@ func validateColumnSelection(key DatasetTable, info TableInfo, include, exclude 
 	return nil
 }
 
-// dataAccessTablesPerQuery caps how many tables one data-access dry-run
-// references. BigQuery allows at most 1,000 tables per query.
+// dataAccessTablesPerQuery stays under BigQuery's 1,000 tables per query.
 const dataAccessTablesPerQuery = 500
 
-// validateTablesDataAccess checks bigquery.tables.getData permission on every
-// table with zero-row dry-run queries, without actually executing them. Tables
-// are combined with UNION ALL so each query covers up to dataAccessTablesPerQuery tables.
+// validateTablesDataAccess checks bigquery.tables.getData with batched
+// UNION ALL dry-run queries.
 func validateTablesDataAccess(ctx context.Context, client *bigquery.Client, projectID string, tables []DatasetTable) error {
 	tables = slices.Clone(tables)
 	slices.SortFunc(tables, func(a, b DatasetTable) int {

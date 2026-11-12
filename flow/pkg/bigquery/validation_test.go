@@ -66,3 +66,32 @@ func TestIsNotFoundError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsAccessDeniedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "googleapi accessDenied",
+			err:  &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "accessDenied"}}},
+			want: true,
+		},
+		{
+			name: "googleapi rateLimitExceeded",
+			err:  &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}},
+			want: false,
+		},
+		{name: "googleapi 403 without reason", err: &googleapi.Error{Code: http.StatusForbidden}, want: false},
+		{name: "bigquery accessDenied", err: &bigquery.Error{Reason: "accessDenied"}, want: true},
+		{name: "wrapped googleapi accessDenied", err: fmt.Errorf("read: %w",
+			&googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "accessDenied"}}}), want: true},
+		{name: "other error", err: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isAccessDeniedError(tt.err))
+		})
+	}
+}
