@@ -45,7 +45,7 @@ func (n *normalizeStmtGenerator) generateOrderedStatement(dstTable string, batch
 			sel = append(sel, fmt.Sprintf("x._peerdb_data ? %s AS p%d", utils.QuoteLiteral(col.Name), i))
 			v = fmt.Sprintf("CASE WHEN _peerdb_apply.r.p%d THEN %s ELSE dst.%s END", i, v, q)
 		}
-		if !slices.Contains(d.identity, q) {
+		if !n.isAlwaysIdentity(dstTable, col.Name) {
 			sets = append(sets, q+" = "+v)
 		}
 		if whole || slices.Contains(schema.PrimaryKeyColumns, col.Name) {
