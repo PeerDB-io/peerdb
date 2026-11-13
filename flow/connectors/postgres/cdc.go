@@ -1444,10 +1444,15 @@ func processRelationMessage[Items model.Items](
 
 	addedColumnNames := make([]string, 0)
 	addedColumnTypeOIDs := make([]uint32, 0)
+	// json[]/jsonb[] columns, domains included, whose missing value the catalog also reads element by element
+	var addedJSONArrayColumnNames []string
 	for _, column := range currRel.Columns {
 		if shouldAddColumn(column.Name) {
 			addedColumnNames = append(addedColumnNames, column.Name)
 			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
+			if qkind := types.QValueKind(currRelMap[column.Name]); qkind == types.QValueKindArrayJSON || qkind == types.QValueKindArrayJSONB {
+				addedJSONArrayColumnNames = append(addedJSONArrayColumnNames, column.Name)
+			}
 		}
 	}
 
@@ -1461,7 +1466,7 @@ func processRelationMessage[Items model.Items](
 	// missing value before a delayed CDC reader observes this relation message.
 	// Read from the mirrored table (the parent, for an inheritance child): a column only some children have finds
 	// no row there and is added as nullable without a default, which fits a destination every child writes to.
-	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, mappedRelID, addedColumnNames)
+	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, mappedRelID, addedColumnNames, addedJSONArrayColumnNames)
 	if err != nil {
 		return nil, err
 	}
@@ -1592,7 +1597,7 @@ func (info addedColumnCatalogInfo) missingValueFor(qkind types.QValueKind) *stri
 // the named columns. pg_attrdef is deliberately not used: it describes the current default for new
 // rows, which can differ from the value stored in pg_attribute.attmissingval for existing rows.
 func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
-	ctx context.Context, relID uint32, columnNames []string,
+	ctx context.Context, relID uint32, columnNames []string, jsonArrayColumnNames []string,
 ) (map[string]addedColumnCatalogInfo, error) {
 	if len(columnNames) == 0 {
 		return nil, nil
@@ -1607,11 +1612,10 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
 		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END,
 		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END,
-		CASE WHEN a.atthasmissing AND a.atttypid IN ('pg_catalog.json[]'::pg_catalog.regtype, 'pg_catalog.jsonb[]'::pg_catalog.regtype)
-			THEN ((a.attmissingval::text::text[])[1])::text[] END
+		CASE WHEN a.atthasmissing AND a.attname = ANY($3) THEN ((a.attmissingval::text::text[])[1])::text[] END
 		FROM pg_catalog.pg_attribute a
 		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
-		relID, columnNames)
+		relID, columnNames, jsonArrayColumnNames)
 	if err != nil {
 		return nil, fmt.Errorf("error looking up added column info for schema change: %w", err)
 	}

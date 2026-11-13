@@ -258,6 +258,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 	enumType := s.schema + ".mood"
 	_, err := s.connector.conn.Exec(s.t.Context(), "CREATE TYPE "+enumType+" AS ENUM ('sad','ok')")
 	require.NoError(s.t, err)
+	jsonbArrayDomain := s.schema + ".jsonb_arr_domain"
+	_, err = s.connector.conn.Exec(s.t.Context(), "CREATE DOMAIN "+jsonbArrayDomain+" AS jsonb[]")
+	require.NoError(s.t, err)
 
 	// the case name doubles as the column name
 	for _, tc := range []struct {
@@ -327,6 +330,14 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			wantWrapped: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},{"_value":null}]', 'Array(JSON)')`,
 
 			wantWrappedNullable: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},null]', 'Array(Nullable(JSON))')`,
+		},
+		// a domain over jsonb[] takes the same default
+		{
+			name: "c_jsonb_arr_domain", colDef: jsonbArrayDomain + ` DEFAULT ARRAY['{"a": 1}'::jsonb, NULL]`,
+			qkind:       types.QValueKindArrayJSONB,
+			wantWrapped: `JSONExtract('[{"a": 1},{"_value":null}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"a": 1},null]', 'Array(Nullable(JSON))')`,
 		},
 		// the cells of a multidimensional value are not its top-level elements, so the catalog marks none:
 		// the NULL cell must not turn the first element, the array [null], into NULL
@@ -398,7 +409,12 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			var relID uint32
 			require.NoError(t, s.connector.conn.QueryRow(t.Context(), "SELECT $1::regclass::oid", tableName).Scan(&relID))
 
-			catalogInfo, err := s.connector.fetchAddedColumnCatalogInfo(t.Context(), relID, []string{tc.name})
+			// the caller resolves domains to tell json[]/jsonb[] columns apart; the case's kind stands in for that
+			var jsonArrayColumnNames []string
+			if tc.qkind == types.QValueKindArrayJSON || tc.qkind == types.QValueKindArrayJSONB {
+				jsonArrayColumnNames = []string{tc.name}
+			}
+			catalogInfo, err := s.connector.fetchAddedColumnCatalogInfo(t.Context(), relID, []string{tc.name}, jsonArrayColumnNames)
 			require.NoError(t, err)
 			require.Len(t, catalogInfo, 1)
 			require.Equal(t, tc.notNull, catalogInfo[tc.name].notNull)
