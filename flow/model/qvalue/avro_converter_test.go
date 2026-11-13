@@ -3,6 +3,7 @@ package qvalue
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -285,6 +286,40 @@ func TestTimestampBeyondInt64MicrosToAvro(t *testing.T) {
 				assert.Equal(t, int64(len(encoded)), computedSize)
 			})
 		}
+	}
+}
+
+// TestClampToAvroRanges checks that times int64 microseconds since the epoch cannot hold move to the closest
+// boundary, in their own location, while times within the range, boundaries included, are kept as they are.
+func TestClampToAvroRanges(t *testing.T) {
+	minTime := time.UnixMicro(math.MinInt64).UTC()
+	maxTime := time.UnixMicro(math.MaxInt64).UTC()
+	offset := time.FixedZone("UTC+5", 5*60*60)
+
+	tests := []struct {
+		name     string
+		input    time.Time
+		expected time.Time
+	}{
+		{"in range", time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC), time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC)},
+		{"epoch", time.Unix(0, 0).UTC(), time.Unix(0, 0).UTC()},
+		{"postgres minimum", time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC), time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC)},
+		{"minimum", minTime, minTime},
+		{"maximum", maxTime, maxTime},
+		{"just below minimum", minTime.Add(-time.Microsecond), minTime},
+		{"just above maximum", maxTime.Add(time.Microsecond), maxTime},
+		{"far below minimum", time.Date(-300000, 1, 1, 0, 0, 0, 0, time.UTC), minTime},
+		{"postgres maximum", time.Date(294276, 12, 31, 23, 59, 59, 999999000, time.UTC), maxTime},
+		{"above maximum, other location", time.Date(294276, 12, 31, 12, 0, 0, 0, offset), maxTime.In(offset)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clamped := ClampToAvroRanges(tc.input)
+			require.True(t, tc.expected.Equal(clamped), "expected %s, got %s", tc.expected, clamped)
+			require.Equal(t, tc.input.Location(), clamped.Location())
+			// the clamped time survives the round trip through int64 microseconds
+			require.True(t, clamped.Equal(time.UnixMicro(clamped.UnixMicro())), "%s overflows int64 microseconds", clamped)
+		})
 	}
 }
 
