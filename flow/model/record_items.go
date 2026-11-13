@@ -166,6 +166,12 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				formattedTimeArr = append(formattedTimeArr, types.FormatExtendedTimeDuration(val))
 			}
 			jsonStruct[col] = formattedTimeArr
+		case types.QValueBytes:
+			if v.Val == nil && opts.NilBytesAsEmpty {
+				jsonStruct[col] = []byte{}
+			} else {
+				jsonStruct[col] = v.Val
+			}
 		case types.QValueNumeric:
 			jsonStruct[col] = v.Val.String()
 		case types.QValueArrayNumeric:
