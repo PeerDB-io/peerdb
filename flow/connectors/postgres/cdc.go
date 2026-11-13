@@ -1444,10 +1444,15 @@ func processRelationMessage[Items model.Items](
 
 	addedColumnNames := make([]string, 0)
 	addedColumnTypeOIDs := make([]uint32, 0)
+	// json[]/jsonb[] columns, domains included, whose missing value the catalog also reads element by element
+	var addedJSONArrayColumnNames []string
 	for _, column := range currRel.Columns {
 		if shouldAddColumn(column.Name) {
 			addedColumnNames = append(addedColumnNames, column.Name)
 			addedColumnTypeOIDs = append(addedColumnTypeOIDs, column.DataType)
+			if qkind := types.QValueKind(currRelMap[column.Name]); qkind == types.QValueKindArrayJSON || qkind == types.QValueKindArrayJSONB {
+				addedJSONArrayColumnNames = append(addedJSONArrayColumnNames, column.Name)
+			}
 		}
 	}
 
@@ -1461,7 +1466,7 @@ func processRelationMessage[Items model.Items](
 	// missing value before a delayed CDC reader observes this relation message.
 	// Read from the mirrored table (the parent, for an inheritance child): a column only some children have finds
 	// no row there and is added as nullable without a default, which fits a destination every child writes to.
-	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, mappedRelID, addedColumnNames)
+	addedColumnCatalogInfo, err := p.fetchAddedColumnCatalogInfo(ctx, mappedRelID, addedColumnNames, addedJSONArrayColumnNames)
 	if err != nil {
 		return nil, err
 	}
@@ -1482,7 +1487,9 @@ func processRelationMessage[Items model.Items](
 			if missingValue != nil && prevSchema.System == protos.TypeSystem_Q {
 				wrapJSON := shouldWrapJSONColumn(column.DataType, column.Name, customTypeMapping,
 					p.flags, p.internalVersion, p.nativeJSONEnabled, currRelDstInfo.Columns)
-				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON); ok {
+				// the destination adds a json[] column as Array(Nullable(JSON)) under the nullable setting
+				if literal, ok := defaultExprFromPostgresMissingValue(*missingValue, qkind, wrapJSON,
+					schemaDelta.NullableEnabled, catalogInfo.missingNullElements); ok {
 					defaultExpr = &literal
 				}
 			}
@@ -1568,8 +1575,11 @@ type addedColumnCatalogInfo struct {
 	// missingJSON is the same value as JSON text, which keeps a top-level JSON string quoted and a JSON
 	// null distinct from SQL NULL; only meaningful for json/jsonb and json[]/jsonb[] columns.
 	missingJSON *string
-	hasMissing  bool
-	notNull     bool
+	// missingNullElements marks the SQL NULL elements of a json[]/jsonb[] missing value, which missingJSON
+	// renders as JSON null just like a 'null' element.
+	missingNullElements []bool
+	hasMissing          bool
+	notNull             bool
 }
 
 // missingValueFor returns the stored missing value in the form defaultExprFromPostgresMissingValue
@@ -1587,7 +1597,7 @@ func (info addedColumnCatalogInfo) missingValueFor(qkind types.QValueKind) *stri
 // the named columns. pg_attrdef is deliberately not used: it describes the current default for new
 // rows, which can differ from the value stored in pg_attribute.attmissingval for existing rows.
 func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
-	ctx context.Context, relID uint32, columnNames []string,
+	ctx context.Context, relID uint32, columnNames []string, jsonArrayColumnNames []string,
 ) (map[string]addedColumnCatalogInfo, error) {
 	if len(columnNames) == 0 {
 		return nil, nil
@@ -1598,12 +1608,14 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	// that element without having to parse PostgreSQL's array text format. ->> preserves an empty
 	// string while returning SQL NULL for a missing value of NULL. -> keeps the element as JSON text,
 	// which is what a json/jsonb column needs.
+	// to_json renders SQL NULL and 'null' elements alike; the last column reads the elements as text[], which keeps them apart.
 	rows, err := c.conn.Query(ctx, `SELECT a.attname, a.attnotnull, a.atthasmissing,
 		CASE WHEN a.atthasmissing THEN pg_catalog.to_json(a.attmissingval)->>0 END,
-		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END
+		CASE WHEN a.atthasmissing THEN (pg_catalog.to_json(a.attmissingval)->0)::text END,
+		CASE WHEN a.atthasmissing AND a.attname = ANY($3) THEN ((a.attmissingval::text::text[])[1])::text[] END
 		FROM pg_catalog.pg_attribute a
 		WHERE a.attrelid = $1 AND a.attname = ANY($2) AND a.attnum > 0 AND NOT a.attisdropped`,
-		relID, columnNames)
+		relID, columnNames, jsonArrayColumnNames)
 	if err != nil {
 		return nil, fmt.Errorf("error looking up added column info for schema change: %w", err)
 	}
@@ -1613,8 +1625,16 @@ func (c *PostgresConnector) fetchAddedColumnCatalogInfo(
 	var notNull bool
 	var hasMissing bool
 	var missingValue, missingJSON pgtype.Text
-	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue, &missingJSON}, func() error {
+	var missingElements pgtype.Array[*string]
+	if _, err := pgx.ForEachRow(rows, []any{&name, &notNull, &hasMissing, &missingValue, &missingJSON, &missingElements}, func() error {
 		info := addedColumnCatalogInfo{hasMissing: hasMissing, notNull: notNull}
+		// only the elements of a one-dimensional value line up with the top-level elements of missingJSON
+		if len(missingElements.Dims) == 1 {
+			info.missingNullElements = make([]bool, len(missingElements.Elements))
+			for i, elem := range missingElements.Elements {
+				info.missingNullElements[i] = elem == nil
+			}
+		}
 		if missingValue.Valid {
 			value := missingValue.String
 			info.missingValue = &value
@@ -1637,7 +1657,10 @@ var pgNumericLiteralRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+
 // defaultExprFromPostgresMissingValue renders the value PostgreSQL stored in attmissingval as a SQL
 // literal that destinations can splice into DDL verbatim. Only types whose text form carries over are
 // translated; everything else is declined, leaving the destination column without a default.
-func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, wrapNonObjectJSON bool) (string, bool) {
+// For json[]/jsonb[], nullableEnabled says the column is Array(Nullable(JSON)), and nullElements marks the SQL NULL elements.
+func defaultExprFromPostgresMissingValue(
+	value string, qkind types.QValueKind, wrapNonObjectJSON bool, nullableEnabled bool, nullElements []bool,
+) (string, bool) {
 	switch qkind {
 	case types.QValueKindBoolean:
 		if value != "true" && value != "false" {
@@ -1688,7 +1711,8 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, w
 
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		// Array(JSON) only: wrap each element and parse with JSONExtract, ClickHouse does not cast a string
-		// literal to Array(JSON). A NULL element looks like a JSON null in to_json, so it lands as {}.
+		// literal to Array(JSON). A NULL element looks like a JSON null in to_json, so it lands as {}, except in
+		// Array(Nullable(JSON)), where an element nullElements marks as SQL NULL stays NULL as it does for synced rows.
 		if !wrapNonObjectJSON {
 			return "", false
 		}
@@ -1696,12 +1720,17 @@ func defaultExprFromPostgresMissingValue(value string, qkind types.QValueKind, w
 		if err := json.Unmarshal([]byte(value), &elems); err != nil {
 			return "", false
 		}
+		arrayType := qvalue.ClickHouseArrayJSONType(nullableEnabled)
 		wrapped := make([]string, len(elems))
 		for i, elem := range elems {
-			wrapped[i] = qvalue.WrapNonObjectJSON(string(elem))
+			if nullableEnabled && i < len(nullElements) && nullElements[i] {
+				wrapped[i] = "null"
+			} else {
+				wrapped[i] = qvalue.WrapNonObjectJSON(string(elem))
+			}
 		}
-		return fmt.Sprintf("JSONExtract(%s, 'Array(JSON)')",
-			quoteDefaultLiteral("["+strings.Join(wrapped, ",")+"]")), true
+		return fmt.Sprintf("JSONExtract(%s, '%s')",
+			quoteDefaultLiteral("["+strings.Join(wrapped, ",")+"]"), arrayType), true
 
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindUUID,
 		types.QValueKindINET, types.QValueKindCIDR, types.QValueKindMacaddr, types.QValueKindDate:

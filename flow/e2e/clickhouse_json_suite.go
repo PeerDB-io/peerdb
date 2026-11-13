@@ -980,15 +980,20 @@ func destinationJSONArrayMatches(
 
 // Test_JSON_CH_Array_AddColumnDefault: a jsonb[] column added with a default, older rows get the wrapped default.
 func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault() {
-	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_default", false)
+	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_default", false, false)
 }
 
-// Test_JSON_CH_Array_AddColumnDefault_Nullable: the same with PEERDB_NULLABLE; a NULL element of the default lands as {}.
+// Test_JSON_CH_Array_AddColumnDefault_Nullable: the same with PEERDB_NULLABLE; a NULL element of the default stays NULL.
 func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault_Nullable() {
-	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_def_null", true)
+	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_def_null", true, false)
 }
 
-func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, nullable bool) {
+// Test_JSON_CH_Array_AddColumnDefault_NullableDomain: the same through a domain over jsonb[].
+func (s ClickHouseSuite) Test_JSON_CH_Array_AddColumnDefault_NullableDomain() {
+	s.testJSONArrayAddColumnDefault("test_json_arr_add_col_def_dom", true, true)
+}
+
+func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, nullable bool, domain bool) {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("json arrays only exist on postgres")
 	}
@@ -998,6 +1003,11 @@ func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, null
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", srcFullName)))
+	columnType := "JSONB[]"
+	if domain {
+		columnType = s.attachSchemaSuffix(srcTableName + "_dom")
+		require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE DOMAIN "+columnType+" AS jsonb[]"))
+	}
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (id) VALUES (1)", srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -1022,15 +1032,19 @@ func (s ClickHouseSuite) testJSONArrayAddColumnDefault(srcTableName string, null
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
 	for _, stmt := range []string{
-		`ALTER TABLE %s ADD COLUMN c_arr JSONB[] DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, NULL, 'null'::jsonb]`,
-		`INSERT INTO %s (id, c_arr) VALUES (2, ARRAY['[1, 2]'::jsonb, '{"b": 2}'::jsonb])`,
+		`ALTER TABLE %[1]s ADD COLUMN c_arr %[2]s DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, NULL, 'null'::jsonb]`,
+		`INSERT INTO %[1]s (id, c_arr) VALUES (2, ARRAY['[1, 2]'::jsonb, '{"b": 2}'::jsonb])`,
 	} {
-		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(stmt, srcFullName)))
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(stmt, srcFullName, columnType)))
 	}
 
 	// row 1 takes the column default, row 2 its own value
 	cases := []jsonArrayTestCase{
-		{desc: "default", wantElements: []string{`{"a": 1}`, `{"_value":"dark"}`, `{}`, `{}`}},
+		{
+			desc:                 "default",
+			wantElements:         []string{`{"a": 1}`, `{"_value":"dark"}`, `{}`, `{}`},
+			wantNullableElements: []string{`{"a": 1}`, `{"_value":"dark"}`, `null`, `{}`},
+		},
 		{desc: "explicit", wantElements: []string{`{"_value":[1, 2]}`, `{"b": 2}`}},
 	}
 	rowsMatch := jsonColumnsMatch([]string{"c_arr"}, func(t *testing.T, label string, rowIdx int, _ types.QValue, dst types.QValue) bool {
