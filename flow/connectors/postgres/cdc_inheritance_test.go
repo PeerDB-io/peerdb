@@ -240,3 +240,33 @@ func TestInheritanceChildDDLsAreDeduped(t *testing.T) {
 	require.Same(t, relA, p.relationMessageMapping[inhChildARelID])
 	require.Same(t, relB, p.relationMessageMapping[inhChildBRelID])
 }
+
+func TestSourceSchemaFromInheritanceChild(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		fromChild     bool
+		parentRelKind byte
+		expected      string
+	}{
+		"off => the root schema":                    {fromChild: false, parentRelKind: 'r', expected: "public"},
+		"on => the child schema":                    {fromChild: true, parentRelKind: 'r', expected: "tenant_a"},
+		"on + partitioned table => the root schema": {fromChild: true, parentRelKind: 'p', expected: "public"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newInheritanceTestCDCSource(t)
+			p.schemaNameForRelID = map[uint32]string{}
+			p.handleInheritanceForNonPartitionedTables = true
+			p.sourceSchemaFromInheritanceChild = tc.fromChild
+			p.idToRelKindMap[inhParentRelID] = tc.parentRelKind
+
+			_, err := processRelationMessage[model.RecordItems](t.Context(), p, 1, childARelation(), inhParentRelID)
+			require.NoError(t, err)
+			insert, err := processInsertMessage(p, 2, &pglogrepl.InsertMessage{
+				RelationID: inhChildARelID, Tuple: tuple(str("1"), str("alice"), str("a-val"), str("7")),
+			}, qProcessor{}, p.customTypeMapping)
+			require.NoError(t, err)
+			require.Equal(t, types.QValueString{Val: tc.expected},
+				insert.(*model.InsertRecord[model.RecordItems]).Items.GetColumnValue(sourceSchemaColumnName))
+		})
+	}
+}

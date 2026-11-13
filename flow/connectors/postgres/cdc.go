@@ -74,6 +74,7 @@ type PostgresCDCSource struct {
 	flowJobName                              string
 	fastProcessJsonColumns                   bool
 	handleInheritanceForNonPartitionedTables bool
+	sourceSchemaFromInheritanceChild         bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 	flags                                    []string
@@ -96,6 +97,7 @@ type PostgresCDCConfig struct {
 	FastProcessJsonColumns                   bool
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
+	SourceSchemaFromInheritanceChild         bool
 	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
 }
@@ -195,6 +197,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		flowJobName:                              cdcConfig.FlowJobName,
 		fastProcessJsonColumns:                   cdcConfig.FastProcessJsonColumns,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		sourceSchemaFromInheritanceChild:         cdcConfig.SourceSchemaFromInheritanceChild,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 		flags:                                    cdcConfig.Flags,
@@ -202,10 +205,17 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 	}, nil
 }
 
-func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, tableName string) (string, error) {
+func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(
+	mappedRelID uint32, tableName string, relNamespace string,
+) (string, error) {
 	if p.schemaNameForRelID == nil {
 		return "", nil
-	} else if schema, ok := p.schemaNameForRelID[relID]; ok {
+	}
+	//  p.idToRelKindMap[mappedRelID] == 'r' ensures it's not a partitioned table
+	if p.sourceSchemaFromInheritanceChild && p.idToRelKindMap[mappedRelID] == 'r' {
+		return relNamespace, nil
+	}
+	if schema, ok := p.schemaNameForRelID[mappedRelID]; ok {
 		return schema, nil
 	}
 
@@ -213,7 +223,7 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 	if err != nil {
 		return "", err
 	}
-	p.schemaNameForRelID[relID] = schemaTable.Namespace
+	p.schemaNameForRelID[mappedRelID] = schemaTable.Namespace
 	return schemaTable.Namespace, nil
 }
 
@@ -418,7 +428,7 @@ func processTuple[Items model.Items](
 	}
 
 	if schemaName != "" {
-		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+		processor.AddStringColumn(items, sourceSchemaColumnName, schemaName)
 	}
 
 	if p.originMetadataAsDestinationColumn {
@@ -1216,7 +1226,7 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName, rel.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -1273,7 +1283,7 @@ func processUpdateMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName, rel.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -1336,7 +1346,7 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName, rel.Namespace)
 	if err != nil {
 		return nil, err
 	}

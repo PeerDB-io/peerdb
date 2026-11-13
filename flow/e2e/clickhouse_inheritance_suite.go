@@ -369,3 +369,45 @@ func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Via_Root() {
 func (s ClickHouseSuite) Test_Partition_Divergent_Layout_Publish_Leaf() {
 	s.inhPartitionDivergentLayout(false)
 }
+
+func (s ClickHouseSuite) Test_Inheritance_Child_Schema_As_Column() {
+	s.inhRequirePostgres()
+	pSchema := "e2e_test_" + s.suffix
+	t1, t2 := s.inhTenantSchema("t1"), s.inhTenantSchema("t2")
+	p, c1, c2 := s.attachSchemaSuffix("p"), t1+".c1", t2+".c2"
+
+	s.inhExec(`CREATE TABLE %s (id BIGINT PRIMARY KEY, val TEXT)`, p)
+	s.inhExec(`INSERT INTO %s VALUES (1, 'root')`, p)
+	for _, child := range []string{c1, c2} {
+		s.inhExec(`CREATE TABLE %s () INHERITS (%s)`, child, p)
+		s.inhExec(`ALTER TABLE %s ADD PRIMARY KEY (id)`, child)
+	}
+	s.inhExec(`INSERT INTO %s VALUES (2, 'c1')`, c1)
+	s.inhExec(`INSERT INTO %s VALUES (3, 'c2')`, c2)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("inh_cs"),
+		TableNameMapping: map[string]string{p: "p_dst"},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN":                        "true",
+		"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES": "true",
+		"PEERDB_POSTGRES_SOURCE_SCHEMA_FROM_INHERITANCE_CHILD":              "true",
+	}
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "snapshot", "p", "p_dst", "id,val")
+
+	s.inhExec(`UPDATE %s SET val = 'c1_update' WHERE id = 2`, c1)
+
+	EnvWaitForEqualTablesWithNames(env, s, "cdc", "p", "p_dst", "id,val")
+	s.inhWaitForColumn(env, "p_dst", "_peerdb_source_schema", map[int64]string{1: pSchema, 2: t1, 3: t2})
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
