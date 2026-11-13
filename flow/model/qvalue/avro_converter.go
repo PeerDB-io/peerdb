@@ -450,6 +450,10 @@ func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string, isD
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		s := t.Format(format)
 		return s, stringSize(s, so)
+	default:
+		if !isDate {
+			t = ClampToAvroRanges(t)
+		}
 	}
 	// Timestamps are micros since epoch; dates are days since epoch. Both encoded as Avro varint.
 	avroVal := t.UnixMicro()

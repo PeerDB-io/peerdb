@@ -289,6 +289,51 @@ func TestTimestampBeyondInt64MicrosToAvro(t *testing.T) {
 	}
 }
 
+// TestScalarTimeBeyondInt64MicrosToAvroS3 encodes scalar times for S3, which takes the default branch of
+// processGeneralTime. A timestamp beyond int64 microseconds since the epoch is clamped to the Avro maximum, or the
+// encoder rejects it and fails the sync. A date is days since the epoch in an int32, which holds every date Postgres
+// accepts (up to 5874897 AD), so it is kept as is.
+func TestScalarTimeBeyondInt64MicrosToAvroS3(t *testing.T) {
+	ctx := context.Background()
+	beyond := time.Date(294276, 12, 31, 12, 0, 0, 0, time.UTC)
+	avroMax := time.UnixMicro(math.MaxInt64).UTC()
+	farDate := time.Date(300000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		qv       types.QValue
+		expected time.Time
+	}{
+		{types.QValueTimestamp{Val: beyond}, avroMax},
+		{types.QValueTimestampTZ{Val: beyond}, avroMax},
+		{types.QValueDate{Val: farDate}, farDate},
+	}
+	for _, tc := range tests {
+		for _, nullable := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nullable=%t", tc.qv.Kind(), nullable), func(t *testing.T) {
+				field := types.QField{Type: tc.qv.Kind(), Nullable: nullable}
+				schemaNode, err := GetAvroSchemaFromQValueKind(ctx, nil, tc.qv.Kind(), protos.DBType_S3, 0, 0)
+				require.NoError(t, err)
+				if nullable {
+					schemaNode = NullableAvroSchema(schemaNode)
+				}
+				schema, err := schemaNode.Schema()
+				require.NoError(t, err)
+
+				avroVal, computedSize, err := QValueToAvro(ctx, tc.qv, &field, protos.DBType_S3,
+					log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, true)
+				require.NoError(t, err)
+				converted, ok := avroVal.(time.Time)
+				require.True(t, ok, "expected time.Time, got %T", avroVal)
+				require.True(t, tc.expected.Equal(converted), "expected %s, got %s", tc.expected, converted)
+
+				encoded, err := schema.Encode(avroVal)
+				require.NoError(t, err)
+				assert.Equal(t, int64(len(encoded)), computedSize)
+			})
+		}
+	}
+}
+
 // TestClampToAvroRanges checks that times int64 microseconds since the epoch cannot hold move to the closest
 // boundary, in their own location, while times within the range, boundaries included, are kept as they are.
 func TestClampToAvroRanges(t *testing.T) {
