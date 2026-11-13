@@ -2,16 +2,18 @@ package qvalue
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hamba/avro/v2"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/avro"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -184,6 +186,184 @@ func TestAvroQValueSize(t *testing.T) {
 				log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, false)
 			require.NoError(t, err)
 			assert.Equal(t, int64(0), computedSize)
+		})
+	}
+}
+
+// TestBytesToAvroNullVsEmpty checks that a nil []byte inside QValueBytes encodes as empty bytes and only
+// QValueNull takes the null branch. Connectors such as MySQL can hand over an empty binary value as a nil
+// slice, and twmb/avro treats a pointer to a nil slice as null in a ["null", "bytes"] union.
+func TestBytesToAvroNullVsEmpty(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{"PEERDB_CLICKHOUSE_BINARY_FORMAT": "raw"}
+
+	tests := []struct {
+		value types.QValue
+		name  string
+		// wire bytes for the ["null", "bytes"] union, and for plain bytes when nullable is false
+		nullable, nonNullable []byte
+	}{
+		// union branch 1 (bytes), length 0
+		{name: "nil slice", value: types.QValueBytes{Val: nil}, nullable: []byte{0x02, 0x00}, nonNullable: []byte{0x00}},
+		{name: "empty slice", value: types.QValueBytes{Val: []byte{}}, nullable: []byte{0x02, 0x00}, nonNullable: []byte{0x00}},
+		// union branch 1 (bytes), length 1, 0x07
+		{name: "one byte", value: types.QValueBytes{Val: []byte{0x07}}, nullable: []byte{0x02, 0x02, 0x07}, nonNullable: []byte{0x02, 0x07}},
+		// union branch 0 (null); a non-nullable column has no null to encode
+		{name: "SQL NULL", value: types.QValueNull(types.QValueKindBytes), nullable: []byte{0x00}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name+"_nullable", func(t *testing.T) {
+			field := types.QField{Type: types.QValueKindBytes, Nullable: true}
+			schema := getAvroSchema(t, ctx, env, types.QValueBytes{}, &field)
+			avroVal, computedSize := qvalueToAvro(t, ctx, tc.value, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.nullable, encoded)
+			assert.Equal(t, int64(len(encoded)), computedSize)
+		})
+		if tc.nonNullable == nil {
+			continue
+		}
+		t.Run(tc.name+"_non_nullable", func(t *testing.T) {
+			field := types.QField{Type: types.QValueKindBytes}
+			schema := getAvroSchema(t, ctx, env, types.QValueBytes{}, &field)
+			avroVal, computedSize := qvalueToAvro(t, ctx, tc.value, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.nonNullable, encoded)
+			assert.Equal(t, int64(len(encoded)), computedSize)
+		})
+	}
+}
+
+// TestNumericScaleAbovePrecisionToAvro round-trips values of a Postgres NUMERIC(2,4) column, which holds
+// -0.0099 to 0.0099, through the widened decimal(4,4) schema.
+func TestNumericScaleAbovePrecisionToAvro(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{"PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING": "false"}
+	field := types.QField{Type: types.QValueKindNumeric, Precision: 2, Scale: 4}
+	schema := getAvroSchema(t, ctx, env, types.QValueNumeric{}, &field)
+	for _, value := range []string{"0.0099", "-0.0099", "0.0001", "0"} {
+		t.Run(value, func(t *testing.T) {
+			avroVal, computedSize := qvalueToAvro(t, ctx, types.QValueNumeric{Val: decimal.RequireFromString(value)}, &field, false)
+			encoded, err := schema.Encode(avroVal)
+			require.NoError(t, err)
+			// decimalSize is an estimate that may overestimate by a byte
+			assert.GreaterOrEqual(t, computedSize, int64(len(encoded)))
+			assert.LessOrEqual(t, computedSize, int64(len(encoded))+1)
+			var decoded big.Rat
+			_, err = schema.Decode(encoded, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, decimal.RequireFromString(value).Rat().String(), decoded.String())
+		})
+	}
+}
+
+// TestTimestampBeyondInt64MicrosToAvro encodes a timestamp Postgres accepts but int64 microseconds since the
+// epoch cannot hold, 294276-12-31 12:00:00, alone and in arrays, for ClickHouse. Scalars are clamped to the
+// ClickHouse range before encoding; arrays must be too, or the encoder rejects the value and fails the snapshot.
+func TestTimestampBeyondInt64MicrosToAvro(t *testing.T) {
+	ctx := context.Background()
+	env := map[string]string{}
+	beyond := time.Date(294276, 12, 31, 12, 0, 0, 0, time.UTC)
+	before := time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC) // 4714-11-24 BC, the Postgres minimum
+	values := []time.Time{beyond, time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC), before}
+
+	tests := []types.QValue{
+		types.QValueTimestamp{Val: beyond},
+		types.QValueTimestampTZ{Val: beyond},
+		types.QValueArrayTimestamp{Val: values},
+		types.QValueArrayTimestampTZ{Val: values},
+	}
+	for _, qv := range tests {
+		for _, nullable := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nullable=%t", qv.Kind(), nullable), func(t *testing.T) {
+				field := types.QField{Type: qv.Kind(), Nullable: nullable}
+				schema := getAvroSchema(t, ctx, env, qv, &field)
+				avroVal, computedSize := qvalueToAvro(t, ctx, qv, &field, false)
+				encoded, err := schema.Encode(avroVal)
+				require.NoError(t, err)
+				assert.Equal(t, int64(len(encoded)), computedSize)
+			})
+		}
+	}
+}
+
+// TestScalarTimeBeyondInt64MicrosToAvroS3 encodes scalar times for S3, which takes the default branch of
+// processGeneralTime. A timestamp beyond int64 microseconds since the epoch is clamped to the Avro maximum, or the
+// encoder rejects it and fails the sync. A date is days since the epoch in an int32, which holds every date Postgres
+// accepts (up to 5874897 AD), so it is kept as is.
+func TestScalarTimeBeyondInt64MicrosToAvroS3(t *testing.T) {
+	ctx := context.Background()
+	beyond := time.Date(294276, 12, 31, 12, 0, 0, 0, time.UTC)
+	avroMax := time.UnixMicro(math.MaxInt64).UTC()
+	farDate := time.Date(300000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		qv       types.QValue
+		expected time.Time
+	}{
+		{types.QValueTimestamp{Val: beyond}, avroMax},
+		{types.QValueTimestampTZ{Val: beyond}, avroMax},
+		{types.QValueDate{Val: farDate}, farDate},
+	}
+	for _, tc := range tests {
+		for _, nullable := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nullable=%t", tc.qv.Kind(), nullable), func(t *testing.T) {
+				field := types.QField{Type: tc.qv.Kind(), Nullable: nullable}
+				schemaNode, err := GetAvroSchemaFromQValueKind(ctx, nil, tc.qv.Kind(), protos.DBType_S3, 0, 0)
+				require.NoError(t, err)
+				if nullable {
+					schemaNode = NullableAvroSchema(schemaNode)
+				}
+				schema, err := schemaNode.Schema()
+				require.NoError(t, err)
+
+				avroVal, computedSize, err := QValueToAvro(ctx, tc.qv, &field, protos.DBType_S3,
+					log.NewStructuredLogger(nil), false, nil, internal.BinaryFormatRaw, true)
+				require.NoError(t, err)
+				converted, ok := avroVal.(time.Time)
+				require.True(t, ok, "expected time.Time, got %T", avroVal)
+				require.True(t, tc.expected.Equal(converted), "expected %s, got %s", tc.expected, converted)
+
+				encoded, err := schema.Encode(avroVal)
+				require.NoError(t, err)
+				assert.Equal(t, int64(len(encoded)), computedSize)
+			})
+		}
+	}
+}
+
+// TestClampToAvroRanges checks that times int64 microseconds since the epoch cannot hold move to the closest
+// boundary, in their own location, while times within the range, boundaries included, are kept as they are.
+func TestClampToAvroRanges(t *testing.T) {
+	minTime := time.UnixMicro(math.MinInt64).UTC()
+	maxTime := time.UnixMicro(math.MaxInt64).UTC()
+	offset := time.FixedZone("UTC+5", 5*60*60)
+
+	tests := []struct {
+		name     string
+		input    time.Time
+		expected time.Time
+	}{
+		{"in range", time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC), time.Date(2024, 1, 2, 3, 4, 5, 6000, time.UTC)},
+		{"epoch", time.Unix(0, 0).UTC(), time.Unix(0, 0).UTC()},
+		{"postgres minimum", time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC), time.Date(-4713, 11, 24, 0, 0, 0, 0, time.UTC)},
+		{"minimum", minTime, minTime},
+		{"maximum", maxTime, maxTime},
+		{"just below minimum", minTime.Add(-time.Microsecond), minTime},
+		{"just above maximum", maxTime.Add(time.Microsecond), maxTime},
+		{"far below minimum", time.Date(-300000, 1, 1, 0, 0, 0, 0, time.UTC), minTime},
+		{"postgres maximum", time.Date(294276, 12, 31, 23, 59, 59, 999999000, time.UTC), maxTime},
+		{"above maximum, other location", time.Date(294276, 12, 31, 12, 0, 0, 0, offset), maxTime.In(offset)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clamped := ClampToAvroRanges(tc.input)
+			require.True(t, tc.expected.Equal(clamped), "expected %s, got %s", tc.expected, clamped)
+			require.Equal(t, tc.input.Location(), clamped.Location())
+			// the clamped time survives the round trip through int64 microseconds
+			require.True(t, clamped.Equal(time.UnixMicro(clamped.UnixMicro())), "%s overflows int64 microseconds", clamped)
 		})
 	}
 }
@@ -396,15 +576,16 @@ func TestDecimalSize(t *testing.T) {
 
 func getAvroSchema(
 	t *testing.T, ctx context.Context, env map[string]string, qv types.QValue, field *types.QField,
-) avro.Schema {
+) *avro.Schema {
 	t.Helper()
 	schema, err := GetAvroSchemaFromQValueKind(ctx, env, qv.Kind(), protos.DBType_CLICKHOUSE, field.Precision, field.Scale)
 	require.NoError(t, err)
 	if field.Nullable {
-		schema, err = NullableAvroSchema(schema)
-		require.NoError(t, err)
+		schema = NullableAvroSchema(schema)
 	}
-	return schema
+	avroSchema, err := schema.Schema()
+	require.NoError(t, err)
+	return avroSchema
 }
 
 func qvalueToAvro(
@@ -417,9 +598,9 @@ func qvalueToAvro(
 	return avroVal, computedSize
 }
 
-func avroEncodedSize(t *testing.T, schema avro.Schema, value any) int64 {
+func avroEncodedSize(t *testing.T, schema *avro.Schema, value any) int64 {
 	t.Helper()
-	data, err := avro.Marshal(schema, value)
+	data, err := schema.Encode(value)
 	require.NoError(t, err)
 	return int64(len(data))
 }
