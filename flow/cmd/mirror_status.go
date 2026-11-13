@@ -465,12 +465,20 @@ func (h *FlowRequestHandler) qrepFlowStatus(
 	}, nil
 }
 
+// qrepPartitionStatusLimit keeps non-CDC MirrorStatus under grpc-go's default 4 MiB receive cap.
+const qrepPartitionStatusLimit = 10000
+
+var qrepPartitionStatusQuery = fmt.Sprintf(`SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced
+		FROM peerdb_stats.qrep_partitions
+		WHERE flow_name=$1
+		ORDER BY start_time DESC NULLS LAST, id DESC
+		LIMIT %d`, qrepPartitionStatusLimit)
+
 func (h *FlowRequestHandler) getPartitionStatuses(
 	ctx context.Context,
 	flowJobName string,
 ) ([]*protos.PartitionStatus, error) {
-	q := "SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
-	rows, err := h.pool.Query(ctx, q, flowJobName)
+	rows, err := h.pool.Query(ctx, qrepPartitionStatusQuery, flowJobName)
 	if err != nil {
 		slog.ErrorContext(ctx, "unable to query qrep partition",
 			slog.String("flow", flowJobName), slog.Any("error", err))
