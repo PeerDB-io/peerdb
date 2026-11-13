@@ -46,7 +46,7 @@ import (
 func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
-	config, err := pgx.ParseConfig("postgres://non-existent.domain.name.here:123/db")
+	config, err := pgx.ParseConfig("postgres://non-existent.domain.invalid:123/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
@@ -154,7 +154,7 @@ func TestQRepMissingWatermarkTableShouldBeSourceTableMissing(t *testing.T) {
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
-	hostName := "non-existent.domain.name.here"
+	hostName := "non-existent.domain.invalid"
 	_, err := net.Dial("tcp", hostName+":123")
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
