@@ -147,6 +147,16 @@ type TableAdditionSourceConnector interface {
 	AddTablesToReplication(ctx context.Context, req *protos.AddTablesToReplicationInput) error
 }
 
+// TableAdditionValidationConnector is implemented by sources that check tables before they are added to a running
+// mirror. It returns warnings to record for the addition, or an error that rejects it.
+type TableAdditionValidationConnector interface {
+	TableAdditionSourceConnector
+
+	ValidateTableAdditions(
+		ctx context.Context, cfg *protos.FlowConnectionConfigsCore, additionalTables []*protos.TableMapping,
+	) ([]error, error)
+}
+
 type CDCPullConnector interface {
 	CDCPullConnectorCore
 
@@ -804,6 +814,8 @@ var (
 
 	_ TableAdditionSourceConnector = &connpostgres.PostgresConnector{}
 	_ TableAdditionSourceConnector = &connbigquery.BigQueryConnector{}
+
+	_ TableAdditionValidationConnector = &connpostgres.PostgresConnector{}
 
 	_ CDCSyncConnector = &connpostgres.PostgresConnector{}
 	_ CDCSyncConnector = &connbigquery.BigQueryConnector{}
