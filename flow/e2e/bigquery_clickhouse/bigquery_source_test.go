@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	bqvalidate "github.com/PeerDB-io/peerdb/flow/pkg/bigquery"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -560,6 +562,40 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Validation_Multiple_Tables
 		},
 	})
 
+	allTypesTable := createTable(mainDataset, "validation_all_types", &bigquery.TableMetadata{
+		Schema: bigquery.Schema{
+			{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+			{Name: "s", Type: bigquery.StringFieldType},
+			{Name: "s10", Type: bigquery.StringFieldType, MaxLength: 10, Required: true},
+			{Name: "by", Type: bigquery.BytesFieldType},
+			{Name: "f", Type: bigquery.FloatFieldType},
+			{Name: "bo", Type: bigquery.BooleanFieldType},
+			{Name: "n", Type: bigquery.NumericFieldType},
+			{Name: "n10", Type: bigquery.NumericFieldType, Precision: 10},
+			{Name: "n10_2", Type: bigquery.NumericFieldType, Precision: 10, Scale: 2},
+			{Name: "bn", Type: bigquery.BigNumericFieldType},
+			{Name: "bn40", Type: bigquery.BigNumericFieldType, Precision: 40},
+			{Name: "bn40_10", Type: bigquery.BigNumericFieldType, Precision: 40, Scale: 10},
+			{Name: "ts", Type: bigquery.TimestampFieldType},
+			{Name: "dt", Type: bigquery.DateTimeFieldType},
+			{Name: "d", Type: bigquery.DateFieldType},
+			{Name: "tm", Type: bigquery.TimeFieldType},
+			{Name: "g", Type: bigquery.GeographyFieldType},
+			{Name: "j", Type: bigquery.JSONFieldType},
+			{Name: "iv", Type: bigquery.IntervalFieldType},
+			{Name: "r", Type: bigquery.RangeFieldType, RangeElementType: &bigquery.RangeElementType{Type: bigquery.DateFieldType}},
+			{Name: "rec", Type: bigquery.RecordFieldType, Schema: bigquery.Schema{
+				{Name: "x", Type: bigquery.NumericFieldType, Precision: 10, Scale: 2},
+			}},
+			{Name: "arr_s", Type: bigquery.StringFieldType, Repeated: true},
+			{Name: "arr_n", Type: bigquery.NumericFieldType, Precision: 12, Scale: 3, Repeated: true},
+			{Name: "arr_rec", Type: bigquery.RecordFieldType, Repeated: true, Schema: bigquery.Schema{
+				{Name: "y", Type: bigquery.StringFieldType},
+			}},
+		},
+		TableConstraints: &bigquery.TableConstraints{PrimaryKey: &bigquery.PrimaryKey{Columns: []string{"id"}}},
+	})
+
 	resolve := func(identifier string) bqvalidate.DatasetTable {
 		dt, err := bqvalidate.ResolveDatasetTable(identifier, source.config.DatasetId)
 		require.NoError(t, err)
@@ -598,6 +634,73 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Validation_Multiple_Tables
 		other := tables[resolve(otherDatasetTable)]
 		require.Equal(t, []string{"ts", "payload"}, other.ColumnNames)
 		require.Equal(t, bigquery.TimestampFieldType, other.Columns["ts"].Type)
+	})
+
+	t.Run("GetTableSchema matches table metadata", func(t *testing.T) {
+		type column struct {
+			Name     string
+			Type     string
+			Nullable bool
+			Typmod   int32
+		}
+		// Computes the schema the way GetTableSchema did before it read
+		// INFORMATION_SCHEMA: from the table API metadata.
+		expectedFromMetadata := func(identifier string, exclude []string) ([]column, []string) {
+			dt := resolve(identifier)
+			md, err := source.client.DatasetInProject(source.config.ProjectId, dt.Dataset).Table(dt.Table).Metadata(ctx)
+			require.NoError(t, err)
+			var columns []column
+			for _, field := range md.Schema {
+				if slices.Contains(exclude, field.Name) {
+					continue
+				}
+				qf := connbigquery.BigQueryFieldToQField(field)
+				columns = append(columns, column{
+					Name:     field.Name,
+					Type:     string(qf.Type),
+					Nullable: qf.Nullable,
+					Typmod:   datatypes.MakeNumericTypmod(int32(qf.Precision), int32(qf.Scale)),
+				})
+			}
+			var pk []string
+			if md.TableConstraints != nil && md.TableConstraints.PrimaryKey != nil {
+				pk = md.TableConstraints.PrimaryKey.Columns
+			}
+			return columns, pk
+		}
+
+		mappings := []*protos.TableMapping{
+			{SourceTableIdentifier: allTypesTable},
+			{SourceTableIdentifier: simpleTable, Exclude: []string{"name"}},
+			{SourceTableIdentifier: compositePKTable},
+			{SourceTableIdentifier: partitionedTable},
+			{SourceTableIdentifier: otherDatasetTable},
+		}
+		schemas, err := bqConn.GetTableSchema(ctx, nil, 0, protos.TypeSystem_Q, mappings)
+		require.NoError(t, err)
+		require.Len(t, schemas, len(mappings))
+
+		for _, tm := range mappings {
+			schema := schemas[tm.SourceTableIdentifier]
+			require.NotNil(t, schema, "missing schema for %s", tm.SourceTableIdentifier)
+			got := make([]column, 0, len(schema.Columns))
+			for _, col := range schema.Columns {
+				got = append(got, column{Name: col.Name, Type: col.Type, Nullable: col.Nullable, Typmod: col.TypeModifier})
+			}
+			wantColumns, wantPK := expectedFromMetadata(tm.SourceTableIdentifier, tm.Exclude)
+			require.Equal(t, wantColumns, got, "columns of %s", tm.SourceTableIdentifier)
+			require.Equal(t, wantPK, schema.PrimaryKeyColumns, "primary key of %s", tm.SourceTableIdentifier)
+		}
+	})
+
+	t.Run("GetTableSchema reports missing tables", func(t *testing.T) {
+		_, err := bqConn.GetTableSchema(ctx, nil, 0, protos.TypeSystem_Q, []*protos.TableMapping{
+			{SourceTableIdentifier: simpleTable},
+			{SourceTableIdentifier: source.config.DatasetId + ".does_not_exist"},
+		})
+		missing, ok := errors.AsType[*common.SourceTablesMissingError](err)
+		require.True(t, ok, "expected SourceTablesMissingError, got %v", err)
+		require.Equal(t, []common.QualifiedTable{{Namespace: source.config.DatasetId, Table: "does_not_exist"}}, missing.Tables)
 	})
 
 	newFlowConfig := func(mappings ...*protos.TableMapping) *protos.FlowConnectionConfigsCore {
