@@ -203,3 +203,31 @@ func TestReplicationMechanismInUseFromOffsetText(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCheckpointReset(t *testing.T) {
+	const gtidCurrent = "98899357-656b-11f1-aeca-6045bdeedf5e:1-2715221"
+	tests := []struct {
+		name        string
+		currentText string
+		newText     string
+		errContains string
+	}{
+		{name: "gtid to gtid", currentText: gtidCurrent, newText: "98899357-656b-11f1-aeca-6045bdeedf5e:1-2700000"},
+		{name: "filepos to filepos", currentText: "!f:binlog.000001,4", newText: "!f:binlog.000002,1a"},
+		{name: "no current checkpoint", currentText: "", newText: gtidCurrent, errContains: "no CDC checkpoint"},
+		{name: "invalid gtid", currentText: gtidCurrent, newText: "not-a-gtid", errContains: "GTID set"},
+		{name: "empty gtid set", currentText: gtidCurrent, newText: "", errContains: "empty GTID set"},
+		{name: "gtid to filepos", currentText: gtidCurrent, newText: "!f:binlog.000001,4", errContains: "MYSQL_FILEPOS"},
+		{name: "filepos to gtid", currentText: "!f:binlog.000001,4", newText: gtidCurrent, errContains: "MYSQL_GTID"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateCheckpointReset(protos.MySqlFlavor_MYSQL_MYSQL, tc.currentText, tc.newText)
+			if tc.errContains == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.errContains)
+			}
+		})
+	}
+}

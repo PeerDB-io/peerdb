@@ -22,6 +22,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -2386,4 +2387,29 @@ func (a *FlowableActivity) RunPgDumpSchema(
 	a.Alerter.LogFlowInfo(ctx, input.FlowName,
 		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))
 	return true, nil
+}
+
+// ResetCdcCheckpoint replaces the stored CDC checkpoint of a paused mirror.
+func (a *FlowableActivity) ResetCdcCheckpoint(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	checkpoint string,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	logger := internal.LoggerFromCtx(ctx)
+	previous, err := connectors.ValidateCdcCheckpointReset(ctx, a.CatalogPool, cfg.FlowJobName, cfg.SourceName, checkpoint)
+	if err != nil {
+		if errors.Is(err, connectors.ErrInvalidCheckpointReset) {
+			return temporal.NewNonRetryableApplicationError(err.Error(), "InvalidCheckpointReset", err)
+		}
+		return err
+	}
+	if err := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool).
+		ReplaceLastOffsetText(ctx, cfg.FlowJobName, checkpoint); err != nil {
+		return err
+	}
+	logger.Warn("CDC checkpoint reset",
+		slog.String("previousCheckpoint", previous), slog.String("newCheckpoint", checkpoint))
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("CDC checkpoint reset from %q to %q", previous, checkpoint))
+	return nil
 }
