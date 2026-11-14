@@ -33,9 +33,14 @@ const bsonDocumentHeaderSize = 4
 // `expectedColumnKind` is used to attempt to bring the BSON array fields into the expected schema types instead
 // of trying to infer an uniform array element type.
 // `isExcluded` is a performance optimization, used to skip QValue generation of fields that should not be included in the projection.
+// `nestedFlatteningDepth` is how many levels of nested documents are flattened into their own fields, 0 meaning none.
 // The walk stops at the first failure, which the returned function reports once the walk is over.
 func DocumentQValueIterator(
-	raw bson.Raw, converter BsonToQValueConverter, expectedColumnKind ExpectedColumnKind, isExcluded IsExcludedColumn,
+	raw bson.Raw,
+	converter BsonToQValueConverter,
+	expectedColumnKind ExpectedColumnKind,
+	isExcluded IsExcludedColumn,
+	nestedFlatteningDepth int,
 ) (iter.Seq2[string, types.QValue], func() error) {
 	var walkErr error
 	return func(yield func(string, types.QValue) bool) {
@@ -159,7 +164,7 @@ func StructuredQValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	fields, walkErr := DocumentQValueIterator(raw, converter, projector.ColumnKind, projector.IsExcludedColumn)
+	fields, walkErr := DocumentQValueIterator(raw, converter, projector.ColumnKind, projector.IsExcludedColumn, 0)
 	values, err := projector.ProjectRecord(fields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to project document onto schema: %w", err)

@@ -363,7 +363,7 @@ func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]type
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0)
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -427,7 +427,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -443,7 +443,7 @@ func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
 		fields, walkErr := DocumentQValueIterator(
-			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, neverExcluded,
+			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0,
 		)
 		names := []string{}
 		values := map[string]types.QValue{}
@@ -468,7 +468,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, neverExcluded)
+	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, neverExcluded, 0)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
