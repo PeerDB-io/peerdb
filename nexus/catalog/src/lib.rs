@@ -73,13 +73,29 @@ async fn aws_kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow:
     Err(anyhow::anyhow!("AWS KMS support not compiled in"))
 }
 
+// reqwest 0.13 verifies TLS against the OS trust store (rustls-platform-verifier) by default,
+// but gcp-bigquery-client is still on reqwest 0.12, whose `rustls-tls` feature trusts the bundled
+// Mozilla roots (webpki-roots), as do the AWS SDK clients. Pin the reqwest 0.13 clients to the
+// same bundled roots so every HTTPS client in nexus uses one common trust store, as before the
+// 0.13 upgrade. This gives up OS-store roots (e.g. a corporate proxy CA) for these clients.
+#[cfg(feature = "gcp")]
+fn http_client() -> anyhow::Result<reqwest::Client> {
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .map(|cert| reqwest::Certificate::from_der(cert))
+        .collect::<reqwest::Result<Vec<_>>>()?;
+    Ok(reqwest::Client::builder().tls_certs_only(roots).build()?)
+}
+
 #[cfg(feature = "gcp")]
 async fn gcp_kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     // kms_key_id is the full GCP resource name:
     // projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY
 
+    let client = http_client().context("failed to build HTTP client")?;
+
     // Get access token from GKE Workload Identity metadata server
-    let token = reqwest::Client::new()
+    let token = client
         .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
         .header("Metadata-Flavor", "Google")
         .send()
@@ -99,7 +115,7 @@ async fn gcp_kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::R
         kms_key_id
     );
 
-    let resp = reqwest::Client::new()
+    let resp = client
         .post(&url)
         .bearer_auth(access_token)
         .json(&serde_json::json!({ "ciphertext": encrypted_payload }))

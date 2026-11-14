@@ -68,7 +68,7 @@ pub fn sendable_stream_to_query_response(
                 for value in record.values.iter() {
                     encode_value(value, &mut encoder)?;
                 }
-                encoder.finish()
+                Ok(encoder.take_row())
             })
         })
         .boxed();
@@ -85,7 +85,7 @@ pub fn records_to_query_response(records: Records) -> PgWireResult<Response> {
             for value in record.values.iter() {
                 encode_value(value, &mut encoder)?;
             }
-            encoder.finish()
+            Ok(encoder.take_row())
         })
         .boxed();
 

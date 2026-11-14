@@ -228,7 +228,8 @@ impl SnowflakeRecordStreamInner {
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
         println!("Secret: {secret:#?}");
-        let response = reqwest::Client::new()
+        let response = crate::http_client_builder()?
+            .build()?
             .get(format!("{url}/{statement_handle}"))
             .query(&[("partition", partition_number.to_string())])
             .header("Authorization", format!("Bearer {secret}"))
