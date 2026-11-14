@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -84,59 +85,15 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	c.logger.Info("Evaluating if tables can perform parallel load")
 
-	output := &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
+	tables := make([]string, 0, len(input.TableMappings))
+	for _, tm := range input.TableMappings {
+		tables = append(tables, tm.SourceTableIdentifier)
 	}
-
-	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+	keys, err := pkg_pg.DefaultSnapshotPartitionKeys(ctx, c.conn, c.logger, tables)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine server version: %w", err)
+		return nil, err
 	}
-	supportsTidScans := pgVersion >= shared.POSTGRES_14
-
-	if supportsTidScans {
-		for _, tm := range input.TableMappings {
-			output.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier] = ctidColumnName
-		}
-	}
-
-	if !supportsTidScans {
-		// older versions fall back to full table partitions anyway; nothing more to do
-		c.logger.Warn("Postgres version does not support TID scans, falling back to full table partitions")
-		return output, nil
-	}
-
-	var hasTimescale bool
-	if err := c.conn.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')").Scan(&hasTimescale); err != nil {
-		return nil, fmt.Errorf("failed to check for timescaledb extension: %w", err)
-	}
-	if !hasTimescale {
-		return output, nil
-	}
-
-	// compressed hypertables cannot do ctid scans, so disable for them
-	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
-	rows, err := c.conn.Query(ctx, `SELECT DISTINCT hypertable_schema, hypertable_name
-		FROM timescaledb_information.chunks
-		WHERE is_compressed='t';`)
-	if err != nil {
-		return nil, fmt.Errorf("query compressed hypertables: %w", err)
-	}
-	var schema, name string
-	if _, err := pgx.ForEachRow(rows, []any{&schema, &name}, func() error {
-		if _, ok := output.TableDefaultPartitionKeyMapping[fmt.Sprintf("%s.%s", schema, name)]; ok {
-			table := fmt.Sprintf("%s.%s", schema, name)
-			delete(output.TableDefaultPartitionKeyMapping, table)
-			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
-				slog.String("table", table))
-		}
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("failed to get compressed hypertables: %w", err)
-	}
-
-	return output, nil
+	return &protos.GetDefaultPartitionKeyForTablesOutput{TableDefaultPartitionKeyMapping: keys}, nil
 }
 
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
@@ -214,7 +171,6 @@ func (c *PostgresConnector) getPartitions(
 		partitionParams.numPartitions = computedNumPartitions
 	}
 
-	isCTIDWatermarkCol := config.WatermarkColumn == ctidColumnName
 	hasPartitionOverride := config.NumPartitionsOverride > 0 // backwards-compatibility with old behavior
 	hasCTIDOverride, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, config.Env)
 	if err != nil {
@@ -224,7 +180,7 @@ func (c *PostgresConnector) getPartitions(
 	var partitionFunc PartitioningFunc
 	var partitionFuncName string
 	switch {
-	case isCTIDWatermarkCol && (hasCTIDOverride || hasPartitionOverride):
+	case pkg_pg.UsesCTIDBlockPartitioning(config.WatermarkColumn, config.NumPartitionsOverride, hasCTIDOverride):
 		partitionFunc = CTIDBlockPartitioningFunc
 		partitionFuncName = "CTIDBlockPartitioningFunc"
 	case hasPartitionOverride:

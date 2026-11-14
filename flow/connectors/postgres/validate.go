@@ -1,9 +1,12 @@
 package connpostgres
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -13,6 +16,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -40,6 +44,7 @@ func (c *PostgresConnector) CheckSourceTables(
 	tableMappings []*protos.TableMapping,
 	pubName string,
 	noCDC bool,
+	ctidSnapshotTables map[string]struct{},
 ) error {
 	if c.conn == nil {
 		return fmt.Errorf("check tables: conn is nil")
@@ -48,18 +53,27 @@ func (c *PostgresConnector) CheckSourceTables(
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
 	var missingTables []common.QualifiedTable
+	var childCheck childTablesCheck
 	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
 			utils.QuoteLiteral(parsedTable.Namespace), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
+		var selectedColumns []string
 		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
-			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
+			var err error
+			selectedColumns, err = c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
 			if err != nil {
 				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
 			}
-
+		}
+		if _, ok := ctidSnapshotTables[tableMappings[idx].SourceTableIdentifier]; ok {
+			if err := childCheck.add(parsedTable, selectedColumns); err != nil {
+				return err
+			}
+		}
+		if len(selectedColumns) != 0 {
 			for i, col := range selectedColumns {
 				selectedColumns[i] = common.QuoteIdentifier(col)
 			}
@@ -78,6 +92,9 @@ func (c *PostgresConnector) CheckSourceTables(
 	}
 	if len(missingTables) > 0 {
 		return common.NewSourceTablesMissingError(missingTables)
+	}
+	if err := c.checkChildTablesReadable(ctx, childCheck); err != nil {
+		return err
 	}
 
 	if pubName != "" && !noCDC {
@@ -124,6 +141,131 @@ func (c *PostgresConnector) CheckSourceTables(
 		}
 	}
 
+	return nil
+}
+
+// ctidSnapshotTables resolves partition keys like the snapshot flow and GetQRepPartitions do.
+func (c *PostgresConnector) ctidSnapshotTables(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) (map[string]struct{}, error) {
+	if !cfg.DoInitialSnapshot {
+		return nil, nil
+	}
+	defaults, err := c.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
+		TableMappings: cfg.TableMappings,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default partition keys: %w", err)
+	}
+	ctidBlockPartitioning, err := internal.PeerDBPostgresApplyCtidBlockPartitioning(ctx, cfg.Env)
+	if err != nil {
+		c.logger.Warn("failed to get CTID partitioning config", slog.Any("error", err))
+	}
+	tables := make(map[string]struct{})
+	for _, tm := range cfg.TableMappings {
+		partitionKey := cmp.Or(tm.PartitionKey, defaults.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier])
+		if pkg_pg.UsesCTIDBlockPartitioning(partitionKey, cfg.SnapshotNumPartitionsOverride, ctidBlockPartitioning) {
+			tables[tm.SourceTableIdentifier] = struct{}{}
+		}
+	}
+	return tables, nil
+}
+
+// Columns are a JSON array per table because Postgres arrays can't be ragged; empty means all columns.
+type childTablesCheck struct {
+	schemas []string
+	tables  []string
+	columns []string
+}
+
+func (ct *childTablesCheck) add(table *common.QualifiedTable, selectedColumns []string) error {
+	columnsJSON := ""
+	if len(selectedColumns) != 0 {
+		encoded, err := json.Marshal(selectedColumns)
+		if err != nil {
+			return fmt.Errorf("failed to encode selected columns of %s: %w", table, err)
+		}
+		columnsJSON = string(encoded)
+	}
+	ct.schemas = append(ct.schemas, table.Namespace)
+	ct.tables = append(ct.tables, table.Table)
+	ct.columns = append(ct.columns, columnsJSON)
+	return nil
+}
+
+const maxUnreadableChildTablesInError = 5
+
+// Snapshots read child tables directly, and a parent's SELECT grant doesn't cover them. Only tables with relhassubclass
+// are expanded.
+func (c *PostgresConnector) checkChildTablesReadable(ctx context.Context, check childTablesCheck) error {
+	if len(check.tables) == 0 {
+		return nil
+	}
+	// Mirrors the snapshot's reads: each non-partitioned descendant needs schema USAGE and SELECT on the table or read columns.
+	rows, err := c.conn.Query(ctx, `
+		WITH RECURSIVE selected(schema_name, table_name, columns_json) AS (
+			SELECT * FROM unnest($1::text[], $2::text[], $3::text[])
+		), roots AS (
+			SELECT c.oid, s.schema_name, s.table_name,
+				CASE WHEN s.columns_json = '' THEN NULL
+				ELSE ARRAY(SELECT jsonb_array_elements_text(s.columns_json::jsonb)) END AS columns
+			FROM selected s
+			JOIN pg_namespace n ON n.nspname = s.schema_name
+			JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = s.table_name
+			WHERE c.relhassubclass
+		), descendants(root_oid, oid) AS (
+			SELECT r.oid, i.inhrelid FROM roots r JOIN pg_inherits i ON i.inhparent = r.oid
+			UNION
+			SELECT d.root_oid, i.inhrelid FROM descendants d JOIN pg_inherits i ON i.inhparent = d.oid
+		)
+		SELECT format('%I.%I', r.schema_name, r.table_name) AS parent_name,
+			count(*)::int AS unreadable_count,
+			(array_agg(format('%I.%I', ch.nspname, ch.relname) ORDER BY ch.nspname, ch.relname))[1:$4] AS unreadable_sample
+		FROM descendants d
+		JOIN roots r ON r.oid = d.root_oid
+		-- the recursive CTE's row count is guessed, and a high guess makes the planner seq scan pg_class;
+		-- OFFSET 0 keeps this an index lookup per descendant
+		CROSS JOIN LATERAL (
+			SELECT c.relname, c.relkind, c.relnamespace, n.nspname
+			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE c.oid = d.oid
+			OFFSET 0
+		) ch
+		WHERE ch.relkind <> 'p'
+		AND (
+			NOT has_schema_privilege(ch.relnamespace, 'USAGE')
+			OR NOT has_table_privilege(d.oid, 'SELECT') AND EXISTS (
+				SELECT 1
+				FROM pg_attribute a
+				WHERE a.attrelid = d.oid AND a.attnum > 0 AND NOT a.attisdropped
+				AND (r.columns IS NULL OR a.attname = ANY(r.columns))
+				AND NOT has_column_privilege(d.oid, a.attnum, 'SELECT')
+			)
+		)
+		GROUP BY r.schema_name, r.table_name
+		ORDER BY r.schema_name, r.table_name`,
+		check.schemas, check.tables, check.columns, maxUnreadableChildTablesInError)
+	if err != nil {
+		return fmt.Errorf("failed to check SELECT on child tables: %w", err)
+	}
+	var parentName string
+	var unreadableCount int
+	var unreadableSample []string
+	var problems []string
+	if _, err := pgx.ForEachRow(rows, []any{&parentName, &unreadableCount, &unreadableSample}, func() error {
+		problem := fmt.Sprintf("%s (%s", parentName, strings.Join(unreadableSample, ", "))
+		if more := unreadableCount - len(unreadableSample); more > 0 {
+			problem += fmt.Sprintf(" and %d more", more)
+		}
+		problems = append(problems, problem+")")
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to check SELECT on child tables: %w", err)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("missing permissions on child tables of %s. The initial load reads them directly and they don't "+
+			"inherit the parent's grants, please grant SELECT on each and USAGE on their schemas", strings.Join(problems, "; "))
+	}
 	return nil
 }
 
@@ -253,9 +395,14 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		sourceTables = append(sourceTables, parsedTable)
 	}
 
+	ctidSnapshotTables, err := c.ctidSnapshotTables(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	pubName := cfg.PublicationName
 	// Check source tables before the publication, for better errors
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC, ctidSnapshotTables); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
