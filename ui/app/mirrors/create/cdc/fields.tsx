@@ -75,11 +75,16 @@ export default function CDCField({
                 val && handleChange(val.option, setting)
               }
               options={options?.map((option) => ({ option, label: option }))}
+              defaultValue={
+                typeof setting.default === 'string'
+                  ? { option: setting.default, label: setting.default }
+                  : undefined
+              }
               getOptionLabel={(option) => option.label}
               getOptionValue={(option) => option.option}
               theme={selectTheme}
               isLoading={optionsLoading}
-              isClearable={true}
+              isClearable={setting.required !== true}
             />
           </div>
           {setting.tips && (

@@ -1,4 +1,5 @@
 'use client';
+import { IsBigQueryPeer } from '@/app/mirrors/create/handlers';
 import { FormatStatus } from '@/app/utils/flowstatus';
 import MirrorActions from '@/components/MirrorActionsDropdown';
 import { FlowStatus } from '@/grpc_generated/flow';
@@ -60,7 +61,16 @@ export default function ViewMirror({
           />
         </div>
         <CDCMirror
-          syncStatusChild={<SyncStatus flowJobName={mirrorId} />}
+          syncStatusChild={
+            <SyncStatus
+              flowJobName={mirrorId}
+              // BigQuery sources have no per-batch CDC sync history to show
+              hideSyncHistory={
+                !!mirrorState.cdcStatus &&
+                IsBigQueryPeer(dBTypeFromJSON(mirrorState.cdcStatus.sourceType))
+              }
+            />
+          }
           status={mirrorState}
         />
       </LayoutMain>

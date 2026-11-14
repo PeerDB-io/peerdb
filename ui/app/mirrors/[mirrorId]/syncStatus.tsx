@@ -10,9 +10,13 @@ import TableStats from './tableStats';
 
 type SyncStatusProps = {
   flowJobName: string;
+  hideSyncHistory?: boolean;
 };
 
-export default function SyncStatus({ flowJobName }: SyncStatusProps) {
+export default function SyncStatus({
+  flowJobName,
+  hideSyncHistory,
+}: SyncStatusProps) {
   const {
     data: tableStats,
     error,
@@ -30,22 +34,26 @@ export default function SyncStatus({ flowJobName }: SyncStatusProps) {
     tableStats?.tablesData && (
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
-        <div
-          style={{
-            marginBlock: '2.5rem',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))',
-            gap: '2rem',
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <CdcGraph mirrorName={flowJobName} />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <LagGraph mirrorName={flowJobName} />
-          </div>
-        </div>
-        <SyncStatusTable mirrorName={flowJobName} />
+        {!hideSyncHistory && (
+          <>
+            <div
+              style={{
+                marginBlock: '2.5rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))',
+                gap: '2rem',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <CdcGraph mirrorName={flowJobName} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <LagGraph mirrorName={flowJobName} />
+              </div>
+            </div>
+            <SyncStatusTable mirrorName={flowJobName} />
+          </>
+        )}
         <TableStats tableSyncs={tableStats.tablesData} />
       </div>
     )

@@ -27,6 +27,8 @@ import {
   handleCreateCDC,
   handleCreateQRep,
   handleValidateCDC,
+  IsBigQueryPeer,
+  IsClickHousePeer,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
 import {
@@ -87,6 +89,12 @@ export default function CreateMirrors({ peersPromise }: CreateMirrorsProps) {
   const [qrepQuery, setQrepQuery] = useState<string>(QRepQueryTemplate);
   const [nameValidityMessage, setNameValidityMessage] = useState<string>('');
 
+  // BigQuery CDC has no streaming pull, so only the ClickHouse query CDC sync path can consume it
+  const bigqueryCdcNeedsClickHouse =
+    mirrorType === MirrorType.CDC &&
+    IsBigQueryPeer(sourceType) &&
+    !cdcConfig.initialSnapshotOnly;
+
   const setSourcePeer = useCallback((peer: SingleValue<PeerListItem>) => {
     if (!peer) return;
     setQrepConfig((curr) => ({
@@ -99,13 +107,13 @@ export default function CreateMirrors({ peersPromise }: CreateMirrorsProps) {
     }));
     setSourceType(peer.type);
 
-    const typeDefaults = cdcSourceDefaults[peer.type];
-    if (typeDefaults) {
-      setCdcConfig((curr) => ({
-        ...curr,
-        ...typeDefaults,
-      }));
-    }
+    // bigqueryCdcConfig presence is what marks a mirror as BigQuery CDC, so drop it
+    // when moving to another source type
+    setCdcConfig((curr) => ({
+      ...curr,
+      bigqueryCdcConfig: undefined,
+      ...cdcSourceDefaults[peer.type],
+    }));
   }, []);
 
   const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
@@ -214,9 +222,13 @@ export default function CreateMirrors({ peersPromise }: CreateMirrorsProps) {
                         peerEnd === 'src' ? setSourcePeer : setDestinationPeer
                       }
                       options={
-                        (peerEnd === 'src'
-                          ? peers.sourceItems
-                          : peers.destinationItems) ?? []
+                        peerEnd === 'src'
+                          ? (peers.sourceItems ?? [])
+                          : (peers.destinationItems ?? []).filter(
+                              (peer) =>
+                                !bigqueryCdcNeedsClickHouse ||
+                                IsClickHousePeer(peer.type)
+                            )
                       }
                       getOptionValue={getPeerValue}
                       formatOptionLabel={getPeerLabel}
