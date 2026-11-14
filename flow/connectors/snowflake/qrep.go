@@ -162,6 +162,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(ctx context.Context, conf
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(c, config, destTable, stageName)
+	writeHandler.resolveAvroFields = true
 	err := writeHandler.CopyStageToDestination(ctx)
 	if err != nil {
 		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
