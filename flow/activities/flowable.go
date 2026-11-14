@@ -41,6 +41,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
+const syncFlowHeartbeatInterval = 30 * time.Second
+
 type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
 }
@@ -385,7 +387,7 @@ func (a *FlowableActivity) SyncFlow(
 	activityCtx := ctx
 	// Heartbeats connector setup below, which must not exceed the activity's heartbeat
 	// timeout. Each sync path replaces it with its own heartbeat once it takes over.
-	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutine(activityCtx, func() string { return "setup" }))
+	stopSetupHeartbeat := sync.OnceFunc(common.HeartbeatRoutineEvery(activityCtx, syncFlowHeartbeatInterval, func() string { return "setup" }))
 	defer stopSetupHeartbeat()
 
 	ctx, cancelCtx := context.WithCancel(ctx)
@@ -440,7 +442,7 @@ func (a *FlowableActivity) SyncFlow(
 		// activity alive while closing the source, even after a worker shutdown has
 		// canceled the derived sync context.
 		stopSetupHeartbeat()
-		stopCloseHeartbeat := common.HeartbeatRoutine(activityCtx, func() string { return "closing source" })
+		stopCloseHeartbeat := common.HeartbeatRoutineEvery(activityCtx, syncFlowHeartbeatInterval, func() string { return "closing source" })
 		defer stopCloseHeartbeat()
 		srcClose(ctx)
 	}()
@@ -478,7 +480,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
 	syncState.Store(new("setup"))
-	shutdown := common.HeartbeatRoutine(ctx, func() string {
+	shutdown := common.HeartbeatRoutineEvery(ctx, syncFlowHeartbeatInterval, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
 		nBatchID := normalizingBatchID.Load()
