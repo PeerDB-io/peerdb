@@ -396,6 +396,12 @@ type GetVersionConnector interface {
 	GetVersion(context.Context) (string, error)
 }
 
+type SourceDiagnosticsConnector interface {
+	Connector
+
+	SourceDiagnostics(context.Context) ([]*protos.SourceDiagnosticsCheck, error)
+}
+
 type GetLogRetentionConnector interface {
 	Connector
 
@@ -902,6 +908,8 @@ var (
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
 	_ GetVersionConnector = &connmongo.MongoConnector{}
+
+	_ SourceDiagnosticsConnector = &connmongo.MongoConnector{}
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
