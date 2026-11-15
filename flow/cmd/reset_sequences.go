@@ -46,8 +46,6 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 
 	destTables := make([]string, 0, len(config.TableMappings))
 	for _, tm := range config.TableMappings {
-		// Quote the identifier ("schema"."Table") so mixed-case names survive
-		// the regclass cast, pg_get_serial_sequence, and format('%s') below.
 		parsed, err := common.ParseTableIdentifier(tm.DestinationTableIdentifier)
 		if err != nil {
 			return nil, NewInternalApiError(fmt.Errorf("failed to parse destination table %s: %w",
