@@ -8,7 +8,9 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func (h *FlowRequestHandler) ResetMirrorSequences(
@@ -43,38 +45,42 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 
 	conn := dstConn.Conn()
 
-	destTables := make([]string, 0, len(config.TableMappings))
+	// Destination identifiers are stored unquoted (e.g. public.MyTable). Quote each part so the
+	// regclass cast below doesn't fold mixed-case or uppercase names to lowercase.
+	quotedTables := make([]string, 0, len(config.TableMappings))
 	for _, tm := range config.TableMappings {
-		destTables = append(destTables, tm.DestinationTableIdentifier)
+		dstTable, err := common.ParseTableIdentifier(tm.DestinationTableIdentifier)
+		if err != nil {
+			return nil, NewInternalApiError(
+				fmt.Errorf("failed to parse destination table %q: %w", tm.DestinationTableIdentifier, err))
+		}
+		quotedTables = append(quotedTables, utils.QuoteLiteral(dstTable.String()))
 	}
-
-	quotedTables := make([]string, 0, len(destTables))
-	for _, t := range destTables {
-		quotedTables = append(quotedTables, "'"+strings.ReplaceAll(t, "'", "''")+"'")
-	}
-	arrayLiteral := "ARRAY[" + strings.Join(quotedTables, ",") + "]::text[]"
+	arrayLiteral := "ARRAY[" + strings.Join(quotedTables, ",") + "]::regclass[]"
 
 	// Discover sequences on all tables all server-side
 	// resets each to MAX(column).
+	// Tables are resolved to regclass once; its text form is correctly quoted, so it is
+	// safe to pass to pg_get_serial_sequence and to interpolate with %s.
 	doBlock := strings.Replace(`
 	DO $$
 	DECLARE
-	v_table text;
-	v_col text;
+	v_rel regclass;
+	v_col name;
 	v_seq text;
 	v_max bigint;
 	BEGIN
-	FOREACH v_table IN ARRAY $1
+	FOREACH v_rel IN ARRAY $1
 	LOOP
 		FOR v_col, v_seq IN
-		SELECT a.attname, pg_get_serial_sequence(v_table, a.attname)
+		SELECT a.attname, pg_get_serial_sequence(v_rel::text, a.attname)
 		FROM pg_attribute a
-		WHERE a.attrelid = v_table::regclass
+		WHERE a.attrelid = v_rel
 			AND a.attnum > 0
 			AND NOT a.attisdropped
-			AND pg_get_serial_sequence(v_table, a.attname) IS NOT NULL
 		LOOP
-		EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %s', v_col, v_table) INTO v_max;
+		CONTINUE WHEN v_seq IS NULL;
+		EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %s', v_col, v_rel) INTO v_max;
 		IF v_max > 0 THEN
 			PERFORM setval(v_seq, v_max, true);
 		END IF;
