@@ -17,7 +17,7 @@ peer-cursor = { path = "../peer-cursor" }
 pgwire.workspace = true
 pt = { path = "../pt" }
 reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "query", "rustls"] }
-rsa = { version = "0.10.0", features = ["pem", "pkcs5"] }
+rsa = { version = "0.10.0", default-features = false, features = ["std", "encoding", "pkcs5"] }
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
