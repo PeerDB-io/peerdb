@@ -121,7 +121,15 @@ func newPostgresConnector(
 	if flowNameInApplicationName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
+	sslNegotiation, err := internal.PeerDBPostgresSSLNegotiation(ctx, env)
+	if err != nil {
+		return nil, err
+	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
+	if sslNegotiation == "direct" && internal.PGMustUseTlsConnection(pgConfig) {
+		// GetPGConnectionString always sets a query string
+		connectionString += "&sslnegotiation=direct"
+	}
 	connConfig, err := ParseConfig(connectionString, pgConfig)
 	if err != nil {
 		return nil, err
@@ -251,6 +259,10 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 			clientCert)
 		if err != nil {
 			return nil, err
+		}
+		if connConfig.SSLNegotiation == "direct" {
+			// pgx sets this on the TLS config it builds, which we replace; direct SSL requires ALPN.
+			tlsConfig.NextProtos = []string{"postgresql"}
 		}
 		connConfig.TLSConfig = tlsConfig
 	}
