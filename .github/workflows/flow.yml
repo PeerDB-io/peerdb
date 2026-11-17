@@ -56,7 +56,7 @@ jobs:
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
-      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+      - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
           github_token: ${{ github.token }}
@@ -116,7 +116,7 @@ jobs:
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
-      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+      - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
           github_token: ${{ github.token }}
