@@ -76,9 +76,13 @@ func DocumentQValueIterator(
 			}
 			value, err := converter.QValueFromBsonValue(element.Value(), maybeExpectedKind)
 			if err != nil && maybeExpectedKind.IsArray() && element.Value().Type == bson.TypeArray {
-				// An array that does not fit its typed column is yielded as JSON: the projector then
-				// reports it as a type mismatch, its JSON form as the value, instead of the record failing.
-				value, err = converter.QValueJSONFromArray(element.Value().Array())
+				// An array that does not fit its typed column, e.g. a string element in an Array(Int64)
+				// or a scalar or nested array element in an Array(JSON), is yielded as its JSON text:
+				// a String never matches an array column, so the projector reports it as a type mismatch,
+				// its JSON form as the value, instead of the record failing.
+				var asJSON types.QValueArrayJSON
+				asJSON, err = converter.QValueArrayJSONFromArray(element.Value().Array())
+				value = types.QValueString(asJSON)
 			}
 			if err != nil {
 				walkErr = fmt.Errorf("failed to convert document field to QValue %s: %w", field, err)
