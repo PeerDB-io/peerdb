@@ -40,10 +40,10 @@ jobs:
       uses: ./.github/actions/genprotos
 
     - name: install lib-geos
-      run: |
-        sudo apt-get update
-        sudo apt-get install libgeos-dev
-
+      if: matrix.language == 'go'
+      uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1
+      with:
+        packages: libgeos-dev
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
