@@ -213,7 +213,7 @@ func TestDefaultExprFromPostgresMissingValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind, tc.wrapNonObjectJSON)
+			literal, ok := defaultExprFromPostgresMissingValue(tc.value, tc.qkind, tc.wrapNonObjectJSON, false, nil)
 			require.Equal(t, tc.want != "", ok)
 			require.Equal(t, tc.want, literal)
 		})
