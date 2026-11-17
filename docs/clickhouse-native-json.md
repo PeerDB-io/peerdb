@@ -68,8 +68,7 @@ be mistaken for an object.
 **On the ClickHouse side** ([`normalize_query.go`](../flow/connectors/clickhouse/normalize_query.go), [`table_function.go`](../flow/connectors/clickhouse/table_function.go)):
 - Normalize and the snapshot insert cast the text to the column type.
 - SQL `NULL` into a non-nullable `JSON` column becomes `{}`.
-- For `Array(JSON)`, null elements are mapped to `{}`, because `JSONExtract('[null,null]', 'Array(JSON)')`
-  returns `[]`.
+- For `Array(JSON)`, null elements land as `{}`, so `[null,null]` becomes `[{},{}]`.
 - PeerDB sends `type_json_skip_duplicated_paths=1`. On ClickHouse 25.8+ and newer mirrors it also sends
   `json_type_escape_dots_in_keys=1`.
 
@@ -101,5 +100,4 @@ mappings.
   inconsistent with the new casts.
 - Mirrors created before the wrapping, or before ClickHouse was upgraded to 25.3, don't wrap. Recreate them.
 - Lowercase `json` overrides skip wrapping; parameterised `JSON(...)` overrides are rejected.
-- SQL `NULL` elements in a `json[]` ADD COLUMN default land as `{}`, even in `Array(Nullable(JSON))`.
 - MariaDB JSON columns added by online schema tools (gh-ost, pt-osc) land as `String`.
