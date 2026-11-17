@@ -126,7 +126,8 @@ func newPostgresConnector(
 		return nil, err
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
-	if sslNegotiation == "direct" && internal.PGMustUseTlsConnection(pgConfig) {
+	directSSL := sslNegotiation == "direct" && internal.PGMustUseTlsConnection(pgConfig)
+	if directSSL {
 		// GetPGConnectionString always sets a query string
 		connectionString += "&sslnegotiation=direct"
 	}
@@ -177,6 +178,9 @@ func newPostgresConnector(
 				pgerrcode.InsufficientPrivilege:
 				err = exceptions.NewAuthError(err)
 			}
+		} else if directSSL {
+			// servers before Postgres 17 drop a direct SSL connection during the handshake
+			err = fmt.Errorf("%w (PEERDB_POSTGRES_SSL_NEGOTIATION=direct requires Postgres 17 or later)", err)
 		}
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)

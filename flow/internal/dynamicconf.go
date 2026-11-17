@@ -1160,7 +1160,16 @@ func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) 
 }
 
 func PeerDBPostgresSSLNegotiation(ctx context.Context, env map[string]string) (string, error) {
-	return dynLookup(ctx, env, "PEERDB_POSTGRES_SSL_NEGOTIATION")
+	value, err := dynLookup(ctx, env, "PEERDB_POSTGRES_SSL_NEGOTIATION")
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case "postgres", "direct":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid PEERDB_POSTGRES_SSL_NEGOTIATION %q: must be \"postgres\" or \"direct\"", value)
+	}
 }
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {

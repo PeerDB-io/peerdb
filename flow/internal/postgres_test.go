@@ -209,3 +209,15 @@ func TestGetPGConnectionStringCloudSQLIAMWithoutPort(t *testing.T) {
 	assert.Equal(t, CloudSQLConnectorPlaceholderHost, cfg.Host)
 	assert.Equal(t, "sa@project.iam", cfg.User)
 }
+
+func TestPeerDBPostgresSSLNegotiation(t *testing.T) {
+	for _, value := range []string{"postgres", "direct"} {
+		got, err := PeerDBPostgresSSLNegotiation(t.Context(), map[string]string{"PEERDB_POSTGRES_SSL_NEGOTIATION": value})
+		require.NoError(t, err)
+		require.Equal(t, value, got)
+	}
+	for _, value := range []string{"", "Direct", "dierct"} {
+		_, err := PeerDBPostgresSSLNegotiation(t.Context(), map[string]string{"PEERDB_POSTGRES_SSL_NEGOTIATION": value})
+		require.Error(t, err)
+	}
+}
