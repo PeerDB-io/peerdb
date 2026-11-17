@@ -17,18 +17,41 @@ import (
 func TestDownscopeTokenExchangeErrorClassification(t *testing.T) {
 	t.Parallel()
 
+	statusBody := func(code int) string {
+		return fmt.Sprintf("{\n  \"error\": {\n    \"code\": %d\n  }\n}", code)
+	}
 	for _, tc := range []struct {
+		name          string
+		body          string
 		expectedClass alerting.ErrorClass
 		code          int
 	}{
-		{code: 503, expectedClass: alerting.ErrorRetryRecoverable},
-		{code: 429, expectedClass: alerting.ErrorRetryRecoverable},
-		{code: 400, expectedClass: alerting.ErrorOther},
+		{name: "503", code: 503, body: statusBody(503), expectedClass: alerting.ErrorRetryRecoverable},
+		{name: "429", code: 429, body: statusBody(429), expectedClass: alerting.ErrorRetryRecoverable},
+		{name: "400", code: 400, body: statusBody(400), expectedClass: alerting.ErrorOther},
+		{
+			name:          "400 UberMint",
+			code:          400,
+			body:          `{"error":"invalid_grant","error_description":"Error getting an UberMint"}`,
+			expectedClass: alerting.ErrorRetryRecoverable,
+		},
+		{
+			name:          "400 other invalid_grant",
+			code:          400,
+			body:          `{"error":"invalid_grant","error_description":"Invalid JWT Signature."}`,
+			expectedClass: alerting.ErrorOther,
+		},
+		{
+			name:          "401 UberMint",
+			code:          401,
+			body:          `{"error":"invalid_grant","error_description":"Error getting an UberMint"}`,
+			expectedClass: alerting.ErrorOther,
+		},
 	} {
-		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			body := fmt.Sprintf("{\n  \"error\": {\n    \"code\": %d\n  }\n}", tc.code)
+			body := tc.body
 			rawErr := fmt.Errorf("downscope: unable to exchange token, %d: %s", tc.code, body)
 
 			wrapped := wrapDownscopeError(rawErr)

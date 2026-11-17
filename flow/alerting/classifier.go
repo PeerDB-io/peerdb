@@ -65,6 +65,10 @@ const (
 	// The error is created with errors.New, so there is no sentinel or type to match on.
 	http2ClientConnectionLost = "http2: client connection lost"
 
+	// gcpUberMintError is a transient 400 invalid_grant from GCP STS during downscoped token exchange,
+	// raised after the source credentials were already accepted.
+	gcpUberMintError = "Error getting an UberMint"
+
 	bigQueryChangeHistoryBeforeTimeTravel = "change history start time is before allowed time travel interval"
 )
 
@@ -1206,6 +1210,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
 			gcsErrorInfo.Code = strconv.Itoa(apiErr.Code)
+			if apiErr.Code == 400 && strings.Contains(apiErr.Body, `"invalid_grant"`) &&
+				strings.Contains(apiErr.Body, gcpUberMintError) {
+				return ErrorRetryRecoverable, gcsErrorInfo
+			}
 			return gcsStatusErrorClass(apiErr.Code), gcsErrorInfo
 		}
 		if authErr, ok := errors.AsType[*auth.Error](err); ok && authErr.Response != nil {
