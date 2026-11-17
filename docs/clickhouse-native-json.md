@@ -19,7 +19,7 @@ creates native ClickHouse `JSON` columns instead, so fields can be queried as su
 | CockroachDB `json`/`jsonb`, BigQuery `JSON` | `String` | `JSON` | `Nullable(JSON)` | not wrapped, the insert fails |
 | CockroachDB `json[]`, BigQuery `ARRAY<JSON>` | `String` | `String` | `String` | |
 
-\* With structured ingestion (MongoDB only), each document field goes to a column whose type you declare, so the
+\* With structured ingestion (MongoDB only), each document field goes to a column whose type is provided in the corresponding table mapping, so the
 setting doesn't change those columns. It only changes `_peerdb_malformed_data`, the column that records values
 that don't fit their column: `Nullable(String)` when off, `Nullable(JSON)` when on. Nothing is wrapped. A scalar
 sent to a declared `JSON` column is recorded in `_peerdb_malformed_data`.
