@@ -7,6 +7,8 @@ creates native ClickHouse `JSON` columns instead, so fields can be queried as su
 ## Using it
 
 - Set it globally or per mirror (see [`flow/internal/dynamicconf.go`](../flow/internal/dynamicconf.go)).
+- In ClickHouse Cloud, MongoDB ClickPipes turn it on per mirror by default; users can turn it off with
+  `use_json_native_format`.
 - It requires ClickHouse 25.3 or newer. On an older server, CDC mirror creation and resync fail instead of
   falling back to `String`.
 
