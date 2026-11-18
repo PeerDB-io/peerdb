@@ -5,9 +5,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "tls")]
-use std::fs::File;
-
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
@@ -60,8 +57,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 #[cfg(feature = "tls")]
 use {
-    rustls_pemfile::{certs, pkcs8_private_keys},
-    rustls_pki_types::{CertificateDer, PrivateKeyDer},
+    rustls_pki_types::{CertificateDer, PrivatePkcs8KeyDer, pem::PemObject},
     tokio_rustls::rustls::ServerConfig,
 };
 
@@ -1073,13 +1069,13 @@ fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
     {
         if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref())
         {
-            let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
-                .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
+            let cert = CertificateDer::pem_file_iter(tls_cert)
+                .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
 
-            let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
-                .map(|key| key.map(PrivateKeyDer::from))
-                .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
-                .remove(0);
+            let key = PrivatePkcs8KeyDer::from_pem_file(tls_key)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?
+                .into();
 
             let mut config = ServerConfig::builder()
                 .with_no_client_auth()

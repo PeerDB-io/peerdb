@@ -24,3 +24,19 @@ jobs:
       - name: clippy
         run: cargo clippy -- -D warnings
         working-directory: ./nexus
+
+  cargo-deny:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+
+      - name: cargo deny
+        run: cargo deny --locked --all-features check advisories bans licenses sources
+        working-directory: ./nexus
