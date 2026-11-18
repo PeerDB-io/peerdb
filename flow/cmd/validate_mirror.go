@@ -111,6 +111,10 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		return nil, apiErr
 	}
 
+	if apiErr := h.checkBigQueryCDCDestination(ctx, connectionConfigs); apiErr != nil {
+		return nil, apiErr
+	}
+
 	if apiErr := h.checkSourcePeerReuse(ctx, connectionConfigs); apiErr != nil {
 		return nil, apiErr
 	}
@@ -192,6 +196,28 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
+}
+
+// checkBigQueryCDCDestination rejects BigQuery CDC mirrors whose destination is not ClickHouse:
+// BigQuery has no streaming PullRecords, so only the query CDC sync path (ClickHouse) can consume it.
+// Snapshot-only mirrors never reach the CDC path and are unaffected (do_initial_snapshot=false with
+// initial_snapshot_only=true is already rejected earlier in validateCDCMirrorImpl).
+func (h *FlowRequestHandler) checkBigQueryCDCDestination(
+	ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
+) APIError {
+	if cfg.GetBigqueryCdcConfig() == nil || cfg.InitialSnapshotOnly {
+		return nil
+	}
+
+	dstType, err := connectors.LoadPeerType(ctx, h.pool, cfg.DestinationName)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to load destination peer %s: %w", cfg.DestinationName, err))
+	}
+	if dstType != protos.DBType_CLICKHOUSE {
+		return NewInvalidArgumentApiError(
+			fmt.Errorf("BigQuery CDC requires a ClickHouse destination, but %s is %s", cfg.DestinationName, dstType))
+	}
+	return nil
 }
 
 // checkQRepTableConfig validates the per-table settings of a standalone QRep mirror, which replicates a
