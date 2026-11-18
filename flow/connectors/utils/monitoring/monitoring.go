@@ -69,7 +69,10 @@ func AddCDCBatchForFlow(ctx context.Context, pool shared.CatalogPool, flowJobNam
 ) error {
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,
-		start_time) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+		start_time) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (flow_name, batch_id) DO UPDATE SET
+		rows_in_batch=EXCLUDED.rows_in_batch, batch_end_lsn=EXCLUDED.batch_end_lsn, batch_end_lsn_text=DEFAULT,
+		start_time=EXCLUDED.start_time, sync_time=NULL, end_time=NULL, first_row_received_at=NULL,
+		first_row_commit_time=NULL`,
 		flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch, 0,
 		uint64(batchInfo.BatchEndlSN), batchInfo.StartTime,
 	); err != nil {
