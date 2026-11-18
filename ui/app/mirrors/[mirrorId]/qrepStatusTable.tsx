@@ -72,27 +72,21 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
   const sortButtonColor = useSortButtonColor();
   const ROWS_PER_PAGE = 10;
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);
-
-  const visiblePartitions = partitions.slice(
-    (currentPage - 1) * ROWS_PER_PAGE,
-    currentPage * ROWS_PER_PAGE
-  );
-
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortField, setSortField] = useState<'startTime' | 'endTime'>(
     'startTime'
   );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
-  const displayedPartitions = useMemo(() => {
-    const currentPartitions = visiblePartitions.filter(
-      (partition: PartitionStatus) => {
-        return partition.partitionId
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase());
-      }
-    );
-    currentPartitions.sort((a, b) => {
+
+  // filter -> sort -> paginate, so sorting and search apply to every partition
+  // and not just the rows that happen to be on the current page
+  const sortedPartitions = useMemo(() => {
+    const filtered = partitions.filter((partition: PartitionStatus) => {
+      return partition.partitionId
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+    });
+    filtered.sort((a, b) => {
       // maximum date values so compare towards the end
       const aValue = a[sortField] ?? new Date(8.64e15);
       const bValue = b[sortField] ?? new Date(8.64e15);
@@ -105,15 +99,25 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
         return 0;
       }
     });
-    return currentPartitions;
-  }, [visiblePartitions, searchQuery, sortField, sortDir]);
+    return filtered;
+  }, [partitions, searchQuery, sortField, sortDir]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedPartitions.length / ROWS_PER_PAGE)
+  );
+  const page = Math.min(currentPage, totalPages);
+  const displayedPartitions = sortedPartitions.slice(
+    (page - 1) * ROWS_PER_PAGE,
+    page * ROWS_PER_PAGE
+  );
 
   const handleNext = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    if (page < totalPages) setCurrentPage(page + 1);
   };
 
   const handlePrevious = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
+    if (page > 1) setCurrentPage(page - 1);
   };
 
   const sortOptions = [
@@ -129,14 +133,14 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
             <Button
               variant='normalBorderless'
               onClick={handlePrevious}
-              disabled={currentPage === 1}
+              disabled={page === 1}
             >
               <Icon name='chevron_left' />
             </Button>
             <Button
               variant='normalBorderless'
               onClick={handleNext}
-              disabled={currentPage === totalPages}
+              disabled={page === totalPages}
             >
               <Icon name='chevron_right' />
             </Button>
@@ -181,7 +185,7 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
             </button>
             <div>
               <Label>
-                {currentPage} of {totalPages}
+                {page} of {totalPages}
               </Label>
             </div>
           </div>
@@ -189,9 +193,10 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
         right: (
           <SearchField
             placeholder='Search by partition'
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
-            }
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
           />
         ),
       }}
