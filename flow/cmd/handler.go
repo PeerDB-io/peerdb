@@ -487,6 +487,23 @@ func (h *FlowRequestHandler) FlowStateChange(
 				return nil, apiErr
 			}
 		}
+		if cdcUpdate.ResetCheckpoint != "" {
+			if currState != protos.FlowStatus_STATUS_PAUSED {
+				return nil, NewInvalidArgumentApiError(errors.New("resetting the CDC checkpoint requires the mirror to be paused"))
+			}
+			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+			}
+			if _, err := connectors.ValidateCdcCheckpointReset(
+				ctx, h.pool, req.FlowJobName, config.SourceName, cdcUpdate.ResetCheckpoint,
+			); err != nil {
+				if errors.Is(err, connectors.ErrInvalidCheckpointReset) {
+					return nil, NewInvalidArgumentApiError(err)
+				}
+				return nil, NewInternalApiError(err)
+			}
+		}
 		if len(cdcUpdate.ResyncTables) > 0 {
 			if currState != protos.FlowStatus_STATUS_PAUSED {
 				return nil, NewInvalidArgumentApiError(fmt.Errorf("table-level resync requires the mirror to be paused"))

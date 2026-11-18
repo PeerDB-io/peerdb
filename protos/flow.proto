@@ -637,6 +637,10 @@ message CDCFlowConfigUpdate {
   // the desired table settings. Each table is written to a temporary resync
   // table and atomically swapped into place.
   repeated TableMapping resync_tables = 14;
+  // MySQL/MariaDB sources only, requires the mirror to be paused. Replaces the stored
+  // CDC checkpoint (a GTID set, or "!f:<binlog file>,<hex position>" for file/position
+  // replication) before the rest of the update is applied.
+  string reset_checkpoint = 15;
 }
 
 message QRepFlowConfigUpdate {

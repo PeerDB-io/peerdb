@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -42,6 +43,30 @@ func parseReplicationOffsetText(flavor string, offsetText string) (parsedReplica
 		mechanism: protos.MySqlReplicationMechanism_MYSQL_GTID.String(),
 		gset:      gset,
 	}, nil
+}
+
+// ValidateCheckpointReset checks that newText is a valid offset for the source flavor and
+// keeps the replication mechanism of the mirror's current checkpoint.
+func ValidateCheckpointReset(flavor protos.MySqlFlavor, currentText string, newText string) error {
+	if currentText == "" {
+		return errors.New("mirror has no CDC checkpoint yet")
+	}
+	flavorName := flavorString(flavor)
+	current, err := parseReplicationOffsetText(flavorName, currentText)
+	if err != nil {
+		return fmt.Errorf("failed to parse current checkpoint: %w", err)
+	}
+	next, err := parseReplicationOffsetText(flavorName, newText)
+	if err != nil {
+		return err
+	}
+	if next.mechanism == protos.MySqlReplicationMechanism_MYSQL_GTID.String() && next.gset.String() == "" {
+		return errors.New("new checkpoint is an empty GTID set")
+	}
+	if current.mechanism != next.mechanism {
+		return fmt.Errorf("new checkpoint uses %s replication but the mirror uses %s", next.mechanism, current.mechanism)
+	}
+	return nil
 }
 
 func replicationMechanismInUseFromOffsetText(flavor string, offsetText string) (string, error) {
