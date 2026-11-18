@@ -802,7 +802,7 @@ func TestQValueFromBsonValue(t *testing.T) {
 		{
 			desc:     "Array",
 			input:    bson.A{int32(1), "two", 3.0, nil, bson.D{{Key: "k", Value: true}}},
-			expected: types.QValueJSON{Val: `[1,"two",3.0,null,{"k":true}]`},
+			expected: types.QValueArrayJSON{Val: `[1,"two",3.0,null,{"k":true}]`},
 		},
 		{
 			desc:     "Object",
@@ -837,10 +837,17 @@ func TestQValueFromBsonValue(t *testing.T) {
 			require.Equal(t, test.expected, result)
 
 			// JSON-valued conversions must be byte-identical to how the value is rendered inside a document
-			if jsonResult, ok := result.(types.QValueJSON); ok {
+			var jsonVal string
+			switch jsonResult := result.(type) {
+			case types.QValueJSON:
+				jsonVal = jsonResult.Val
+			case types.QValueArrayJSON:
+				jsonVal = jsonResult.Val
+			}
+			if jsonVal != "" {
 				doc, err := converter.QValueJSONFromDocument(raw)
 				require.NoError(t, err)
-				require.Equal(t, `{"a":`+jsonResult.Val+`}`, doc.Val)
+				require.Equal(t, `{"a":`+jsonVal+`}`, doc.Val)
 			}
 		})
 	}
@@ -1007,27 +1014,32 @@ func TestTypedArraysFromBson(t *testing.T) {
 	t.Run("a nested array or document element fails", func(t *testing.T) {
 		_, err := converter.QValueFromBsonValue(
 			rawArrayValueOf(t, bson.A{bson.A{"nested"}}), types.QValueKindArrayString)
-		require.ErrorContains(t, err, "array element 0 maps to json, not string")
+		require.ErrorContains(t, err, "array element 0 maps to array_json, not string")
 		_, err = converter.QValueFromBsonValue(
 			rawArrayValueOf(t, bson.A{bson.D{{Key: "k", Value: 1}}}), types.QValueKindArrayString)
 		require.ErrorContains(t, err, "array element 0 maps to json, not string")
 	})
 
-	t.Run("JSON-mapped elements, documents and nested arrays included, land as an array of JSON", func(t *testing.T) {
+	t.Run("arrays of documents land as an array of JSON", func(t *testing.T) {
 		documents := rawArrayValueOf(t, bson.A{
 			bson.D{{Key: "k", Value: int64(1)}},
-			bson.A{int64(1), "two"},
+			nil,
 			bson.D{},
 		})
 		// array_jsonb names the same conversion
 		for _, kind := range []types.QValueKind{types.QValueKindArrayJSON, types.QValueKindArrayJSONB} {
 			values, err := converter.QValueFromBsonValue(documents, kind)
 			require.NoError(t, err)
-			require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},[1,"two"],{}]`}, values)
+			require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},null,{}]`}, values)
 		}
 
-		// a scalar element maps to its own kind, not JSON
+		// a nested array element is not a JSON object: ClickHouse would silently turn it into a NULL element
 		_, err := converter.QValueFromBsonValue(
+			rawArrayValueOf(t, bson.A{bson.D{}, bson.A{int64(1), "two"}}), types.QValueKindArrayJSON)
+		require.ErrorContains(t, err, "array element 1 maps to array_json, not json")
+
+		// a scalar element maps to its own kind, not JSON
+		_, err = converter.QValueFromBsonValue(
 			rawArrayValueOf(t, bson.A{bson.D{}, "scalar"}), types.QValueKindArrayJSON)
 		require.ErrorContains(t, err, "array element 1 maps to string, not json")
 
@@ -1037,11 +1049,17 @@ func TestTypedArraysFromBson(t *testing.T) {
 		require.Equal(t, types.QValueArrayJSON{Val: "[]"}, empty)
 	})
 
-	t.Run("any other destination kind keeps the whole array as JSON", func(t *testing.T) {
-		for _, kind := range []types.QValueKind{types.QValueKindJSON, ""} {
-			asJSON, err := converter.QValueFromBsonValue(rawArrayValueOf(t, bson.A{int32(1), int64(2)}), kind)
-			require.NoError(t, err)
-			require.Equal(t, types.QValueJSON{Val: "[1,2]"}, asJSON)
+	t.Run("any other destination kind keeps the whole array as an array of JSON", func(t *testing.T) {
+		// never as a QValueJSON, even for a JSON column: ClickHouse JSON only takes objects
+		for _, kind := range []types.QValueKind{types.QValueKindJSON, types.QValueKindString, ""} {
+			for input, expected := range map[*bson.A]string{
+				{int32(1), int64(2)}: "[1,2]",
+				{}:                   "[]",
+			} {
+				asJSON, err := converter.QValueFromBsonValue(rawArrayValueOf(t, *input), kind)
+				require.NoError(t, err)
+				require.Equal(t, types.QValueArrayJSON{Val: expected}, asJSON)
+			}
 		}
 	})
 

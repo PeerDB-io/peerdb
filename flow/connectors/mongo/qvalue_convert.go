@@ -28,8 +28,8 @@ type BsonToQValueConverter interface {
 	QValueStringFromId(id bson.RawValue, version uint32) (types.QValueString, error)
 	// QValueJSONFromDocument converts a raw BSON document (Object) to a QValueJSON.
 	QValueJSONFromDocument(raw bson.Raw) (types.QValueJSON, error)
-	// QValueJSONFromArray converts a raw BSON array to a QValueJSON, for a JSON destination column.
-	QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error)
+	// QValueArrayJSONFromArray converts a raw BSON array to a QValueArrayJSON holding its JSON form.
+	QValueArrayJSONFromArray(arr bson.RawArray) (types.QValueArrayJSON, error)
 
 	// QValueFromBsonValue converts any BSON value to the QValue.
 	// `maybeExpectedKind` hints the elements types.
@@ -64,12 +64,12 @@ func (c *DirectBsonConverter) QValueJSONFromDocument(raw bson.Raw) (types.QValue
 	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
 }
 
-func (c *DirectBsonConverter) QValueJSONFromArray(arr bson.RawArray) (types.QValueJSON, error) {
+func (c *DirectBsonConverter) QValueArrayJSONFromArray(arr bson.RawArray) (types.QValueArrayJSON, error) {
 	c.stream.Reset(nil)
 	if err := shared_mongo.RawArrayToJSON(bsoncore.Array(arr), c.stream); err != nil {
-		return types.QValueJSON{}, fmt.Errorf("failed to convert array: %w", err)
+		return types.QValueArrayJSON{}, fmt.Errorf("failed to convert array: %w", err)
 	}
-	return types.QValueJSON{Val: string(c.stream.Buffer())}, nil
+	return types.QValueArrayJSON{Val: string(c.stream.Buffer())}, nil
 }
 
 func typedArrayFromBson[Q types.QValue, T any](
@@ -144,13 +144,10 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 		return c.QValueStringFromString(v.StringValue()), nil
 
 	case bsoncore.TypeEmbeddedDocument:
-		// Nested documents are encoded as `QValueJSON` ...
+		// Nested documents are encoded as `QValueJSON`.
 		return c.QValueJSONFromDocument(bson.Raw(v.Document()))
 
 	case bsoncore.TypeArray:
-		// ... as well as Arrays, unless the destination column is of an array kind, with
-		// corresponding QValue s corresponding to typed arrays.
-
 		// NOTE: Ideally, we would infer the array element type from the BSON array itself,
 		// recursively applying `QValueFromBsonValue` on one or more of its elements.
 		// In practice, it's better not to re-implement an inference step that already took place
@@ -191,7 +188,13 @@ func (c *DirectBsonConverter) QValueFromBsonValue(rv bson.RawValue, maybeExpecte
 			builder.WriteByte(']')
 			return types.QValueArrayJSON{Val: builder.String()}, nil
 		default:
-			return c.QValueJSONFromArray(arr)
+			// In this case, the destination column is not compatible with the Array[T] kind,
+			// so we can not use `T` to project the array elements types.
+			// In this case the data is malformed and so will it be flagged if we return an Array of JSON
+			// given that the destination column is not an array.
+			// The returned QValue holds the array as JSON, preserving the original data for inspection in
+			// malformed data column.
+			return c.QValueArrayJSONFromArray(arr)
 		}
 
 	case bsoncore.TypeBinary:
