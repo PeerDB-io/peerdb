@@ -47,6 +47,14 @@ on:
         type: string
         required: false
         default: ''
+      go_build_cache_artifact:
+        description: >-
+          Name of an artifact in this run holding prebuilt Go build cache
+          entries (flow.yml's go_build_cache job). Leave empty to compile
+          from setup-go's dependency cache alone.
+        type: string
+        required: false
+        default: ''
       # The <db>_image inputs pin the docker images of the ancillary DBs.
       # When empty, default to last combination declared at flow.yml
       # following scripts/generate-test-environment.sh's defaults.
@@ -207,7 +215,7 @@ env:
 
 jobs:
   tilt:
-    runs-on: ubuntu-latest-64-core
+    runs-on: ubuntu-latest-32-cores
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1
@@ -249,6 +257,31 @@ jobs:
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
+
+      # Layer the caller's prebuilt entries for this commit over setup-go's
+      # dependency cache. Best effort: without them the tests still compile,
+      # just from scratch.
+      - name: Download prebuilt Go build cache
+        if: inputs.go_build_cache_artifact != ''
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.go_build_cache_artifact }}
+          path: ${{ runner.temp }}/go-build-cache
+      - name: Unpack prebuilt Go build cache
+        if: inputs.go_build_cache_artifact != ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/go-build-cache/go-build-cache.tar.zst"
+          if [ ! -f "$archive" ]; then
+            echo "::warning::Prebuilt Go build cache not found; tests will compile from scratch."
+            exit 0
+          fi
+          gocache="$(go env GOCACHE)"
+          mkdir -p "$gocache"
+          tar -xf "$archive" --use-compress-program 'zstd -d -T0' -C "$gocache"
+          rm -rf "$RUNNER_TEMP/go-build-cache"
 
       # Tilt's `proto-gen` resource runs ./generate-protos.sh (buf generate +
       # go generate) on `tilt up`. The flow docker images and the host-run tests
