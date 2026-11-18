@@ -46,17 +46,19 @@ jobs:
     env:
       TZ: UTC
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          allow-unsafe-pr-checkout: true
       # Samples CPU/memory/disk/network on the runner for the whole job and
       # writes a report to the job summary; the post step runs even on failure.
+      # Must come after checkout: the collector keeps its data file in the
+      # workspace, which checkout wipes.
       - name: Runner telemetry
         uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
         with:
           upload-artifacts: true
           artifact-name: runner-telemetry-unit
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
-          allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'
