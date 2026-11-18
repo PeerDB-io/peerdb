@@ -233,14 +233,11 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 	})
 }
 
-// noExpectedKind is the column kind lookup of a document read without a schema: no field has a column.
-func noExpectedKind(string) (types.QValueKind, bool) {
-	return "", false
-}
+// noExpectedKind is the schema columns of a document read without a schema: no field has a column.
+var noExpectedKind map[string]types.QValueKind
 
-func neverExcluded(string) bool {
-	return false
-}
+// noFlattenedPaths is the flattened paths of a schema with no nested column: no document is walked into.
+var noFlattenedPaths map[string]struct{}
 
 // BSON dates must fit DateTime64 columns: they convert to timestamps
 func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
@@ -363,7 +360,7 @@ func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]type
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths)
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -427,7 +424,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0)
+	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -443,7 +440,7 @@ func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
 		fields, walkErr := DocumentQValueIterator(
-			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, neverExcluded, 0,
+			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths,
 		)
 		names := []string{}
 		values := map[string]types.QValue{}
@@ -468,7 +465,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, neverExcluded, 0)
+	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, noFlattenedPaths)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -594,5 +591,248 @@ func TestStructuredArrayColumns(t *testing.T) {
 		require.Equal(t, types.QValueNull(types.QValueKindArrayInt64), values["scores"])
 		require.Equal(t, types.QValueNull(types.QValueKindArrayString), values["tags"])
 		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
+	})
+}
+
+func TestDocumentQValueIteratorNestedFlattening(t *testing.T) {
+	raw, err := bson.Marshal(bson.D{
+		{Key: "_id", Value: "key"},
+		{Key: "name", Value: "Ada"},
+		{Key: "address", Value: bson.D{
+			{Key: "_id", Value: "nested-key"},
+			{Key: "city", Value: "London"},
+			{Key: "geo", Value: bson.D{
+				{Key: "lat", Value: 51.5},
+				{Key: "tags", Value: bson.A{"a", "b"}},
+			}},
+			{Key: "empty", Value: bson.D{}},
+		}},
+	})
+	require.NoError(t, err)
+
+	// walk reads the document with columns as the schema columns, all of them JSON
+	walk := func(t *testing.T, columns ...string) ([]string, map[string]types.QValue) {
+		t.Helper()
+		schemaFields := make([]types.QField, 0, len(columns))
+		for _, column := range columns {
+			schemaFields = append(schemaFields, types.QField{Name: column, Type: types.QValueKindJSON})
+		}
+		projector, err := structured.NewSchemaProjectorFromQFields(schemaFields, nil, true)
+		require.NoError(t, err)
+		fields, walkErr := DocumentQValueIterator(
+			raw, NewDirectBsonConverter(), projector.ColumnKinds(), projector.FlattenedPaths(),
+		)
+		names := []string{}
+		values := map[string]types.QValue{}
+		for field, value := range fields {
+			names = append(names, field)
+			values[field] = value
+		}
+		require.NoError(t, walkErr())
+		return names, values
+	}
+	const wholeAddress = `{"_id":"nested-key","city":"London","geo":{"lat":51.5,"tags":["a","b"]},"empty":{}}`
+
+	t.Run("no column under a document yields it whole", func(t *testing.T) {
+		names, values := walk(t, "name")
+		require.Equal(t, []string{"name", "address"}, names)
+		require.Equal(t, types.QValueJSON{Val: wholeAddress}, values["address"])
+	})
+
+	t.Run("a column one level down flattens that level only", func(t *testing.T) {
+		names, values := walk(t, "address.city")
+		// a nested _id is not the document key
+		require.Equal(t, []string{"name", "address._id", "address.city", "address.geo", "address.empty"}, names)
+		require.Equal(t, types.QValueString{Val: "nested-key"}, values["address._id"])
+		require.Equal(t, types.QValueString{Val: "London"}, values["address.city"])
+		require.Equal(t, types.QValueJSON{Val: `{"lat":51.5,"tags":["a","b"]}`}, values["address.geo"])
+		require.Equal(t, types.QValueJSON{Val: `{}`}, values["address.empty"])
+	})
+
+	t.Run("a deeper column flattens its own path, never arrays", func(t *testing.T) {
+		names, values := walk(t, "address.geo.lat", "address.geo.tags.first")
+		require.Equal(t, []string{"name", "address._id", "address.city", "address.geo.lat", "address.geo.tags", "address.empty"}, names)
+		require.Equal(t, types.QValueFloat64{Val: 51.5}, values["address.geo.lat"])
+		require.Equal(t, types.QValueJSON{Val: `["a","b"]`}, values["address.geo.tags"])
+	})
+
+	t.Run("a column takes its document whole, columns under it or not", func(t *testing.T) {
+		names, values := walk(t, "address.geo", "address.geo.lat")
+		require.Equal(t, []string{"name", "address._id", "address.city", "address.geo", "address.empty"}, names)
+		require.Equal(t, types.QValueJSON{Val: `{"lat":51.5,"tags":["a","b"]}`}, values["address.geo"])
+	})
+
+	t.Run("a column sharing only a name prefix does not flatten", func(t *testing.T) {
+		names, _ := walk(t, "addressbook.city", "addr.city")
+		require.Equal(t, []string{"name", "address"}, names)
+	})
+
+	t.Run("a flattened empty document has no fields to yield", func(t *testing.T) {
+		names, _ := walk(t, "address.empty.x")
+		require.Equal(t, []string{"name", "address._id", "address.city", "address.geo"}, names)
+	})
+}
+
+func TestStructuredQValuesFromBsonRawNestedColumns(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "address.city", DestinationType: "Nullable(String)"},
+		{SourceName: "address.geo.lat", DestinationType: "Nullable(Float64)"},
+	}, nil, true)
+	require.NoError(t, err)
+	schema := GetStructuredSchema(projector)
+
+	raw, err := bson.Marshal(bson.D{
+		{Key: "_id", Value: "key"},
+		{Key: "name", Value: "Ada"},
+		{Key: "address", Value: bson.D{
+			{Key: "city", Value: "London"},
+			{Key: "geo", Value: bson.D{
+				// integral floats decode as integers, the column kind brings them back to floats
+				{Key: "lat", Value: int64(51)},
+				{Key: "extra", Value: bson.D{{Key: "x", Value: int32(1)}}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+	require.NoError(t, err)
+	values := make(map[string]types.QValue, len(record))
+	for i, field := range schema.Fields {
+		values[field.Name] = record[i]
+	}
+
+	require.Equal(t, types.QValueString{Val: "Ada"}, values["name"])
+	require.Equal(t, types.QValueString{Val: "London"}, values["address.city"])
+	require.Equal(t, types.QValueFloat64{Val: 51}, values["address.geo.lat"])
+	// a document no column is under is yielded whole, and no column reads it
+	malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+	require.True(t, ok)
+	var report map[string]map[string]any
+	require.NoError(t, json.Unmarshal([]byte(malformed.Val), &report))
+	require.Equal(t, map[string]map[string]any{
+		"address.geo.extra": {"unexpected_field": true, "value": `{"x":1}`},
+	}, report)
+}
+
+// MongoDB accepts field names holding dots (5.0+), which read as the same path as the nested fields the dotted
+// column names reach: these cases pin down how the flattening walk treats them.
+func TestStructuredQValuesFromBsonRawDottedFieldNames(t *testing.T) {
+	project := func(t *testing.T, columns []*protos.ColumnSetting, excluded []string, doc bson.D) (
+		map[string]types.QValue, map[string]map[string]any,
+	) {
+		t.Helper()
+		projector, err := newStructuredSchemaProjector(columns, excluded, true)
+		require.NoError(t, err)
+		raw, err := bson.Marshal(append(bson.D{{Key: "_id", Value: "key"}}, doc...))
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, NewDirectBsonConverter(), projector, "db.coll")
+		require.NoError(t, err)
+		values := make(map[string]types.QValue, len(record))
+		for i, field := range GetStructuredSchema(projector).Fields {
+			values[field.Name] = record[i]
+		}
+		var report map[string]map[string]any
+		if malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON); ok {
+			require.NoError(t, json.Unmarshal([]byte(malformed.Val), &report))
+		}
+		return values, report
+	}
+	nestedColumns := []*protos.ColumnSetting{
+		{SourceName: "address.city", DestinationType: "Nullable(String)"},
+		{SourceName: "address.geo.lat", DestinationType: "Nullable(Float64)"},
+	}
+
+	t.Run("a dotted field lands in the column of the same path", func(t *testing.T) {
+		values, report := project(t, nestedColumns, nil, bson.D{{Key: "address.city", Value: "literal"}})
+		require.Equal(t, types.QValueString{Val: "literal"}, values["address.city"])
+		require.Empty(t, report)
+	})
+
+	t.Run("a dotted field and a nested field of the same path: the first one wins", func(t *testing.T) {
+		values, report := project(t, nestedColumns, nil, bson.D{
+			{Key: "address", Value: bson.D{{Key: "city", Value: "nested"}}},
+			{Key: "address.city", Value: "literal"},
+		})
+		require.Equal(t, types.QValueString{Val: "nested"}, values["address.city"])
+		require.Equal(t, map[string]map[string]any{
+			"address.city": {"duplicated_fields": true, "value": "literal"},
+		}, report)
+
+		values, report = project(t, nestedColumns, nil, bson.D{
+			{Key: "address.city", Value: "literal"},
+			{Key: "address", Value: bson.D{{Key: "city", Value: "nested"}}},
+		})
+		require.Equal(t, types.QValueString{Val: "literal"}, values["address.city"])
+		require.Equal(t, map[string]map[string]any{
+			"address.city": {"duplicated_fields": true, "value": "nested"},
+		}, report)
+	})
+
+	t.Run("a document under a dotted field is flattened as a nested one", func(t *testing.T) {
+		values, report := project(t, nestedColumns, nil, bson.D{
+			{Key: "address.geo", Value: bson.D{{Key: "lat", Value: 1.5}}},
+		})
+		require.Equal(t, types.QValueFloat64{Val: 1.5}, values["address.geo.lat"])
+		require.Empty(t, report)
+	})
+
+	t.Run("a dotted column holding a document takes it whole", func(t *testing.T) {
+		// a.b is a column, so the document under it is not walked into
+		values, report := project(t, []*protos.ColumnSetting{
+			{SourceName: "a.b", DestinationType: "JSON"},
+		}, nil, bson.D{{Key: "a.b", Value: bson.D{{Key: "c", Value: int32(1)}}}})
+		require.Equal(t, types.QValueJSON{Val: `{"c":1}`}, values["a.b"])
+		require.Empty(t, report)
+	})
+
+	t.Run("a document column next to flattened ones takes its document whole", func(t *testing.T) {
+		values, report := project(t, []*protos.ColumnSetting{
+			{SourceName: "a.b.c", DestinationType: "Nullable(Int64)"},
+			{SourceName: "x", DestinationType: "JSON"},
+		}, nil, bson.D{
+			{Key: "a", Value: bson.D{{Key: "b", Value: bson.D{{Key: "c", Value: int64(7)}}}}},
+			{Key: "x", Value: bson.D{{Key: "k", Value: int64(1)}, {Key: "n", Value: bson.D{{Key: "m", Value: int64(2)}}}}},
+		})
+		require.Equal(t, types.QValueInt64{Val: 7}, values["a.b.c"])
+		require.Equal(t, types.QValueJSON{Val: `{"k":1,"n":{"m":2}}`}, values["x"])
+		require.Empty(t, report)
+	})
+
+	t.Run("without dotted columns a dotted field is an unexpected one", func(t *testing.T) {
+		values, report := project(t, []*protos.ColumnSetting{
+			{SourceName: "name", DestinationType: "Nullable(String)"},
+		}, nil, bson.D{
+			{Key: "name", Value: "Ada"},
+			{Key: "a.b", Value: "literal"},
+		})
+		require.Equal(t, types.QValueString{Val: "Ada"}, values["name"])
+		require.Equal(t, map[string]map[string]any{
+			"a.b": {"unexpected_field": true, "value": "literal"},
+		}, report)
+	})
+
+	t.Run("an excluded document is still flattened for the columns under it", func(t *testing.T) {
+		// exclusions apply to the yielded fields: address is never yielded, as address.city flattens it
+		values, report := project(t, nestedColumns, []string{"address"}, bson.D{
+			{Key: "address", Value: bson.D{{Key: "city", Value: "nested"}, {Key: "zip", Value: "z"}}},
+			{Key: "address.city", Value: "literal"},
+		})
+		require.Equal(t, types.QValueString{Val: "nested"}, values["address.city"])
+		require.Equal(t, map[string]map[string]any{
+			"address.city": {"duplicated_fields": true, "value": "literal"},
+			"address.zip":  {"unexpected_field": true, "value": "z"},
+		}, report)
+	})
+
+	t.Run("an excluded document no column is under is dropped whole", func(t *testing.T) {
+		values, report := project(t, []*protos.ColumnSetting{
+			{SourceName: "address.city", DestinationType: "Nullable(String)"},
+		}, []string{"other", "address.geo"}, bson.D{
+			{Key: "other", Value: bson.D{{Key: "k", Value: "v"}}},
+			{Key: "address", Value: bson.D{{Key: "city", Value: "nested"}, {Key: "geo", Value: bson.D{{Key: "lat", Value: 1.5}}}}},
+		})
+		require.Equal(t, types.QValueString{Val: "nested"}, values["address.city"])
+		require.Empty(t, report)
 	})
 }

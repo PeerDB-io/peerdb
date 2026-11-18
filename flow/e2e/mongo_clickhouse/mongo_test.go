@@ -460,6 +460,411 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+// Test_Structured_Ingestion_Nested_Flattening runs a structured ingestion mirror whose columns name nested
+// fields by their dotted paths: documents are flattened down to the deepest of them, every nested leaf a column
+// reads landing in it, while nested fields no column reads, flattened or below that depth, are reported.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_Flattening() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_flattening"
+	dstTable := "test_structured_flattening_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "name", DestinationType: "Nullable(String)"},
+		{SourceName: "address.city", DestinationType: "Nullable(String)"},
+		// the deepest columns flatten documents two levels down
+		{SourceName: "address.geo.lat", DestinationType: "Nullable(Float64)"},
+		{SourceName: "address.geo.lon", DestinationType: "Nullable(Int64)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertNestedDocuments := func(prefix string) {
+		for i := range 10 {
+			res, err := collection.InsertOne(t.Context(), bson.D{
+				{Key: "_id", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
+				{Key: "address", Value: bson.D{
+					{Key: "city", Value: fmt.Sprintf("city_%s_%d", prefix, i)},
+					// flattened, but no column reads it
+					{Key: "zip", Value: fmt.Sprintf("zip_%d", i)},
+					{Key: "geo", Value: bson.D{
+						// an integral float decodes as an integer, the column kind brings it back to a float
+						{Key: "lat", Value: int64(51)},
+						{Key: "lon", Value: int64(i)},
+						// below the flattening depth, it is yielded whole and no column reads it
+						{Key: "extra", Value: bson.D{{Key: "k", Value: int64(i)}}},
+					}},
+				}},
+			}, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertNestedDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "name", 10)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertNestedDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "name", 20)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+	// the dotted columns were created with their names and declared types
+	columnTypes, err := ch.Query(t.Context(), fmt.Sprintf(
+		"SELECT name, type FROM system.columns WHERE database = '%s' AND table = '%s' AND name LIKE 'address.%%'",
+		peer.GetClickhouseConfig().Database, dstTable))
+	require.NoError(t, err)
+	defer columnTypes.Close()
+	actualColumnTypes := map[string]string{}
+	for columnTypes.Next() {
+		var name, columnType string
+		require.NoError(t, columnTypes.Scan(&name, &columnType))
+		actualColumnTypes[name] = columnType
+	}
+	require.NoError(t, columnTypes.Err())
+	require.Equal(t, map[string]string{
+		"address.city":    "Nullable(String)",
+		"address.geo.lat": "Nullable(Float64)",
+		"address.geo.lon": "Nullable(Int64)",
+	}, actualColumnTypes)
+
+	type row struct {
+		city      *string
+		lat       *float64
+		lon       *int64
+		malformed *string
+		deleted   bool
+	}
+	// the latest version of the row of a document
+	// JSON columns are inserted escaping the dots in their keys, so the flattened fields reported as malformed data keep
+	// their dotted names as single keys instead of being split into nested paths: they are read back unescaped.
+	readRow := func(id string) (row, bool) {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT "address.city", "address.geo.lat", "address.geo.lon", toString(_peerdb_malformed_data), _peerdb_is_deleted
+			FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS json_type_escape_dots_in_keys = 1`,
+			peer.GetClickhouseConfig().Database, dstTable, id))
+		if err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			return row{}, false
+		}
+		var r row
+		var deleted uint8
+		if err := rows.Scan(&r.city, &r.lat, &r.lon, &r.malformed, &deleted); err != nil {
+			t.Log(err)
+			return row{}, false
+		}
+		r.deleted = deleted != 0
+		return r, true
+	}
+
+	// per leg, the nested leaves land in their columns, while the flattened field and the document below
+	// the flattening depth no column reads are reported with their values
+	for _, prefix := range []string{"init", "cdc"} {
+		actual, ok := readRow(prefix + "_3")
+		require.True(t, ok, prefix)
+		require.Equal(t, "city_"+prefix+"_3", *actual.city, prefix)
+		require.InDelta(t, 51.0, *actual.lat, 0, prefix)
+		require.Equal(t, int64(3), *actual.lon, prefix)
+		require.False(t, actual.deleted, prefix)
+		require.NotNil(t, actual.malformed, prefix)
+		require.JSONEq(t, `{
+			"address.zip": {"unexpected_field": true, "value": "zip_3"},
+			"address.geo.extra": {"unexpected_field": true, "value": "{\"k\":3}"}
+		}`, *actual.malformed, prefix)
+	}
+
+	// an update of a nested leaf lands in its column
+	updateRes, err := collection.UpdateOne(t.Context(),
+		bson.D{{Key: "_id", Value: "cdc_5"}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "address.city", Value: "updated_city"}, {Key: "address.geo.lon", Value: int64(42)}}}},
+		options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "update of nested fields", func() bool {
+		actual, ok := readRow("cdc_5")
+		return ok && actual.city != nil && *actual.city == "updated_city" && actual.lon != nil && *actual.lon == 42
+	})
+
+	// a delete has no `fullDocument` to project, so every flattened column is NULL
+	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{{Key: "_id", Value: "cdc_6"}}, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitFor(t, env, 3*time.Minute, "delete event", func() bool {
+		actual, ok := readRow("cdc_6")
+		return ok && actual.deleted && actual.city == nil && actual.lat == nil && actual.lon == nil && actual.malformed == nil
+	})
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Dotted_Field_Names runs a structured ingestion mirror over documents whose field names
+// hold dots, which MongoDB accepts (5.0+): they read as the same paths as the nested fields the dotted columns reach.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Dotted_Field_Names() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_dotted_names"
+	dstTable := "test_structured_dotted_names_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "address.city", DestinationType: "Nullable(String)"},
+		{SourceName: "address.geo.lat", DestinationType: "Nullable(Float64)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	documents := func(prefix string) []bson.D {
+		return []bson.D{
+			// a dotted field alone
+			{{Key: "_id", Value: prefix + "_literal"}, {Key: "address.city", Value: "literal"}},
+			// a nested field and a dotted field of the same path, the nested one first
+			{
+				{Key: "_id", Value: prefix + "_both"},
+				{Key: "address", Value: bson.D{{Key: "city", Value: "nested"}}},
+				{Key: "address.city", Value: "literal"},
+			},
+			// a document under a dotted field
+			{{Key: "_id", Value: prefix + "_dotted_doc"}, {Key: "address.geo", Value: bson.D{{Key: "lat", Value: 1.5}}}},
+		}
+	}
+	insertDocuments := func(prefix string) {
+		for _, doc := range documents(prefix) {
+			res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+			require.NoError(t, err)
+			require.True(t, res.Acknowledged)
+		}
+	}
+	insertDocuments("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id", 3)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocuments("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id", 6)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	type row struct {
+		city      *string
+		lat       *float64
+		malformed *string
+	}
+	readRow := func(id string) row {
+		t.Helper()
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT "address.city", "address.geo.lat", toString(_peerdb_malformed_data)
+			FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS json_type_escape_dots_in_keys = 1`,
+			peer.GetClickhouseConfig().Database, dstTable, id))
+		require.NoError(t, err)
+		defer rows.Close()
+		require.True(t, rows.Next(), id)
+		var r row
+		require.NoError(t, rows.Scan(&r.city, &r.lat, &r.malformed), id)
+		return r
+	}
+
+	for _, prefix := range []string{"init", "cdc"} {
+		literal := readRow(prefix + "_literal")
+		require.Equal(t, "literal", *literal.city, prefix)
+		require.Nil(t, literal.lat, prefix)
+		require.Nil(t, literal.malformed, prefix)
+
+		// the first of the two fields of the same path lands, the other is reported as duplicated
+		both := readRow(prefix + "_both")
+		require.Equal(t, "nested", *both.city, prefix)
+		require.NotNil(t, both.malformed, prefix)
+		require.JSONEq(t, `{"address.city": {"duplicated_fields": true, "value": "literal"}}`, *both.malformed, prefix)
+
+		dottedDoc := readRow(prefix + "_dotted_doc")
+		require.Nil(t, dottedDoc.city, prefix)
+		require.InDelta(t, 1.5, *dottedDoc.lat, 0, prefix)
+		require.Nil(t, dottedDoc.malformed, prefix)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Dotted_Key_Document runs a structured ingestion mirror over documents holding a
+// document under a dotted key, {"a.b": {"x": 15, "y": 42}}: its fields read as a.b.x and a.b.y, as if nested.
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Dotted_Key_Document() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_dotted_key_doc"
+	dstTable := "test_structured_dotted_key_doc_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "a.b.x", DestinationType: "Nullable(Int64)"},
+		{SourceName: "a.b.y", DestinationType: "Nullable(Int64)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocument := func(id string) {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: id},
+			{Key: "a.b", Value: bson.D{{Key: "x", Value: int64(15)}, {Key: "y", Value: int64(42)}}},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+	insertDocument("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id", 1)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocument("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id", 2)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	for _, id := range []string{"init", "cdc"} {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT "a.b.x", "a.b.y", toString(_peerdb_malformed_data)
+			FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS json_type_escape_dots_in_keys = 1`,
+			peer.GetClickhouseConfig().Database, dstTable, id))
+		require.NoError(t, err)
+		require.True(t, rows.Next(), id)
+		var x, y *int64
+		var malformed *string
+		require.NoError(t, rows.Scan(&x, &y, &malformed), id)
+		require.NoError(t, rows.Close())
+		require.NotNil(t, x, id)
+		require.NotNil(t, y, id)
+		require.Equal(t, int64(15), *x, id)
+		require.Equal(t, int64(42), *y, id)
+		require.Nil(t, malformed, id)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+// Test_Structured_Ingestion_Flattening_Depth checks documents are flattened only as deep as each column asks:
+// with a.b.c in the schema, a column x declared as JSON still receives its embedded document whole
+func (s MongoClickhouseSuite) Test_Structured_Ingestion_Flattening_Depth() {
+	t := s.T()
+	srcDatabase := e2e.GetTestDatabase(s.Suffix())
+	srcTable := "test_structured_global_depth"
+	dstTable := "test_structured_global_depth_dst"
+
+	tableMappings := e2e.TableMappings(s, srcTable, dstTable)
+	tableMappings[0].StructuredIngestionConfig = &protos.StructuredIngestionTableConfig{Enabled: true}
+	tableMappings[0].Columns = []*protos.ColumnSetting{
+		{SourceName: "a.b.c", DestinationType: "Nullable(Int64)"},
+		{SourceName: "x", DestinationType: "Nullable(JSON)"},
+	}
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: tableMappings,
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := s.generateFlowConnectionConfigsDefaultEnv(connectionGen)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*e2e.MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	insertDocument := func(id string) {
+		res, err := collection.InsertOne(t.Context(), bson.D{
+			{Key: "_id", Value: id},
+			{Key: "a", Value: bson.D{{Key: "b", Value: bson.D{{Key: "c", Value: int64(7)}}}}},
+			{Key: "x", Value: bson.D{{Key: "k", Value: int64(1)}, {Key: "n", Value: bson.D{{Key: "m", Value: int64(2)}}}}},
+		}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+	insertDocument("init")
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id", 1)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	insertDocument("cdc")
+
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id", 2)
+
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(t.Context(), nil, peer.GetClickhouseConfig())
+	require.NoError(t, err)
+	defer ch.Close()
+
+	for _, id := range []string{"init", "cdc"} {
+		rows, err := ch.Query(t.Context(), fmt.Sprintf(
+			`SELECT "a.b.c", toString(x), toString(_peerdb_malformed_data)
+			FROM "%s"."%s" FINAL WHERE _id = '%s' SETTINGS json_type_escape_dots_in_keys = 1`,
+			peer.GetClickhouseConfig().Database, dstTable, id))
+		require.NoError(t, err)
+		require.True(t, rows.Next(), id)
+		var c *int64
+		var x, malformed *string
+		require.NoError(t, rows.Scan(&c, &x, &malformed), id)
+		require.NoError(t, rows.Close())
+		require.NotNil(t, c, id)
+		require.Equal(t, int64(7), *c, id)
+		require.NotNil(t, x, id)
+		require.JSONEq(t, `{"k":1,"n":{"m":2}}`, *x, id)
+		require.Nil(t, malformed, id)
+	}
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 // Test_Structured_Ingestion_Table_Addition adds a structured ingestion table to a running mirror: its CDC
 // rows must land through its column settings, as its initial load does
 func (s MongoClickhouseSuite) Test_Structured_Ingestion_Table_Addition() {

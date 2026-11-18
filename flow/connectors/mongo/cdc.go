@@ -362,7 +362,7 @@ func (c *MongoConnector) decodeEvent(
 			// `DocumentQValueIterator` is the entry point for the document
 			// to QValue translation.
 			fieldsIterator, walkErr := DocumentQValueIterator(
-				document, converter, projector.ColumnKind, projector.IsExcludedColumn, 0,
+				document, converter, projector.ColumnKinds(), projector.FlattenedPaths(),
 			)
 			items, err = projector.ApplyRecordSchema(fieldsIterator)
 			if err != nil {

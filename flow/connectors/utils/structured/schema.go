@@ -31,6 +31,10 @@ type SchemaProjector struct {
 	// Whether malformed data entries carry the offending source value, both for mismatched and for
 	// unexpected fields
 	shouldRecordValues bool
+	// Kind of every schema column by the record field it reads from, as ColumnKinds exposes it.
+	columnKinds map[string]types.QValueKind
+	// Paths schema columns are named under, as FlattenedPaths exposes it.
+	flattenedPaths map[string]struct{}
 }
 
 // NewSchemaProjector resolves the schema columns' kinds through schemaToQKind, failing on a type it does
@@ -61,6 +65,8 @@ func NewSchemaProjectorFromQFields(
 ) (*SchemaProjector, error) {
 	fields := make([]types.QField, 0, len(schemaFields)+1)
 	columns := make(map[string]schemaColumn, len(schemaFields))
+	columnKinds := make(map[string]types.QValueKind, len(schemaFields))
+	flattenedPaths := make(map[string]struct{})
 
 	for _, field := range schemaFields {
 		if _, duplicate := columns[field.Name]; duplicate {
@@ -70,6 +76,12 @@ func NewSchemaProjectorFromQFields(
 			return nil, fmt.Errorf("schema column %s clashes with the malformed data column", field.Name)
 		}
 		columns[field.Name] = schemaColumn{kind: field.Type, index: len(fields)}
+		columnKinds[field.Name] = field.Type
+		for i, char := range field.Name {
+			if char == '.' {
+				flattenedPaths[field.Name[:i]] = struct{}{}
+			}
+		}
 		// All structured columns are nullable as a record may lack any of the columns
 		fields = append(fields, types.QField{Name: field.Name, Type: field.Type, Nullable: true})
 	}
@@ -88,6 +100,8 @@ func NewSchemaProjectorFromQFields(
 		columns:            columns,
 		shouldRecordValues: shouldRecordValues,
 		excludedColumns:    excludedColumnSet,
+		columnKinds:        columnKinds,
+		flattenedPaths:     flattenedPaths,
 	}, nil
 }
 
@@ -108,10 +122,17 @@ func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 	return types.NewQRecordSchema(slices.Clone(sc.fields))
 }
 
-// ColumnKind is the kind of the schema column reading from a record field, if the field is one.
-func (sc *SchemaProjector) ColumnKind(field string) (types.QValueKind, bool) {
-	column, isSchemaColumn := sc.columns[field]
-	return column.kind, isSchemaColumn
+// ColumnKinds is the kind of every schema column, by the record field it reads from. The map is the
+// projector's own: callers must not modify it.
+func (sc *SchemaProjector) ColumnKinds() map[string]types.QValueKind {
+	return sc.columnKinds
+}
+
+// FlattenedPaths is every path a schema column is named under, its name cut at each of its dots: a and
+// a.b for a column a.b.c. Record readers flatten the nested values found at these paths, and only those,
+// so every schema column finds its field. The set is the projector's own: callers must not modify it.
+func (sc *SchemaProjector) FlattenedPaths() map[string]struct{} {
+	return sc.flattenedPaths
 }
 
 func (sc *SchemaProjector) IsExcludedColumn(columnName string) bool {
