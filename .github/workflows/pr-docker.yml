@@ -1,0 +1,105 @@
+name: PR Debug Docker images
+
+# Add the `build-docker-image` label to a PR to build & push images tagged
+# `<branch>-<sha>` and `latest-<branch>`. Rebuilds on new pushes while labeled.
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+concurrency:
+  group: pr-docker-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    # Never `pull_request_target`: fork PRs must not get secrets. Also refuse fork heads explicitly.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'build-docker-image') ||
+       (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'build-docker-image')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    steps:
+      - name: Require write access for the triggering user
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          perm=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission)
+          echo "$SENDER has '$perm' permission"
+          if [[ "$perm" != "admin" && "$perm" != "write" ]]; then
+            echo "::error::$SENDER needs write access to build debug images"
+            exit 1
+          fi
+
+      - name: Compute image tags
+        id: tags
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # docker tag: [A-Za-z0-9_][A-Za-z0-9_.-]{0,127}; leave room for "latest-" and "-<sha>"
+          branch=$(printf '%s' "$HEAD_REF" | tr -c 'A-Za-z0-9_.-' '-' | sed -E 's/^[.-]+//' | cut -c1-100)
+          if [[ -z "$branch" ]]; then
+            echo "::error::branch '$HEAD_REF' has no characters usable in a docker tag"
+            exit 1
+          fi
+          echo "sha_short=${branch}-${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "tag=latest-${branch}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: generate or hydrate protos
+        uses: ./.github/actions/genprotos
+
+      - uses: depot/setup-action@91bc8495a33ebfc504ffc89e5674379ccf23c29c # v1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & publish PeerDB Images
+        uses: depot/bake-action@1d58c2668346981089b088b7ef36755b206b20e9 # v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          files: ./docker-bake.hcl
+          push: true
+        env:
+          SHA_SHORT: ${{ steps.tags.outputs.sha_short }}
+          TAG: ${{ steps.tags.outputs.tag }}
+
+      - name: Update PR body with latest image tags
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          SHA_SHORT: ${{ steps.tags.outputs.sha_short }}
+          TAG: ${{ steps.tags.outputs.tag }}
+        with:
+          script: |
+            const start = '<!-- pr-docker:start -->', end = '<!-- pr-docker:end -->';
+            const images = ['peerdb-server', 'flow-worker', 'flow-api', 'flow-snapshot-worker', 'flow-maintenance', 'peerdb-ui'];
+            const section = [
+              start,
+              '### Debug Docker images',
+              `Latest build: \`${process.env.SHA_SHORT}\` (also \`${process.env.TAG}\`)`,
+              '', '```',
+              ...images.map(i => `ghcr.io/peerdb-io/${i}:${process.env.SHA_SHORT}`),
+              '```',
+              end,
+            ].join('\n');
+            // re-fetch: event payload body may be stale
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            const body = pr.body || '';
+            const re = new RegExp(`${start}[\\s\\S]*?${end}`);
+            const updated = re.test(body) ? body.replace(re, section) : `${body}\n\n${section}`;
+            await github.rest.pulls.update({ ...context.repo, pull_number: context.issue.number, body: updated });
+            await core.summary.addRaw(section).write();
