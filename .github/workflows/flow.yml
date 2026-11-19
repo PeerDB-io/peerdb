@@ -50,6 +50,15 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           allow-unsafe-pr-checkout: true
+      # Samples CPU/memory/disk/network on the runner for the whole job and
+      # writes a report to the job summary; the post step runs even on failure.
+      # Must come after checkout: the collector keeps its data file in the
+      # workspace, which checkout wipes.
+      - name: Runner telemetry
+        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
+        with:
+          upload-artifacts: true
+          artifact-name: runner-telemetry-unit
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'
@@ -123,10 +132,90 @@ jobs:
       - run: ./generate-protos.sh
       - run: bash .github/scripts/check-flow-test-selection.sh
 
+  # Compiles every flow test package once and publishes the resulting Go build
+  # cache entries as a run artifact, so the flow_test matrix jobs don't each
+  # recompile the same code. setup-go's own cache is keyed on go.sum only, so
+  # it holds the dependencies but never the current commit's packages.
+  #
+  # An artifact (not actions/cache) on purpose: it is scoped to this run, so
+  # code from a fork PR under pull_request_target cannot seed a cache that
+  # later runs on main would restore.
+  go_build_cache:
+    name: Go build cache
+    needs: [gate]
+    runs-on: ubuntu-latest-64-core
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          allow-unsafe-pr-checkout: true
+      # Must come after checkout: the collector keeps its data file in the
+      # workspace, which checkout wipes.
+      - name: Runner telemetry
+        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
+        with:
+          upload-artifacts: true
+          artifact-name: runner-telemetry-go-build-cache
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: |
+            flow/go.sum
+            flow/pkg/go.sum
+      - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
+        with:
+          setup_only: true
+          github_token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y libgeos-dev
+      # Same generator Tilt's proto-gen resource runs in the matrix jobs; the
+      # generated sources must match for the cached packages to be reused.
+      - run: ./generate-protos.sh
+      # Record what setup-go restored, so only entries this job adds are
+      # shipped: the matrix jobs restore that same setup-go cache themselves.
+      - name: Snapshot restored Go build cache
+        run: |
+          set -euo pipefail
+          gocache="$(go env GOCACHE)"
+          mkdir -p "$gocache"
+          (cd "$gocache" && find . -type f | LC_ALL=C sort) > "$RUNNER_TEMP/gocache-before.txt"
+      # Run the matrix jobs' own selection script over every package: same
+      # commands and flags, so it produces exactly the cache entries their
+      # Select tests and Run tests steps look up. Listing tests needs no
+      # services.
+      - name: Compile all flow tests
+        env:
+          TEST_PACKAGES: ./...
+          PKG_TEST_PACKAGES: ./...
+        run: bash .github/scripts/select-flow-tests.sh
+      - name: Pack new Go build cache entries
+        run: |
+          set -euo pipefail
+          cd "$(go env GOCACHE)"
+          find . -type f | LC_ALL=C sort > "$RUNNER_TEMP/gocache-after.txt"
+          LC_ALL=C comm -13 "$RUNNER_TEMP/gocache-before.txt" "$RUNNER_TEMP/gocache-after.txt" \
+            > "$RUNNER_TEMP/gocache-new.txt"
+          echo "new cache entries: $(wc -l < "$RUNNER_TEMP/gocache-new.txt")"
+          tar -cf "$RUNNER_TEMP/go-build-cache.tar.zst" \
+            --use-compress-program 'zstd -T0 -3' \
+            --files-from "$RUNNER_TEMP/gocache-new.txt"
+          ls -lh "$RUNNER_TEMP/go-build-cache.tar.zst"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: go-build-cache
+          path: ${{ runner.temp }}/go-build-cache.tar.zst
+          if-no-files-found: error
+          # Already zstd-compressed.
+          compression-level: 0
+          # Only this run's matrix jobs read it.
+          retention-days: 1
+          # Lets a re-run of this job replace the earlier attempt's artifact.
+          overwrite: true
+
   flow_test:
     name: ${{ matrix.target.label }}
     # Validate the common code before allocating runners for every permutation.
-    needs: [gate, unit_tests, test_selection_coverage]
+    needs: [gate, unit_tests, test_selection_coverage, go_build_cache]
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +303,7 @@ jobs:
     with:
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       run_label: ${{ matrix.target.label }}
+      go_build_cache_artifact: go-build-cache
       test_packages: ${{ matrix.jobs[matrix.target.job].packages }}
       pkg_test_packages: ${{ matrix.jobs[matrix.target.job].pkg }}
       ancillary_services: >-
@@ -237,7 +327,7 @@ jobs:
   # This job must always run because GitHub does not evaluate dynamic names for skipped jobs.
   flow_tests_passed:
     name: ${{ needs.gate.result != 'skipped' && 'All flow test jobs succeeded' || 'Flow tests not run for this event' }}
-    needs: [gate, unit_tests, test_selection_coverage, flow_test]
+    needs: [gate, unit_tests, test_selection_coverage, go_build_cache, flow_test]
     if: always()
     runs-on: ubuntu-latest
     steps:
