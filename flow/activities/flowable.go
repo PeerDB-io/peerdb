@@ -41,7 +41,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
-const syncFlowHeartbeatInterval = 30 * time.Second
+const syncFlowHeartbeatInterval = 1 * time.Minute
 
 type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
