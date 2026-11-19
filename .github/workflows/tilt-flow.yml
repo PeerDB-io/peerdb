@@ -62,6 +62,21 @@ on:
         type: string
         required: false
         default: ''
+      flow_images_artifact_id:
+        description: >-
+          ID of an unarchived artifact holding the flow-api, flow-worker and
+          flow-snapshot-worker images as a zstd `docker save` tarball
+          (flow.yml's flow_images job). Leave empty to have Tilt build them.
+        type: string
+        required: false
+        default: ''
+      flow_images_artifact_digest:
+        description: >-
+          SHA-256 digest of flow_images_artifact_id, as reported by
+          upload-artifact; the download is verified against it.
+        type: string
+        required: false
+        default: ''
       # The <db>_image inputs pin the docker images of the ancillary DBs.
       # When empty, default to last combination declared at flow.yml
       # following scripts/generate-test-environment.sh's defaults.
@@ -296,6 +311,28 @@ jobs:
           # loopback so the host can reach the docker-compose published ports.
           echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
 
+      # Load the flow images built once by the caller, so Tilt runs them instead
+      # of compiling peer-flow in Docker on every runner. Must finish before
+      # Tilt starts, since Tilt brings the flow containers up right away. Best
+      # effort: on any failure Tilt builds the images itself.
+      - name: Load prebuilt flow images
+        if: inputs.flow_images_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.flow_images_artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.flow_images_artifact_digest }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/flow-images.tar.zst"
+          bash .github/scripts/fetch-artifact.sh "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$archive"
+          start=$SECONDS
+          zstd -d -T0 < "$archive" | docker load
+          rm -f "$archive"
+          echo "loaded in $((SECONDS - start))s"
+          # Read by the Tiltfile.
+          echo "PEERDB_CI_PREBUILT_FLOW_IMAGES=1" >> "$GITHUB_ENV"
+
       # Start Tilt.
       - name: Start Tilt
         run: |
@@ -362,11 +399,11 @@ jobs:
           done
 
       # Layer the caller's prebuilt entries for this commit over setup-go's
-      # dependency cache. Runs while Tilt builds the flow images in the
+      # dependency cache. Runs while Tilt brings the services up in the
       # background. Best effort: without them the tests still compile,
       # just from scratch. download-artifact fetches over a single stream, so
-      # resolve the artifact's blob URL and let azcopy fetch it in parallel
-      # ranges instead.
+      # fetch-artifact.sh resolves the artifact's blob URL and lets azcopy
+      # fetch it in parallel ranges instead.
       - name: Fetch prebuilt Go build cache
         if: inputs.go_build_cache_artifact_id != ''
         continue-on-error: true
@@ -377,20 +414,7 @@ jobs:
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/go-build-cache.tar.zst"
-          url="$(curl -fsS -o /dev/null -w '%{redirect_url}' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip")"
-          if [ -z "$url" ]; then
-            echo "::warning::Prebuilt Go build cache URL not found; tests will compile from scratch."
-            exit 0
-          fi
-          start=$SECONDS
-          azcopy copy "$url" "$archive" --log-level=ERROR --output-level=quiet
-          echo "fetched $(du -h "$archive" | cut -f1) in $((SECONDS - start))s"
-          if [ -n "$ARTIFACT_DIGEST" ]; then
-            echo "${ARTIFACT_DIGEST#sha256:}  $archive" | sha256sum -c --quiet -
-          fi
+          bash .github/scripts/fetch-artifact.sh "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$archive"
           # Tilt's proto-gen runs `go run` on the same GOCACHE; let it finish first.
           tilt --port "$TILT_PORT" wait --for=condition=Ready uiresource/proto-gen --timeout=300s
           start=$SECONDS

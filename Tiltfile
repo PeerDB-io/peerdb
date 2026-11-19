@@ -21,6 +21,14 @@ if ci:
     compose['services'].pop('peerdb')
     compose['services'].pop('peerdb-ui')
 
+# CI can load the flow images, built once per workflow run, instead of having
+# every runner build them. Drop their compose build sections too, so neither
+# Tilt nor compose rebuilds them.
+prebuilt_flow_images = os.getenv('PEERDB_CI_PREBUILT_FLOW_IMAGES') == '1'
+if prebuilt_flow_images:
+    for svc in ['flow-migrate', 'flow-api', 'flow-worker', 'flow-snapshot-worker']:
+        compose['services'][svc].pop('build')
+
 docker_compose(encode_yaml(compose), project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
@@ -34,29 +42,30 @@ docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
-docker_build('flow-api', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    ignore=flow_ignore,
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
-)
+if not prebuilt_flow_images:
+    docker_build('flow-api', '.',
+        dockerfile='stacks/flow.Dockerfile',
+        target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
+        only=['flow/', 'stacks/flow.Dockerfile'],
+        ignore=flow_ignore,
+        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
+    )
 
-docker_build('flow-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
-    ignore=flow_ignore,
-)
+    docker_build('flow-worker', '.',
+        dockerfile='stacks/flow.Dockerfile',
+        target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
+        only=['flow/', 'stacks/flow.Dockerfile'],
+        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
+        ignore=flow_ignore,
+    )
 
-docker_build('flow-snapshot-worker', '.',
-    dockerfile='stacks/flow.Dockerfile',
-    target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
-    only=['flow/', 'stacks/flow.Dockerfile'],
-    build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
-    ignore=flow_ignore,
-)
+    docker_build('flow-snapshot-worker', '.',
+        dockerfile='stacks/flow.Dockerfile',
+        target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
+        only=['flow/', 'stacks/flow.Dockerfile'],
+        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
+        ignore=flow_ignore,
+    )
 
 if not ci:
     docker_build('peerdb', '.',

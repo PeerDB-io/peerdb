@@ -222,10 +222,77 @@ jobs:
           # Lets a re-run of this job replace the earlier attempt's artifact.
           overwrite: true
 
+  # Builds the flow-api, flow-worker and flow-snapshot-worker images once and
+  # publishes them as a run artifact, so the flow_test matrix jobs load them
+  # instead of each compiling peer-flow inside Docker on startup. Same
+  # Dockerfile targets and build args as the Tiltfile's docker_build calls.
+  # An artifact rather than a registry or cache, for the same reason as
+  # go_build_cache.
+  flow_images:
+    name: Flow images
+    needs: [gate]
+    runs-on: ubuntu-latest-32-cores
+    timeout-minutes: 20
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          allow-unsafe-pr-checkout: true
+      # Must come after checkout: the collector keeps its data file in the
+      # workspace, which checkout wipes.
+      - name: Runner telemetry
+        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
+        with:
+          upload-artifacts: true
+          artifact-name: runner-telemetry-flow-images
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: |
+            flow/go.sum
+            flow/pkg/go.sum
+      - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
+        with:
+          setup_only: true
+          github_token: ${{ github.token }}
+      # The images embed flow/generated, which Tilt's proto-gen produces
+      # before its image builds in the matrix jobs.
+      - run: ./generate-protos.sh
+      - name: Build flow images
+        run: |
+          set -euo pipefail
+          for target in flow-api flow-worker flow-snapshot-worker; do
+            args=(--build-arg DEBUG_BUILD=)
+            if [ "$target" = flow-api ]; then
+              args+=(--build-arg PEERDB_VERSION_SHA_SHORT=unknown)
+            fi
+            docker build --file stacks/flow.Dockerfile --target "$target" --tag "$target" "${args[@]}" .
+          done
+      - name: Save flow images
+        run: |
+          set -euo pipefail
+          docker save flow-api flow-worker flow-snapshot-worker |
+            zstd -T0 -3 > "$RUNNER_TEMP/flow-images.tar.zst"
+          ls -lh "$RUNNER_TEMP/flow-images.tar.zst"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: ${{ runner.temp }}/flow-images.tar.zst
+          if-no-files-found: error
+          # Upload the zstd tarball as-is (the artifact is named after the
+          # file), so consumers can range-fetch the raw blob.
+          archive: false
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+
   flow_test:
     name: ${{ matrix.target.label }}
     # Validate the common code before allocating runners for every permutation.
-    needs: [gate, unit_tests, test_selection_coverage, go_build_cache]
+    needs: [gate, unit_tests, test_selection_coverage, go_build_cache, flow_images]
     strategy:
       fail-fast: false
       matrix:
@@ -315,6 +382,8 @@ jobs:
       run_label: ${{ matrix.target.label }}
       go_build_cache_artifact_id: ${{ needs.go_build_cache.outputs.artifact-id }}
       go_build_cache_artifact_digest: ${{ needs.go_build_cache.outputs.artifact-digest }}
+      flow_images_artifact_id: ${{ needs.flow_images.outputs.artifact-id }}
+      flow_images_artifact_digest: ${{ needs.flow_images.outputs.artifact-digest }}
       test_packages: ${{ matrix.jobs[matrix.target.job].packages }}
       pkg_test_packages: ${{ matrix.jobs[matrix.target.job].pkg }}
       ancillary_services: >-
@@ -338,7 +407,7 @@ jobs:
   # This job must always run because GitHub does not evaluate dynamic names for skipped jobs.
   flow_tests_passed:
     name: ${{ needs.gate.result != 'skipped' && 'All flow test jobs succeeded' || 'Flow tests not run for this event' }}
-    needs: [gate, unit_tests, test_selection_coverage, go_build_cache, flow_test]
+    needs: [gate, unit_tests, test_selection_coverage, go_build_cache, flow_images, flow_test]
     if: always()
     runs-on: ubuntu-latest
     steps:
