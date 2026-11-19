@@ -276,26 +276,6 @@ jobs:
           setup_only: true
           github_token: ${{ github.token }}
 
-      - name: install lib-geos and pg_dump
-        run: |
-          # No need to update man pages on package install
-          sudo apt-get remove --purge man-db
-          # Add PGDG apt repo for latest PostgreSQL client packages
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          # libgeos-dev: geometry support; retry: used by the test-results
-          # ingestion composite action's upload backoff.
-          sudo apt-get install -y libgeos-dev retry
-          # pg_dump must be >= the server major version; install v18 so it
-          # can dump PG 16, 17, and 18 (backward compatible).
-          sudo apt-get install -y postgresql-client-18
-          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
-
       - run: go mod download
         working-directory: ./flow
 
@@ -419,6 +399,28 @@ jobs:
           zstd -d -T0 < "$archive" | tar -x -C "$gocache"
           rm -f "$archive"
           echo "unpacked in $((SECONDS - start))s"
+
+      # Only the host-run tests need these (Tilt's proto-gen and provisioning
+      # don't), so install them while Tilt starts up.
+      - name: install lib-geos and pg_dump
+        run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          # libgeos-dev: geometry support; retry: used by the test-results
+          # ingestion composite action's upload backoff.
+          sudo apt-get install -y libgeos-dev retry
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
 
       # Wait until the requested ancillary services (and their provisioning
       # steps) are confirmed up and running.
