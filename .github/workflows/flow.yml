@@ -53,15 +53,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           allow-unsafe-pr-checkout: true
-      # Samples CPU/memory/disk/network on the runner for the whole job and
-      # writes a report to the job summary; the post step runs even on failure.
-      # Must come after checkout: the collector keeps its data file in the
-      # workspace, which checkout wipes.
-      - name: Runner telemetry
-        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
-        with:
-          upload-artifacts: true
-          artifact-name: runner-telemetry-unit
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'
@@ -158,13 +149,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           allow-unsafe-pr-checkout: true
-      # Must come after checkout: the collector keeps its data file in the
-      # workspace, which checkout wipes.
-      - name: Runner telemetry
-        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
-        with:
-          upload-artifacts: true
-          artifact-name: runner-telemetry-go-build-cache
       # libgeos-dev takes ~20s to install; do it in the background while
       # setup-go restores its cache, and wait for it before compiling.
       - name: Start installing libgeos-dev
@@ -250,13 +234,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           allow-unsafe-pr-checkout: true
-      # Must come after checkout: the collector keeps its data file in the
-      # workspace, which checkout wipes.
-      - name: Runner telemetry
-        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
-        with:
-          upload-artifacts: true
-          artifact-name: runner-telemetry-flow-images
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'

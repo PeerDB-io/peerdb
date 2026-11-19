@@ -253,16 +253,6 @@ jobs:
           # checkout refuses fork code under pull_request_target unless opted in;
           # flow.yml's external-contributor environment gate is the human review.
           allow-unsafe-pr-checkout: true
-      # Samples CPU/memory/disk/network on the runner for the whole job and
-      # writes a report to the job summary; the post step runs even on failure.
-      # Must come after checkout: the collector keeps its data file in the
-      # workspace, which checkout wipes.
-      # Artifact name is keyed by run_label so flow.yml's matrix jobs don't collide.
-      - name: Runner telemetry
-        uses: tsviz/actions-runner-telemetry@c15eb88c652d9a26a572438a0d1b8c10af782e2e # v1.7.4
-        with:
-          upload-artifacts: true
-          artifact-name: runner-telemetry-${{ inputs.run_label || 'tilt' }}
 
       # Combination id for test-results ingestion steps
       - name: Compute run identity
