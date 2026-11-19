@@ -33,6 +33,7 @@ import (
 // by comparing them against actual uncompressed Avro file sizes. MongoDB CDC connector
 // produces records with _id (string) and doc (JSON).
 func TestMongoDBAvroSizeComputation(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name       string
 		numRecords int
@@ -123,6 +124,7 @@ func TestMongoDBAvroSizeComputation(t *testing.T) {
 }
 
 func TestAvroSizeComputation(t *testing.T) {
+	t.Parallel()
 	type subtestDef struct {
 		name       string
 		kind       types.QValueKind
