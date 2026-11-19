@@ -20,6 +20,19 @@ mod ast;
 mod auth;
 mod stream;
 
+// reqwest 0.13 verifies TLS against the OS trust store (rustls-platform-verifier) by default,
+// but gcp-bigquery-client is still on reqwest 0.12, whose `rustls-tls` feature trusts the bundled
+// Mozilla roots (webpki-roots), as do the AWS SDK clients. Pin the reqwest 0.13 clients to the
+// same bundled roots so every HTTPS client in nexus uses one common trust store, as before the
+// 0.13 upgrade. This gives up OS-store roots (e.g. a corporate proxy CA) for these clients.
+pub(crate) fn http_client_builder() -> reqwest::Result<reqwest::ClientBuilder> {
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .map(|cert| reqwest::Certificate::from_der(cert))
+        .collect::<reqwest::Result<Vec<_>>>()?;
+    Ok(reqwest::Client::builder().tls_certs_only(roots))
+}
+
 const DEFAULT_REFRESH_THRESHOLD: u64 = 3000;
 const DEFAULT_EXPIRY_THRESHOLD: u64 = 3600;
 const SNOWFLAKE_URL_PREFIX: &str = "https://";
@@ -120,7 +133,7 @@ impl SnowflakeQueryExecutor {
             header::HeaderValue::from_static("reqwest"),
         ); // SnowFlake needs a user agent.
 
-        let reqwest_client = reqwest::ClientBuilder::new()
+        let reqwest_client = http_client_builder()?
             .gzip(true)
             .default_headers(default_headers)
             .build()?;
@@ -458,5 +471,19 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 "only SELECT statements are supported in snowflake".to_owned(),
             )))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_client_builds_with_bundled_roots() {
+        assert!(!webpki_root_certs::TLS_SERVER_ROOT_CERTS.is_empty());
+        http_client_builder()
+            .expect("bundled roots parse")
+            .build()
+            .expect("client builds");
     }
 }

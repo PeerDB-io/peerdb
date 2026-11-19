@@ -81,7 +81,14 @@ impl FixedPasswordAuthSource {
 #[async_trait]
 impl AuthSource for FixedPasswordAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
-        tracing::info!("login info: {:?}", login_info);
+        // Log only the fields LoginInfo had before pgwire 0.42, which added the TLS
+        // SNI name and client certificates to its Debug output.
+        tracing::info!(
+            "login info: LoginInfo {{ user: {:?}, database: {:?}, host: {:?} }}",
+            login_info.user(),
+            login_info.database(),
+            login_info.host()
+        );
 
         // randomly generate a 4 byte salt
         let salt = rand::rng().random::<[u8; 4]>();
