@@ -203,7 +203,7 @@ jobs:
             > "$RUNNER_TEMP/gocache-new.txt"
           echo "new cache entries: $(wc -l < "$RUNNER_TEMP/gocache-new.txt")"
           tar -cf "$RUNNER_TEMP/go-build-cache.tar.zst" \
-            --use-compress-program 'zstd -T0 -9 --long=27' \
+            --use-compress-program 'zstd -T0 -3' \
             --files-from "$RUNNER_TEMP/gocache-new.txt"
           ls -lh "$RUNNER_TEMP/go-build-cache.tar.zst"
       - id: upload

@@ -652,6 +652,10 @@ jobs:
         working-directory: ./flow
         env:
           PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
+          # e2eshared.RunSuite marks every subtest parallel, and go test's
+          # -parallel defaults to GOMAXPROCS (the core count). The tests mostly
+          # wait on the databases, so don't let the runner size cap them.
+          TEST_PARALLEL: '64'
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
@@ -736,7 +740,7 @@ jobs:
             echo "$label selection: ${#pkgs[@]} packages, $(printf '%s\n' "${names[@]}" | sort -u | wc -l) tests"
             for package in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$package"; done
             gotestsum --format standard-quiet --no-color --junitfile "$junitfile" -- \
-              -tags tilt "$@" -p 32 "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
+              -tags tilt "$@" -p 32 -parallel "$TEST_PARALLEL" "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
               -args -test.gocoverdir="$coverdir"
           }
 
