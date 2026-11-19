@@ -44,7 +44,7 @@ jobs:
   unit_tests:
     name: Unit tests (no services)
     needs: [gate]
-    runs-on: ubuntu-latest-64-core
+    runs-on: ubuntu-latest-32-cores
     timeout-minutes: 30
     env:
       TZ: UTC
@@ -146,9 +146,9 @@ jobs:
   go_build_cache:
     name: Go build cache
     needs: [gate]
-    # Not 64 cores: unit_tests already takes the one 64-core runner that is
-    # usually ready, and a second one tends to queue ~2 minutes.
-    runs-on: ubuntu-latest-32-cores
+    # The run's only 64-core job: its compile is CPU-bound, and a second
+    # 64-core job tends to queue for a runner.
+    runs-on: ubuntu-latest-64-core
     timeout-minutes: 20
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
@@ -262,9 +262,8 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'
-          cache-dependency-path: |
-            flow/go.sum
-            flow/pkg/go.sum
+          # The images build inside Docker; the host only needs Go for go generate.
+          cache: false
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
