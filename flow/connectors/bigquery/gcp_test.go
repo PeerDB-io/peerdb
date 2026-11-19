@@ -42,6 +42,12 @@ func TestDownscopeTokenExchangeErrorClassification(t *testing.T) {
 			expectedClass: alerting.ErrorOther,
 		},
 		{
+			name:          "400 UberMint without invalid_grant",
+			code:          400,
+			body:          `{"error":"invalid_request","error_description":"Error getting an UberMint"}`,
+			expectedClass: alerting.ErrorOther,
+		},
+		{
 			name:          "401 UberMint",
 			code:          401,
 			body:          `{"error":"invalid_grant","error_description":"Error getting an UberMint"}`,
