@@ -269,17 +269,12 @@ jobs:
       # The images embed flow/generated, which Tilt's proto-gen produces
       # before its image builds in the matrix jobs.
       - run: ./generate-protos.sh
-      # Keep the targets and build args in sync with the Tiltfile's docker_build
-      # calls for these images.
+      # Same build script as the Tiltfile's custom_build for these images.
       - name: Build flow images
         run: |
           set -euo pipefail
-          for target in flow-api flow-worker flow-snapshot-worker; do
-            args=(--build-arg DEBUG_BUILD=)
-            if [ "$target" = flow-api ]; then
-              args+=(--build-arg PEERDB_VERSION_SHA_SHORT=unknown)
-            fi
-            docker build --file stacks/flow.Dockerfile --target "$target" --tag "$target" "${args[@]}" .
+          for image in flow-api flow-worker flow-snapshot-worker; do
+            stacks/build-flow-images.sh "$image"
           done
       - name: Save flow images
         run: |

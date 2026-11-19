@@ -42,32 +42,15 @@ docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
-# Keep the targets and build args in sync with flow.yml's flow_images job,
-# which builds these images for CI.
 if not prebuilt_flow_images:
-    docker_build('flow-api', '.',
-        dockerfile='stacks/flow.Dockerfile',
-        target='flow-api-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_API') in ('1', 'true') else 'flow-api',
-        only=['flow/', 'stacks/flow.Dockerfile'],
-        ignore=flow_ignore,
-        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_API',''),'PEERDB_VERSION_SHA_SHORT': os.getenv('PEERDB_VERSION_SHA_SHORT', 'unknown')},
-    )
-
-    docker_build('flow-worker', '.',
-        dockerfile='stacks/flow.Dockerfile',
-        target='flow-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER') in ('1', 'true') else 'flow-worker',
-        only=['flow/', 'stacks/flow.Dockerfile'],
-        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_WORKER','')},
-        ignore=flow_ignore,
-    )
-
-    docker_build('flow-snapshot-worker', '.',
-        dockerfile='stacks/flow.Dockerfile',
-        target='flow-snapshot-worker-debug' if resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER') in ('1', 'true') else 'flow-snapshot-worker',
-        only=['flow/', 'stacks/flow.Dockerfile'],
-        build_args={'DEBUG_BUILD': resolve_env('DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER','')},
-        ignore=flow_ignore,
-    )
+    for image, debug_var in [('flow-api', 'DOCKER_GO_DEBUG_FLOW_API'),
+                             ('flow-worker', 'DOCKER_GO_DEBUG_FLOW_WORKER'),
+                             ('flow-snapshot-worker', 'DOCKER_GO_DEBUG_FLOW_SNAPSHOT_WORKER')]:
+        custom_build(image, 'stacks/build-flow-images.sh %s $EXPECTED_REF' % image,
+            deps=['flow/', 'stacks/flow.Dockerfile', 'stacks/build-flow-images.sh'],
+            ignore=flow_ignore,
+            env={debug_var: resolve_env(debug_var, '')},
+        )
 
 if not ci:
     docker_build('peerdb', '.',
