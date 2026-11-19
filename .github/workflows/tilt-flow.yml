@@ -655,7 +655,7 @@ jobs:
           # e2eshared.RunSuite marks every subtest parallel, and go test's
           # -parallel defaults to GOMAXPROCS (the core count). The tests mostly
           # wait on the databases, so don't let the runner size cap them.
-          TEST_PARALLEL: '128'
+          TEST_PARALLEL: '64'
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
