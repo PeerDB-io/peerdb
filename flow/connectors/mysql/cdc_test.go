@@ -1,9 +1,13 @@
 package connmysql
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"math"
+	"slices"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -703,4 +707,92 @@ func TestProcessRenameTableQueryMetric(t *testing.T) {
 			require.Equal(t, tc.want, collectOnlineSchemaMigrationCounts(t, ctx, reader))
 		})
 	}
+}
+
+func TestPipeTablesDecodeRowsEvent(t *testing.T) {
+	const tableID = 42
+	tables := pipeTables{"db.in_pipe": {}}
+
+	binlogEvent := func(eventType replication.EventType, body []byte) []byte {
+		event := make([]byte, replication.EventHeaderSize, replication.EventHeaderSize+len(body))
+		event[4] = byte(eventType)
+		binary.LittleEndian.PutUint32(event[9:], uint32(cap(event))) // event size
+		return append(event, body...)
+	}
+
+	// Encodes a positive DECIMAL(23,6) value the way MySQL stores it: the leading 8 integral digits,
+	// the next 9 integral digits, and the 6 fractional digits, as big-endian groups of 4, 4 and 3 bytes.
+	// A valid full 9-digit group never exceeds 999999999.
+	decimal23x6 := func(leading uint32, full uint32, fraction uint32) []byte {
+		b := binary.BigEndian.AppendUint32(nil, leading)
+		b = binary.BigEndian.AppendUint32(b, full)
+		b = append(b, byte(fraction>>16), byte(fraction>>8), byte(fraction))
+		b[0] |= 0x80 // sign bit set means positive
+		return b
+	}
+
+	// Parses a binlog with a DELETE of one row from db.<table>, a table with a single DECIMAL(23,6) column.
+	parseDeleteRowsEvent := func(t *testing.T, table string, decimal []byte) (*replication.RowsEvent, error) {
+		t.Helper()
+		parser := replication.NewBinlogParser()
+		parser.SetRowsEventDecodeFunc(tables.decodeRowsEvent)
+
+		serverVersion := make([]byte, 50)
+		copy(serverVersion, "5.0.0") // predates binlog checksums
+		_, err := parser.Parse(binlogEvent(replication.FORMAT_DESCRIPTION_EVENT, slices.Concat(
+			[]byte{4, 0}, // binlog version
+			serverVersion,
+			[]byte{0, 0, 0, 0}, // created timestamp
+			[]byte{replication.EventHeaderSize},
+			bytes.Repeat([]byte{8}, 40), // post-header lengths, any other than 6 means 6-byte table ids
+		)))
+		require.NoError(t, err)
+
+		_, err = parser.Parse(binlogEvent(replication.TABLE_MAP_EVENT, slices.Concat(
+			[]byte{tableID, 0, 0, 0, 0, 0},
+			[]byte{0, 0}, // flags
+			[]byte{2, 'd', 'b', 0},
+			[]byte{byte(len(table))}, []byte(table), []byte{0},
+			[]byte{1, mysql.MYSQL_TYPE_NEWDECIMAL}, // column count, types
+			[]byte{2, 23, 6},                       // metadata length, precision, scale
+			[]byte{0},                              // nullable columns bitmap
+		)))
+		require.NoError(t, err)
+
+		ev, err := parser.Parse(binlogEvent(replication.DELETE_ROWS_EVENTv2, slices.Concat(
+			[]byte{tableID, 0, 0, 0, 0, 0},
+			[]byte{0, 0},   // flags
+			[]byte{2, 0},   // extra data length
+			[]byte{1, 0b1}, // column count, present columns bitmap
+			[]byte{0},      // row null bitmap
+			decimal,
+		)))
+		if err != nil {
+			return nil, err
+		}
+		return ev.Event.(*replication.RowsEvent), nil
+	}
+
+	// go-mysql zero-pads the full group to 9 digits, so a value of 10 digits panics with a negative slice bound.
+	// The padding only happens after a non-zero leading group.
+	valid := decimal23x6(1, 2, 3)
+	invalid := decimal23x6(1, math.MaxUint32, 3)
+
+	t.Run("decodes rows of tables in the pipe", func(t *testing.T) {
+		ev, err := parseDeleteRowsEvent(t, "in_pipe", valid)
+		require.NoError(t, err)
+		require.Equal(t, [][]any{{"1000000002.000003"}}, ev.Rows)
+	})
+
+	t.Run("reports undecodable rows of tables in the pipe", func(t *testing.T) {
+		_, err := parseDeleteRowsEvent(t, "in_pipe", invalid)
+		require.ErrorContains(t, err, "slice bounds out of range [:-1]")
+	})
+
+	t.Run("skips rows of tables outside the pipe", func(t *testing.T) {
+		ev, err := parseDeleteRowsEvent(t, "outside_pipe", invalid)
+		require.NoError(t, err)
+		require.Equal(t, "db.outside_pipe", qualifiedTableName(ev.Table))
+		require.Empty(t, ev.Rows)
+	})
 }
