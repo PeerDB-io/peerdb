@@ -146,6 +146,11 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
+		switch colType {
+		case types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
+			// so the JSON cases below also match a lowercase override like Array(json)
+			clickHouseType = qvalue.ConvertJSONTypeToUppercase(clickHouseType)
+		}
 
 		switch clickHouseType {
 		case "Time64(6)", "Nullable(Time64(6))":

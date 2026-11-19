@@ -65,7 +65,19 @@ func (s ClickHouseSuite) Test_JSON_CH_JSONOverride() {
 	emptyObject := "{}"
 	s.testJSONColumns(jsonColumnMirrorConfig{
 		tableName:          "test_json_override",
-		overrideToJSON:     true,
+		overrideType:       "JSON",
+		expectedColumnType: "JSON",
+		sourceNullLandsAs:  &emptyObject,
+	})
+}
+
+// Test_JSON_CH_JSONOverride_Lowercase pins the JSON columns to json, which ClickHouse stores as JSON: the readers
+// and normalize must treat it as JSON too.
+func (s ClickHouseSuite) Test_JSON_CH_JSONOverride_Lowercase() {
+	emptyObject := "{}"
+	s.testJSONColumns(jsonColumnMirrorConfig{
+		tableName:          "test_json_override_lower",
+		overrideType:       "json",
 		expectedColumnType: "JSON",
 		sourceNullLandsAs:  &emptyObject,
 	})
@@ -245,7 +257,7 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 		},
 	}
 	// with native JSON on, or the columns pinned to JSON, the readers wrap non-object documents
-	wrapNonObjects := cfg.nativeJSON || cfg.overrideToJSON
+	wrapNonObjects := cfg.nativeJSON || cfg.overrideType != ""
 
 	srcTableName := cfg.tableName
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -288,10 +300,10 @@ func (s ClickHouseSuite) testJSONColumns(cfg jsonColumnMirrorConfig) {
 	if cfg.nativeJSON {
 		flowConnConfig.Env["PEERDB_CLICKHOUSE_ENABLE_JSON"] = "true"
 	}
-	if cfg.overrideToJSON {
+	if cfg.overrideType != "" {
 		for _, column := range jsonColumns {
 			flowConnConfig.TableMappings[0].Columns = append(flowConnConfig.TableMappings[0].Columns,
-				&protos.ColumnSetting{SourceName: column, DestinationType: "JSON"})
+				&protos.ColumnSetting{SourceName: column, DestinationType: cfg.overrideType})
 		}
 	}
 	if cfg.disableFastProcessJSONColumns {
@@ -337,11 +349,11 @@ type jsonColumnMirrorConfig struct {
 	sourceNullLandsAs  *string
 	tableName          string
 	expectedColumnType string
-	nativeJSON         bool
+	// overrideType is given to every JSON column as its destination type through the column settings; a JSON type
+	overrideType string
+	nativeJSON   bool
 	// nullableDestinationColumns sets PEERDB_NULLABLE, so nullable source columns get Nullable(...) on the destination
 	nullableDestinationColumns bool
-	// overrideToJSON gives every JSON column the destination type JSON through its column settings
-	overrideToJSON bool
 	// disableFastProcessJSONColumns sets PEERDB_POSTGRES_FAST_PROCESS_JSON_COLUMNS to false, so the Postgres reader
 	// takes the unmarshal/marshal path instead of the token walk; Postgres only
 	disableFastProcessJSONColumns bool
@@ -689,6 +701,15 @@ func (s ClickHouseSuite) Test_JSON_CH_Array_OverrideNullable() {
 		tableName:          "test_json_arr_override_nullable",
 		overrideType:       "Array(Nullable(JSON))",
 		expectedColumnType: "Array(Nullable(JSON))",
+	})
+}
+
+// Test_JSON_CH_Array_OverrideLowercase: Array(json), which ClickHouse stores as Array(JSON), behaves as Array(JSON).
+func (s ClickHouseSuite) Test_JSON_CH_Array_OverrideLowercase() {
+	s.testJSONArrayColumns(jsonArrayMirrorConfig{
+		tableName:          "test_json_arr_override_lower",
+		overrideType:       "Array(json)",
+		expectedColumnType: "Array(JSON)",
 	})
 }
 

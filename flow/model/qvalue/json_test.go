@@ -31,6 +31,29 @@ func TestWrapNonObjectJSON(t *testing.T) {
 	}
 }
 
+func TestConvertJSONTypeToUppercase(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"JSON", "JSON"},
+		{"json", "JSON"},
+		{"Json", "JSON"},
+		{"Nullable(json)", "Nullable(JSON)"},
+		{"Array(json)", "Array(JSON)"},
+		{"Array(Nullable(json))", "Array(Nullable(JSON))"},
+		// other types, and JSON with parameters, are returned unchanged
+		{"", ""},
+		{"String", "String"},
+		{"Nullable(String)", "Nullable(String)"},
+		{"Array(String)", "Array(String)"},
+		{"JSON(max_dynamic_paths=256)", "JSON(max_dynamic_paths=256)"},
+		{"Array(Array(JSON))", "Array(Array(JSON))"},
+	} {
+		require.Equal(t, tc.want, ConvertJSONTypeToUppercase(tc.in), "in=%q", tc.in)
+	}
+}
+
 func TestShouldWrapJSONArrayElements(t *testing.T) {
 	// a ClickHouse with the JSON type
 	clickhouse := []string{shared.Flag_ClickHouseTime64Enabled, shared.Flag_ClickHouseJSONSupported}
@@ -54,6 +77,9 @@ func TestShouldWrapJSONArrayElements(t *testing.T) {
 		// an explicit array type selects it from the wrapping version on, whatever the setting
 		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements, destinationType: "Array(JSON)", want: true},
 		{flags: clickhouse, version: latest, destinationType: "Array(Nullable(JSON))", want: true},
+		// in any case, as ClickHouse stores Array(json) as Array(JSON)
+		{flags: clickhouse, version: latest, destinationType: "Array(json)", want: true},
+		{flags: clickhouse, version: latest, destinationType: "Array(Nullable(json))", want: true},
 		{flags: clickhouse, version: shared.InternalVersion_WrapJSONArrayElements - 1, destinationType: "Array(JSON)", want: false},
 		{flags: otherDestination, version: latest, destinationType: "Array(JSON)", want: false},
 		// other explicit types never wrap
@@ -89,6 +115,9 @@ func TestShouldWrapNonObjectJSON(t *testing.T) {
 		{flags: clickhouse, version: shared.InternalVersion_Latest, nativeJSONEnabled: true, destinationType: "Nullable(String)", want: false},
 		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "JSON", want: true},
 		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Nullable(JSON)", want: true},
+		// in any case, as ClickHouse stores json as JSON
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "json", want: true},
+		{flags: clickhouse, version: shared.InternalVersion_Latest, destinationType: "Nullable(json)", want: true},
 		{flags: clickhouse, version: shared.InternalVersion_WrapNonObjectJSON - 1, destinationType: "JSON", want: false},
 		// an explicit JSON type is only honoured where the destination has the type
 		{flags: otherDestination, version: shared.InternalVersion_Latest, nativeJSONEnabled: true, destinationType: "JSON", want: false},
