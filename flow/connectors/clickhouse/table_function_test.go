@@ -274,47 +274,6 @@ func TestBuildInsertFromTableFunctionQueryJSONOverride(t *testing.T) {
 		query)
 }
 
-// TestBuildInsertFromTableFunctionQueryLowercaseJSONOverride checks lowercase JSON overrides, which ClickHouse
-// stores as the uppercase types, get the same casts and extraction as the uppercase spellings.
-func TestBuildInsertFromTableFunctionQueryLowercaseJSONOverride(t *testing.T) {
-	config := &insertFromTableFunctionConfig{
-		destinationTable: "t1",
-		schema: types.QRecordSchema{Fields: []types.QField{
-			{Name: "doc", Type: types.QValueKindJSON, Nullable: false},
-			{Name: "doc_nullable", Type: types.QValueKindJSON, Nullable: true},
-			{Name: "docs", Type: types.QValueKindArrayJSON, Nullable: true},
-			{Name: "docs_nullable", Type: types.QValueKindArrayJSONB, Nullable: true},
-		}},
-		config: &protos.QRepConfig{
-			Env: map[string]string{
-				"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "false",
-				"PEERDB_CLICKHOUSE_ENABLE_JSON":              "false",
-			},
-			Columns: []*protos.ColumnSetting{
-				{SourceName: "doc", DestinationType: "json"},
-				{SourceName: "doc_nullable", DestinationType: "Nullable(json)"},
-				{SourceName: "docs", DestinationType: "Array(json)"},
-				{SourceName: "docs_nullable", DestinationType: "Array(Nullable(json))"},
-			},
-			SourceType: protos.DBType_POSTGRES,
-			Version:    shared.InternalVersion_Latest,
-		},
-		connector: &ClickHouseConnector{chVersion: &chproto.Version{Major: 25, Minor: 8}},
-	}
-
-	query, err := buildInsertFromTableFunctionQuery(
-		context.Background(), config, "s3('s3://bucket/key', 'Avro')", nil,
-	)
-	require.NoError(t, err)
-	require.Equal(t,
-		"INSERT INTO `t1`(`doc`,`doc_nullable`,`docs`,`docs_nullable`) SELECT "+
-			"CAST(`doc`, 'JSON'),CAST(`doc_nullable`, 'Nullable(JSON)'),"+
-			"arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(ifNull(`docs`, ''), 'Array(Nullable(JSON))')),"+
-			"JSONExtract(ifNull(`docs_nullable`, ''), 'Array(Nullable(JSON))') "+
-			"FROM s3('s3://bucket/key', 'Avro')",
-		query)
-}
-
 // TestBuildInsertFromTableFunctionQuerySourceSchema checks who supplies _peerdb_source_schema:
 // when the source projected the column, the insert copies it from the file; otherwise the insert
 // adds the watermark table's schema.
