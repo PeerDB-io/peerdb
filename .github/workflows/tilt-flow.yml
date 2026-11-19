@@ -47,11 +47,18 @@ on:
         type: string
         required: false
         default: ''
-      go_build_cache_artifact:
+      go_build_cache_artifact_id:
         description: >-
-          Name of an artifact in this run holding prebuilt Go build cache
-          entries (flow.yml's go_build_cache job). Leave empty to compile
-          from setup-go's dependency cache alone.
+          ID of an unarchived artifact holding prebuilt Go build cache
+          entries as a zstd tarball (flow.yml's go_build_cache job). Leave
+          empty to compile from setup-go's dependency cache alone.
+        type: string
+        required: false
+        default: ''
+      go_build_cache_artifact_digest:
+        description: >-
+          SHA-256 digest of go_build_cache_artifact_id, as reported by
+          upload-artifact; the download is verified against it.
         type: string
         required: false
         default: ''
@@ -156,6 +163,8 @@ permissions:
   # (RDS IAM auth tests).
   id-token: write
   contents: read
+  # actions: resolve the prebuilt Go build cache artifact's download URL.
+  actions: read
 
 concurrency:
   # Keyed per PR (falling back to the ref) and per input combination, so the
@@ -260,28 +269,39 @@ jobs:
 
       # Layer the caller's prebuilt entries for this commit over setup-go's
       # dependency cache. Best effort: without them the tests still compile,
-      # just from scratch.
-      - name: Download prebuilt Go build cache
-        if: inputs.go_build_cache_artifact != ''
+      # just from scratch. download-artifact fetches over a single stream, so
+      # resolve the artifact's blob URL and let azcopy fetch it in parallel
+      # ranges instead.
+      - name: Fetch prebuilt Go build cache
+        if: inputs.go_build_cache_artifact_id != ''
         continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ${{ inputs.go_build_cache_artifact }}
-          path: ${{ runner.temp }}/go-build-cache
-      - name: Unpack prebuilt Go build cache
-        if: inputs.go_build_cache_artifact != ''
-        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.go_build_cache_artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.go_build_cache_artifact_digest }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/go-build-cache/go-build-cache.tar.zst"
-          if [ ! -f "$archive" ]; then
-            echo "::warning::Prebuilt Go build cache not found; tests will compile from scratch."
+          archive="$RUNNER_TEMP/go-build-cache.tar.zst"
+          url="$(curl -fsS -o /dev/null -w '%{redirect_url}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip")"
+          if [ -z "$url" ]; then
+            echo "::warning::Prebuilt Go build cache URL not found; tests will compile from scratch."
             exit 0
           fi
+          start=$SECONDS
+          azcopy copy "$url" "$archive" --log-level=ERROR --output-level=quiet
+          echo "fetched $(du -h "$archive" | cut -f1) in $((SECONDS - start))s"
+          if [ -n "$ARTIFACT_DIGEST" ]; then
+            echo "${ARTIFACT_DIGEST#sha256:}  $archive" | sha256sum -c --quiet -
+          fi
+          start=$SECONDS
           gocache="$(go env GOCACHE)"
           mkdir -p "$gocache"
-          tar -xf "$archive" --use-compress-program 'zstd -d -T0' -C "$gocache"
-          rm -rf "$RUNNER_TEMP/go-build-cache"
+          zstd -d -T0 < "$archive" | tar -x -C "$gocache"
+          rm -f "$archive"
+          echo "unpacked in $((SECONDS - start))s"
 
       # Tilt's `proto-gen` resource runs ./generate-protos.sh (buf generate +
       # go generate) on `tilt up`. The flow docker images and the host-run tests
