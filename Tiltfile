@@ -42,6 +42,8 @@ docker_go_debug_port_flow_api = resolve_env('DOCKER_GO_DEBUG_PORT_FLOW_API', '14
 
 flow_ignore = ['flow/e2e/', 'flow/**/*_test.go']
 
+# Keep the targets and build args in sync with flow.yml's flow_images job,
+# which builds these images for CI.
 if not prebuilt_flow_images:
     docker_build('flow-api', '.',
         dockerfile='stacks/flow.Dockerfile',

@@ -235,10 +235,8 @@ jobs:
 
   # Builds the flow-api, flow-worker and flow-snapshot-worker images once and
   # publishes them as a run artifact, so the flow_test matrix jobs load them
-  # instead of each compiling peer-flow inside Docker on startup. Same
-  # Dockerfile targets and build args as the Tiltfile's docker_build calls.
-  # An artifact rather than a registry or cache, for the same reason as
-  # go_build_cache.
+  # instead of each compiling peer-flow inside Docker on startup. An artifact
+  # rather than a registry or cache, for the same reason as go_build_cache.
   flow_images:
     name: Flow images
     needs: [gate]
@@ -271,6 +269,8 @@ jobs:
       # The images embed flow/generated, which Tilt's proto-gen produces
       # before its image builds in the matrix jobs.
       - run: ./generate-protos.sh
+      # Keep the targets and build args in sync with the Tiltfile's docker_build
+      # calls for these images.
       - name: Build flow images
         run: |
           set -euo pipefail
