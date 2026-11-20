@@ -1,0 +1,60 @@
+---
+generated_by: osc-plan
+source: osc-plan-issue
+title: "fix: cap QRep mirror status partitions under the 4 MiB gRPC limit"
+type: fix
+status: active
+date: 2026-11-10
+upstream_issue: https://github.com/PeerDB-io/peerdb/issues/4931
+repo: PeerDB-io/peerdb
+issue_labels: []
+base_branch: main
+contribution_policy:
+  template_required: false
+  prior_closed_prs: 0
+merge_confidence: 8
+expected_diff_size: small
+triage_score: 5.3313
+triage_contribution_type: bug
+confidence_factors:
+  implementability: 3
+  scope: 2
+  maintainer_activity: 1
+  label_quality: 0
+  recency: 1
+  engagement: 1
+  graveyard: 0
+test_command: "cd flow && go test ./cmd/ -count=1 -run TestQRepPartitionStatusQueryIsBounded"
+Files:
+  - flow/cmd/mirror_status.go
+  - flow/cmd/mirror_status_test.go   # new
+---
+
+## Issue summary
+
+Long-running standalone QRep mirrors stop opening their detail page once `peerdb_stats.qrep_partitions` grows large. `POST /v1/mirrors/status` with `includeFlowInfo: true` returns HTTP 429 and gRPC code 8, `received message larger than max (12202405 vs. 4194304)` (a second mirror was `14857725` bytes, about 164k and 197k partition rows). The UI maps every failed status fetch to "We were unable to fetch details of this mirror" via `ui/app/mirrors/[mirrorId]/page.tsx` and `error.tsx`. Non-CDC `MirrorStatus` calls `qrepFlowStatus` → `getPartitionStatuses`, whose SELECT returns every row for `flow_name` with no `ORDER BY` or `LIMIT`, and `setupGRPCGatewayServer` dials the API with grpc-go's default 4 MiB receive cap. Replication keeps running; `includeFlowInfo: false` still returns `STATUS_RUNNING`. A contributor pointed at the README deprecation of standalone QRep and suggested CDC plus ELT. This plan keeps that mirror type unchanged and only bounds the status read that makes the existing detail page fail.
+
+## Approach
+
+In `getPartitionStatuses`, keep the same five columns and the `flow_name=$1` predicate, and return at most 10000 rows: `ORDER BY start_time DESC NULLS LAST, id DESC LIMIT 10000`. Store that SQL in a package-level string in `flow/cmd/mirror_status.go` that `getPartitionStatuses` executes, with the limit as a named constant interpolated the same way `CDCBatches` interpolates its integer limit. 10000 UUID-sized `PartitionStatus` values (partition ids are `uuid.NewString()`) stay under 1 MiB, while the reported 164k-row payload is about 12 MiB. `qrepFlowStatus` already embeds the slice on `QRepMirrorStatus`, and the detail page only draws a 10-row table plus the last 30 graph buckets, so the page loads without a new RPC. Leave catalog rows, replication, protos, `setupGRPCGatewayServer`, and the UI as they are. XMIN uses this same non-CDC status path and gets the same cap. Ship no version gate: mirror config and replicated rows stay the same, and preserving the unbounded payload preserves the failure.
+
+## Test scenarios
+
+- Regression test: add `TestQRepPartitionStatusQueryIsBounded` in `flow/cmd/mirror_status_test.go` (`package cmd`, no `//go:build tilt`, no database). It reads the SQL string `getPartitionStatuses` executes and fails while that query has no `LIMIT`. Assert it contains `flow_name=$1`, `ORDER BY start_time DESC NULLS LAST`, `id DESC`, and `LIMIT` with the 10000 constant. Build one `PartitionStatus` with a 36-byte id, both timestamps set, and both int64 fields at `math.MaxInt64`; assert `proto.Size` of a `QRepMirrorStatus` repeated to the cap is under 4194304, and the same shape repeated 164000 times is at least 4194304. Run `cd flow && go test ./cmd/ -count=1 -run TestQRepPartitionStatusQueryIsBounded` (flow unit tests already compile this package against generated protos, as in `.github/workflows/flow.yml`). Observed result of that command is in Verification below: it passed, and the same `PartitionStatus` shape measures 800000 bytes at 10000 rows and 13120000 bytes at 164000 rows.
+- Happy path: a mirror with fewer than 10000 partition rows still returns every row, newest `start_time` first, with the same five fields.
+- Edge: rows with NULL `start_time` (inserted before `UpdateStartTimeForPartition`) sort after dated rows, so unstarted rows do not fill the window. The in-progress partition has `start_time` set and stays inside a full window. Equal `start_time` values break ties by `id DESC`.
+- Error path: query and scan failures still return the existing `unable to query qrep partition` / `unable to scan qrep partition` errors. History past the cap returns the newest window instead of the gateway `ResourceExhausted` response.
+
+## Verification
+
+How the problem was established: issue https://github.com/PeerDB-io/peerdb/issues/4931 reports `POST /v1/mirrors/status` with `includeFlowInfo: true` failing as HTTP 429 / gRPC code 8, `received message larger than max (12202405 vs. 4194304)`, and a second mirror at 14857725 bytes. On this checkout, `git diff main...HEAD -- flow/cmd/mirror_status.go` shows the previous `getPartitionStatuses` query was `SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1` with no `ORDER BY` and no `LIMIT`. `setupGRPCGatewayServer` in `flow/cmd/api.go` dials with `grpc.NewClient` and does not set a receive limit, so grpc-go's default 4194304-byte cap still applies. This environment has no PeerDB catalog, Docker, or Tilt stack, so that HTTP 429 was not replayed against a live mirror.
+
+How the change was checked, and what was observed:
+
+- Environment: macOS 27.2 (Darwin 27.2.0, arm64, MacBook-Pro-10.local), 2026-11-10. `go version` on the host is `go1.26.5 darwin/arm64`. From `flow/`, `go version` is `go1.27.0 darwin/arm64` because `flow/go.mod` sets `go 1.27.0`. Branch `fix/4931-qrep-mirror-status-grpc-limit`. No database and no `.env` (`LoadEnv: no .env file found above flow directory`).
+- Command, from the repo root: `cd flow && go test ./cmd/ -count=1 -run TestQRepPartitionStatusQueryIsBounded -v`
+- Result: `--- PASS: TestQRepPartitionStatusQueryIsBounded (0.01s)` then `PASS` and `ok github.com/PeerDB-io/peerdb/flow/cmd 1.347s`.
+- The query string executed by `getPartitionStatuses` is `SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1 ORDER BY start_time DESC NULLS LAST, id DESC LIMIT 10000`.
+- Size check, same `PartitionStatus` as the regression test (36-byte id `11111111-1111-1111-1111-111111111111`, both timestamps set, both int64 fields `math.MaxInt64`), printed from a same-package test that was deleted before the command above so it is not part of the diff: one row `proto.Size` 78; 10000 rows 800000 (under 4194304 and under 1 MiB); 164000 rows 13120000 (at least 4194304).
+
+What could not be checked: a live `POST /v1/mirrors/status` against a catalog large enough to return the reported 12202405-byte or 14857725-byte payloads; Postgres ordering for fewer than 10000 rows, NULL `start_time`, and equal `start_time` tie-breaks by `id`; the `unable to query qrep partition` and `unable to scan qrep partition` error returns (those `fmt.Errorf` lines are unchanged and were only read); the mirror detail page in a browser. `go test ./...` for all of `flow/` and `cd flow/pkg && go test ./...` were not run. The UI, protos, catalog rows, and `setupGRPCGatewayServer` were left unchanged, so there is no before/after screenshot.
