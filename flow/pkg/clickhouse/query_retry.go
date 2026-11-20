@@ -162,7 +162,7 @@ func Ping(ctx context.Context, logger log.Logger, conn clickhouse.Conn) error {
 		if ex, ok := errors.AsType[*clickhouse.Exception](err); ok && !isRetryableException(ex) {
 			return err
 		}
-		logger.Info("[ping] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
+		logger.Warn("[ping] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < attempts-1 {
 			select {
 			case <-ctx.Done():
