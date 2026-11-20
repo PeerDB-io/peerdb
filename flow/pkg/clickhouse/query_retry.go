@@ -73,24 +73,37 @@ func isRetryableException(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
 
-func Exec(ctx context.Context, logger log.Logger,
-	conn clickhouse.Conn, query string, args ...any,
-) error {
+// withRetry runs fn up to 5 times with backoff while shouldRetry returns true for its error.
+// On context cancellation during backoff it returns the last result along with ctx.Err().
+func withRetry[T any](ctx context.Context, logger log.Logger, op string,
+	shouldRetry func(error) bool, fn func() (T, error),
+) (T, error) {
+	const attempts = 5
+	var res T
 	var err error
-	for i := range 5 {
-		err = conn.Exec(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
+	for i := range attempts {
+		res, err = fn()
+		if err == nil || !shouldRetry(err) {
+			return res, err
 		}
-		logger.Info("[exec] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
-		if i < 4 {
+		logger.Warn("["+op+"] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
+		if i < attempts-1 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return res, ctx.Err()
 			case <-time.After(time.Second * time.Duration(i*5+1)):
 			}
 		}
 	}
+	return res, err
+}
+
+func Exec(ctx context.Context, logger log.Logger,
+	conn clickhouse.Conn, query string, args ...any,
+) error {
+	_, err := withRetry(ctx, logger, "exec", isRetryableException, func() (struct{}, error) {
+		return struct{}{}, conn.Exec(ctx, query, args...)
+	})
 	if ex, ok := errors.AsType[*clickhouse.Exception](err); ok {
 		traits := ExecTraits{
 			View:      strings.Contains(ex.Message, "while pushing to view"),
@@ -108,68 +121,32 @@ func Exec(ctx context.Context, logger log.Logger,
 func Query(ctx context.Context, logger log.Logger,
 	conn clickhouse.Conn, query string, args ...any,
 ) (driver.Rows, error) {
-	var rows driver.Rows
-	var err error
-	for i := range 5 {
-		rows, err = conn.Query(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
-		}
-		logger.Info("[query] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
-		if i < 4 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Second * time.Duration(i*5+1)):
-			}
-		}
-	}
-	return rows, err
+	return withRetry(ctx, logger, "query", isRetryableException, func() (driver.Rows, error) {
+		return conn.Query(ctx, query, args...)
+	})
 }
 
 func QueryRow(ctx context.Context, logger log.Logger,
 	conn clickhouse.Conn, query string, args ...any,
 ) driver.Row {
-	var row driver.Row
-	for i := range 5 {
-		row = conn.QueryRow(ctx, query, args...)
-		err := row.Err()
-		if !isRetryableException(err) {
-			break
-		}
-		logger.Info("[queryRow] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
-		if i < 4 {
-			select {
-			case <-ctx.Done():
-				return row
-			case <-time.After(time.Second * time.Duration(i*5+1)):
-			}
-		}
-	}
+	row, _ := withRetry(ctx, logger, "queryRow", isRetryableException, func() (driver.Row, error) {
+		row := conn.QueryRow(ctx, query, args...)
+		return row, row.Err()
+	})
 	return row
 }
 
 // Ping retries transient failures (network errors, retryable exceptions) with backoff.
 // Non-retryable server exceptions such as auth failures are returned immediately.
 func Ping(ctx context.Context, logger log.Logger, conn clickhouse.Conn) error {
-	const attempts = 5
-	var err error
-	for i := range attempts {
-		err = conn.Ping(ctx)
-		if err == nil || ctx.Err() != nil {
-			return err
+	_, err := withRetry(ctx, logger, "ping", func(err error) bool {
+		if ctx.Err() != nil {
+			return false
 		}
-		if ex, ok := errors.AsType[*clickhouse.Exception](err); ok && !isRetryableException(ex) {
-			return err
-		}
-		logger.Warn("[ping] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
-		if i < attempts-1 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Second * time.Duration(i*5+1)):
-			}
-		}
-	}
+		ex, ok := errors.AsType[*clickhouse.Exception](err)
+		return !ok || isRetryableException(ex)
+	}, func() (struct{}, error) {
+		return struct{}{}, conn.Ping(ctx)
+	})
 	return err
 }
