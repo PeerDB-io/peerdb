@@ -26,6 +26,14 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Checkout ClickPipes docs
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ClickHouse/ClickHouse
+          path: clickhouse-docs
+          fetch-depth: 1
+          sparse-checkout: docs/integrations/clickpipes
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
