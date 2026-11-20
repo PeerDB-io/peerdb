@@ -180,26 +180,26 @@ func (r errRow) Err() error {
 }
 
 var (
-	tooManyPartsErr = &clickhouse.Exception{Code: int32(chproto.ErrTooManyParts)}
-	authErr         = &clickhouse.Exception{Code: int32(chproto.ErrAuthenticationFailed)}
+	errTooManyParts = &clickhouse.Exception{Code: int32(chproto.ErrTooManyParts)}
+	errAuth         = &clickhouse.Exception{Code: int32(chproto.ErrAuthenticationFailed)}
 )
 
 func TestExecRetriesRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{tooManyPartsErr}}
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
 
 	require.NoError(t, Exec(t.Context(), nopLogger{}, conn, "INSERT INTO t VALUES (1)"))
 	require.Equal(t, 2, conn.calls)
 }
 
 func TestExecDoesNotRetryNonRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{authErr}}
+	conn := &scriptedConn{errs: []error{errAuth}}
 
-	require.ErrorIs(t, Exec(t.Context(), nopLogger{}, conn, "INSERT INTO t VALUES (1)"), authErr)
+	require.ErrorIs(t, Exec(t.Context(), nopLogger{}, conn, "INSERT INTO t VALUES (1)"), errAuth)
 	require.Equal(t, 1, conn.calls)
 }
 
 func TestQueryRetriesRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{tooManyPartsErr}}
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
 
 	_, err := Query(t.Context(), nopLogger{}, conn, "SELECT 1")
 	require.NoError(t, err)
@@ -207,24 +207,24 @@ func TestQueryRetriesRetryableException(t *testing.T) {
 }
 
 func TestQueryDoesNotRetryNonRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{authErr}}
+	conn := &scriptedConn{errs: []error{errAuth}}
 
 	_, err := Query(t.Context(), nopLogger{}, conn, "SELECT 1")
-	require.ErrorIs(t, err, authErr)
+	require.ErrorIs(t, err, errAuth)
 	require.Equal(t, 1, conn.calls)
 }
 
 func TestQueryRowRetriesRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{tooManyPartsErr}}
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
 
 	require.NoError(t, QueryRow(t.Context(), nopLogger{}, conn, "SELECT 1").Err())
 	require.Equal(t, 2, conn.calls)
 }
 
 func TestQueryRowDoesNotRetryNonRetryableException(t *testing.T) {
-	conn := &scriptedConn{errs: []error{authErr}}
+	conn := &scriptedConn{errs: []error{errAuth}}
 
-	require.ErrorIs(t, QueryRow(t.Context(), nopLogger{}, conn, "SELECT 1").Err(), authErr)
+	require.ErrorIs(t, QueryRow(t.Context(), nopLogger{}, conn, "SELECT 1").Err(), errAuth)
 	require.Equal(t, 1, conn.calls)
 }
 
@@ -237,8 +237,8 @@ func TestPingRetriesConnectionReset(t *testing.T) {
 }
 
 func TestPingDoesNotRetryAuthFailure(t *testing.T) {
-	conn := &scriptedConn{errs: []error{authErr}}
+	conn := &scriptedConn{errs: []error{errAuth}}
 
-	require.ErrorIs(t, Ping(t.Context(), nopLogger{}, conn), authErr)
+	require.ErrorIs(t, Ping(t.Context(), nopLogger{}, conn), errAuth)
 	require.Equal(t, 1, conn.calls)
 }
