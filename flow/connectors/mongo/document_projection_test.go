@@ -236,9 +236,6 @@ func TestStructuredQValuesFromBsonRaw(t *testing.T) {
 // noExpectedKind is the schema columns of a document read without a schema: no field has a column.
 var noExpectedKind map[string]types.QValueKind
 
-// noFlattenedPaths is the flattened paths of a schema with no nested column: no document is walked into.
-var noFlattenedPaths map[string]struct{}
-
 // BSON dates must fit DateTime64 columns: they convert to timestamps
 func TestStructuredQValuesFromBsonRawDates(t *testing.T) {
 	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
@@ -360,7 +357,7 @@ func collectDocumentQValues(t *testing.T, doc bson.D) ([]string, map[string]type
 	raw, err := bson.Marshal(doc)
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths)
+	fields, walkErr := NewDocumentQValueIterator(noExpectedKind)(raw, NewDirectBsonConverter())
 	names := []string{}
 	values := map[string]types.QValue{}
 	for field, value := range fields {
@@ -424,7 +421,7 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	fields, walkErr := DocumentQValueIterator(raw, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths)
+	fields, walkErr := NewDocumentQValueIterator(noExpectedKind)(raw, NewDirectBsonConverter())
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -439,8 +436,8 @@ func TestDocumentQValueIteratorStopsEarly(t *testing.T) {
 func TestDocumentQValueIteratorMalformedDocument(t *testing.T) {
 	// a length header longer than the buffer: elements cannot be read
 	names, _, err := func() ([]string, map[string]types.QValue, error) {
-		fields, walkErr := DocumentQValueIterator(
-			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(), noExpectedKind, noFlattenedPaths,
+		fields, walkErr := NewDocumentQValueIterator(noExpectedKind)(
+			bson.Raw{0xff, 0x00, 0x00, 0x00, 0x00}, NewDirectBsonConverter(),
 		)
 		names := []string{}
 		values := map[string]types.QValue{}
@@ -465,7 +462,7 @@ func TestDocumentQValueIteratorConversionError(t *testing.T) {
 	require.NoError(t, err)
 
 	converter := &failingConverter{BsonToQValueConverter: NewDirectBsonConverter(), failOnCall: 2}
-	fields, walkErr := DocumentQValueIterator(raw, converter, noExpectedKind, noFlattenedPaths)
+	fields, walkErr := NewDocumentQValueIterator(noExpectedKind)(raw, converter)
 	var seen []string
 	for field := range fields {
 		seen = append(seen, field)
@@ -613,15 +610,11 @@ func TestDocumentQValueIteratorNestedFlattening(t *testing.T) {
 	// walk reads the document with columns as the schema columns, all of them JSON
 	walk := func(t *testing.T, columns ...string) ([]string, map[string]types.QValue) {
 		t.Helper()
-		schemaFields := make([]types.QField, 0, len(columns))
+		expectedColumnKind := make(map[string]types.QValueKind, len(columns))
 		for _, column := range columns {
-			schemaFields = append(schemaFields, types.QField{Name: column, Type: types.QValueKindJSON})
+			expectedColumnKind[column] = types.QValueKindJSON
 		}
-		projector, err := structured.NewSchemaProjectorFromQFields(schemaFields, nil, true)
-		require.NoError(t, err)
-		fields, walkErr := DocumentQValueIterator(
-			raw, NewDirectBsonConverter(), projector.ColumnKinds(), projector.FlattenedPaths(),
-		)
+		fields, walkErr := NewDocumentQValueIterator(expectedColumnKind)(raw, NewDirectBsonConverter())
 		names := []string{}
 		values := map[string]types.QValue{}
 		for field, value := range fields {

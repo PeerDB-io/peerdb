@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -314,7 +313,7 @@ type encodedMongoEvent struct {
 func (c *MongoConnector) decodeEvent(
 	events []encodedMongoEvent,
 	req *model.PullRecordsRequest[model.RecordItems],
-	structuredProjectors map[string]*structured.SchemaProjector,
+	structuredProjectors map[string]*DocumentProjector,
 ) ([]model.Record[model.RecordItems], error) {
 	// Utils used by this routine.
 	converter := NewDirectBsonConverter()
@@ -358,12 +357,10 @@ func (c *MongoConnector) decodeEvent(
 			}
 
 			// This is where the MongoDB specific document iterator is
-			// created and passed to the generic structured ingestion logic.
+			// passed to the generic structured ingestion logic.
 			// `DocumentQValueIterator` is the entry point for the document
 			// to QValue translation.
-			fieldsIterator, walkErr := DocumentQValueIterator(
-				document, converter, projector.ColumnKinds(), projector.FlattenedPaths(),
-			)
+			fieldsIterator, walkErr := projector.DocumentFields(document, converter)
 			items, err = projector.ApplyRecordSchema(fieldsIterator)
 			if err != nil {
 				return nil, fmt.Errorf("failed to project document onto schema: %w", err)
@@ -557,7 +554,7 @@ func (c *MongoConnector) PullRecords(
 	// Structured ingestion is a per-table setting: resolve each structured table's projector once,
 	// against the table schema persisted at setup. Decode workers share the projectors, which is safe
 	// as projecting only reads them, while each worker owns its converter.
-	structuredProjectors := make(map[string]*structured.SchemaProjector)
+	structuredProjectors := make(map[string]*DocumentProjector)
 	for sourceTableName, tableMapping := range req.TableNameMapping {
 		structuredCfg := tableMapping.StructuredIngestionConfiguration
 		if !structuredCfg.GetEnabled() {

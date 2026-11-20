@@ -21,34 +21,47 @@ var emptyBsonDocument = bson.Raw{0x05, 0x00, 0x00, 0x00, 0x00}
 
 const bsonDocumentHeaderSize = 4
 
-// DocumentQValueIterator returns an iterator that lazily walks the fields of a document excluding document key and
-// yielding each as a QValue.
-// `expectedColumnKind` holds the schema columns, by name, and the kind each one expects: arrays are brought
-// into the kind their column expects instead of inferring an uniform element type.
-// `flattenedPaths` holds the paths schema columns are named under (a and a.b for a column a.b.c). An embedded
-// document is walked into, its fields named by their path with keys joined by dots, only when it is found at
-// one of these paths and is not a column itself. Any other is yielded whole, as JSON: a column receives its
-// document as it is, and a document no column reads is one field. Arrays are never flattened.
-// The walk stops at the first failure, which the returned function reports once the walk is over.
-func DocumentQValueIterator(
-	raw bson.Raw,
-	converter BsonToQValueConverter,
-	expectedColumnKind map[string]types.QValueKind,
-	flattenedPaths map[string]struct{},
-) (iter.Seq2[string, types.QValue], func() error) {
-	var walkErr error
-	return func(yield func(string, types.QValue) bool) {
-		walker := documentWalker{
-			converter:          converter,
-			expectedColumnKind: expectedColumnKind,
-			flattenedPaths:     flattenedPaths,
-			yield:              yield,
+// DocumentQValueIterator lazily walks the fields of a document, the document key excluded, yielding each as
+// a QValue. The walk stops at the first failure, which the returned function reports once the walk is over.
+type DocumentQValueIterator func(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error)
+
+// NewDocumentQValueIterator builds the iterator for the documents of a table, once for all of them.
+// `expectedColumnKind` holds the schema columns, by name, and the kind each one expects. It drives two things:
+//   - Arrays are brought into the kind their column expects instead of inferring an uniform element type.
+//   - Embedded documents are flattened only where a column asks for it: a document is walked into, its
+//     fields named by their path with keys joined by dots, only when some column is named under its path
+//     (a and a.b for a column a.b.c) and it is not a column itself. Any other is yielded whole, as JSON:
+//     a column receives its document as it is, and a document no column reads is one field. Arrays are
+//     never flattened.
+//
+// The returned iterator only reads what it was built with, so it is safe for concurrent use.
+func NewDocumentQValueIterator(expectedColumnKind map[string]types.QValueKind) DocumentQValueIterator {
+	// Every path a column is named under, its name cut at each of its dots: resolved here once so the
+	// walk decides whether to flatten a document with a lookup, whatever the number of columns.
+	flattenedPaths := make(map[string]struct{})
+	for column := range expectedColumnKind {
+		for i, char := range column {
+			if char == '.' {
+				flattenedPaths[column[:i]] = struct{}{}
+			}
 		}
-		_, walkErr = walker.walk(bsoncore.Document(raw), "")
-	}, func() error { return walkErr }
+	}
+
+	return func(raw bson.Raw, converter BsonToQValueConverter) (iter.Seq2[string, types.QValue], func() error) {
+		var walkErr error
+		return func(yield func(string, types.QValue) bool) {
+			walker := documentWalker{
+				converter:          converter,
+				expectedColumnKind: expectedColumnKind,
+				flattenedPaths:     flattenedPaths,
+				yield:              yield,
+			}
+			_, walkErr = walker.walk(bsoncore.Document(raw), "")
+		}, func() error { return walkErr }
+	}
 }
 
-// documentWalker holds what DocumentQValueIterator walks every (nested) document with.
+// documentWalker holds what a DocumentQValueIterator walks every (nested) document with.
 type documentWalker struct {
 	converter          BsonToQValueConverter
 	expectedColumnKind map[string]types.QValueKind
@@ -120,11 +133,29 @@ func (w *documentWalker) walk(doc bsoncore.Document, prefix string) (bool, error
 	return true, nil
 }
 
+// DocumentProjector projects the documents of a structured ingestion table onto its schema columns: the
+// generic schema projector together with the iterator reading documents for it, built once per table.
+type DocumentProjector struct {
+	*structured.SchemaProjector
+	// DocumentFields walks a document's fields as the schema columns ask for them.
+	DocumentFields DocumentQValueIterator
+}
+
+func newDocumentProjector(projector *structured.SchemaProjector, err error) (*DocumentProjector, error) {
+	if err != nil {
+		return nil, err
+	}
+	return &DocumentProjector{
+		SchemaProjector: projector,
+		DocumentFields:  NewDocumentQValueIterator(projector.ColumnKinds()),
+	}, nil
+}
+
 // newStructuredSchemaProjector builds the projector for the columns of a structured ingestion table
 // mapping. recordMalformedValues controls whether the projector records the offending values.
 func newStructuredSchemaProjector(
 	columns []*protos.ColumnSetting, excludedColumnsNames []string, recordMalformedValues bool,
-) (*structured.SchemaProjector, error) {
+) (*DocumentProjector, error) {
 	filteredColumns := make([]*protos.ColumnSetting, 0, len(columns))
 	for _, column := range columns {
 		if isProjectedColumn(column.SourceName) {
@@ -137,7 +168,7 @@ func newStructuredSchemaProjector(
 		excludedColumnSet[col] = struct{}{}
 	}
 
-	return structured.NewSchemaProjectorFromCHtoQValue(filteredColumns, excludedColumnSet, recordMalformedValues)
+	return newDocumentProjector(structured.NewSchemaProjectorFromCHtoQValue(filteredColumns, excludedColumnSet, recordMalformedValues))
 }
 
 // newStructuredSchemaProjectorFromTableSchema builds the projector for a structured ingestion table from
@@ -145,14 +176,14 @@ func newStructuredSchemaProjector(
 // QValueKinds.
 func newStructuredSchemaProjectorFromTableSchema(
 	schema *protos.TableSchema, excludedColumnSet map[string]struct{}, recordMalformedValues bool,
-) (*structured.SchemaProjector, error) {
+) (*DocumentProjector, error) {
 	fields := make([]types.QField, 0, len(schema.Columns))
 	for _, column := range schema.Columns {
 		if isProjectedColumn(column.Name) {
 			fields = append(fields, types.QField{Name: column.Name, Type: types.QValueKind(column.Type)})
 		}
 	}
-	return structured.NewSchemaProjectorFromQFields(fields, excludedColumnSet, recordMalformedValues)
+	return newDocumentProjector(structured.NewSchemaProjectorFromQFields(fields, excludedColumnSet, recordMalformedValues))
 }
 
 func isProjectedColumn(columnName string) bool {
@@ -161,7 +192,7 @@ func isProjectedColumn(columnName string) bool {
 
 // GetStructuredSchema is the record schema of a structured ingestion table: the document key followed by
 // the columns projector projects documents onto, the layout StructuredQValuesFromBsonRaw produces.
-func GetStructuredSchema(projector *structured.SchemaProjector) types.QRecordSchema {
+func GetStructuredSchema(projector *DocumentProjector) types.QRecordSchema {
 	projected := projector.QRecordSchema()
 	schema := make([]types.QField, 0, len(projected.Fields)+1)
 	schema = append(schema, documentKeyQField())
@@ -176,7 +207,7 @@ func StructuredQValuesFromBsonRaw(
 	raw bson.Raw,
 	version uint32,
 	converter BsonToQValueConverter,
-	projector *structured.SchemaProjector,
+	projector *DocumentProjector,
 	tableName string,
 ) ([]types.QValue, error) {
 	rv := raw.Lookup(DefaultDocumentKeyColumnName)
@@ -188,7 +219,7 @@ func StructuredQValuesFromBsonRaw(
 		return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 	}
 
-	fields, walkErr := DocumentQValueIterator(raw, converter, projector.ColumnKinds(), projector.FlattenedPaths())
+	fields, walkErr := projector.DocumentFields(raw, converter)
 	values, err := projector.ProjectRecord(fields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to project document onto schema: %w", err)

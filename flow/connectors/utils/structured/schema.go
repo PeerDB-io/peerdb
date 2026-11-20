@@ -33,8 +33,6 @@ type SchemaProjector struct {
 	shouldRecordValues bool
 	// Kind of every schema column by the record field it reads from, as ColumnKinds exposes it.
 	columnKinds map[string]types.QValueKind
-	// Paths schema columns are named under, as FlattenedPaths exposes it.
-	flattenedPaths map[string]struct{}
 }
 
 // NewSchemaProjector resolves the schema columns' kinds through schemaToQKind, failing on a type it does
@@ -66,7 +64,6 @@ func NewSchemaProjectorFromQFields(
 	fields := make([]types.QField, 0, len(schemaFields)+1)
 	columns := make(map[string]schemaColumn, len(schemaFields))
 	columnKinds := make(map[string]types.QValueKind, len(schemaFields))
-	flattenedPaths := make(map[string]struct{})
 
 	for _, field := range schemaFields {
 		if _, duplicate := columns[field.Name]; duplicate {
@@ -77,11 +74,6 @@ func NewSchemaProjectorFromQFields(
 		}
 		columns[field.Name] = schemaColumn{kind: field.Type, index: len(fields)}
 		columnKinds[field.Name] = field.Type
-		for i, char := range field.Name {
-			if char == '.' {
-				flattenedPaths[field.Name[:i]] = struct{}{}
-			}
-		}
 		// All structured columns are nullable as a record may lack any of the columns
 		fields = append(fields, types.QField{Name: field.Name, Type: field.Type, Nullable: true})
 	}
@@ -101,7 +93,6 @@ func NewSchemaProjectorFromQFields(
 		shouldRecordValues: shouldRecordValues,
 		excludedColumns:    excludedColumnSet,
 		columnKinds:        columnKinds,
-		flattenedPaths:     flattenedPaths,
 	}, nil
 }
 
@@ -126,13 +117,6 @@ func (sc *SchemaProjector) QRecordSchema() types.QRecordSchema {
 // projector's own: callers must not modify it.
 func (sc *SchemaProjector) ColumnKinds() map[string]types.QValueKind {
 	return sc.columnKinds
-}
-
-// FlattenedPaths is every path a schema column is named under, its name cut at each of its dots: a and
-// a.b for a column a.b.c. Record readers flatten the nested values found at these paths, and only those,
-// so every schema column finds its field. The set is the projector's own: callers must not modify it.
-func (sc *SchemaProjector) FlattenedPaths() map[string]struct{} {
-	return sc.flattenedPaths
 }
 
 func (sc *SchemaProjector) IsExcludedColumn(columnName string) bool {

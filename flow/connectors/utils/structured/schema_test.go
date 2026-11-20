@@ -333,23 +333,15 @@ func TestProjectRecordExcludedFields(t *testing.T) {
 	})
 }
 
-func TestColumnKindsAndFlattenedPaths(t *testing.T) {
+func TestColumnKinds(t *testing.T) {
 	projector, err := NewSchemaProjector(testSchemaToQKind, []*protos.ColumnSetting{
 		{SourceName: "name", DestinationType: "str"},
-		{SourceName: "address.city", DestinationType: "str"},
 		{SourceName: "address.geo.lat", DestinationType: "f64"},
 	}, map[string]struct{}{"secret": {}}, true)
 	require.NoError(t, err)
 	// the schema columns only: neither the malformed data column nor the excluded fields
 	require.Equal(t, map[string]types.QValueKind{
 		"name":            types.QValueKindString,
-		"address.city":    types.QValueKindString,
 		"address.geo.lat": types.QValueKindFloat64,
 	}, projector.ColumnKinds())
-	// every path a column is named under, the columns themselves left out
-	require.Equal(t, map[string]struct{}{"address": {}, "address.geo": {}}, projector.FlattenedPaths())
-
-	flat, err := NewSchemaProjector(testSchemaToQKind, testProjectorColumns(), nil, true)
-	require.NoError(t, err)
-	require.Empty(t, flat.FlattenedPaths())
 }

@@ -18,7 +18,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/structured"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -844,10 +843,10 @@ func TestDecodeEventDeletePreimage(t *testing.T) {
 	req := &model.PullRecordsRequest[model.RecordItems]{InternalVersion: shared.InternalVersion_Latest}
 	projector, err := newStructuredSchemaProjector(structuredTestColumns(), nil, true)
 	require.NoError(t, err)
-	structuredProjectors := map[string]*structured.SchemaProjector{"db.coll": projector}
+	structuredProjectors := map[string]*DocumentProjector{"db.coll": projector}
 
 	decodeOne := func(
-		t *testing.T, event encodedMongoEvent, projectors map[string]*structured.SchemaProjector,
+		t *testing.T, event encodedMongoEvent, projectors map[string]*DocumentProjector,
 	) model.Record[model.RecordItems] {
 		t.Helper()
 		records, err := c.decodeEvent([]encodedMongoEvent{event}, req, projectors)
