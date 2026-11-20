@@ -148,3 +148,28 @@ func QueryRow(ctx context.Context, logger log.Logger,
 	}
 	return row
 }
+
+// Ping retries transient failures (network errors, retryable exceptions) with backoff.
+// Non-retryable server exceptions such as auth failures are returned immediately.
+func Ping(ctx context.Context, logger log.Logger, conn clickhouse.Conn) error {
+	const attempts = 5
+	var err error
+	for i := range attempts {
+		err = conn.Ping(ctx)
+		if err == nil || ctx.Err() != nil {
+			return err
+		}
+		if ex, ok := errors.AsType[*clickhouse.Exception](err); ok && !isRetryableException(ex) {
+			return err
+		}
+		logger.Info("[ping] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
+		if i < attempts-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second * time.Duration(i*5+1)):
+			}
+		}
+	}
+	return err
+}

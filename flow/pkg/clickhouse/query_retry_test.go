@@ -3,6 +3,9 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -134,4 +137,35 @@ func TestExecErrorTraits(t *testing.T) {
 			require.Equal(t, "ClickHouse exec error: code: 117, message: REDACTED", err.Error())
 		})
 	}
+}
+
+// pingConn fails Ping with errs in order, then succeeds.
+type pingConn struct {
+	driver.Conn
+	errs  []error
+	calls int
+}
+
+func (c *pingConn) Ping(context.Context) error {
+	c.calls++
+	if c.calls <= len(c.errs) {
+		return c.errs[c.calls-1]
+	}
+	return nil
+}
+
+func TestPingRetriesConnectionReset(t *testing.T) {
+	connReset := &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}
+	conn := &pingConn{errs: []error{connReset}}
+
+	require.NoError(t, Ping(t.Context(), nopLogger{}, conn))
+	require.Equal(t, 2, conn.calls)
+}
+
+func TestPingDoesNotRetryAuthFailure(t *testing.T) {
+	authErr := &clickhouse.Exception{Code: int32(chproto.ErrAuthenticationFailed)}
+	conn := &pingConn{errs: []error{authErr}}
+
+	require.ErrorIs(t, Ping(t.Context(), nopLogger{}, conn), authErr)
+	require.Equal(t, 1, conn.calls)
 }
