@@ -52,7 +52,8 @@ func jsonFieldExpressionConverter(
 	castToJSON := qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion)
 	for _, column := range config.config.GetColumns() {
 		if column.SourceName == field.Name && column.DestinationType != "" {
-			castToJSON = column.DestinationType == "JSON" || column.DestinationType == "Nullable(JSON)"
+			dstType := qvalue.ConvertJSONTypeToUppercase(column.DestinationType)
+			castToJSON = dstType == "JSON" || dstType == "Nullable(JSON)"
 			break
 		}
 	}
@@ -120,7 +121,7 @@ func arrayJSONFieldExpressionConverter(
 		return sourceFieldIdentifier, nil
 	}
 	colSetting := findColumnSetting(field.Name, config.config.GetColumns())
-	dstType := colSetting.GetDestinationType()
+	dstType := qvalue.ConvertJSONTypeToUppercase(colSetting.GetDestinationType())
 	if dstType == "" && qvalue.ShouldUseArrayJSONType(
 		ctx, config.config.Env, config.connector.chVersion, config.config.Version, config.config.SourceType,
 	) {

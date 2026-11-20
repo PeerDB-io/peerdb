@@ -146,6 +146,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if err != nil {
 			return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 		}
+		clickHouseType = qvalue.ConvertJSONTypeToUppercase(clickHouseType)
 
 		switch clickHouseType {
 		case "Time64(6)", "Nullable(Time64(6))":
