@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
 func (h *FlowRequestHandler) ResetMirrorSequences(
@@ -45,7 +46,12 @@ func (h *FlowRequestHandler) ResetMirrorSequences(
 
 	destTables := make([]string, 0, len(config.TableMappings))
 	for _, tm := range config.TableMappings {
-		destTables = append(destTables, tm.DestinationTableIdentifier)
+		parsed, err := common.ParseTableIdentifier(tm.DestinationTableIdentifier)
+		if err != nil {
+			return nil, NewInternalApiError(fmt.Errorf("failed to parse destination table %s: %w",
+				tm.DestinationTableIdentifier, err))
+		}
+		destTables = append(destTables, parsed.String())
 	}
 
 	quotedTables := make([]string, 0, len(destTables))
