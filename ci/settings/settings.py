@@ -1,15 +1,19 @@
+# Runner labels follow the `<arch>_<Ncpu>_<Mg>` convention: architecture,
+# vCPU count, and RAM in GiB. The label value doubles as the pool / SQS queue
+# name in ci/infrastructure/projects.py.
 class RunnerLabels:
-    SMALL_ARM = "arm-small"
-    SMALL_AMD = "amd-small"
-    MEDIUM_ARM = "arm-medium"
-    MEDIUM_AMD = "amd-medium"
+    # c7g.large — rust-lint and other light arm jobs.
+    ARM_2CPU_4G = "arm_2cpu_4g"
+    # c7i.16xlarge — heavy x86_64 pool for the Tilt e2e stack (docker-compose +
+    # flow image builds + highly parallel go test). Port of flow.yml's 32/64-core runners.
+    AMD_64CPU_128G = "amd_64cpu_128g"
 
 
 PROJECT_NAME = "peerdb"
 PROJECT_SLUG = "peerdb"
 MAIN_BRANCH = "main"
 
-CI_CONFIG_RUNS_ON = [RunnerLabels.SMALL_ARM]
+CI_CONFIG_RUNS_ON = [RunnerLabels.ARM_2CPU_4G]
 
 AWS_REGION = "eu-west-1"
 AWS_PROFILE = "PeerDBCI"
@@ -40,4 +44,4 @@ TOP_CHECK_MIN_PATCH_INTERVAL_S = 20
 #   Per-job check-runs: "verbose" posts one per job through its full
 #   lifecycle; "minimal" posts a check-run only for jobs that fail.
 JOB_CHECKS_MODE = "verbose"
-
+VALIDATE_FILE_PATHS = False
