@@ -119,9 +119,19 @@ def _peerdb_flow_host_toolchain_component():
         "name": "peerdb-flow-host-toolchain",
         "platform": "Linux",
         "phase": "build",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "description": "Go + gotestsum + Tilt + docker-compose + flow e2e host deps",
         "commands": [
+            # Give containers a high default nofile, matching GitHub-hosted
+            # runners. The compose files set no per-service ulimit, so a service
+            # like mongod inherits the daemon default; our base image leaves that
+            # at 1024, so mongod hits "Too many open files" under CI load and
+            # crash-loops. Merge default-ulimits into the baked daemon.json
+            # (dockerd reads it at runner boot).
+            "set -eux; "
+            'jq \'. + {"default-ulimits": {"nofile": {"Name":"nofile","Hard":1048576,"Soft":1048576}}}\' '
+            "/etc/docker/daemon.json > /tmp/daemon.json && mv /tmp/daemon.json /etc/docker/daemon.json; "
+            "jq -e '.\"default-ulimits\".nofile.Soft == 1048576' /etc/docker/daemon.json",
             # docker-compose standalone binary: Tilt drives the stack by exec'ing
             # `docker-compose` (not the `docker compose` plugin), and the base
             # image installs neither. Install the v2 standalone as docker-compose.
@@ -178,7 +188,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.3"
+    image_recipe_version = "1.1.4"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -219,6 +229,8 @@ def _image_builders():
             "command -v tilt",
             "command -v docker-compose",
             "docker-compose version",
+            # Containers must default to a high nofile (see the daemon.json merge).
+            "jq -e '.\"default-ulimits\".nofile.Soft == 1048576' /etc/docker/daemon.json",
             "command -v yq",
             "command -v pg_dump",
             "command -v retry",
@@ -335,6 +347,12 @@ PROJECTS = [
                 size=0,
                 max_size=20,
                 volume_size_gb=200,
+                # The Tilt e2e stack is IO-bound (minio S3 staging, CH/PG/mongo
+                # data dirs, docker image load, Go cache) under -parallel 64; the
+                # gp3 baseline (3000 IOPS / 125 MiB/s) starves it vs GitHub's
+                # local-NVMe runners. Provision gp3 to its max.
+                volume_iops=16000,
+                volume_throughput=1000,
                 image_builder=_IMAGE_BUILDERS_BY_NAME["ci-x86_64-image"],
                 allowed_ssm_parameters=[],
                 allowed_secrets=[],

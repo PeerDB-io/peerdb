@@ -278,23 +278,23 @@ def main():
         check=False,
     )
 
-    # Attach docker diagnostics + coverage when anything failed.
-    extra_files = []
-    if os.path.exists("coverage.out"):
-        extra_files.append("coverage.out")
-    if rc_flow != 0 or (pkg_ran and rc_pkg != 0):
-        extra_files += tilt_env.capture_diagnostics("logs")
-
-    flow = build_job_result(
-        FLOW_JUNIT, rc_flow, sw_flow, name=f"flow e2e ({label})", extra_files=extra_files
-    )
-    results = [flow]
+    results = [build_job_result(FLOW_JUNIT, rc_flow, sw_flow, name=f"flow e2e ({label})")]
     if pkg_packages:
         results.append(
             _pkg_result(PKG_JUNIT, rc_pkg, sw_pkg, f"flow/pkg e2e ({label})", pkg_ran, [])
         )
 
-    Result.create_from(results=results, stopwatch=sw).complete_job()
+    # Diagnostics + coverage go on the TOP-level Result: praktika only uploads
+    # files attached to the job's root result, not nested sub-results.
+    top_files = []
+    if os.path.exists("coverage.out"):
+        top_files.append("coverage.out")
+    if rc_flow != 0 or (pkg_ran and rc_pkg != 0):
+        if tilt_log and os.path.exists(tilt_log):
+            top_files.append(tilt_log)
+        top_files += tilt_env.capture_diagnostics("logs")
+
+    Result.create_from(results=results, stopwatch=sw, files=top_files).complete_job()
 
 
 if __name__ == "__main__":
