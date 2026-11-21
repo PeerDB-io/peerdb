@@ -90,9 +90,13 @@ TARGETS = [
     {"job": "postgres_clickhouse", "version": "16", "ch": "lts", "label": "postgres-16_ch-lts"},
     {"job": "postgres_clickhouse", "version": "17", "ch": "stable", "label": "postgres-17_ch-stable"},
     {"job": "postgres_clickhouse", "version": "18", "ch": "latest", "label": "postgres-18_ch-latest"},
-    {"job": "postgres_other", "version": "16", "ch": "", "label": "postgres-16_other"},
-    {"job": "postgres_other", "version": "17", "ch": "", "label": "postgres-17_other"},
-    {"job": "postgres_other", "version": "18", "ch": "", "label": "postgres-18_other"},
+    # Cloud-destination-only permutations are disabled until keyless cloud auth
+    # lands (see ci/MIGRATION_TODO.md B4 / A4). The postgres_other suite is
+    # entirely BigQuery/Snowflake/GCS/EventHubs/PubSub, so today these only fail
+    # with "TEST_BQ_CREDS env var not set". Re-enable once creds/federation exist.
+    # {"job": "postgres_other", "version": "16", "ch": "", "label": "postgres-16_other"},
+    # {"job": "postgres_other", "version": "17", "ch": "", "label": "postgres-17_other"},
+    # {"job": "postgres_other", "version": "18", "ch": "", "label": "postgres-18_other"},
     {"job": "mysql_clickhouse", "version": "mysql-gtid", "ch": "lts", "label": "mysql-gtid_ch-lts"},
     {"job": "mysql_clickhouse", "version": "mysql-pos", "ch": "stable", "label": "mysql-pos_ch-stable"},
     {"job": "mysql_clickhouse", "version": "mysql-gtid", "ch": "latest", "label": "mysql-gtid_ch-latest"},
@@ -105,9 +109,11 @@ TARGETS = [
     {"job": "cockroachdb_clickhouse", "version": "v24", "ch": "lts", "label": "cockroachdb-v24_ch-lts"},
     {"job": "cockroachdb_clickhouse", "version": "v25", "ch": "stable", "label": "cockroachdb-v25_ch-stable"},
     {"job": "cockroachdb_clickhouse", "version": "v26", "ch": "latest", "label": "cockroachdb-v26_ch-latest"},
-    {"job": "bigquery_clickhouse", "version": "", "ch": "lts", "label": "bigquery_ch-lts"},
-    {"job": "bigquery_clickhouse", "version": "", "ch": "stable", "label": "bigquery_ch-stable"},
-    {"job": "bigquery_clickhouse", "version": "", "ch": "latest", "label": "bigquery_ch-latest"},
+    # bigquery_clickhouse needs GCP creds — disabled until keyless cloud auth
+    # lands (see ci/MIGRATION_TODO.md B4 / A4).
+    # {"job": "bigquery_clickhouse", "version": "", "ch": "lts", "label": "bigquery_ch-lts"},
+    # {"job": "bigquery_clickhouse", "version": "", "ch": "stable", "label": "bigquery_ch-stable"},
+    # {"job": "bigquery_clickhouse", "version": "", "ch": "latest", "label": "bigquery_ch-latest"},
 ]
 
 LABELS = [t["label"] for t in TARGETS]

@@ -32,10 +32,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
 
 from praktika.result import Result  # noqa: E402
+from praktika.settings import Settings  # noqa: E402
 from praktika.utils import Utils  # noqa: E402
 
 import tilt_env  # noqa: E402
 from junit_result import build_job_result  # noqa: E402
+
+FLOW_IMAGES_ARCHIVE = "flow-images.tar.zst"
 
 FLOW_JUNIT = "logs/test-results.xml"
 PKG_JUNIT = "logs/pkg-test-results.xml"
@@ -93,6 +96,22 @@ def _apply_matrix_target():
         return
     for key, value in flow_matrix.resolve(label).items():
         os.environ.setdefault(key, value)
+
+
+def _load_prebuilt_flow_images(env):
+    """If the flow_images job's artifact is present (ci/scripts/flow_images.py,
+    required by this job), docker-load it and tell the Tiltfile to skip the
+    per-job image builds. Best effort: on any failure Tilt builds them itself."""
+    archive = os.path.join(Settings.INPUT_DIR, FLOW_IMAGES_ARCHIVE)
+    if not os.path.exists(archive):
+        print("no prebuilt flow images artifact; Tilt will build them", flush=True)
+        return
+    print(f"loading prebuilt flow images from {archive}...", flush=True)
+    if _run(f"zstd -d -T0 < {archive} | docker load", shell=True) == 0:
+        env["PEERDB_CI_PREBUILT_FLOW_IMAGES"] = "1"
+        print("prebuilt flow images loaded; Tilt will skip the image builds", flush=True)
+    else:
+        print("WARNING: failed to load prebuilt flow images; Tilt will build them", flush=True)
 
 
 def _build_env():
@@ -193,6 +212,7 @@ def main():
         if not os.path.exists(".env"):
             shutil.copyfile(".env.example", ".env")
         _ensure_hosts_entry()
+        _load_prebuilt_flow_images(env)
         if _run("go mod download", shell=True, cwd="flow", env=env) != 0:
             raise tilt_env.TiltError("go mod download failed")
         _, tilt_log = tilt_env.start_tilt(runner_temp, env)
