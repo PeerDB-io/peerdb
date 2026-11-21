@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context;
 use parser::PeerDBStatement;
 use parser::ast_peerdb::CreateMirror::{CDC, Select};
-use pt::peerdb_peers::{MongoAuthType, MySqlAuthType, PostgresAuthType};
+use pt::peerdb_peers::{MongoAuthType, MySqlAuthType, PostgresAuthType, PostgresSslNegotiation};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
@@ -829,6 +829,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 auth_type: PostgresAuthType::PostgresPassword.into(),
                 aws_auth: None,
                 client_tls,
+                ssl_negotiation: PostgresSslNegotiation::Postgres.into(),
             };
 
             Config::PostgresConfig(postgres_config)

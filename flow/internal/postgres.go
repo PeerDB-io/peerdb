@@ -77,6 +77,9 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 		// When require or more strict modes are set, the PostgreSQL client library will use the TLS
 		// configuration provided by the user.
 		// Other modes such as "verify-ca" or "verify-full" might be relaxed by this configuration.
+		if pgConfig.SslNegotiation == protos.PostgresSslNegotiation_POSTGRES_SSL_NEGOTIATION_DIRECT {
+			q.Set("sslnegotiation", "direct")
+		}
 	}
 
 	// Preserve spaces in application_name; pgx treats '+' literally.

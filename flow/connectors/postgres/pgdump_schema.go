@@ -418,6 +418,10 @@ func appendTLSEnv(ctx context.Context, cmd *exec.Cmd, config *protos.PostgresCon
 		// sslrootcert=system needs libpq 16+.
 		cmd.Env = append(cmd.Env, "PGSSLMODE=verify-full", "PGSSLROOTCERT=system")
 	}
+	if config.SslNegotiation == protos.PostgresSslNegotiation_POSTGRES_SSL_NEGOTIATION_DIRECT &&
+		internal.PGMustUseTlsConnection(config) {
+		cmd.Env = append(cmd.Env, "PGSSLNEGOTIATION=direct")
+	}
 
 	if hasRootCA && !config.SkipCertVerification {
 		tmpFile, err := os.CreateTemp("", "peerdb-root-ca-*.pem")

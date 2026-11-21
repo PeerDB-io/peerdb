@@ -252,6 +252,10 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		if err != nil {
 			return nil, err
 		}
+		if connConfig.SSLNegotiation == "direct" {
+			// pgx sets ALPN on the TLS config it builds, which we replace, and direct SSL requires it
+			tlsConfig.NextProtos = []string{"postgresql"}
+		}
 		connConfig.TLSConfig = tlsConfig
 	}
 	return connConfig, nil

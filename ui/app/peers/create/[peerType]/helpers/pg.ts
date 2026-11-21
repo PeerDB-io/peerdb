@@ -5,6 +5,7 @@ import {
   PostgresAuthType,
   postgresAuthTypeFromJSON,
   PostgresConfig,
+  PostgresSslNegotiation,
 } from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
@@ -259,6 +260,7 @@ export const blankPostgresSetting: PostgresConfig = {
   database: '',
   requireTls: false,
   skipCertVerification: false,
+  sslNegotiation: PostgresSslNegotiation.POSTGRES_SSL_NEGOTIATION_POSTGRES,
   authType: PostgresAuthType.POSTGRES_PASSWORD,
   awsAuth: {
     region: '',

@@ -129,6 +129,13 @@ message ClientTlsConfig {
   string private_key = 2 [(peerdb_redacted) = true];
 }
 
+// libpq sslnegotiation. DIRECT starts the TLS handshake without the SSLRequest preamble,
+// so SNI-routing proxies can route the connection; it needs Postgres 17+.
+enum PostgresSslNegotiation {
+  POSTGRES_SSL_NEGOTIATION_POSTGRES = 0;
+  POSTGRES_SSL_NEGOTIATION_DIRECT = 1;
+}
+
 message PostgresConfig {
   string host = 1;
   uint32 port = 2;
@@ -146,6 +153,8 @@ message PostgresConfig {
   optional bool disable_tls = 13;
   bool skip_cert_verification = 14;
   optional ClientTlsConfig client_tls = 15;
+  // applied only when TLS is required
+  PostgresSslNegotiation ssl_negotiation = 16;
 }
 
 message CockroachDBConfig {

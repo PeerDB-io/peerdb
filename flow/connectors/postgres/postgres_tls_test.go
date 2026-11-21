@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -146,4 +147,38 @@ func TestParseConfigCloudSQLIAMLeavesTLSToConnector(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, connConfig.TLSConfig)
 	require.Empty(t, connConfig.Password)
+}
+
+func TestSSLNegotiationDirect(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		requireTls bool
+		wantDirect bool
+	}{
+		{name: "tls", requireTls: true, wantDirect: true},
+		{name: "no tls ignores direct", requireTls: false, wantDirect: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pgConfig := &protos.PostgresConfig{
+				Host: "db.example.com", Port: 5432, User: "user", Database: "testdb",
+				RequireTls:     tc.requireTls,
+				SslNegotiation: protos.PostgresSslNegotiation_POSTGRES_SSL_NEGOTIATION_DIRECT,
+			}
+
+			connConfig, err := ParseConfig(internal.GetPGConnectionString(pgConfig, ""), pgConfig)
+			require.NoError(t, err)
+
+			cmd := exec.CommandContext(t.Context(), "echo")
+			appendTLSEnv(t.Context(), cmd, pgConfig, pgAddr{host: pgConfig.Host})
+
+			if tc.wantDirect {
+				require.Equal(t, "direct", connConfig.SSLNegotiation)
+				require.Equal(t, []string{"postgresql"}, connConfig.TLSConfig.NextProtos)
+				require.Equal(t, "direct", envValue(cmd, "PGSSLNEGOTIATION"))
+			} else {
+				require.Empty(t, connConfig.SSLNegotiation)
+				require.Empty(t, envValue(cmd, "PGSSLNEGOTIATION"))
+			}
+		})
+	}
 }
