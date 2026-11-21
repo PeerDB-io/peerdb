@@ -121,7 +121,16 @@ func newPostgresConnector(
 	if flowNameInApplicationName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
+	sslNegotiation, err := internal.PeerDBPostgresSSLNegotiation(ctx, env)
+	if err != nil {
+		return nil, err
+	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
+	directSSL := sslNegotiation == "direct" && internal.PGMustUseTlsConnection(pgConfig)
+	if directSSL {
+		// GetPGConnectionString always sets a query string
+		connectionString += "&sslnegotiation=direct"
+	}
 	connConfig, err := ParseConfig(connectionString, pgConfig)
 	if err != nil {
 		return nil, err
@@ -169,6 +178,9 @@ func newPostgresConnector(
 				pgerrcode.InsufficientPrivilege:
 				err = exceptions.NewAuthError(err)
 			}
+		} else if directSSL {
+			// servers before Postgres 17 drop a direct SSL connection during the handshake
+			err = fmt.Errorf("%w (PEERDB_POSTGRES_SSL_NEGOTIATION=direct requires Postgres 17 or later)", err)
 		}
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
@@ -251,6 +263,10 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 			clientCert)
 		if err != nil {
 			return nil, err
+		}
+		if connConfig.SSLNegotiation == "direct" {
+			// pgx sets this on the TLS config it builds, which we replace; direct SSL requires ALPN.
+			tlsConfig.NextProtos = []string{"postgresql"}
 		}
 		connConfig.TLSConfig = tlsConfig
 	}

@@ -147,3 +147,24 @@ func TestParseConfigCloudSQLIAMLeavesTLSToConnector(t *testing.T) {
 	require.Nil(t, connConfig.TLSConfig)
 	require.Empty(t, connConfig.Password)
 }
+
+func TestParseConfigSSLNegotiationDirect(t *testing.T) {
+	pgConfig := &protos.PostgresConfig{
+		Host:       "localhost",
+		Port:       5432,
+		User:       "user",
+		Database:   "testdb",
+		RequireTls: true,
+	}
+
+	connConfig, err := ParseConfig(testTLSConnString+"&sslnegotiation=direct", pgConfig)
+	require.NoError(t, err)
+	require.Equal(t, "direct", connConfig.SSLNegotiation)
+	require.NotNil(t, connConfig.TLSConfig)
+	require.Equal(t, []string{"postgresql"}, connConfig.TLSConfig.NextProtos)
+
+	connConfig, err = ParseConfig(testTLSConnString, pgConfig)
+	require.NoError(t, err)
+	require.Empty(t, connConfig.SSLNegotiation)
+	require.Empty(t, connConfig.TLSConfig.NextProtos)
+}
