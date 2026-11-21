@@ -109,7 +109,7 @@ DROP MIRROR my_mirror;
 - **Query Executor**: Routes queries to appropriate peer executors or the Flow API
 - **Catalog Integration**: Encrypted credential storage with optional KMS
 
-**Rust workspace crates**: `analyzer`, `catalog`, `flow-rs`, `parser`, `peer-ast`, `peer-bigquery`, `peer-mysql`, `peer-postgres`, `peer-snowflake`, `postgres-connection`, `pt` (protobuf types), `server`, `value`
+**Rust workspace crates**: `analyzer`, `catalog`, `flow-rs`, `parser`, `peer-bigquery`, `peer-cursor`, `peer-mysql`, `peer-postgres`, `peer-snowflake`, `postgres-connection`, `pt` (protobuf types), `query-router`, `server`, `value`
 
 ### 3.2 Flow API — Go
 
