@@ -234,6 +234,32 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
           allow-unsafe-pr-checkout: true
+      # TEMP (praktika perf comparison): profile the GHA runner — disk type,
+      # fsync latency, and which base images ship pre-pulled on the hosted image.
+      - name: Runner diagnostics
+        run: |
+          set +e
+          echo "::group::CPU / memory"
+          echo "nproc=$(nproc)"; grep -m1 'model name' /proc/cpuinfo; free -h
+          echo "::endgroup::"
+          echo "::group::Block devices (ROTA=1 spinning, 0 SSD/NVMe)"
+          lsblk -o NAME,TYPE,SIZE,ROTA,FSTYPE,MOUNTPOINT,MODEL
+          for d in /sys/block/*/queue/rotational; do echo "$d=$(cat "$d")"; done
+          echo "::endgroup::"
+          echo "::group::Filesystem backing docker root"
+          DROOT=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)
+          docker info --format 'storage-driver={{.Driver}} root={{.DockerRootDir}}'
+          df -hT "$DROOT"; findmnt -T "$DROOT" -o SOURCE,TARGET,FSTYPE,OPTIONS
+          echo "::endgroup::"
+          echo "::group::Disk throughput + fsync latency near docker root"
+          TMP=$(mktemp -p "$DROOT" 2>/dev/null || mktemp)
+          dd if=/dev/zero of="$TMP" bs=1M count=1024 oflag=direct 2>&1 | tail -1
+          dd if=/dev/zero of="$TMP" bs=4k count=2000 oflag=dsync 2>&1 | tail -1
+          rm -f "$TMP"
+          echo "::endgroup::"
+          echo "::group::Pre-pulled docker images"
+          docker images --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}'
+          echo "::endgroup::"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.3'

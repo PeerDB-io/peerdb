@@ -2,11 +2,16 @@
 # vCPU count, and RAM in GiB. The label value doubles as the pool / SQS queue
 # name in ci/infrastructure/projects.py.
 class RunnerLabels:
-    # c7g.large — rust-lint and other light arm jobs.
+    # c8g.large — rust-lint and other light arm jobs.
     ARM_2CPU_4G = "arm_2cpu_4g"
-    # c7i.16xlarge — heavy x86_64 pool for the Tilt e2e stack (docker-compose +
-    # flow image builds + highly parallel go test). Port of flow.yml's 32/64-core runners.
-    AMD_64CPU_128G = "amd_64cpu_128g"
+    # c8i.8xlarge — heavy x86_64 Tilt e2e pool (32 vCPU / 64 GiB, 1:2). Matches
+    # GitHub's ubuntu-latest-32-cores on CPU; RAM isn't the constraint in CI, so
+    # 1:2 for now (go to m-family if we ever see memory pressure). Unit tests +
+    # flow_test matrix.
+    AMD_32CPU_64G = "amd_32cpu_64g"
+    # c8i.2xlarge — smaller x86_64 pool for the flow-image build + test-selection
+    # (jobs that can't saturate the big pool).
+    AMD_8CPU_16G = "amd_8cpu_16g"
 
 
 PROJECT_NAME = "peerdb"

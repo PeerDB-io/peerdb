@@ -48,6 +48,35 @@ def _resource_exists(res):
     ).returncode == 0
 
 
+def reset_stale_state():
+    """Clear any leftover Tilt/docker state from a previous job on this runner.
+
+    Our runner pool reuses instances (unlike GitHub's ephemeral per-job runners),
+    and flow_test launches `tilt up` in the background without tearing it down. A
+    later job on the same instance would then find port TILT_PORT already bound
+    ("address already in use") -> `tilt up` dies -> "Tiltfile evaluation did not
+    complete". Kill any prior tilt and remove leftover containers so each job
+    starts from a clean slate."""
+    # Stop a previous job's `tilt up` (it holds the control-API port).
+    subprocess.run(["pkill", "-f", f"tilt up --port {TILT_PORT}"], check=False)
+    # Remove any leftover containers (the prior job's compose stack). Nothing
+    # else runs on a CI runner, so a blanket rm -f is safe and frees their ports.
+    ids = subprocess.run(
+        ["docker", "ps", "-aq"], stdout=subprocess.PIPE, text=True
+    ).stdout.split()
+    if ids:
+        print(f"resetting stale state: removing {len(ids)} leftover container(s)", flush=True)
+        subprocess.run(["docker", "rm", "-f", *ids], check=False)
+    # Give the kernel a moment to release the control-API port.
+    for _ in range(10):
+        if subprocess.run(
+            ["pgrep", "-f", f"tilt up --port {TILT_PORT}"],
+            stdout=subprocess.DEVNULL,
+        ).returncode != 0:
+            break
+        time.sleep(1)
+
+
 def start_tilt(runner_temp, env):
     """Launch `tilt up` headless (writing to a log file) and wait for the Tiltfile
     to finish evaluating. Returns (Popen, log_path)."""

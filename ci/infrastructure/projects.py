@@ -248,7 +248,7 @@ def _image_builders():
             prebuilt_venvs=prebuilt_venvs,
             # Build-phase install runs before the test-phase asserts.
             components=[rust_toolchain, arm_image_test],
-            instance_types=["c7g.large"],
+            instance_types=["c8g.large"],
         ),
         Components.create_ubuntu_image_builder_config(
             name="ci-x86_64-image",
@@ -256,7 +256,7 @@ def _image_builders():
             controller_package=_PRAKTIKA_CONTROLLER_WHL,
             prebuilt_venvs=prebuilt_venvs,
             components=[rust_toolchain, flow_toolchain, x86_image_test],
-            instance_types=["c7a.large"],
+            instance_types=["c8i.large"],
         ),
     ]
 
@@ -316,7 +316,7 @@ PROJECTS = [
         runner_pools=[
             Components.RunnerPool(
                 name="arm_2cpu_4g",
-                instance_type="c7g.large",
+                instance_type="c8g.large",
                 scaling=Components.RunnerPool.Scaling.Auto,
                 size=0,
                 max_size=50,
@@ -336,13 +336,13 @@ PROJECTS = [
                 # runner. See the RunnerPool docstring.
                 ext={"system_logs": False, "host_metrics": False},
             ),
-            # Heavy x86_64 pool for the Tilt e2e stack: full docker-compose
-            # stack + flow image builds + highly parallel go test. Sized to
-            # flow.yml's 64-core runners (c7i.16xlarge = 64 vCPU / 128 GB), with
-            # a large volume for docker images + the Go build cache.
+            # Heavy x86_64 pool for the Tilt e2e stack (full docker-compose stack
+            # + highly parallel go test). Matches GitHub's ubuntu-latest-32-cores
+            # on CPU; 1:2 vCPU:RAM (32 vCPU / 64 GiB) since RAM isn't scarce in
+            # CI. Latest-gen Intel (c8i). Runs the Tilt e2e matrix + unit tests.
             Components.RunnerPool(
-                name="amd_64cpu_128g",
-                instance_type="c7i.16xlarge",
+                name="amd_32cpu_64g",
+                instance_type="c8i.8xlarge",
                 scaling=Components.RunnerPool.Scaling.Auto,
                 size=0,
                 max_size=20,
@@ -361,7 +361,30 @@ PROJECTS = [
                 allow_all_secrets=False,
                 allow_all_s3_prefixes=False,
                 allow_ssm_debug=False,
-                capacity_reserve=1,
+                ext={"system_logs": False, "host_metrics": False},
+            ),
+            # Smaller x86 pool for jobs that can't saturate the big one: the
+            # flow-image docker build (serial Go link) and the light test-
+            # selection check. Latest-gen Intel (c8i).
+            Components.RunnerPool(
+                name="amd_8cpu_16g",
+                instance_type="c8i.2xlarge",
+                scaling=Components.RunnerPool.Scaling.Auto,
+                size=0,
+                max_size=20,
+                volume_size_gb=120,
+                # Build throughput helps (docker build + go mod download); no need
+                # for the e2e pool's max IOPS.
+                volume_iops=16000,
+                volume_throughput=1000,
+                image_builder=_IMAGE_BUILDERS_BY_NAME["ci-x86_64-image"],
+                allowed_ssm_parameters=[],
+                allowed_secrets=[],
+                allowed_s3_prefixes=_PROJECT_S3_PREFIXES,
+                allow_all_ssm_parameters=False,
+                allow_all_secrets=False,
+                allow_all_s3_prefixes=False,
+                allow_ssm_debug=False,
                 ext={"system_logs": False, "host_metrics": False},
             ),
         ],

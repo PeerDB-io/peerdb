@@ -35,6 +35,7 @@ from praktika.result import Result  # noqa: E402
 from praktika.settings import Settings  # noqa: E402
 from praktika.utils import Utils  # noqa: E402
 
+import go_cache  # noqa: E402
 import tilt_env  # noqa: E402
 from junit_result import build_job_result  # noqa: E402
 
@@ -209,18 +210,31 @@ def main():
     # ---- Setup: Tilt + docker-compose stack ---------------------------------
     tilt_log = None
     try:
+        # Reused runners may carry a previous job's tilt/compose stack (GitHub's
+        # are ephemeral); clear it so `tilt up` can bind the control-API port.
+        tilt_env.reset_stale_state()
         if not os.path.exists(".env"):
             shutil.copyfile(".env.example", ".env")
         # Disposable CI catalog Postgres (Temporal's persistence): disable fsync
         # so Temporal commit latency isn't bound by network-attached storage.
         # docker-compose-dev.yml interpolates this into the catalog command.
+        # MUST be quoted: the provision scripts `source` .env with `set -e`, and
+        # an unquoted multi-word value parses as a bogus command (exit 127),
+        # breaking every provision/peer-setup step. Compose strips the quotes.
         with open(".env", "a") as f:
-            f.write("\nCATALOG_EXTRA_PG_FLAGS=-c fsync=off -c synchronous_commit=off -c full_page_writes=off\n")
+            f.write('\nCATALOG_EXTRA_PG_FLAGS="-c fsync=off -c synchronous_commit=off -c full_page_writes=off"\n')
         _ensure_hosts_entry()
         _load_prebuilt_flow_images(env)
+        # Restore the shared Go caches (modules + compiled objects) so the test
+        # compile reuses them instead of re-downloading / rebuilding from scratch.
+        go_cache.restore("mod")
+        go_cache.restore("build")
         if _run("go mod download", shell=True, cwd="flow", env=env) != 0:
             raise tilt_env.TiltError("go mod download failed")
-        _, tilt_log = tilt_env.start_tilt(runner_temp, env)
+        # Point at the log start_tilt writes *before* calling it, so a start_tilt
+        # failure (e.g. Tiltfile eval timeout) still attaches the startup log.
+        tilt_log = os.path.join(runner_temp, "tilt-startup.log")
+        tilt_env.start_tilt(runner_temp, env)
         tilt_env.enable_and_trigger(services)
         tilt_env.wait_ancillary(services)
         tilt_env.bring_up_core(
