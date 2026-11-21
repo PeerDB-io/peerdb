@@ -74,7 +74,10 @@ services:
   catalog:
     container_name: catalog
     image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
-    command: -c config_file=/etc/postgresql.conf
+    # CATALOG_EXTRA_PG_FLAGS is empty for local dev; CI sets it to disable fsync
+    # (disposable DB) — this is Temporal's persistence and the commit-latency
+    # bottleneck on network-attached CI storage. See ci/scripts/flow_test.py.
+    command: -c config_file=/etc/postgresql.conf ${CATALOG_EXTRA_PG_FLAGS:-}
     ports:
       - *peerdb-catalog-port
     environment:

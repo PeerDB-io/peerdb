@@ -211,6 +211,11 @@ def main():
     try:
         if not os.path.exists(".env"):
             shutil.copyfile(".env.example", ".env")
+        # Disposable CI catalog Postgres (Temporal's persistence): disable fsync
+        # so Temporal commit latency isn't bound by network-attached storage.
+        # docker-compose-dev.yml interpolates this into the catalog command.
+        with open(".env", "a") as f:
+            f.write("\nCATALOG_EXTRA_PG_FLAGS=-c fsync=off -c synchronous_commit=off -c full_page_writes=off\n")
         _ensure_hosts_entry()
         _load_prebuilt_flow_images(env)
         if _run("go mod download", shell=True, cwd="flow", env=env) != 0:
