@@ -21,6 +21,7 @@ skipped (FLOW_TESTS_RDS_IAM_AUTH_SKIP defaults to true, no cloud creds). Secret
 re-homing lands in a later phase.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,39 @@ def _ensure_hosts_entry():
         check=True,
         stdout=subprocess.DEVNULL,
     )
+
+
+def _resolve_target_label():
+    """The matrix target for this run. Prefer an explicit MATRIX_TARGET (manual
+    / local runs); otherwise derive it from the parametrized job name, which
+    praktika sets to "Flow test (<label>)"."""
+    explicit = os.environ.get("MATRIX_TARGET")
+    if explicit:
+        return explicit
+    try:
+        from praktika.info import Info
+
+        job_name = Info().job_name or ""
+    except Exception:
+        job_name = os.environ.get("JOB_NAME", "")
+    m = re.search(r"\(([^()]*)\)\s*$", job_name)
+    return m.group(1) if m else ""
+
+
+def _apply_matrix_target():
+    """Resolve this run's permutation env from flow_matrix and apply it (without
+    clobbering anything already exported, so values can still be overridden)."""
+    label = _resolve_target_label()
+    if not label:
+        return
+    import flow_matrix
+
+    if label not in flow_matrix.LABELS:
+        print(f"WARNING: job variant {label!r} not in flow_matrix; "
+              "falling back to explicit env", flush=True)
+        return
+    for key, value in flow_matrix.resolve(label).items():
+        os.environ.setdefault(key, value)
 
 
 def _build_env():
@@ -129,6 +163,7 @@ def _pkg_result(junit, exit_code, stopwatch, name, ran, extra_files):
 
 def main():
     sw = Utils.Stopwatch()
+    _apply_matrix_target()
     label = os.environ.get("RUN_LABEL") or "flow"
     runner_temp = os.environ.get("RUNNER_TEMP") or tempfile.mkdtemp()
     os.environ["RUNNER_TEMP"] = runner_temp
