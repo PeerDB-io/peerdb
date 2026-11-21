@@ -1,5 +1,12 @@
+import os
+import sys
+
 from praktika import Job, Workflow
 from ci.settings.settings import RunnerLabels
+
+# flow_matrix lives under ci/scripts (the job scripts dir), not a package.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+from flow_matrix import LABELS  # noqa: E402
 
 
 WORKFLOWS = [
@@ -40,34 +47,25 @@ WORKFLOWS = [
                 command="bash .github/scripts/check-flow-test-selection.sh",
                 timeout=20 * 60,
             ),
-            # First Tilt e2e permutation (port of flow.yml's flow_test matrix,
-            # one target: postgres-16 + ClickHouse lts). The driver
-            # ci/scripts/flow_test.py brings up the docker-compose stack via Tilt
-            # and runs gotestsum on the host, emitting a structured praktika
-            # Result (per-test table, diagnostics attached). allow_failure for
-            # now: the AWS/RDS-IAM/CloudSQL/cloud-destination suites are skipped
-            # until their secrets are re-homed (Phase B), and we want the run
-            # visible without blocking merge while we shake the plumbing out.
-            Job.Config(
-                name="Flow test (postgres-16_ch-lts)",
+            # flow.yml's flow_test matrix (21 permutations). Each target is
+            # resolved from ci/scripts/flow_matrix.py by MATRIX_TARGET; the
+            # driver ci/scripts/flow_test.py brings up the docker-compose stack
+            # via Tilt and runs gotestsum on the host, emitting a structured
+            # praktika Result (per-test table, diagnostics attached).
+            # allow_failure for now: the AWS/RDS-IAM/CloudSQL/cloud-destination
+            # suites are skipped until their secrets are re-homed, and we want
+            # the matrix visible without blocking merge while it stabilizes.
+            # One shared command for every permutation; the driver derives its
+            # target from the job name (Info().job_name -> "Flow test (<label>)")
+            # and resolves the rest from ci/scripts/flow_matrix.py.
+            *Job.Config(
+                name="Flow test",
                 runs_on=[RunnerLabels.AMD_64CPU_128G],
-                command=(
-                    'export RUN_LABEL="postgres-16_ch-lts" && '
-                    'export TEST_PACKAGES="'
-                    "./e2e/postgres_clickhouse/... ./e2e/postgres_postgres/... "
-                    "./e2e/switchboard_postgres/... ./alerting/... "
-                    "./connectors/postgres/... ./connectors/clickhouse/... "
-                    "./connectors/utils/... ./connectors/external_metadata/... ./db/..."
-                    '" && '
-                    'export PKG_TEST_PACKAGES="./clickhouse/..." && '
-                    'export ANCILLARY_SERVICES="otel-collector toxiproxy openssh '
-                    'clickhouse clickhouse-keeper clickhouse-02 postgres postgres2" && '
-                    'export POSTGRES_IMAGE="imresamu/postgis:16-3.5-alpine" && '
-                    'export CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:26.8" && '
-                    "python3 ci/scripts/flow_test.py"
-                ),
+                command="python3 ci/scripts/flow_test.py",
                 timeout=60 * 60,
                 allow_failure=True,
+            ).parametrize(
+                *[Job.ParamSet(parameter=label) for label in LABELS]
             ),
         ],
         enable_cache=True,
