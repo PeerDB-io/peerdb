@@ -391,8 +391,7 @@ func (a *FlowableActivity) SyncFlow(
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 
-	// config keeps the table mappings the mirror started with, options also the tables added since:
-	// normalize must see the column settings of added tables too
+	// options carries the current table mappings, config omits them to keep the payload small
 	if options != nil {
 		config = proto.CloneOf(config)
 		config.TableMappings = options.TableMappings

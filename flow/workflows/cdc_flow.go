@@ -80,6 +80,28 @@ func updateFlowConfigWithLatestSettings(
 	return cloneCfg
 }
 
+// withoutTableMappings copies cfg without TableMappings, which state.SyncFlowOptions also carries.
+// Sending both doubles the payload, which exceeds Temporal's 2MB limit for mirrors with thousands of tables.
+func withoutTableMappings(cfg *protos.FlowConnectionConfigsCore) *protos.FlowConnectionConfigsCore {
+	tableMappings := cfg.TableMappings
+	cfg.TableMappings = nil
+	compactCfg := proto.CloneOf(cfg)
+	cfg.TableMappings = tableMappings
+	return compactCfg
+}
+
+// restoreTableMappings undoes withoutTableMappings on a Continue-As-New input.
+// Inputs that still carry both copies are left as is.
+func restoreTableMappings(cfg *protos.FlowConnectionConfigsCore, state *cdc_state.CDCFlowWorkflowState) {
+	if len(cfg.TableMappings) > 0 || state.SyncFlowOptions == nil {
+		return
+	}
+	cfg.TableMappings = make([]*protos.TableMapping, 0, len(state.SyncFlowOptions.TableMappings))
+	for _, tableMapping := range state.SyncFlowOptions.TableMappings {
+		cfg.TableMappings = append(cfg.TableMappings, proto.CloneOf(tableMapping))
+	}
+}
+
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = cdc_state.CDCFlowWorkflowState
 
@@ -1146,7 +1168,7 @@ func startCDC(
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	}))
-	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
+	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, withoutTableMappings(cfg), state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
@@ -1262,6 +1284,8 @@ func CDCFlowWorkflow(
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	if state == nil {
 		state = cdc_state.NewCDCFlowWorkflowState(ctx, logger, cfg)
+	} else {
+		restoreTableMappings(cfg, state)
 	}
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
@@ -1295,7 +1319,7 @@ func CDCFlowWorkflow(
 
 	switch next {
 	case nextRunCDC:
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, withoutTableMappings(cfg), state)
 	case nextRunDrop:
 		if state.DropFlowInput == nil {
 			return state, errors.New("internal: drop transition without DropFlowInput")
