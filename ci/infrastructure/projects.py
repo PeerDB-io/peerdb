@@ -119,7 +119,7 @@ def _peerdb_flow_host_toolchain_component():
         "name": "peerdb-flow-host-toolchain",
         "platform": "Linux",
         "phase": "build",
-        "version": "1.0.3",
+        "version": "1.0.4",
         "description": "Go + gotestsum + Tilt + docker-compose + flow e2e host deps",
         "commands": [
             # Give containers a high default nofile, matching GitHub-hosted
@@ -141,6 +141,22 @@ def _peerdb_flow_host_toolchain_component():
             'curl -fsSL -o /usr/local/bin/docker-compose '
             '"https://github.com/docker/compose/releases/download/${DC_VERSION}/docker-compose-linux-$ARCH"; '
             "chmod +x /usr/local/bin/docker-compose; docker-compose version",
+            # golangci-lint (pinned to .github/workflows/golang-lint.yml's v2.15.0).
+            "set -eux; ARCH=$(dpkg --print-architecture); V=2.15.0; "
+            'curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/'
+            'v${V}/golangci-lint-${V}-linux-$ARCH.tar.gz" -o /tmp/gcl.tgz; '
+            "tar -xzf /tmp/gcl.tgz -C /tmp; "
+            "mv /tmp/golangci-lint-${V}-linux-$ARCH/golangci-lint /usr/local/bin/; "
+            "rm -rf /tmp/gcl.tgz /tmp/golangci-lint-${V}-linux-$ARCH; golangci-lint version",
+            # Node.js LTS (ui lint/build; GHA uses setup-node's default LTS).
+            "set -eux; NODE_VERSION=22.11.0; ARCH=$(dpkg --print-architecture); "
+            'case "$ARCH" in amd64) NARCH=x64 ;; arm64) NARCH=arm64 ;; esac; '
+            'curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NARCH}.tar.gz" -o /tmp/node.tgz; '
+            "tar -xzf /tmp/node.tgz -C /opt; rm -f /tmp/node.tgz; "
+            "ln -sf /opt/node-v${NODE_VERSION}-linux-${NARCH}/bin/node "
+            "/opt/node-v${NODE_VERSION}-linux-${NARCH}/bin/npm "
+            "/opt/node-v${NODE_VERSION}-linux-${NARCH}/bin/npx /usr/local/bin/; "
+            "node --version; npm --version",
             # apt: geos, retry, postgresql-client-18 (via PGDG), zstd.
             "set -eux; export DEBIAN_FRONTEND=noninteractive; "
             "install -d /usr/share/postgresql-common/pgdg; "
@@ -188,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.4"
+    image_recipe_version = "1.1.5"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -229,6 +245,9 @@ def _image_builders():
             "command -v tilt",
             "command -v docker-compose",
             "docker-compose version",
+            "command -v golangci-lint",
+            "command -v node",
+            "command -v npm",
             # Containers must default to a high nofile (see the daemon.json merge).
             "jq -e '.\"default-ulimits\".nofile.Soft == 1048576' /etc/docker/daemon.json",
             "command -v yq",

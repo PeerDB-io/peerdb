@@ -76,6 +76,27 @@ WORKFLOWS = [
                 command="cd nexus && cargo clippy -- -D warnings",
                 timeout=60 * 60,
             ),
+            # Consolidated linters (ports golang-lint.yml + the lint half of
+            # ui-lint.yml) as one job with per-step sub-results: golangci-lint
+            # (flow, flow/pkg, e2e_cleanup) + ui eslint + prettier. golangci-lint
+            # and Node are baked into the image; protos generated in the pre-hook.
+            Job.Config(
+                name="Lint",
+                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                pre_hooks=[_RESTORE_GO_MOD, "./generate-protos.sh"],
+                command="python3 ci/scripts/lint.py",
+                requires=[GO_MOD_CACHE_ARTIFACT.name],
+                timeout=30 * 60,
+            ),
+            # Port of ui-build.yml: next build. Node baked in; protos (ts-proto
+            # output under ui/grpc_generated) generated in the pre-hook.
+            Job.Config(
+                name="UI build",
+                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                pre_hooks=["./generate-protos.sh"],
+                command="cd ui && npm ci && npm run build",
+                timeout=20 * 60,
+            ),
             # `go mod download` once, published as the go-mod-cache artifact every
             # Go job restores. Digest-cached on go.mod/go.sum, so it is reused
             # across runs until dependencies change (see _GO_MOD_CACHE_DIGEST).
