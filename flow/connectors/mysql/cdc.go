@@ -445,7 +445,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*binlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string, tables pipeTables) (*binlogSyncer, error) {
 	var tlsConfig *tls.Config
 	if c.needToVerifyTls() {
 		var err error
@@ -517,7 +517,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
-		RowsEventDecodeFunc:   decodeRowsEvent,
+		RowsEventDecodeFunc:   tables.decodeRowsEvent,
 	}, c.ssh.IsActive()), nil
 }
 
@@ -563,6 +563,7 @@ func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
@@ -571,7 +572,7 @@ func (c *MySqlConnector) startStreaming(
 
 	switch parsedOffset.mechanism {
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
-		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env, tables)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
 		skipGTIDs, err := internal.PeerDBMySQLSkipGTIDSet(ctx, env)
 		if err != nil {
@@ -586,7 +587,7 @@ func (c *MySqlConnector) startStreaming(
 				slog.String("skipGTIDSet", skipGTIDs),
 				slog.String("offset", parsedOffset.gset.String()))
 		}
-		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env, tables)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
@@ -596,8 +597,9 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx, env)
+	syncer, err := c.startSyncer(ctx, env, tables)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -613,8 +615,9 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx, env)
+	syncer, err := c.startSyncer(ctx, env, tables)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -687,7 +690,8 @@ func (c *MySqlConnector) PullRecords(
 			slog.Any("error", err))
 	}
 
-	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
+	tables := newPipeTables(req)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env, tables)
 	if err != nil {
 		return err
 	}
@@ -864,7 +868,7 @@ func (c *MySqlConnector) PullRecords(
 						slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.Bool("parsed", ok))
 					return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), "", "")
 				}
-				if req.TableNameSchemaMapping[req.TableNameMapping[sourceTableName].Name] == nil {
+				if !tables.has(sourceTableName) {
 					// table not in the pipe - ignore this fragment group and its continuation fragments
 					if totalFragments > 1 {
 						partialRowSkipFragments = totalFragments - 1
@@ -933,17 +937,18 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.TableMapEvent:
-			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
+			tableIdToName[ev.TableID] = qualifiedTableName(ev)
 		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
-			destinationTableName := req.TableNameMapping[sourceTableName].Name
-			exclusion := req.TableNameMapping[sourceTableName].Exclude
-			columns := req.TableNameMapping[sourceTableName].Columns
-			shouldWrapJSON := func(fd *protos.FieldDescription) bool {
-				return shouldWrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
-			}
-			schema := req.TableNameSchemaMapping[destinationTableName]
-			if schema != nil {
+			sourceTableName := qualifiedTableName(ev.Table)
+			if tables.has(sourceTableName) {
+				destinationTableName := req.TableNameMapping[sourceTableName].Name
+				exclusion := req.TableNameMapping[sourceTableName].Exclude
+				columns := req.TableNameMapping[sourceTableName].Columns
+				shouldWrapJSON := func(fd *protos.FieldDescription) bool {
+					return shouldWrapNonObjectJSON(
+						fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
+				}
+				schema := req.TableNameSchemaMapping[destinationTableName]
 				if isMariaDb {
 					if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
 						return err
@@ -1241,11 +1246,39 @@ const (
 	mysqlColumnTypeVarcharCompressed = 141
 )
 
-// decodeRowsEvent overrides default RowsEvent Decode method
-func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
+// pipeTables holds the "schema.table" names a pull replicates. go-mysql's decoder goroutines read it
+// concurrently with processEvent, so it must not change once the syncer starts.
+type pipeTables map[string]struct{}
+
+func newPipeTables(req *model.PullRecordsRequest[model.RecordItems]) pipeTables {
+	tables := make(pipeTables, len(req.TableNameMapping))
+	for sourceTableName, mapping := range req.TableNameMapping {
+		if req.TableNameSchemaMapping[mapping.Name] != nil {
+			tables[sourceTableName] = struct{}{}
+		}
+	}
+	return tables
+}
+
+func (t pipeTables) has(sourceTableName string) bool {
+	_, ok := t[sourceTableName]
+	return ok
+}
+
+func qualifiedTableName(table *replication.TableMapEvent) string {
+	return string(table.Schema) + "." + string(table.Table)
+}
+
+// decodeRowsEvent overrides default RowsEvent Decode method.
+// processEvent ignores rows of tables outside the pipe, so skip decoding them to save CPU.
+func (t pipeTables) decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
 	pos, err := ev.DecodeHeader(data)
 	if err != nil {
 		return err
+	}
+	if !t.has(qualifiedTableName(ev.Table)) {
+		// Skip trying to decode events outside of the mirror in case they're malformed, and to save CPU
+		return nil
 	}
 
 	err = ev.DecodeData(pos, data)
