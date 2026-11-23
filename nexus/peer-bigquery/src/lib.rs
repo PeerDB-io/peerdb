@@ -98,7 +98,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
                 self.execute_raw(&query).await
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),
@@ -219,7 +219,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
                 Ok(Some(schema.schema()))
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),

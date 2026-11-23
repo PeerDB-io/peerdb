@@ -341,7 +341,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),
@@ -447,7 +447,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
 
                 Ok(Some(schema.schema()))
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),
