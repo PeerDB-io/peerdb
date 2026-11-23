@@ -4432,7 +4432,7 @@ func (s APITestSuite) TestResetMirrorSequences() {
 
 	srcTable := AttachSchema(s, "seq_src")
 	dstTable := AttachSchema(s, "seq_dst")
-	// mixed-case destination table to exercise identifier quoting in the reset
+	// mixed-case destination table and columns to exercise identifier quoting in the reset
 	mixedSrcTable := AttachSchema(s, "seq_src_mixed")
 	mixedDstTable := AttachSchema(s, "seq_Dst_MixedCase")
 	quotedMixedDstTable := fmt.Sprintf(`"e2e_test_%s"."seq_Dst_MixedCase"`, s.suffix)
@@ -4443,16 +4443,16 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(val) VALUES ('a'),('b'),('c'),('d'),('e')", srcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", mixedSrcTable)))
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, mixedSrcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(val) VALUES ('x'),('y'),('z')", mixedSrcTable)))
+		fmt.Sprintf(`INSERT INTO %s("Val") VALUES ('x'),('y'),('z')`, mixedSrcTable)))
 
 	// Create destination tables with same structure (serial column)
 	_, err := s.pg.Conn().Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
 	require.NoError(s.t, err)
 	_, err = s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", quotedMixedDstTable))
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, quotedMixedDstTable))
 	require.NoError(s.t, err)
 
 	// Create PG-to-PG mirror with initial snapshot only
@@ -4531,14 +4531,14 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	// Mixed-case table: sequence should be at 3 (max id), nextval should return 4
 	var mixedSeqValAfter int64
 	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'id'))",
+		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'Id'))",
 			quotedMixedDstTable)).Scan(&mixedSeqValAfter)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(3), mixedSeqValAfter)
 
 	var mixedNextVal int64
 	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))",
+		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'Id'))",
 			quotedMixedDstTable)).Scan(&mixedNextVal)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(4), mixedNextVal)
