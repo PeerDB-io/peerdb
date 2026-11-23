@@ -73,8 +73,6 @@ func isRetryableException(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
 
-// withRetry runs fn up to 5 times with backoff while shouldRetry returns true for its error.
-// On context cancellation during backoff it returns the last result along with ctx.Err().
 func withRetry[T any](ctx context.Context, logger log.Logger, op string,
 	shouldRetry func(error) bool, fn func() (T, error),
 ) (T, error) {

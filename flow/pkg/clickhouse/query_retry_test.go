@@ -242,3 +242,30 @@ func TestPingDoesNotRetryAuthFailure(t *testing.T) {
 	require.ErrorIs(t, Ping(t.Context(), nopLogger{}, conn), errAuth)
 	require.Equal(t, 1, conn.calls)
 }
+
+func TestPingRetryBackoffPreemptedByContextCancel(t *testing.T) {
+	connReset := &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}
+	conn := &scriptedConn{errs: []error{connReset, connReset, connReset, connReset, connReset}}
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := Ping(ctx, nopLogger{}, conn)
+	elapsed := time.Since(start)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, elapsed, time.Second, "cancellation should preempt the retry backoff")
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestPingDoesNotRetryAfterContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	conn := &scriptedConn{errs: []error{ctx.Err()}}
+
+	require.ErrorIs(t, Ping(ctx, nopLogger{}, conn), context.Canceled)
+	require.Equal(t, 1, conn.calls)
+}
