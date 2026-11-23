@@ -13,6 +13,16 @@ Keep this in sync with .github/workflows/flow.yml until that file is retired.
 """
 
 # Source job -> packages / pkg / base ancillary services (flow.yml matrix.jobs).
+#
+# `owns`: repo-relative path prefixes that are EXCLUSIVE to this setup -- its
+# e2e test dirs, source connector, and source pkg. Used by the flow-test filter
+# hook (ci/scripts/flow_filter.py) to skip a permutation when a PR's flow
+# changes are confined to *other* setups. Deliberately omits shared code (the
+# clickhouse destination connector/pkg, connectors/utils, connectors/core.go,
+# db, alerting, activities, workflows, model, ...): a change to any of those is
+# NOT owned by a setup, so the hook treats it as core and runs every perm. Keep
+# `owns` conservative -- an over-broad entry risks skipping a perm that a change
+# actually affects.
 JOBS = {
     "postgres_clickhouse": {
         "packages": [
@@ -28,11 +38,18 @@ JOBS = {
         ],
         "pkg": "./clickhouse/...",
         "services": "otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 postgres postgres2",
+        "owns": [
+            "flow/e2e/postgres_clickhouse",
+            "flow/e2e/postgres_postgres",
+            "flow/e2e/switchboard_postgres",
+            "flow/connectors/postgres",
+        ],
     },
     "postgres_other": {
         "packages": ["./e2e/postgres_other/..."],
         "pkg": "",
         "services": "otel-collector toxiproxy openssh postgres",
+        "owns": ["flow/e2e/postgres_other", "flow/connectors/postgres"],
     },
     "mysql_clickhouse": {
         "packages": [
@@ -42,6 +59,12 @@ JOBS = {
         ],
         "pkg": "./mysql/...",
         "services": "otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02",
+        "owns": [
+            "flow/e2e/mysql_clickhouse",
+            "flow/e2e/switchboard_mysql",
+            "flow/connectors/mysql",
+            "flow/pkg/mysql",
+        ],
     },
     "mongo_clickhouse": {
         "packages": [
@@ -51,16 +74,26 @@ JOBS = {
         ],
         "pkg": "./mongo/...",
         "services": "otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mongodb",
+        "owns": [
+            "flow/e2e/mongo_clickhouse",
+            "flow/e2e/switchboard_mongo",
+            "flow/connectors/mongo",
+            "flow/pkg/mongo",
+        ],
     },
     "cockroachdb_clickhouse": {
         "packages": ["./e2e/cockroachdb_clickhouse/..."],
         "pkg": "",
         "services": "otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 cockroachdb",
+        # CockroachDB speaks the pg wire protocol, so it rides the postgres
+        # connector -- a postgres-connector change runs cockroach perms too.
+        "owns": ["flow/e2e/cockroachdb_clickhouse", "flow/connectors/postgres"],
     },
     "bigquery_clickhouse": {
         "packages": ["./e2e/bigquery_clickhouse/...", "./connectors/bigquery/..."],
         "pkg": "",
         "services": "otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02",
+        "owns": ["flow/e2e/bigquery_clickhouse", "flow/connectors/bigquery"],
     },
 }
 
@@ -87,16 +120,18 @@ IMAGES = {
 # The 21 permutations (flow.yml matrix.target): (job, version, ch, label).
 # `version` is "" where the source job has none (bigquery).
 TARGETS = [
+    # All 21 flow.yml permutations are represented (so the test-selection check
+    # sees every source job); `enabled: False` ones are defined but not run.
+    # The cloud-destination perms (postgres_other, bigquery) are disabled until
+    # keyless cloud auth lands (ci/TODO.md) — they only fail with
+    # "TEST_BQ_CREDS env var not set" today. LABELS (the Praktika matrix) is the
+    # enabled subset.
     {"job": "postgres_clickhouse", "version": "16", "ch": "lts", "label": "postgres-16_ch-lts"},
     {"job": "postgres_clickhouse", "version": "17", "ch": "stable", "label": "postgres-17_ch-stable"},
     {"job": "postgres_clickhouse", "version": "18", "ch": "latest", "label": "postgres-18_ch-latest"},
-    # Cloud-destination-only permutations are disabled until keyless cloud auth
-    # lands (see ci/MIGRATION_TODO.md B4 / A4). The postgres_other suite is
-    # entirely BigQuery/Snowflake/GCS/EventHubs/PubSub, so today these only fail
-    # with "TEST_BQ_CREDS env var not set". Re-enable once creds/federation exist.
-    # {"job": "postgres_other", "version": "16", "ch": "", "label": "postgres-16_other"},
-    # {"job": "postgres_other", "version": "17", "ch": "", "label": "postgres-17_other"},
-    # {"job": "postgres_other", "version": "18", "ch": "", "label": "postgres-18_other"},
+    {"job": "postgres_other", "version": "16", "ch": "", "label": "postgres-16_other", "enabled": False},
+    {"job": "postgres_other", "version": "17", "ch": "", "label": "postgres-17_other", "enabled": False},
+    {"job": "postgres_other", "version": "18", "ch": "", "label": "postgres-18_other", "enabled": False},
     {"job": "mysql_clickhouse", "version": "mysql-gtid", "ch": "lts", "label": "mysql-gtid_ch-lts"},
     {"job": "mysql_clickhouse", "version": "mysql-pos", "ch": "stable", "label": "mysql-pos_ch-stable"},
     {"job": "mysql_clickhouse", "version": "mysql-gtid", "ch": "latest", "label": "mysql-gtid_ch-latest"},
@@ -109,15 +144,25 @@ TARGETS = [
     {"job": "cockroachdb_clickhouse", "version": "v24", "ch": "lts", "label": "cockroachdb-v24_ch-lts"},
     {"job": "cockroachdb_clickhouse", "version": "v25", "ch": "stable", "label": "cockroachdb-v25_ch-stable"},
     {"job": "cockroachdb_clickhouse", "version": "v26", "ch": "latest", "label": "cockroachdb-v26_ch-latest"},
-    # bigquery_clickhouse needs GCP creds — disabled until keyless cloud auth
-    # lands (see ci/MIGRATION_TODO.md B4 / A4).
-    # {"job": "bigquery_clickhouse", "version": "", "ch": "lts", "label": "bigquery_ch-lts"},
-    # {"job": "bigquery_clickhouse", "version": "", "ch": "stable", "label": "bigquery_ch-stable"},
-    # {"job": "bigquery_clickhouse", "version": "", "ch": "latest", "label": "bigquery_ch-latest"},
+    {"job": "bigquery_clickhouse", "version": "", "ch": "lts", "label": "bigquery_ch-lts", "enabled": False},
+    {"job": "bigquery_clickhouse", "version": "", "ch": "stable", "label": "bigquery_ch-stable", "enabled": False},
+    {"job": "bigquery_clickhouse", "version": "", "ch": "latest", "label": "bigquery_ch-latest", "enabled": False},
 ]
 
-LABELS = [t["label"] for t in TARGETS]
+# The Praktika matrix runs only enabled targets; check-flow-test-selection sees
+# all of them (every source job must stay covered).
+LABELS = [t["label"] for t in TARGETS if t.get("enabled", True)]
 _BY_LABEL = {t["label"]: t for t in TARGETS}
+
+
+def owned_prefixes(label):
+    """Path prefixes exclusive to `label`'s setup (its JOBS[...]['owns'])."""
+    return JOBS[_BY_LABEL[label]["job"]].get("owns", [])
+
+
+# Union of every setup's owned prefixes; a changed flow path outside this set is
+# shared/core and must run every permutation (see ci/scripts/flow_filter.py).
+ALL_OWNED = sorted({p for cfg in JOBS.values() for p in cfg.get("owns", [])})
 
 
 def resolve(label):
@@ -169,3 +214,24 @@ def resolve(label):
         "TEST_ENV": test_env,
         **images,
     }
+
+
+def export():
+    """The matrix as plain JSON for the shell scripts (check-flow-test-selection.sh,
+    generate-test-environment.sh) — the single source of truth that replaces their
+    old `yq` reads of .github/workflows/flow.yml. `packages`/`pkg` are joined into
+    space-separated strings to match the old flow.yml shape."""
+    return {
+        "jobs": {
+            name: {"packages": " ".join(cfg["packages"]), "pkg": cfg["pkg"]}
+            for name, cfg in JOBS.items()
+        },
+        "targets": TARGETS,
+        "images": IMAGES,
+    }
+
+
+if __name__ == "__main__":
+    import json
+
+    print(json.dumps(export()))

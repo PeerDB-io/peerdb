@@ -27,7 +27,7 @@ _PRAKTIKA_PACKAGE_BASE_URL = (
 )
 # praktika and praktika-controller are versioned in lockstep (single
 # source of truth), so one pinned version drives both wheels.
-_PRAKTIKA_VERSION = "0.1.28"
+_PRAKTIKA_VERSION = "0.1.30"
 _PRAKTIKA_WHL = f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika-{_PRAKTIKA_VERSION}-py3-none-any.whl"
 _PRAKTIKA_CONTROLLER_WHL = (
     f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika_controller-{_PRAKTIKA_VERSION}-py3-none-any.whl"
@@ -204,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.5"
+    image_recipe_version = "1.1.6"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -299,7 +299,7 @@ _IMAGE_BUILDERS_BY_NAME = {builder.name: builder for builder in _IMAGE_BUILDERS}
 PROJECTS = [
     CloudInfrastructure.Config(
         name=Settings.PROJECT_NAME,
-        min_praktika_version="0.1.28",
+        min_praktika_version="0.1.29",
         vpcs=[
             VPC.Config(
                 subnets=[
@@ -353,7 +353,24 @@ PROJECTS = [
                 # cost money when on): system_logs = kernel/OOM/systemd
                 # evidence; host_metrics = CPU/mem/disk curve for a dead
                 # runner. See the RunnerPool docstring.
-                ext={"system_logs": False, "host_metrics": False},
+                # Bedrock grant: this (otherwise idle, post rust-lint-merge) arm
+                # pool runs the Praktika AI Code Review job, which invokes a
+                # Bedrock model via the Converse API.
+                ext={
+                    "system_logs": False,
+                    "host_metrics": False,
+                    "iam_statements": [
+                        {
+                            "Sid": "BedrockRuntimeInference",
+                            "Effect": "Allow",
+                            "Action": ["bedrock:InvokeModel"],
+                            "Resource": [
+                                "arn:aws:bedrock:*::foundation-model/*",
+                                "arn:aws:bedrock:*:*:inference-profile/*",
+                            ],
+                        }
+                    ],
+                },
             ),
             # Heavy x86_64 pool for the Tilt e2e stack (full docker-compose stack
             # + highly parallel go test). Matches GitHub's ubuntu-latest-32-cores

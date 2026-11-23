@@ -4,9 +4,10 @@
 Brings up the Tilt + docker-compose stack (ci/scripts/tilt_env.py), selects the
 tilt-tagged tests, runs them under gotestsum, and emits a structured praktika
 Result: one sub-result per module (flow, flow/pkg) whose rows are the individual
-test cases (failures first), via ci/scripts/junit_result.py. A setup failure
-before the suite runs is reported as a single ERROR Result with the Tilt startup
-log + docker diagnostics attached; a test failure attaches the same diagnostics.
+test cases (failures first), via praktika's native Result.from_junit_run. A
+setup failure before the suite runs is reported as a single ERROR Result with
+the Tilt startup log + docker diagnostics attached; a test failure attaches the
+same diagnostics.
 
 Driven entirely by environment (set per-permutation in the Job command):
   TEST_PACKAGES       flow/ test package patterns (required)
@@ -22,6 +23,7 @@ re-homing lands in a later phase.
 """
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -37,7 +39,6 @@ from praktika.utils import Utils  # noqa: E402
 
 import go_cache  # noqa: E402
 import tilt_env  # noqa: E402
-from junit_result import build_job_result  # noqa: E402
 
 FLOW_IMAGES_ARCHIVE = "flow-images.tar.zst"
 
@@ -137,10 +138,12 @@ def _build_env():
     return env
 
 
-def _run_selected(module_dir, label, junit_abs, timeout, coverpkg, coverdir, selectiondir, parallel, env):
+def _selected_command(label, junit_abs, timeout, coverpkg, coverdir, selectiondir, parallel):
     """Port of tilt-flow.yml's run_selected_tests: read the package/test pairs
-    chosen by select-flow-tests.sh and run exactly those under gotestsum.
-    Returns (exit_code, ran) where ran is False when the selection was empty."""
+    chosen by select-flow-tests.sh and build the gotestsum command that runs
+    exactly those. Returns a shell command string, or None when the selection
+    was empty. (A string, not an argv list: from_junit_run treats a list as
+    several separate commands, so the single gotestsum invocation is joined.)"""
     tsv = os.path.join(selectiondir, f"{label}-selected.tsv")
     names, pkgs, prev = [], [], None
     with open(tsv) as f:
@@ -155,7 +158,7 @@ def _run_selected(module_dir, label, junit_abs, timeout, coverpkg, coverdir, sel
                 prev = package
     if not pkgs:
         print(f"{label} selection: 0 packages", flush=True)
-        return 0, False
+        return None
     uniq = sorted(set(names))
     regex = "^(" + "|".join(uniq) + ")$"
     print(f"{label} selection: {len(pkgs)} packages, {len(uniq)} tests", flush=True)
@@ -167,18 +170,19 @@ def _run_selected(module_dir, label, junit_abs, timeout, coverpkg, coverdir, sel
         *pkgs, "-run", regex, "-timeout", timeout,
         "-args", f"-test.gocoverdir={coverdir}",
     ]
-    return _run(cmd, cwd=module_dir, env=env), True
+    return shlex.join(cmd)
 
 
-def _pkg_result(junit, exit_code, stopwatch, name, ran, extra_files):
-    """build_job_result, but an empty selection (no JUnit written) is SKIPPED,
-    not ERROR."""
-    if not ran:
+def _module_result(cmd, junit_abs, name, module_dir, env, empty_status):
+    """Run the module's selected tests via from_junit_run, or short-circuit to
+    `empty_status` with no command (empty selection wrote no JUnit report)."""
+    if cmd is None:
         return Result.create_from(
-            name=name, status=Result.Status.SKIPPED, stopwatch=stopwatch,
-            info="no tilt-tagged tests selected",
+            name=name, status=empty_status, info="no tilt-tagged tests selected",
         )
-    return build_job_result(junit, exit_code, stopwatch, name=name, extra_files=extra_files)
+    return Result.from_junit_run(
+        command=cmd, report_glob=junit_abs, name=name, workdir=module_dir, env=env,
+    )
 
 
 def main():
@@ -277,18 +281,23 @@ def main():
     flow_junit_abs = os.path.abspath(FLOW_JUNIT)
     pkg_junit_abs = os.path.abspath(PKG_JUNIT)
 
-    sw_flow = Utils.Stopwatch()
-    rc_flow, _ = _run_selected(
-        "flow", "flow", flow_junit_abs, "1200s", COVERPKG_FLOW,
-        coverdir, selectiondir, parallel, env,
+    flow_cmd = _selected_command(
+        "flow", flow_junit_abs, "1200s", COVERPKG_FLOW, coverdir, selectiondir, parallel,
+    )
+    # An empty flow selection is unexpected (ERROR); an empty pkg selection is a
+    # normal SKIP, matching tilt-flow.yml.
+    flow_res = _module_result(
+        flow_cmd, flow_junit_abs, f"flow e2e ({label})", "flow", env, Result.Status.ERROR,
     )
 
-    rc_pkg, pkg_ran = 0, False
-    sw_pkg = Utils.Stopwatch()
+    pkg_res = None
     if pkg_packages:
-        rc_pkg, pkg_ran = _run_selected(
-            "flow/pkg", "pkg", pkg_junit_abs, "300s", COVERPKG_PKG,
-            coverdir, selectiondir, parallel, env,
+        pkg_cmd = _selected_command(
+            "pkg", pkg_junit_abs, "300s", COVERPKG_PKG, coverdir, selectiondir, parallel,
+        )
+        pkg_res = _module_result(
+            pkg_cmd, pkg_junit_abs, f"flow/pkg e2e ({label})", "flow/pkg", env,
+            Result.Status.SKIPPED,
         )
 
     # Emit coverage even on failure so the attached artifact always has data.
@@ -297,18 +306,16 @@ def main():
         check=False,
     )
 
-    results = [build_job_result(FLOW_JUNIT, rc_flow, sw_flow, name=f"flow e2e ({label})")]
-    if pkg_packages:
-        results.append(
-            _pkg_result(PKG_JUNIT, rc_pkg, sw_pkg, f"flow/pkg e2e ({label})", pkg_ran, [])
-        )
+    results = [flow_res]
+    if pkg_res is not None:
+        results.append(pkg_res)
 
     # Diagnostics + coverage go on the TOP-level Result: praktika only uploads
     # files attached to the job's root result, not nested sub-results.
     top_files = []
     if os.path.exists("coverage.out"):
         top_files.append("coverage.out")
-    if rc_flow != 0 or (pkg_ran and rc_pkg != 0):
+    if not flow_res.is_ok() or (pkg_res is not None and not pkg_res.is_ok()):
         if tilt_log and os.path.exists(tilt_log):
             top_files.append(tilt_log)
         top_files += tilt_env.capture_diagnostics("logs")

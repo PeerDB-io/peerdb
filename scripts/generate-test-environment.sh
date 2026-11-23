@@ -1,20 +1,24 @@
 #!/bin/sh
 ENVIRONMENT_FILE=ancillary.env
-FLOW_WORKFLOW=.github/workflows/flow.yml
 
 if [ -f "$ENVIRONMENT_FILE" ]; then
     echo "Environment file $ENVIRONMENT_FILE already exists. Skipping"
     exit 0;
 fi
 
-# Use the last version of a source in the flow.yml matrix as its local default.
+# Flow matrix source of truth: ci/scripts/flow_matrix.py (was flow.yml).
+# Snapshot it as JSON once; resolve local defaults with jq.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+FLOW_MATRIX=$(python3 "$SCRIPT_DIR/../ci/scripts/flow_matrix.py")
+
+# Use the last version of a source in the matrix as its local default.
 default_version() {
-    yq -r ".jobs.flow_test.strategy.matrix.target | map(select(.job == \"$1\")) | .[-1].version" "$FLOW_WORKFLOW"
+    printf '%s' "$FLOW_MATRIX" | jq -r --arg j "$1" '[.targets[] | select(.job == $j)] | last | .version'
 }
 
-# Resolve a flavor label to its docker image using the flow.yml image mapping.
+# Resolve a flavor label to its docker image using the matrix image mapping.
 flavor_image() {
-    yq -r ".jobs.flow_test.strategy.matrix.images[0].$1.\"$2\"" "$FLOW_WORKFLOW"
+    printf '%s' "$FLOW_MATRIX" | jq -r --arg d "$1" --arg f "$2" '.images[$d][$f]'
 }
 
 # Use explicitly set <DB>_IMAGE wins if present; otherwise the image is derived from

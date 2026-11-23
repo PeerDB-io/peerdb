@@ -29,9 +29,11 @@ CACHE_S3_PATH = f"{S3_ARTIFACT_BUCKET}/ci_cache"
 ENABLE_SUBMODULE_CACHE = True
 
 # Snapshot the repo to S3 once (Config Workflow) so downstream jobs restore instead
-# of cloning; for PRs, snapshot the ephemeral merge of head into the target tip.
-ENABLE_S3_REPO_SNAPSHOT = False
-ENABLE_PR_EPHEMERAL_MERGE_COMMIT = False
+# of cloning; for PRs, snapshot the ephemeral merge of head into the target tip
+# (so CI tests head-merged-into-main, matching GHA's pull_request behavior).
+# Runners read it from the artifact bucket (already in their allowed_s3_prefixes).
+ENABLE_S3_REPO_SNAPSHOT = True
+ENABLE_PR_EPHEMERAL_MERGE_COMMIT = True
 S3_BUCKET_TO_HTTP_ENDPOINT = {
     S3_REPORT_BUCKET: f"{S3_REPORT_BUCKET}.s3.amazonaws.com",
 }

@@ -25,6 +25,9 @@ from praktika.utils import Utils  # noqa: E402
 
 # (name, shell command, cwd)
 STEPS = [
+    # Rust (ports rust-lint.yml): clippy compiles nexus, so it doubles as the
+    # nexus build gate. Needs the rust protos from the pre-hook's generate-protos.
+    ("nexus clippy", "cargo clippy -- -D warnings", "nexus"),
     ("go workspace", "go work init ./flow ./flow/pkg ./e2e_cleanup", "."),
     ("golangci-lint flow", "golangci-lint run --timeout=10m", "flow"),
     ("golangci-lint flow/pkg", "golangci-lint run --config=../.golangci.yml --timeout=10m", "flow/pkg"),
