@@ -131,11 +131,20 @@ func (c *PostgresConnector) normalizeTable(
 			return 0, err
 		}
 	}
+	// Release the savepoint once done so each fallback table doesn't keep a subtransaction open until commit.
+	fallback := false
+	release := func() error {
+		if fallback {
+			_, err := tx.Exec(ctx, "RELEASE SAVEPOINT _peerdb_merge")
+			return err
+		}
+		return nil
+	}
 	if !applyInSourceOrder {
 		// Another unique/exclusion index can reject the MERGE's batch-final rows even though the source
 		// got there through valid intermediate states (e.g. swapping two values). Run the MERGE under a
 		// savepoint and replay in source order if it hits 23505/23P01; the final state is the same.
-		fallback := isPgTypeSystem && d.hasSecondaryUniqueIndex
+		fallback = isPgTypeSystem && d.hasSecondaryUniqueIndex
 		if fallback {
 			if _, err := tx.Exec(ctx, "SAVEPOINT _peerdb_merge"); err != nil {
 				return 0, err
@@ -149,7 +158,10 @@ func (c *PostgresConnector) normalizeTable(
 			}
 			rows += int(ct.RowsAffected())
 		}
-		if err == nil || !fallback || !shared.IsSQLStateError(err, pgerrcode.UniqueViolation, pgerrcode.ExclusionViolation) {
+		if err == nil {
+			return rows, release()
+		}
+		if !fallback || !shared.IsSQLStateError(err, pgerrcode.UniqueViolation, pgerrcode.ExclusionViolation) {
 			return rows, err
 		}
 		c.logger.Info("normalize: batch-final MERGE conflicted, applying in source order", "table", t.name, "error", err)
@@ -157,6 +169,8 @@ func (c *PostgresConnector) normalizeTable(
 			return 0, err
 		}
 	}
-	_, err = tx.Exec(ctx, gen.generateOrderedStatement(t.name, batchID), pgx.QueryExecModeSimpleProtocol)
-	return 0, err
+	if _, err := tx.Exec(ctx, gen.generateOrderedStatement(t.name, batchID), pgx.QueryExecModeSimpleProtocol); err != nil {
+		return 0, err
+	}
+	return 0, release()
 }

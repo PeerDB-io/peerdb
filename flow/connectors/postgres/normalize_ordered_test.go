@@ -60,6 +60,16 @@ func TestGenerateOrderedStatement(t *testing.T) {
 			cols:    &protos.PeerDBColumns{SoftDeleteColName: "_PEERDB_IS_DELETED", SyncedAtColName: "_PEERDB_SYNCED_AT"},
 			alwaysI: []string{"id"},
 		},
+		{
+			// every column is ALWAYS identity: an update has nothing to set, so it only probes for the row
+			name: "only_always_identity",
+			schema: &protos.TableSchema{
+				PrimaryKeyColumns: []string{"id"},
+				Columns:           []*protos.FieldDescription{col("id", "int8")},
+			},
+			dst:     destinationTableIndexInfo{isPrimaryKeyUnique: true},
+			alwaysI: []string{"id"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

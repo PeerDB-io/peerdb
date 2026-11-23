@@ -98,6 +98,10 @@ func (n *normalizeStmtGenerator) generateOrderedStatement(dstTable string, batch
 		return ins + ";"
 	}
 	update := func(where string) string {
+		if len(sets) == 0 {
+			// every column is ALWAYS identity: nothing to set, but FOUND must still reflect whether the row exists
+			return fmt.Sprintf("PERFORM FROM %s dst WHERE %s;", table, where)
+		}
 		return fmt.Sprintf("UPDATE %s dst SET %s WHERE %s;", table, strings.Join(sets, ","), where)
 	}
 	del := func(where string) string {
