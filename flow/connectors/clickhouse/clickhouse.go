@@ -304,7 +304,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		return nil, fmt.Errorf("failed to connect to ClickHouse peer: %w", err)
 	}
 
-	if err := conn.Ping(ctx); err != nil {
+	if err := peerdb_clickhouse.Ping(ctx, internal.LoggerFromCtx(ctx), conn); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to ping to ClickHouse peer: %w", err)
 	}

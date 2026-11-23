@@ -3,6 +3,9 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -134,4 +137,135 @@ func TestExecErrorTraits(t *testing.T) {
 			require.Equal(t, "ClickHouse exec error: code: 117, message: REDACTED", err.Error())
 		})
 	}
+}
+
+// scriptedConn fails each call with errs in order, then succeeds.
+type scriptedConn struct {
+	driver.Conn
+	errs  []error
+	calls int
+}
+
+func (c *scriptedConn) next() error {
+	c.calls++
+	if c.calls <= len(c.errs) {
+		return c.errs[c.calls-1]
+	}
+	return nil
+}
+
+func (c *scriptedConn) Ping(context.Context) error {
+	return c.next()
+}
+
+func (c *scriptedConn) Exec(context.Context, string, ...any) error {
+	return c.next()
+}
+
+func (c *scriptedConn) Query(context.Context, string, ...any) (driver.Rows, error) {
+	return nil, c.next()
+}
+
+func (c *scriptedConn) QueryRow(context.Context, string, ...any) driver.Row {
+	return errRow{err: c.next()}
+}
+
+type errRow struct {
+	driver.Row
+	err error
+}
+
+func (r errRow) Err() error {
+	return r.err
+}
+
+var (
+	errTooManyParts = &clickhouse.Exception{Code: int32(chproto.ErrTooManyParts)}
+	errAuth         = &clickhouse.Exception{Code: int32(chproto.ErrAuthenticationFailed)}
+)
+
+func TestExecRetriesRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
+
+	require.NoError(t, Exec(t.Context(), nopLogger{}, conn, "INSERT INTO t VALUES (1)"))
+	require.Equal(t, 2, conn.calls)
+}
+
+func TestExecDoesNotRetryNonRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errAuth}}
+
+	require.ErrorIs(t, Exec(t.Context(), nopLogger{}, conn, "INSERT INTO t VALUES (1)"), errAuth)
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestQueryRetriesRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
+
+	_, err := Query(t.Context(), nopLogger{}, conn, "SELECT 1")
+	require.NoError(t, err)
+	require.Equal(t, 2, conn.calls)
+}
+
+func TestQueryDoesNotRetryNonRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errAuth}}
+
+	_, err := Query(t.Context(), nopLogger{}, conn, "SELECT 1")
+	require.ErrorIs(t, err, errAuth)
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestQueryRowRetriesRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errTooManyParts}}
+
+	require.NoError(t, QueryRow(t.Context(), nopLogger{}, conn, "SELECT 1").Err())
+	require.Equal(t, 2, conn.calls)
+}
+
+func TestQueryRowDoesNotRetryNonRetryableException(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errAuth}}
+
+	require.ErrorIs(t, QueryRow(t.Context(), nopLogger{}, conn, "SELECT 1").Err(), errAuth)
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestPingRetriesConnectionReset(t *testing.T) {
+	connReset := &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}
+	conn := &scriptedConn{errs: []error{connReset}}
+
+	require.NoError(t, Ping(t.Context(), nopLogger{}, conn))
+	require.Equal(t, 2, conn.calls)
+}
+
+func TestPingDoesNotRetryAuthFailure(t *testing.T) {
+	conn := &scriptedConn{errs: []error{errAuth}}
+
+	require.ErrorIs(t, Ping(t.Context(), nopLogger{}, conn), errAuth)
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestPingRetryBackoffPreemptedByContextCancel(t *testing.T) {
+	connReset := &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}
+	conn := &scriptedConn{errs: []error{connReset, connReset, connReset, connReset, connReset}}
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := Ping(ctx, nopLogger{}, conn)
+	elapsed := time.Since(start)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, elapsed, time.Second, "cancellation should preempt the retry backoff")
+	require.Equal(t, 1, conn.calls)
+}
+
+func TestPingDoesNotRetryAfterContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	conn := &scriptedConn{errs: []error{ctx.Err()}}
+
+	require.ErrorIs(t, Ping(ctx, nopLogger{}, conn), context.Canceled)
+	require.Equal(t, 1, conn.calls)
 }
