@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -28,25 +29,34 @@ var incompatibleLineRE = regexp.MustCompile(`^SET\s+transaction_timeout\s*=`)
 
 // RunPgDumpSchema streams a schema-only pg_dump from source directly into psql
 // on the destination, piping stdout into stdin without intermediate files.
-func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) error {
+//
+// The dump is applied in a single transaction, but individual statement
+// failures are rolled back to a savepoint and skipped (ON_ERROR_ROLLBACK) so
+// the remaining statements still apply. The returned string reports any
+// skipped-statement errors psql emitted; it is empty when everything applied
+// cleanly.
+func RunPgDumpSchema(ctx context.Context, srcConfig *protos.PostgresConfig, dstConfig *protos.PostgresConfig) (string, error) {
 	srcAddr, err := resolvePgAddr(ctx, srcConfig)
 	if err != nil {
-		return fmt.Errorf("source: %w", err)
+		return "", fmt.Errorf("source: %w", err)
 	}
 	dstAddr, err := resolvePgAddr(ctx, dstConfig)
 	if err != nil {
-		return fmt.Errorf("destination: %w", err)
+		return "", fmt.Errorf("destination: %w", err)
 	}
 
-	if err := pipeCommand(ctx, srcConfig, dstConfig, srcAddr, dstAddr,
-		"pg_dump", buildPgDumpArgs(srcConfig, srcAddr.host)); err != nil {
-		return fmt.Errorf("pg_dump schema migration failed: %w", err)
+	ignoredErrors, err := pipeCommand(ctx, srcConfig, dstConfig, srcAddr, dstAddr,
+		"pg_dump", buildPgDumpArgs(srcConfig, srcAddr.host))
+	if err != nil {
+		return "", fmt.Errorf("pg_dump schema migration failed: %w", err)
 	}
 
-	return nil
+	return ignoredErrors, nil
 }
 
-// pipeCommand runs srcBinary with the given args, piping its stdout into psql on the destination.
+// pipeCommand runs srcBinary with the given args, piping its stdout into psql
+// on the destination. On success it returns psql's stderr output, which with
+// ON_ERROR_ROLLBACK contains the errors of any statements that were skipped.
 func pipeCommand(
 	ctx context.Context,
 	srcConfig *protos.PostgresConfig,
@@ -55,11 +65,16 @@ func pipeCommand(
 	dstAddr pgAddr,
 	srcBinary string,
 	srcArgs []string,
-) error {
+) (string, error) {
 	psqlArgs := buildPsqlArgs(dstConfig, dstAddr.host)
 
 	srcCmd := exec.CommandContext(ctx, srcBinary, srcArgs...)
 	psqlCmd := exec.CommandContext(ctx, "psql", psqlArgs...)
+
+	// Provide psql's stderr buffer ourselves so we can report skipped-statement
+	// errors even when the pipeline exits successfully.
+	var psqlStderr bytes.Buffer
+	psqlCmd.Stderr = &psqlStderr
 
 	// set PGPASSWORD for each command via separate env slices
 	srcCmd.Env = append(os.Environ(), "PGPASSWORD="+srcConfig.Password)
@@ -76,7 +91,10 @@ func pipeCommand(
 	appendTLSEnv(ctx, srcCmd, srcConfig, srcAddr)
 	appendTLSEnv(ctx, psqlCmd, dstConfig, dstAddr)
 
-	return runPipeline(ctx, srcCmd, psqlCmd, srcBinary, "psql", filterIncompatibleLines)
+	if err := runPipeline(ctx, srcCmd, psqlCmd, srcBinary, "psql", filterIncompatibleLines); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(psqlStderr.String()), nil
 }
 
 // filterIncompatibleLines copies r->w line by line, dropping statements that
@@ -145,9 +163,15 @@ func runPipeline(
 		filterDone = make(chan error, 1)
 	}
 
-	var srcStderr, dstStderr bytes.Buffer
+	var srcStderr bytes.Buffer
 	srcCmd.Stderr = &srcStderr
-	dstCmd.Stderr = &dstStderr
+	// Keep a caller-provided stderr buffer (pipeCommand sets one so it can
+	// report skipped-statement errors on success); otherwise capture locally.
+	dstStderr, ok := dstCmd.Stderr.(*bytes.Buffer)
+	if !ok {
+		dstStderr = new(bytes.Buffer)
+		dstCmd.Stderr = dstStderr
+	}
 
 	// Start dst first so it's ready to read.
 	if err := dstCmd.Start(); err != nil {
@@ -372,14 +396,18 @@ func buildPsqlArgs(config *protos.PostgresConfig, host string) []string {
 		"-h", host,
 		"-p", strconv.FormatUint(uint64(port), 10),
 		"-d", config.Database,
-		// Wrap the entire dump in a single transaction so partial failures
-		// roll back cleanly (makes the activity safely retryable) and avoid
+		// Wrap the entire dump in a single transaction so a pipeline failure
+		// rolls back cleanly (makes the activity safely retryable) and avoid
 		// per-statement autocommit overhead on high-latency links.
 		"--single-transaction",
-		// Without this, psql logs errors to stderr but exits 0, so a half-
-		// applied schema would be reported as success. ON_ERROR_STOP=1 makes
-		// psql exit non-zero on the first failed statement.
-		"-v", "ON_ERROR_STOP=1",
+		// Set a savepoint before each statement and roll back to it on error,
+		// so a failed statement (e.g. an object that already exists on the
+		// destination) is skipped while subsequent statements still apply.
+		// psql reports each skipped statement's error on stderr but exits 0,
+		// so the caller surfaces those errors from stderr instead of failing.
+		// Fatal problems (lost connection, unreadable script) still exit
+		// non-zero and fail the pipeline.
+		"-v", "ON_ERROR_ROLLBACK=on",
 		// Quiet informational chatter; errors still go to stderr.
 		"--quiet",
 	}

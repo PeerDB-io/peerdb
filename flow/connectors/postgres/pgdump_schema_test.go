@@ -41,6 +41,25 @@ func TestRunPipeline_HappyPath(t *testing.T) {
 	}
 }
 
+// A caller-provided dst stderr buffer is kept (not replaced) so skipped-
+// statement errors can be reported even when the pipeline exits successfully.
+func TestRunPipeline_CallerProvidedDstStderrCapturedOnSuccess(t *testing.T) {
+	requireUnix(t)
+	ctx := t.Context()
+
+	src := exec.CommandContext(ctx, "sh", "-c", "printf 'payload'")
+	dst := exec.CommandContext(ctx, "sh", "-c", "cat >/dev/null; echo 'ERROR: relation exists' >&2")
+	var dstStderr bytes.Buffer
+	dst.Stderr = &dstStderr
+
+	if err := runPipeline(ctx, src, dst, "src", "dst", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := dstStderr.String(); !strings.Contains(got, "ERROR: relation exists") {
+		t.Fatalf("dst stderr = %q, want it to contain the reported error", got)
+	}
+}
+
 func TestRunPipeline_SrcStartFails(t *testing.T) {
 	ctx := t.Context()
 
@@ -340,7 +359,7 @@ func TestBuildPsqlArgs(t *testing.T) {
 			wantArgs: []string{
 				"-h", "dst-host", "-p", "5433", "-d", "target",
 				"--single-transaction",
-				"-v", "ON_ERROR_STOP=1",
+				"-v", "ON_ERROR_ROLLBACK=on",
 				"--quiet",
 				"-U", "writer",
 			},
@@ -355,7 +374,7 @@ func TestBuildPsqlArgs(t *testing.T) {
 			wantArgs: []string{
 				"-h", "localhost", "-p", "5432", "-d", "db",
 				"--single-transaction",
-				"-v", "ON_ERROR_STOP=1",
+				"-v", "ON_ERROR_ROLLBACK=on",
 				"--quiet",
 			},
 		},
