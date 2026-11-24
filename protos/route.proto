@@ -258,6 +258,8 @@ message ColumnsTypeConversionResponse {
 message PostgresPeerActivityInfoRequest {
   string peer_name = 1;
   bool peerdb_managed_only = 2;
+  // GetSlotInfo only: return just the replication slot used by this flow
+  string flow_job_name = 3;
 }
 
 message PeerInfoRequest { string peer_name = 1; }
