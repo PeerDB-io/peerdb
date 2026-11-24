@@ -917,10 +917,11 @@ func (h *FlowRequestHandler) isMaintenanceWorkflowRunning(
 ) (*workflowservice.DescribeWorkflowExecutionResponse, bool, error) {
 	startWorkflowID := getMaintenanceWorkflowID(wfType)
 
-	desc, err := h.temporalClient.DescribeWorkflowExecution(ctx, startWorkflowID, "")
+	description, err := h.temporalClient.DescribeWorkflow(ctx, startWorkflowID, "")
 	if err != nil {
 		return nil, false, err
 	}
+	desc := description.RawResponse
 
 	isRunning := desc.WorkflowExecutionInfo != nil && desc.WorkflowExecutionInfo.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING
 	return desc, isRunning, nil

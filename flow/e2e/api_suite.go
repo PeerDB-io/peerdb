@@ -4320,13 +4320,13 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	// Wait for workflow to be canceled
 	var firstRunID string
 	EnvWaitFor(s.t, env, 30*time.Second, "wait for workflow to be canceled", func() bool {
-		desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response1.WorkflowId, "")
+		desc, err := tc.DescribeWorkflow(s.t.Context(), response1.WorkflowId, "")
 		if err != nil {
 			return false
 		}
-		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		status := desc.RawResponse.GetWorkflowExecutionInfo().GetStatus()
 		if status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED {
-			firstRunID = desc.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+			firstRunID = desc.RawResponse.GetWorkflowExecutionInfo().GetExecution().GetRunId()
 			return true
 		}
 		return false
@@ -4342,10 +4342,10 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
 
 	// Verify a new workflow run was created (different run ID, status is RUNNING)
-	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	desc, err := tc.DescribeWorkflow(s.t.Context(), response2.WorkflowId, "")
 	require.NoError(s.t, err)
-	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
-	require.NotEqual(s.t, firstRunID, desc.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.RawResponse.GetWorkflowExecutionInfo().GetStatus())
+	require.NotEqual(s.t, firstRunID, desc.RawResponse.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
 		"should have created a new workflow run")
 
 	// Clean up
@@ -4415,9 +4415,9 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId, "Should return same workflow ID after continue-as-new")
 
 	// Verify workflow is still running
-	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	desc, err := tc.DescribeWorkflow(s.t.Context(), response2.WorkflowId, "")
 	require.NoError(s.t, err)
-	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.RawResponse.GetWorkflowExecutionInfo().GetStatus())
 
 	// Clean up
 	env.Cancel(s.t.Context())
