@@ -12,10 +12,6 @@ type PostgresSetupError struct {
 	error
 }
 
-func NewPostgresSetupError(err error) *PostgresSetupError {
-	return &PostgresSetupError{err}
-}
-
 func (e *PostgresSetupError) Error() string {
 	return "Postgres setup error: " + e.error.Error()
 }

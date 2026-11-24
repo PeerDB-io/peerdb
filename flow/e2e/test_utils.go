@@ -144,10 +144,6 @@ func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable stri
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
 }
 
-func EnvEqualTables[TSource connectors.Connector](env WorkflowRun, suite RowSource, table string, cols string) {
-	EnvEqualTablesWithNames(env, suite, table, table, cols)
-}
-
 func EnvEqualTablesWithNames(
 	env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string,
 ) {
