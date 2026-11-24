@@ -102,6 +102,14 @@ _UI_BUILD_DIGEST = Job.CacheDigestConfig(
     include_paths=["./ui", *_PROTO_INPUTS],
 )
 
+# check-renovate-config.yml paths (its old `paths:` filter).
+_RENOVATE_DIGEST = Job.CacheDigestConfig(
+    include_paths=[
+        "./renovate.json5",
+        "./scripts/renovate-simulation.sh",
+    ],
+)
+
 # Go jobs over the flow module (nexus is gated by Lint's clippy, not these).
 _UNIT_TESTS_DIGEST = Job.CacheDigestConfig(
     include_paths=["./flow", "./ci/scripts/unit_tests.py", *_PROTO_INPUTS],
@@ -190,6 +198,22 @@ WORKFLOWS = [
                 digest_config=_UI_BUILD_DIGEST,
                 timeout=20 * 60,
             ),
+            # Port of check-renovate-config.yml: validate renovate.json5 and
+            # simulate a Renovate run (needs node/npx + jq, baked in, and a
+            # github.com token for the shared renovate-config extension — hence
+            # enable_gh_auth). Digest-gated to the renovate config + script, so it
+            # only runs when those change (its old GHA `paths:` filter).
+            # allow_failure: the local Renovate run is network-heavy; don't block
+            # merge on a flaky sim. (The GHA PR-comment report is not ported yet.)
+            Job.Config(
+                name="Renovate config",
+                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                command="export GITHUB_COM_TOKEN=$(gh auth token) && ./scripts/renovate-simulation.sh",
+                enable_gh_auth=True,
+                digest_config=_RENOVATE_DIGEST,
+                allow_failure=True,
+                timeout=20 * 60,
+            ),
             # `go mod download` once, published as the go-mod-cache artifact every
             # Go job restores. Digest-cached on go.mod/go.sum, so it is reused
             # across runs until dependencies change (see _GO_MOD_CACHE_DIGEST).
@@ -253,7 +277,7 @@ WORKFLOWS = [
             # job).
             Job.Config(
                 name="Go build cache",
-                runs_on=[RunnerLabels.AMD_32CPU_64G],
+                runs_on=[RunnerLabels.AMD_8CPU_16G],
                 pre_hooks=[_RESTORE_GO_MOD, "./generate-protos.sh"],
                 command="python3 ci/scripts/go_build_cache.py",
                 provides=[GO_BUILD_CACHE_ARTIFACT.name],

@@ -9,15 +9,16 @@ name: Check renovate config
 #   `final-updated-packages-details.json`.
 
 on:
-  pull_request:
-    branches: [main]
-    paths: &renovate_paths
-      - 'renovate.json5'
-      - 'scripts/renovate-simulation.sh'
-      - '.github/workflows/check-renovate-config.yml'
-  pull_request_target:
-    branches: [main]
-    paths: *renovate_paths
+  workflow_dispatch:  # migrated to Praktika (Renovate config job); PR triggers commented
+#   pull_request:
+#     branches: [main]
+#     paths: &renovate_paths
+#       - 'renovate.json5'
+#       - 'scripts/renovate-simulation.sh'
+#       - '.github/workflows/check-renovate-config.yml'
+#   pull_request_target:
+#     branches: [main]
+#     paths: *renovate_paths
 
 permissions:
   contents: read

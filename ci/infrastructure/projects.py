@@ -27,7 +27,7 @@ _PRAKTIKA_PACKAGE_BASE_URL = (
 )
 # praktika and praktika-controller are versioned in lockstep (single
 # source of truth), so one pinned version drives both wheels.
-_PRAKTIKA_VERSION = "0.1.30"
+_PRAKTIKA_VERSION = "0.1.31"
 _PRAKTIKA_WHL = f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika-{_PRAKTIKA_VERSION}-py3-none-any.whl"
 _PRAKTIKA_CONTROLLER_WHL = (
     f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika_controller-{_PRAKTIKA_VERSION}-py3-none-any.whl"
@@ -204,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.6"
+    image_recipe_version = "1.1.8"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -421,6 +421,14 @@ PROJECTS = [
                 allow_all_secrets=False,
                 allow_all_s3_prefixes=False,
                 allow_ssm_debug=False,
+                # Keep 4 instances warm: this pool carries all 4 dependency-free
+                # "first" jobs (Go modules, Flow images, UI build, Renovate
+                # config) that dispatch the instant the workflow starts. Without
+                # a reserve each eats an EC2 cold-start at the front of the DAG --
+                # and Go modules gates every downstream Go job. Matches the
+                # first-job fan-out, mirroring arm_2cpu_4g's reserve=1 for Code
+                # Review.
+                capacity_reserve=4,
                 ext={"system_logs": False, "host_metrics": False},
             ),
         ],

@@ -2,12 +2,12 @@
 
 Status: PR CI runs on Praktika (`ci/workflows/pull_request.py`); the GHA
 workflows have their `pull_request` / `pull_request_target` triggers commented
-out (files kept, non-PR triggers intact), Claude PR review → native Praktika
-`Code Review`. Nothing left with a PR trigger except renovate's path-gated
-`check-renovate-config` (renovate-coupled → stays on GHA, not migrating).
+out (files kept, non-PR triggers intact); no GHA workflow has a PR trigger left.
+Claude PR review → native Praktika `Code Review`.
 Migrated & green: Lint (rust clippy + golangci + ui eslint/prettier), UI build,
-unit tests, test-selection, catalog-migrate (pg 14-18), the 15-perm flow matrix
-(+ flow-images / go build & module caches), merge-ready gate, repo snapshot.
+unit tests, test-selection, catalog-migrate (pg 14-18), renovate-config check,
+the 15-perm flow matrix (+ flow-images / go build & module caches), merge-ready
+gate, repo snapshot.
 
 ## 1. Parity — to fully replace the GHA workflows
 - [ ] **Cloud e2e + nexus cargo test** — keyless cloud auth (OIDC / GCP+Azure
@@ -18,6 +18,9 @@ unit tests, test-selection, catalog-migrate (pg 14-18), the 15-perm flow matrix
 - [ ] **deprecated-connector.yml** — silenced, not yet ported.
 - [ ] **flow-api-client / -tag** — maintenance jobs (commit generated protos to
   a branch); not ported.
+- [ ] **Renovate-config PR comment** — the check is ported (`Renovate config`
+  job), but the GHA github-script step that posts the simulation report on the
+  PR is not yet reproduced (output is in the job Result/artifacts for now).
 - [ ] **Depot docker builds** (dev/stable/customer/mysql-debug) — currently kept
   on GHA (push-only). Decide: migrate to Praktika (buildx + CI cache) or keep.
 - [ ] **Post-merge CI** — Praktika workflow is PR-only; add a push-to-main
@@ -28,7 +31,7 @@ unit tests, test-selection, catalog-migrate (pg 14-18), the 15-perm flow matrix
   branch-protection required check.
 
 Staying on GitHub (intentionally not migrated): CodeQL (workflow kept; PR
-trigger commented, runs on push/schedule), renovate / check-renovate-config,
+trigger commented, runs on push/schedule), the Renovate bot itself,
 release-drafter, interactive `@claude`, cleanup, update-*, auto-retry-flaky-tests.
 
 ## 2. Improvements — add on top (Praktika features)
