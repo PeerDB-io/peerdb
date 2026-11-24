@@ -212,12 +212,6 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
-	// SyncFlow normalizes with cfg.TableMappings, so carry over the tables added, removed or resynced above
-	cfg.TableMappings = make([]*protos.TableMapping, 0, len(state.SyncFlowOptions.TableMappings))
-	for _, tableMapping := range state.SyncFlowOptions.TableMappings {
-		cfg.TableMappings = append(cfg.TableMappings, proto.CloneOf(tableMapping))
-	}
-
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	if stayPaused {
