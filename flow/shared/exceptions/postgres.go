@@ -7,19 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
-// PostgresSetupError represents errors during setup of Postgres peers, maybe we can later replace with a more generic error type
-type PostgresSetupError struct {
-	error
-}
-
-func (e *PostgresSetupError) Error() string {
-	return "Postgres setup error: " + e.error.Error()
-}
-
-func (e *PostgresSetupError) Unwrap() error {
-	return e.error
-}
-
 type CatalogError struct {
 	error
 }
