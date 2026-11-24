@@ -482,6 +482,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 				return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 			}
 			additionConfig := pconv.FlowConnectionConfigsToCore(config)
+			additionConfig.TableMappings = slices.Concat(additionConfig.TableMappings, cdcUpdate.AdditionalTables)
+			if apiErr := checkCDCFlowPayloadSize(additionConfig); apiErr != nil {
+				return nil, apiErr
+			}
 			additionConfig.TableMappings = cdcUpdate.AdditionalTables
 			if apiErr := h.checkAdditionalTables(ctx, additionConfig); apiErr != nil {
 				return nil, apiErr

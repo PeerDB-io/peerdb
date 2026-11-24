@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 
+	"go.temporal.io/sdk/converter"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -18,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	"github.com/PeerDB-io/peerdb/flow/workflows/cdc_state"
 )
 
 type flagConstraint struct {
@@ -246,6 +248,27 @@ func (h *FlowRequestHandler) checkAdditionalTables(ctx context.Context, cfg *pro
 	defer dstClose(ctx)
 	if err := dstConn.ValidateDestinationTables(ctx, cfg.TableMappings); err != nil {
 		return NewInvalidArgumentApiError(err)
+	}
+	return nil
+}
+
+// Temporal rejects payloads over 2MB by default, leave headroom for the rest of the workflow state
+const maxCDCFlowPayloadBytes = 1536 * 1024
+
+// checkCDCFlowPayloadSize rejects table mappings that would push CDCFlowWorkflow's ContinueAsNew input,
+// which carries them in both cfg and state, close to Temporal's payload size limit.
+func checkCDCFlowPayloadSize(cfg *protos.FlowConnectionConfigsCore) APIError {
+	state := &cdc_state.CDCFlowWorkflowState{
+		SyncFlowOptions: &protos.SyncFlowOptions{TableMappings: cfg.TableMappings},
+	}
+	payloads, err := converter.GetDefaultDataConverter().ToPayloads(cfg, state)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to encode mirror config: %w", err))
+	}
+	if size := proto.Size(payloads); size > maxCDCFlowPayloadBytes {
+		return NewInvalidArgumentApiError(fmt.Errorf(
+			"mirror with %d tables would need a %d byte workflow payload, over the %d byte limit; split it into smaller mirrors",
+			len(cfg.TableMappings), size, maxCDCFlowPayloadBytes))
 	}
 	return nil
 }
