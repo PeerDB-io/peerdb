@@ -265,6 +265,18 @@ jobs:
           suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
           echo "suffix=${suffix:-all}" >> "$GITHUB_OUTPUT"
 
+      # Samples runner and per-container CPU for the whole job. The summary step
+      # reads the samples from the test phase to show whether the tests need
+      # this runner size.
+      - name: Start resource sampler
+        run: |
+          mkdir -p logs
+          # The summary step reports the setup time from here to the test phase.
+          date +%s > logs/job-start.txt
+          nohup vmstat -n -t 5 > logs/vmstat.log 2>&1 &
+          nohup bash -c 'while :; do ts=$(date +%s); docker stats --no-stream --format "{{json .}}" | sed "s/^/$ts /"; sleep 10; done' \
+            > logs/docker-stats.log 2>&1 &
+
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.4'
@@ -666,6 +678,8 @@ jobs:
         working-directory: ./flow
         env:
           PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
+          # flow/e2e/timings.go writes the duration of each e2e wait here.
+          E2E_TIMINGS_DIR: ${{ github.workspace }}/logs/e2e-timings
           # e2eshared.RunSuite marks every subtest parallel, and go test's
           # -parallel defaults to GOMAXPROCS (the core count). The tests mostly
           # wait on the databases, so don't let the runner size cap them.
@@ -725,7 +739,8 @@ jobs:
           # them back to in_progress. $RUNNER_TEMP is outside the repo, so it's never
           # watched.
           coverdir="$RUNNER_TEMP/gocoverdir"
-          mkdir -p "$coverdir" ../logs
+          mkdir -p "$coverdir" ../logs "$E2E_TIMINGS_DIR"
+          date +%s > ../logs/test-phase.txt
 
           selectiondir="$RUNNER_TEMP/test-selection"
           COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
@@ -770,11 +785,28 @@ jobs:
             pkg_rc=$?
           fi
 
+          date +%s >> ../logs/test-phase.txt
+
           # Emit coverage even on test failure so the uploaded artifact always has data.
           go tool covdata textfmt -i="$coverdir" -o ../coverage.out || true
           if [ "$flow_rc" -ne 0 ] || [ "$pkg_rc" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Summarize e2e time and CPU
+        if: always()
+        env:
+          RUN_LABEL: ${{ inputs.run_label }}
+        run: |
+          python3 .github/scripts/summarize-e2e-timings.py \
+            --label "$RUN_LABEL" \
+            --timings-dir logs/e2e-timings \
+            --junit logs/test-results.xml logs/pkg-test-results.xml \
+            --vmstat logs/vmstat.log \
+            --docker-stats logs/docker-stats.log \
+            --phase-file logs/test-phase.txt \
+            --job-start-file logs/job-start.txt \
+            --out-json logs/e2e-summary.json >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Capture Tilt state and service logs on failure
         if: failure()
