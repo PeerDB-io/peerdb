@@ -57,7 +57,9 @@ _LABEL_RE = re.compile(r"^Flow test \((.+)\)$")
 
 
 def _norm(path):
-    return os.path.normpath(path.lstrip("./")) if path else path
+    # normpath already collapses a leading "./"; don't use lstrip("./") here --
+    # it strips a *set* of chars, so ".github/..." would lose its leading dot.
+    return os.path.normpath(path) if path else path
 
 
 def _under(prefixes, path):

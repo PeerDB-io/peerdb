@@ -67,6 +67,16 @@ def reset_stale_state():
     if ids:
         print(f"resetting stale state: removing {len(ids)} leftover container(s)", flush=True)
         subprocess.run(["docker", "rm", "-f", *ids], check=False)
+    # Remove leftover volumes too: the compose stack uses named volumes for
+    # Postgres data, which survive `docker rm` and would otherwise carry a prior
+    # job's data (possibly from a different PG version) into this run. Blanket
+    # removal is safe here for the same reason as the container removal above.
+    vols = subprocess.run(
+        ["docker", "volume", "ls", "-q"], stdout=subprocess.PIPE, text=True
+    ).stdout.split()
+    if vols:
+        print(f"resetting stale state: removing {len(vols)} leftover volume(s)", flush=True)
+        subprocess.run(["docker", "volume", "rm", "-f", *vols], check=False)
     # Give the kernel a moment to release the control-API port.
     for _ in range(10):
         if subprocess.run(
