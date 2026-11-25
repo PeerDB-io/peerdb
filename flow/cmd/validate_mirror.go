@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"math"
 	"slices"
 
+	"go.temporal.io/sdk/converter"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -246,6 +249,60 @@ func (h *FlowRequestHandler) checkAdditionalTables(ctx context.Context, cfg *pro
 	defer dstClose(ctx)
 	if err := dstConn.ValidateDestinationTables(ctx, cfg.TableMappings); err != nil {
 		return NewInvalidArgumentApiError(err)
+	}
+	return nil
+}
+
+// Temporal's default payload size limit, less a small buffer
+const maxPayloadBytes = 2*1024*1024 - 1024
+
+// checkCDCFlowPayloadSizeForTableAddition rejects a table addition when CDCFlowWorkflow's
+// next run input would exceed Temporal's 2MB payload size limit
+func (h *FlowRequestHandler) checkCDCFlowPayloadSizeForTableAddition(
+	ctx context.Context, workflowID string, update *protos.CDCFlowConfigUpdate,
+) APIError {
+	cfg, err := h.getCDCWorkflowCfg(ctx, workflowID)
+	if err != nil {
+		return NewInternalApiError(err)
+	}
+	state, err := h.getCDCWorkflowState(ctx, workflowID)
+	if err != nil {
+		return NewInternalApiError(err)
+	}
+
+	// process added tables
+	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, update.AdditionalTables...)
+	if len(state.SyncFlowOptions.SrcTableIdNameMapping) > 0 {
+		id := uint32(math.MaxUint32)
+		for _, table := range update.AdditionalTables {
+			state.SyncFlowOptions.SrcTableIdNameMapping[id] = table.SourceTableIdentifier
+			id--
+		}
+	}
+
+	// process removed tables
+	if len(update.RemovedTables) > 0 {
+		removedTablesMap := make(map[string]struct{}, len(update.RemovedTables))
+		for _, table := range update.RemovedTables {
+			removedTablesMap[table.SourceTableIdentifier] = struct{}{}
+		}
+		state.SyncFlowOptions.TableMappings = slices.DeleteFunc(state.SyncFlowOptions.TableMappings, func(table *protos.TableMapping) bool {
+			_, removed := removedTablesMap[table.SourceTableIdentifier]
+			return removed
+		})
+		maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(_ uint32, source string) bool {
+			_, removed := removedTablesMap[source]
+			return removed
+		})
+	}
+
+	payloads, err := converter.GetDefaultDataConverter().ToPayloads(cfg, state)
+	if err != nil {
+		return NewInternalApiError(fmt.Errorf("failed to encode workflow input: %w", err))
+	}
+	if proto.Size(payloads) > maxPayloadBytes {
+		return NewInvalidArgumentApiError(fmt.Errorf(
+			"payload limit exceeded; please create a new mirror for the added tables"))
 	}
 	return nil
 }
