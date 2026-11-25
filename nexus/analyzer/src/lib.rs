@@ -1259,7 +1259,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn option_key_is_single_unquoted_identifier() {
+    fn option_key_is_single_identifier() {
         let quoted = ast::ObjectName::from(vec![ast::Ident::with_quote('"', "do_initial_copy")]);
         assert_eq!(option_key(&quoted).unwrap(), "do_initial_copy");
         let qualified = ast::ObjectName::from(vec![ast::Ident::new("a"), ast::Ident::new("b")]);

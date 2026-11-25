@@ -335,3 +335,17 @@ fn multiple_statements() {
     assert!(matches!(stmts[1], PeerDBStatement::DropPeer { .. }));
     assert!(matches!(stmts[2], PeerDBStatement::Statement(_)));
 }
+
+#[test]
+fn with_options_require_single_key_and_value() {
+    for sql in [
+        "CREATE PEER p FROM POSTGRES WITH (host = 'a', port)",
+        "CREATE PEER p FROM POSTGRES WITH (host.x = 'a')",
+        "CREATE MIRROR m FROM a TO b WITH TABLE MAPPING (s.t:s.t) WITH (do_initial_copy = true, resync)",
+    ] {
+        assert!(
+            parse_sql(&PostgreSqlDialect {}, sql).is_err(),
+            "expected parse error: {sql}"
+        );
+    }
+}
