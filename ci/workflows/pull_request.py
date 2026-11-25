@@ -277,7 +277,7 @@ WORKFLOWS = [
             # job).
             Job.Config(
                 name="Go build cache",
-                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                runs_on=[RunnerLabels.AMD_32CPU_64G],
                 pre_hooks=[_RESTORE_GO_MOD, "./generate-protos.sh"],
                 command="python3 ci/scripts/go_build_cache.py",
                 provides=[GO_BUILD_CACHE_ARTIFACT.name],

@@ -58,6 +58,10 @@ def main():
     env = os.environ.copy()
     env["TEST_PACKAGES"] = "./..."
     env["PKG_TEST_PACKAGES"] = "./..."
+    # Match the flow matrix's coverage setting so the cache we ship has the exact
+    # objects it will restore. Coverage is off by default (flow_test.py), so the
+    # producer compiles uninstrumented too; flip both together to re-enable.
+    env["FLOW_COVERAGE"] = os.environ.get("FLOW_COVERAGE", "0")
 
     sw_mod = Utils.Stopwatch()
     rc = _run("go mod download", cwd="flow", env=env)

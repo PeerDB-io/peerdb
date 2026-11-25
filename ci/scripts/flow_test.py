@@ -47,6 +47,14 @@ PKG_JUNIT = "logs/pkg-test-results.xml"
 COVERPKG_FLOW = "github.com/PeerDB-io/peerdb/flow/..."
 COVERPKG_PKG = "github.com/PeerDB-io/peerdb/flow/pkg/..."
 
+# Code coverage (-cover) is expensive (≈2x test-compile) and the matrix doesn't
+# gate on coverage.out — it's a reporting artifact only. Off by default so the
+# flow matrix (and the Go build cache it shares) compile uninstrumented and fast;
+# a future, non-blocking coverage job can run this driver with FLOW_COVERAGE=1.
+# Producer (go_build_cache.py), selection (select-flow-tests.sh) and the run below
+# must all agree, so _build_env re-exports this to the selection subprocess.
+COVERAGE = os.environ.get("FLOW_COVERAGE", "0") == "1"
+
 
 def _run(cmd, **kwargs):
     print(f"+ {cmd if isinstance(cmd, str) else ' '.join(cmd)}", flush=True)
@@ -133,6 +141,10 @@ def _build_env():
             "ENABLE_OTEL_METRICS": "true" if "otel-collector" in services.split() else "false",
             # Skip the AWS/RDS-IAM-coupled tests until their secrets are re-homed.
             "FLOW_TESTS_RDS_IAM_AUTH_SKIP": env.get("FLOW_TESTS_RDS_IAM_AUTH_SKIP", "true"),
+            # Pin coverage for the selection subprocess (select-flow-tests.sh) to
+            # our decision, so its -list compile matches the run's cache keys. The
+            # shared script defaults to on (GHA); here we make it explicit.
+            "FLOW_COVERAGE": "1" if COVERAGE else "0",
         }
     )
     return env
@@ -162,13 +174,15 @@ def _selected_command(label, junit_abs, timeout, coverpkg, coverdir, selectiondi
     uniq = sorted(set(names))
     regex = "^(" + "|".join(uniq) + ")$"
     print(f"{label} selection: {len(pkgs)} packages, {len(uniq)} tests", flush=True)
+    cover_build = ["-cover", "-coverpkg", coverpkg] if COVERAGE else []
+    cover_run = ["-args", f"-test.gocoverdir={coverdir}"] if COVERAGE else []
     cmd = [
         "gotestsum", "--format", "standard-quiet", "--no-color",
         "--junitfile", junit_abs, "--",
-        "-tags", "tilt", "-cover", "-coverpkg", coverpkg,
+        "-tags", "tilt", *cover_build,
         "-p", "32", "-parallel", str(parallel),
         *pkgs, "-run", regex, "-timeout", timeout,
-        "-args", f"-test.gocoverdir={coverdir}",
+        *cover_run,
     ]
     return shlex.join(cmd)
 
@@ -276,7 +290,8 @@ def main():
 
     coverdir = os.path.join(runner_temp, "gocoverdir")
     selectiondir = os.path.join(runner_temp, "test-selection")
-    os.makedirs(coverdir, exist_ok=True)
+    if COVERAGE:
+        os.makedirs(coverdir, exist_ok=True)
     parallel = env.get("TEST_PARALLEL", "64")
     flow_junit_abs = os.path.abspath(FLOW_JUNIT)
     pkg_junit_abs = os.path.abspath(PKG_JUNIT)
@@ -301,10 +316,12 @@ def main():
         )
 
     # Emit coverage even on failure so the attached artifact always has data.
-    subprocess.run(
-        ["go", "tool", "covdata", "textfmt", f"-i={coverdir}", "-o", "coverage.out"],
-        check=False,
-    )
+    # Skipped when coverage is off (the matrix default): no gocoverdir was written.
+    if COVERAGE:
+        subprocess.run(
+            ["go", "tool", "covdata", "textfmt", f"-i={coverdir}", "-o", "coverage.out"],
+            check=False,
+        )
 
     results = [flow_res]
     if pkg_res is not None:
