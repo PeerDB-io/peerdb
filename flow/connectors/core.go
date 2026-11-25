@@ -460,41 +460,6 @@ func LoadFlowSourcePeerType(ctx context.Context, catalogPool shared.CatalogPool,
 	return dbtype, nil
 }
 
-func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
-	if len(peerNames) == 0 {
-		return nil, nil
-	}
-
-	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query peer types: %w", err)
-	}
-
-	peerTypes := make(map[string]protos.DBType, len(peerNames))
-	var peerName string
-	var dbtype protos.DBType
-	if _, err := pgx.ForEachRow(rows, []any{&peerName, &dbtype}, func() error {
-		peerTypes[peerName] = dbtype
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("error querying peer rows: %w", err)
-	}
-
-	// Verify all requested peers were found
-	var missingPeers []string
-	for _, peerName := range peerNames {
-		if _, found := peerTypes[peerName]; !found {
-			missingPeers = append(missingPeers, peerName)
-		}
-	}
-
-	if len(missingPeers) > 0 {
-		return nil, fmt.Errorf("peers not found: %v", missingPeers)
-	}
-
-	return peerTypes, nil
-}
-
 func LoadPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error) {
 	if len(peerNames) == 0 {
 		return nil, nil
