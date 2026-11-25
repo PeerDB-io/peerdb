@@ -4436,23 +4436,33 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	mixedSrcTable := AttachSchema(s, "seq_src_mixed")
 	mixedDstTable := AttachSchema(s, "seq_Dst_MixedCase")
 	quotedMixedDstTable := fmt.Sprintf(`"e2e_test_%s"."seq_Dst_MixedCase"`, s.suffix)
+	unownedSeq := fmt.Sprintf(`"e2e_test_%s"."Unowned_Seq"`, s.suffix)
+	unusedSeq := AttachSchema(s, "seq_unused")
 
 	// Create source tables with a serial column and insert rows
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT, alt_id BIGINT)", srcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(val) VALUES ('a'),('b'),('c'),('d'),('e')", srcTable)))
+		fmt.Sprintf("INSERT INTO %s(val, alt_id) VALUES ('a',101),('b',102),('c',103),('d',104),('e',105)", srcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, mixedSrcTable)))
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT, alt_id BIGINT)`, mixedSrcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s("Val") VALUES ('x'),('y'),('z')`, mixedSrcTable)))
+		fmt.Sprintf(`INSERT INTO %s("Val", alt_id) VALUES ('x',10),('y',20),('z',30)`, mixedSrcTable)))
 
-	// Create destination tables with same structure (serial column)
+	// The same unowned sequence is referenced by defaults on both mapped tables.
 	_, err := s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+		fmt.Sprintf("CREATE SEQUENCE %s", unownedSeq))
 	require.NoError(s.t, err)
 	_, err = s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, quotedMixedDstTable))
+		fmt.Sprintf("CREATE SEQUENCE %s", unusedSeq))
+	require.NoError(s.t, err)
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT, alt_id BIGINT DEFAULT nextval('%s'))",
+			dstTable, unownedSeq))
+	require.NoError(s.t, err)
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT, alt_id BIGINT DEFAULT nextval('%s'))`,
+			quotedMixedDstTable, unownedSeq))
 	require.NoError(s.t, err)
 
 	// Create PG-to-PG mirror with initial snapshot only
@@ -4542,6 +4552,18 @@ func (s APITestSuite) TestResetMirrorSequences() {
 			quotedMixedDstTable)).Scan(&mixedNextVal)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(4), mixedNextVal)
+
+	var unownedNextVal int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		"SELECT nextval($1::regclass)", unownedSeq).Scan(&unownedNextVal)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(106), unownedNextVal)
+
+	var unusedNextVal int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		"SELECT nextval($1::regclass)", unusedSeq).Scan(&unusedNextVal)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(1), unusedNextVal)
 }
 
 func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {
