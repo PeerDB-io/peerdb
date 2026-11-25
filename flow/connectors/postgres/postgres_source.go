@@ -42,7 +42,10 @@ type walSenderTimeout struct {
 	isSet    bool
 }
 
-var walSenderTimeoutNumbersOnly = regexp.MustCompile(`^\d+$`)
+var (
+	walSenderTimeoutNumbersOnly = regexp.MustCompile(`^\d+$`)
+	walSenderTimeoutWithUnit    = regexp.MustCompile(`^([+-]?[0-9.]+)[[:space:]]*(us|ms|s|min|h)$`)
+)
 
 func walSenderTimeoutOverride(ctx context.Context, env map[string]string) (walSenderTimeout, error) {
 	str, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
@@ -59,10 +62,16 @@ func walSenderTimeoutOverride(ctx context.Context, env map[string]string) (walSe
 	parseStr := str
 	if walSenderTimeoutNumbersOnly.MatchString(parseStr) {
 		parseStr += "ms" // A bare integer is interpreted as milliseconds, per Postgres
+	} else if parts := walSenderTimeoutWithUnit.FindStringSubmatch(parseStr); parts != nil {
+		unit := parts[2]
+		if unit == "min" {
+			unit = "m"
+		}
+		parseStr = parts[1] + unit
 	}
 	duration, err := time.ParseDuration(parseStr)
 	if err != nil {
-		return walSenderTimeout{}, fmt.Errorf("failed to parse wal_sender_timeout value %q: %w", parseStr, err)
+		return walSenderTimeout{}, fmt.Errorf("failed to parse wal_sender_timeout value %q: %w", str, err)
 	}
 	if duration < 0 {
 		return walSenderTimeout{}, fmt.Errorf("invalid wal_sender_timeout value: %s", duration)
