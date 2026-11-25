@@ -55,7 +55,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -115,7 +115,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -157,7 +157,7 @@ jobs:
             > "$RUNNER_TEMP/apt-geos.log" 2>&1 &
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -236,7 +236,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           # The images build inside Docker; the host only needs Go for go generate.
           cache: false
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
