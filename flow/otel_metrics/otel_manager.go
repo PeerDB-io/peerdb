@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -207,16 +208,21 @@ type OtelManager struct {
 	Int64GaugesCache     map[string]metric.Int64Gauge
 	Int64CountersCache   map[string]metric.Int64Counter
 	Int64HistogramsCache map[string]metric.Int64Histogram
+	liveFlows            *liveFlowsFilter
+	stopLiveFlows        context.CancelFunc
+	wg                   sync.WaitGroup
 	Enabled              bool
 }
 
 func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName, enabled)
+	liveFlows := newLiveFlowsFilter()
+	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, liveFlows)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
+		liveFlows:            liveFlows,
 		Enabled:              enabled,
 		MetricsProvider:      metricsProvider,
 		Meter:                metricsProvider.Meter("io.peerdb." + serviceName),
@@ -232,7 +238,20 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	return &otelManager, nil
 }
 
+func (om *OtelManager) FilterDroppedFlows(ctx context.Context, list FlowNamesLister) {
+	if !om.Enabled || om.stopLiveFlows != nil {
+		return
+	}
+	ctx, om.stopLiveFlows = context.WithCancel(ctx)
+	om.wg.Add(1)
+	go om.liveFlows.runRefreshLoop(ctx, list, liveFlowsRefreshInterval, &om.wg)
+}
+
 func (om *OtelManager) Close(ctx context.Context) error {
+	if om.stopLiveFlows != nil {
+		om.stopLiveFlows()
+		om.wg.Wait()
+	}
 	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
 		return provider.Shutdown(ctx)
 	}
@@ -854,7 +873,7 @@ func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata
 	return nil
 }
 
-func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
+func setupExporter(ctx context.Context, liveFlows *liveFlowsFilter) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
@@ -874,21 +893,25 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
 	if internal.GetEnvBool("PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE", false) {
-		return &panicOnFailureExporter{metricExporter}, err
+		metricExporter = &panicOnFailureExporter{metricExporter}
 	}
-	return metricExporter, err
+	if liveFlows != nil {
+		metricExporter = &flowFilteringExporter{Exporter: metricExporter, filter: liveFlows}
+	}
+	return metricExporter, nil
 }
 
 func setupMetricsAndProvider(
 	ctx context.Context,
 	otelResource *resource.Resource,
 	enabled bool,
+	liveFlows *liveFlowsFilter,
 	views ...sdkmetric.View,
 ) (metric.MeterProvider, error) {
 	if !enabled {
 		return noop.NewMeterProvider(), nil
 	}
-	metricExporter, err := setupExporter(ctx)
+	metricExporter, err := setupExporter(ctx, liveFlows)
 	if err != nil {
 		return nil, err
 	}
@@ -905,11 +928,20 @@ func setupMetricsAndProvider(
 }
 
 func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
+	return setupPeerDBMetricsProvider(ctx, otelServiceName, enabled, nil)
+}
+
+func setupPeerDBMetricsProvider(
+	ctx context.Context,
+	otelServiceName string,
+	enabled bool,
+	liveFlows *liveFlowsFilter,
+) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled)
+	return setupMetricsAndProvider(ctx, otelResource, enabled, liveFlows)
 }
 
 func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
@@ -917,7 +949,7 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, nil, temporalMetricsFilteringView(ctx))
 }
 
 func SetupComponentMetricsProvider(
@@ -930,7 +962,7 @@ func SetupComponentMetricsProvider(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, nil, componentMetricsRenamingView(componentName))
 }
 
 type LoggingErrorHandler struct {
