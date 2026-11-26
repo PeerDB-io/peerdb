@@ -795,7 +795,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// "effective_wal_level" on PG19, so only the prefix is stable across versions
 			// https://github.com/postgres/postgres/blob/REL_16_10/src/backend/replication/logical/logical.c#L140
 			// https://github.com/postgres/postgres/blob/REL_17_6/src/backend/replication/logical/logical.c#L143
-			if strings.Contains(pgErr.Message, "logical decoding on standby requires") {
+			// primary variant ("logical decoding requires wal_level >= logical") reuses the same class
+			if strings.Contains(pgErr.Message, "logical decoding on standby requires") ||
+				(strings.HasPrefix(pgErr.Message, "logical decoding requires") && strings.Contains(pgErr.Message, "wal_level")) {
 				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
 			}
 

@@ -838,11 +838,13 @@ func TestPostgresLogicalDecodingNotSupportedOnStandby(t *testing.T) {
 	}, errInfo)
 }
 
-func TestPostgresLogicalDecodingOnStandbyRequiresWalLevel(t *testing.T) {
+func TestPostgresLogicalDecodingRequiresWalLevel(t *testing.T) {
 	for name, message := range map[string]string{
-		"pg16": "logical decoding on standby requires wal_level >= logical on the primary",
-		"pg17": `logical decoding on standby requires "wal_level" >= "logical" on the primary`,
-		"pg19": `logical decoding on standby requires "effective_wal_level" >= "logical" on the primary`,
+		"pg16 standby": "logical decoding on standby requires wal_level >= logical on the primary",
+		"pg17 standby": `logical decoding on standby requires "wal_level" >= "logical" on the primary`,
+		"pg19 standby": `logical decoding on standby requires "effective_wal_level" >= "logical" on the primary`,
+		"pg16 primary": "logical decoding requires wal_level >= logical",
+		"pg17 primary": `logical decoding requires "wal_level" >= "logical"`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := &pgconn.PgError{
