@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -207,16 +208,29 @@ type OtelManager struct {
 	Int64GaugesCache     map[string]metric.Int64Gauge
 	Int64CountersCache   map[string]metric.Int64Counter
 	Int64HistogramsCache map[string]metric.Int64Histogram
+	sweeper              *droppedFlowsSweeper
 	Enabled              bool
 }
 
-func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName, enabled)
+// NewOtelManager creates the metrics of a process. With a catalogPool, it also sweeps the series of flows deleted
+// from the catalog until Close is called or ctx is done.
+func NewOtelManager(
+	ctx context.Context,
+	serviceName string,
+	enabled bool,
+	catalogPool *shared.CatalogPool,
+) (*OtelManager, error) {
+	var sweeper *droppedFlowsSweeper
+	if enabled && catalogPool != nil {
+		sweeper = &droppedFlowsSweeper{}
+	}
+	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, sweeper)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
+		sweeper:              sweeper,
 		Enabled:              enabled,
 		MetricsProvider:      metricsProvider,
 		Meter:                metricsProvider.Meter("io.peerdb." + serviceName),
@@ -229,10 +243,30 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
 	}
+	sweeper.start(ctx, catalogPool, otelManager.sweepableInstruments())
 	return &otelManager, nil
 }
 
+// sweepableInstruments returns the instruments created so far whose series the sweeper can delete.
+func (om *OtelManager) sweepableInstruments() []sweepableInstrument {
+	var instruments []sweepableInstrument
+	instruments = appendSweepable(instruments, om.Int64CountersCache)
+	instruments = appendSweepable(instruments, om.Int64GaugesCache)
+	instruments = appendSweepable(instruments, om.Float64GaugesCache)
+	return instruments
+}
+
+func appendSweepable[M any](instruments []sweepableInstrument, cache map[string]M) []sweepableInstrument {
+	for _, instrument := range cache {
+		if sweepable, ok := any(instrument).(sweepableInstrument); ok {
+			instruments = append(instruments, sweepable)
+		}
+	}
+	return instruments
+}
+
 func (om *OtelManager) Close(ctx context.Context) error {
+	om.sweeper.stop()
 	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
 		return provider.Shutdown(ctx)
 	}
@@ -854,7 +888,8 @@ func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata
 	return nil
 }
 
-func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
+// setupExporter wraps the exporter with sweeper to track successful exports, unless sweeper is nil.
+func setupExporter(ctx context.Context, sweeper *droppedFlowsSweeper) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
@@ -874,21 +909,22 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
 	if internal.GetEnvBool("PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE", false) {
-		return &panicOnFailureExporter{metricExporter}, err
+		metricExporter = &panicOnFailureExporter{metricExporter}
 	}
-	return metricExporter, err
+	return sweeper.wrapExporter(metricExporter), nil
 }
 
 func setupMetricsAndProvider(
 	ctx context.Context,
 	otelResource *resource.Resource,
 	enabled bool,
+	sweeper *droppedFlowsSweeper,
 	views ...sdkmetric.View,
 ) (metric.MeterProvider, error) {
 	if !enabled {
 		return noop.NewMeterProvider(), nil
 	}
-	metricExporter, err := setupExporter(ctx)
+	metricExporter, err := setupExporter(ctx, sweeper)
 	if err != nil {
 		return nil, err
 	}
@@ -904,12 +940,17 @@ func setupMetricsAndProvider(
 	return meterProvider, nil
 }
 
-func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
+func setupPeerDBMetricsProvider(
+	ctx context.Context,
+	otelServiceName string,
+	enabled bool,
+	sweeper *droppedFlowsSweeper,
+) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled)
+	return setupMetricsAndProvider(ctx, otelResource, enabled, sweeper)
 }
 
 func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
@@ -917,7 +958,7 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, nil, temporalMetricsFilteringView(ctx))
 }
 
 func SetupComponentMetricsProvider(
@@ -930,7 +971,7 @@ func SetupComponentMetricsProvider(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, nil, componentMetricsRenamingView(componentName))
 }
 
 type LoggingErrorHandler struct {

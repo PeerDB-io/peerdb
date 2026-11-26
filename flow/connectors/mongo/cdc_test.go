@@ -282,7 +282,7 @@ func TestChangeStreamIdleConnectionAdvancesOffset(t *testing.T) {
 		metadataStore: mockStore,
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
@@ -324,7 +324,7 @@ func TestChangeStreamRecreationFailureReturnsError(t *testing.T) {
 		metadataStore: mockStore,
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
@@ -364,7 +364,7 @@ func TestRetryChangeStreamErrorRecovery(t *testing.T) {
 		metadataStore: mockStore,
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
@@ -406,7 +406,7 @@ func TestRetryChangeStreamRecoveriesAreBounded(t *testing.T) {
 		metadataStore: &mockMetadataStore{},
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{
@@ -462,7 +462,7 @@ func TestChangeStreamReportsCollectionDDLToUser(t *testing.T) {
 		metadataStore: &mockMetadataStore{},
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{

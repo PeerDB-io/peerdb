@@ -104,7 +104,7 @@ func (h *pullHarness) run(t *testing.T) pullOutcome {
 		}
 	}()
 
-	otelManager, err := otel_metrics.NewOtelManager(t.Context(), "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(t.Context(), "test", false, nil)
 	require.NoError(t, err)
 	pullErr := h.connector.PullRecords(ctx, shared.CatalogPool{}, otelManager, h.req)
 	<-drained

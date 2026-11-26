@@ -18,7 +18,8 @@ import (
 
 // Counters and gauges keep each series (attribute set) in atomics and report to the SDK only on collection.
 // Every SDK measurement walks the whole attribute set, too slow for per-event hot paths.
-// Series are never removed, same as contextAttributesCache entries.
+// droppedFlowsSweeper removes the series and cached context entries of flows deleted from the catalog.
+// Histograms are not swept: the SDK owns their series and cannot remove them.
 
 func buildContextualAttributeSet(ctx context.Context) attribute.Set {
 	attributes := make([]attribute.KeyValue, 0, 12)
@@ -130,6 +131,46 @@ func (c *contextAttributesCache[V]) get(ctx context.Context, extra attribute.Set
 	return v
 }
 
+// clear drops all cached context entries so contexts and deleted series pointers can be garbage-collected.
+// Live flows repopulate their entry on the next call and resolve back to their existing series.
+func (c *contextAttributesCache[V]) clear() {
+	c.last.Store(nil)
+	c.entries.Clear()
+}
+
+func flowNameOf(attrs attribute.Set) string {
+	flowName, _ := attrs.Value(FlowNameKey)
+	return flowName.AsString()
+}
+
+func collectDroppedSeries[S any](
+	allSeries *sync.Map,
+	attrs func(*S) attribute.Set,
+	live map[string]struct{},
+	dst map[string]struct{},
+) {
+	allSeries.Range(func(_, value any) bool {
+		if flowName := flowNameOf(attrs(value.(*S))); flowName != "" {
+			if _, isLive := live[flowName]; !isLive {
+				dst[flowName] = struct{}{}
+			}
+		}
+		return true
+	})
+}
+
+func deleteDroppedSeries[S any](allSeries *sync.Map, attrs func(*S) attribute.Set, toDelete map[string]struct{}) int {
+	deleted := 0
+	allSeries.Range(func(key, value any) bool {
+		if _, ok := toDelete[flowNameOf(attrs(value.(*S)))]; ok {
+			allSeries.Delete(key)
+			deleted++
+		}
+		return true
+	})
+	return deleted
+}
+
 func loadOrStoreSeries[T any](allSeries *sync.Map, attrs attribute.Set, newSeries func(attribute.Set) *T) *T {
 	key := attrs.Equivalent()
 	if series, ok := allSeries.Load(key); ok {
@@ -144,6 +185,8 @@ type counterSeries struct {
 	sum   atomic.Int64
 }
 
+func counterAttrs(s *counterSeries) attribute.Set { return s.attrs }
+
 type ContextAwareInt64Counter struct {
 	embedded.Int64Counter
 	contexts contextAttributesCache[counterSeries]
@@ -156,6 +199,16 @@ func (c *ContextAwareInt64Counter) Enabled(context.Context) bool {
 
 func (c *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
 	c.contexts.get(ctx, metric.NewAddConfig(options).Attributes()).sum.Add(value)
+}
+
+func (c *ContextAwareInt64Counter) collectDroppedFlows(live map[string]struct{}, dst map[string]struct{}) {
+	collectDroppedSeries(&c.series, counterAttrs, live, dst)
+}
+
+func (c *ContextAwareInt64Counter) deleteFlows(toDelete map[string]struct{}) int {
+	deleted := deleteDroppedSeries(&c.series, counterAttrs, toDelete)
+	c.contexts.clear()
+	return deleted
 }
 
 func (c *ContextAwareInt64Counter) observe(_ context.Context, observer metric.Int64Observer) error {
@@ -198,6 +251,8 @@ type gaugeSeries struct {
 	pending atomic.Bool
 }
 
+func gaugeAttrs(s *gaugeSeries) attribute.Set { return s.attrs }
+
 type contextAwareGauge struct {
 	contexts contextAttributesCache[gaugeSeries]
 	series   sync.Map // attribute.Distinct -> *gaugeSeries
@@ -228,9 +283,19 @@ func (g *contextAwareGauge) collect(observe func(bits uint64, attrs attribute.Se
 	})
 }
 
+func (g *contextAwareGauge) collectDroppedFlows(live map[string]struct{}, dst map[string]struct{}) {
+	collectDroppedSeries(&g.series, gaugeAttrs, live, dst)
+}
+
+func (g *contextAwareGauge) deleteFlows(toDelete map[string]struct{}) int {
+	deleted := deleteDroppedSeries(&g.series, gaugeAttrs, toDelete)
+	g.contexts.clear()
+	return deleted
+}
+
 type contextAwareInt64Gauge struct {
 	embedded.Int64Gauge
-	gauge contextAwareGauge
+	contextAwareGauge
 }
 
 func (g *contextAwareInt64Gauge) Enabled(context.Context) bool {
@@ -238,11 +303,11 @@ func (g *contextAwareInt64Gauge) Enabled(context.Context) bool {
 }
 
 func (g *contextAwareInt64Gauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	g.gauge.record(ctx, uint64(value), metric.NewRecordConfig(options).Attributes())
+	g.record(ctx, uint64(value), metric.NewRecordConfig(options).Attributes())
 }
 
 func (g *contextAwareInt64Gauge) observe(_ context.Context, observer metric.Int64Observer) error {
-	g.gauge.collect(func(bits uint64, attrs attribute.Set) {
+	g.collect(func(bits uint64, attrs attribute.Set) {
 		observer.Observe(int64(bits), metric.WithAttributeSet(attrs))
 	})
 	return nil
@@ -251,7 +316,7 @@ func (g *contextAwareInt64Gauge) observe(_ context.Context, observer metric.Int6
 func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
 	gauge := &contextAwareInt64Gauge{}
-	gauge.gauge.init()
+	gauge.init()
 	observable, err := meter.Int64ObservableGauge(name,
 		metric.WithDescription(gaugeConfig.Description()),
 		metric.WithUnit(gaugeConfig.Unit()),
@@ -268,7 +333,7 @@ func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int6
 
 type contextAwareFloat64Gauge struct {
 	embedded.Float64Gauge
-	gauge contextAwareGauge
+	contextAwareGauge
 }
 
 func (g *contextAwareFloat64Gauge) Enabled(context.Context) bool {
@@ -276,11 +341,11 @@ func (g *contextAwareFloat64Gauge) Enabled(context.Context) bool {
 }
 
 func (g *contextAwareFloat64Gauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	g.gauge.record(ctx, math.Float64bits(value), metric.NewRecordConfig(options).Attributes())
+	g.record(ctx, math.Float64bits(value), metric.NewRecordConfig(options).Attributes())
 }
 
 func (g *contextAwareFloat64Gauge) observe(_ context.Context, observer metric.Float64Observer) error {
-	g.gauge.collect(func(bits uint64, attrs attribute.Set) {
+	g.collect(func(bits uint64, attrs attribute.Set) {
 		observer.Observe(math.Float64frombits(bits), metric.WithAttributeSet(attrs))
 	})
 	return nil
@@ -289,7 +354,7 @@ func (g *contextAwareFloat64Gauge) observe(_ context.Context, observer metric.Fl
 func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
 	gaugeConfig := metric.NewFloat64GaugeConfig(opts...)
 	gauge := &contextAwareFloat64Gauge{}
-	gauge.gauge.init()
+	gauge.init()
 	observable, err := meter.Float64ObservableGauge(name,
 		metric.WithDescription(gaugeConfig.Description()),
 		metric.WithUnit(gaugeConfig.Unit()),
