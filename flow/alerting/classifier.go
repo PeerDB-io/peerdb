@@ -418,14 +418,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// For now we are not making it as verbose, will take this up later
 			return errorClass, unknownErrorInfo(ErrorSourceOther)
 		}
-
-		if _, ok := errors.AsType[*exceptions.PostgresSetupError](err); ok {
-			errorClass := ErrorNotifyConnectivity
-			if pgErr != nil {
-				return errorClass, pgErrorInfo
-			}
-			return errorClass, unknownErrorInfo(pgErrSource)
-		}
 	}
 
 	if changefeedErr, ok := errors.AsType[*exceptions.CockroachChangefeedIrrecoverableError](err); ok {

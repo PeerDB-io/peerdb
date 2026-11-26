@@ -144,10 +144,6 @@ func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable stri
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
 }
 
-func EnvEqualTables[TSource connectors.Connector](env WorkflowRun, suite RowSource, table string, cols string) {
-	EnvEqualTablesWithNames(env, suite, table, table, cols)
-}
-
 func EnvEqualTablesWithNames(
 	env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string,
 ) {
@@ -742,11 +738,11 @@ func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.T
 }
 
 func (env WorkflowRun) Finished(ctx context.Context) bool {
-	desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
+	desc, err := env.c.DescribeWorkflow(ctx, env.GetID(), "")
 	if err != nil {
 		return false
 	}
-	return desc.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
+	return desc.RawResponse.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
 func (env WorkflowRun) Error(ctx context.Context) error {
@@ -939,12 +935,12 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
-		desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
+		desc, err := env.c.DescribeWorkflow(ctx, env.GetID(), "")
 		if err != nil {
 			t.Log("Not finished", err)
 			return false
 		}
-		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		status := desc.RawResponse.GetWorkflowExecutionInfo().GetStatus()
 		if status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING {
 			t.Log("Finished Status", status)
 			return true
@@ -964,7 +960,7 @@ func EnvGetWorkflowState(t *testing.T, env WorkflowRun) cdc_state.CDCFlowWorkflo
 
 func EnvGetRunID(t *testing.T, env WorkflowRun) string {
 	t.Helper()
-	execData, err := env.c.DescribeWorkflowExecution(t.Context(), env.GetID(), "")
+	execData, err := env.c.DescribeWorkflow(t.Context(), env.GetID(), "")
 	require.NoError(t, err)
-	return execData.WorkflowExecutionInfo.Execution.RunId
+	return execData.RawResponse.WorkflowExecutionInfo.Execution.RunId
 }

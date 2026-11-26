@@ -2377,11 +2377,20 @@ func (a *FlowableActivity) RunPgDumpSchema(
 		fmt.Sprintf("starting pg_dump schema migration from %s to %s", input.SourceName, input.DestinationName))
 
 	start := time.Now()
-	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
+	ignoredErrors, err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig)
+	if err != nil {
 		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
+	if ignoredErrors != "" {
+		logger.Warn("pg_dump schema migration completed with skipped statements",
+			slog.Duration("elapsed", elapsed), slog.String("errors", ignoredErrors))
+		a.Alerter.LogFlowWarning(ctx, input.FlowName,
+			fmt.Errorf("pg_dump schema migration completed in %s, but some statements were skipped:\n%s", elapsed, ignoredErrors))
+		return true, nil
+	}
+
 	logger.Info("pg_dump schema migration completed successfully", slog.Duration("elapsed", elapsed))
 	a.Alerter.LogFlowInfo(ctx, input.FlowName,
 		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))

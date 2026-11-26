@@ -103,7 +103,16 @@ fn parse_peer_type(parser: &mut Parser) -> Result<PeerType, ParserError> {
 fn parse_with_options(parser: &mut Parser) -> Result<Vec<sqlparser::ast::SqlOption>, ParserError> {
     if parser.parse_keyword(Keyword::WITH) {
         parser.expect_token(&Token::LParen)?;
-        let options = parser.parse_comma_separated(Parser::parse_sql_option)?;
+        // Not Parser::parse_sql_option: since sqlparser 0.64 it also accepts bare names
+        // (`WITH (password)`), which the analyzer would ignore, and qualified keys (`a.b = 1`).
+        let options = parser.parse_comma_separated(|p| {
+            let key = p.parse_identifier()?;
+            p.expect_token(&Token::Eq)?;
+            Ok(sqlparser::ast::SqlOption::KeyValue {
+                key: key.into(),
+                value: p.parse_expr()?,
+            })
+        })?;
         parser.expect_token(&Token::RParen)?;
         Ok(options)
     } else {

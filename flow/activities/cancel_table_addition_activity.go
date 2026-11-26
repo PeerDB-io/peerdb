@@ -458,7 +458,7 @@ func (a *CancelTableAdditionActivity) StartNewCDCFlow(
 
 func (a *CancelTableAdditionActivity) getRunIDOfLatestRunningPeerFlow(ctx context.Context, workflowId string) (string, error) {
 	// Describe to get latest run
-	describeResp, err := a.TemporalClient.DescribeWorkflowExecution(ctx, workflowId, "")
+	desc, err := a.TemporalClient.DescribeWorkflow(ctx, workflowId, "")
 	if err != nil {
 		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return "", fmt.Errorf("workflow %s not found: %w", workflowId, err)
@@ -466,10 +466,10 @@ func (a *CancelTableAdditionActivity) getRunIDOfLatestRunningPeerFlow(ctx contex
 			return "", fmt.Errorf("failed to describe workflow %s: %w", workflowId, err)
 		}
 	}
-	if describeResp == nil || describeResp.WorkflowExecutionInfo == nil || describeResp.WorkflowExecutionInfo.Execution == nil {
+	if desc == nil || desc.RawResponse.GetWorkflowExecutionInfo().GetExecution() == nil {
 		return "", fmt.Errorf("invalid describe response for workflow %s", workflowId)
 	}
-	return describeResp.WorkflowExecutionInfo.Execution.RunId, nil
+	return desc.RawResponse.WorkflowExecutionInfo.Execution.RunId, nil
 }
 
 func (a *CancelTableAdditionActivity) backfillTableOIDsFromSourceIfMissing(

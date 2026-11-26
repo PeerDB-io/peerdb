@@ -89,24 +89,6 @@ func convertToStatus(code codes.Code, err error, details ...protoadapt.MessageV1
 	return richStatus
 }
 
-// AsAPIError converts an error to APIError if it's a gRPC status error,
-// otherwise wraps it as an Internal error
-func AsAPIError(err error) APIError {
-	if err == nil {
-		return nil
-	}
-
-	if apiErr, ok := err.(APIError); ok {
-		return apiErr
-	}
-
-	if s, ok := status.FromError(err); ok {
-		return newAPIError(s)
-	}
-
-	return NewInternalApiError(err)
-}
-
 func NewMirrorErrorInfo(metadata map[string]string) *rpc.ErrorInfo {
 	return &rpc.ErrorInfo{
 		Reason:   common.ErrorInfoReasonMirror,

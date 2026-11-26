@@ -368,7 +368,7 @@ func TestSyncerCloseWithStalledSSHDownstream(t *testing.T) {
 
 	pos, err := connector.GetMasterPos(ctx)
 	require.NoError(t, err)
-	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
+	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil, nil) //nolint:dogsled
 	require.NoError(t, err)
 
 	_, err = sshProxy.AddToxic("stall", "latency", "downstream", 1.0, toxiproxy.Attributes{"latency": 120000})
