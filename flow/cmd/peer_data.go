@@ -116,7 +116,6 @@ func (h *FlowRequestHandler) ListPeers(
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to query for peers", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("failed to query for peers: %w", err))
 	}
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
@@ -124,7 +123,6 @@ func (h *FlowRequestHandler) ListPeers(
 		return &peer, row.Scan(&peer.Name, &peer.Type)
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to collect peers", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("failed to collect peers: %w", err))
 	}
 
@@ -231,7 +229,6 @@ func (h *FlowRequestHandler) GetSlotInfo(
 ) (*protos.PeerSlotResponse, APIError) {
 	pgConn, pgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
 	}
 	defer pgClose(ctx)
@@ -247,7 +244,6 @@ func (h *FlowRequestHandler) GetSlotInfo(
 
 	slotInfo, err := pgConn.GetSlotInfo(ctx, "", req.PeerdbManagedOnly, customSlotNames)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to get slot info", slog.Any("error", err))
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get slot info: %w", err))
 	}
 

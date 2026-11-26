@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"slices"
 
@@ -20,7 +19,6 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 ) (*protos.GetDynamicSettingsResponse, APIError) {
 	rows, err := h.pool.Query(ctx, "select config_name,config_value from dynamic_settings")
 	if err != nil {
-		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("failed to query settings: %w", err))
 	}
 	settings := slices.Clone(internal.DynamicSettings[:])
@@ -39,7 +37,6 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		}
 		return nil
 	}); err != nil {
-		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("failed to collect rows: %w", err))
 	}
 
@@ -64,7 +61,6 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 ) (*protos.PostDynamicSettingResponse, APIError) {
 	err := internal.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
-		slog.ErrorContext(ctx, "[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("failed to update setting: %w", err))
 	}
 	return &protos.PostDynamicSettingResponse{}, nil

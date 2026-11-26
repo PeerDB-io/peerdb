@@ -56,7 +56,6 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, connectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to check maintenance mode", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("unable to load dynamic config: %w", err))
 	}
 
@@ -69,7 +68,6 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	if !idempotent && !connectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName)
 		if existCheckErr != nil {
-			slog.ErrorContext(ctx, "/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
 			return nil, NewInternalApiError(fmt.Errorf("failed to check if mirror name exists: %w", existCheckErr))
 		}
 
@@ -89,7 +87,6 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	if connectionConfigs == nil {
-		slog.ErrorContext(ctx, "/validatecdc connection configs is nil")
 		return nil, NewInvalidArgumentApiError(fmt.Errorf("connection configs is nil"))
 	}
 

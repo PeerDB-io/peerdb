@@ -75,7 +75,6 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the workflow ID of mirror", slog.Any("error", err))
 		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
@@ -84,8 +83,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the running status of mirror", slog.Any("error", err))
-		return nil, NewInternalApiError(err)
+		return nil, NewInternalApiError(fmt.Errorf("unable to get the running status of mirror: %w", err))
 	}
 
 	createdAt, err := h.getMirrorCreatedAt(ctx, req.FlowJobName)
@@ -95,12 +93,10 @@ func (h *FlowRequestHandler) MirrorStatus(
 
 	if req.IncludeFlowInfo {
 		if cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
-			slog.ErrorContext(ctx, "unable to determine if mirror is cdc", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err))
 		} else if cdcFlow {
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
-				slog.ErrorContext(ctx, "unable to obtain CDC information for mirror", slog.Any("error", err))
 				return nil, NewInternalApiError(
 					fmt.Errorf("unable to obtain CDC information for mirror %s: %w", req.FlowJobName, err))
 			}
@@ -116,7 +112,6 @@ func (h *FlowRequestHandler) MirrorStatus(
 		} else {
 			qrepStatus, err := h.qrepFlowStatus(ctx, req)
 			if err != nil {
-				slog.ErrorContext(ctx, "unable to obtain qrep information for mirror", slog.Any("error", err))
 				return nil, NewInternalApiError(
 					fmt.Errorf("unable to obtain snapshot information for mirror %s: %w", req.FlowJobName, err))
 			}
@@ -146,18 +141,15 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	slog.InfoContext(ctx, "CDC mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to query flow config from catalog", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the workflow ID of mirror", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("unable to get the workflow ID of mirror: %w", err)
 	}
 	state, err := h.getCDCWorkflowState(ctx, workflowID)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the state of mirror", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("unable to get the state of mirror: %w", err)
 	}
 
 	// patching config to show latest values from state
@@ -169,13 +161,11 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to load source peer type", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("unable to load source peer type: %w", err)
 	}
 	dstType, err := connectors.LoadPeerType(ctx, h.pool, config.DestinationName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to load destination peer type", slog.Any("error", err))
-		return nil, err
+		return nil, fmt.Errorf("unable to load destination peer type: %w", err)
 	}
 
 	var snapshotStatus *protos.SnapshotStatus
@@ -184,7 +174,6 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 			ParentMirrorName: req.FlowJobName,
 		})
 		if apiErr != nil {
-			slog.ErrorContext(ctx, "unable to query clone table summary", slog.Any("error", apiErr))
 			return nil, apiErr
 		}
 		snapshotStatus = &protos.SnapshotStatus{Clones: initialLoadResponse.TableSummaries}
@@ -371,8 +360,6 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 
 	rows, err := h.pool.Query(ctx, q, parentMirrorName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to query initial load partition",
-			slog.String(string(shared.FlowNameKey), parentMirrorName), slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("unable to query initial load partition - %s: %w", parentMirrorName, err))
 	}
 
@@ -472,8 +459,6 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	q := "SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
 	rows, err := h.pool.Query(ctx, q, flowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to query qrep partition",
-			slog.String("flow", flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)
 	}
 
@@ -511,8 +496,6 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 		return partitionStatus, nil
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to scan qrep partition",
-			slog.String("flow", flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to scan qrep partition - %s: %w", flowJobName, err)
 	}
 
@@ -527,13 +510,11 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	if err := h.pool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
 	).Scan(&configBytes); err != nil {
-		slog.ErrorContext(ctx, "unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 
 	var config protos.FlowConnectionConfigs
 	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		slog.ErrorContext(ctx, "unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
 
@@ -545,7 +526,6 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 	if err := h.pool.QueryRow(
 		ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')", flowJobName,
 	).Scan(&isCdc); err != nil {
-		slog.ErrorContext(ctx, "unable to query flow", slog.Any("error", err))
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
 	return isCdc, nil
@@ -560,13 +540,11 @@ func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
 ) (*cdc_state.CDCFlowWorkflowState, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowStateQuery)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
 		return nil,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
 	var state cdc_state.CDCFlowWorkflowState
 	if err := res.Get(&state); err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
 		return nil,
 			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
@@ -577,7 +555,6 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 	var createdAt pgtype.Timestamp
 	err := h.pool.QueryRow(ctx, "SELECT created_at FROM flows WHERE name=$1", flowJobName).Scan(&createdAt)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to query flow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow: %w", err)
 	}
 
@@ -619,7 +596,6 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		ORDER BY batch_id %s%s`, whereExpr, sortOrderBy, limitClause)
 	rows, err := h.pool.Query(ctx, q, queryArgs...)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("unable to query cdc batches - %s: %s", req.FlowJobName, err.Error()))
 		return nil, NewInternalApiError(fmt.Errorf("unable to query cdc batches - %s: %w", req.FlowJobName, err))
 	}
 
@@ -631,7 +607,6 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		var startLSN pgtype.Numeric
 		var endLSN pgtype.Numeric
 		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("unable to scan cdc batches - %s: %s", req.FlowJobName, err.Error()))
 			return nil, NewInternalApiError(fmt.Errorf("unable to scan cdc batches - %s: %w", req.FlowJobName, err))
 		}
 

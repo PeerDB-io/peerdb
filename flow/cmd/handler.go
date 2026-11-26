@@ -58,7 +58,6 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
 	return id.Int32, nil
@@ -217,7 +216,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
 	if connectionConfigsCore.SkipValidation == nil || !*connectionConfigsCore.SkipValidation {
 		if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true, !connectionConfigsCore.Resync); err != nil {
-			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
 	}
@@ -242,12 +240,10 @@ func (h *FlowRequestHandler) createCDCFlow(
 	}
 
 	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
-		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, connectionConfigs, nil); err != nil {
-		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
@@ -283,8 +279,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 	if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
-		slog.ErrorContext(ctx, "unable to create flow job entry",
-			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
 	}
 	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
@@ -301,8 +295,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	cfg.ParentMirrorName = cfg.FlowJobName
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
-		slog.ErrorContext(ctx, "unable to start QRepFlow workflow",
-			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, NewInternalApiError(fmt.Errorf("unable to start QRepFlow workflow: %w", err))
 	}
 
@@ -318,18 +310,14 @@ func (h *FlowRequestHandler) dropFlow(
 	flowJobName string,
 	deleteStats bool,
 ) error {
-	logs := slog.Group("shutdown-log", slog.String(string(shared.FlowNameKey), flowJobName))
-
 	isCdc, err := h.isCDCFlow(ctx, flowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to check if workflow is cdc", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
 	}
 	var cdcConfig *protos.FlowConnectionConfigs
 	if isCdc {
 		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
 		if err != nil {
-			slog.ErrorContext(ctx, "unable to get cdc config from catalog", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
 		}
 	}
@@ -348,10 +336,8 @@ func (h *FlowRequestHandler) dropFlow(
 		SkipDestinationDrop:   true,
 		SkipSourceDrop:        true,
 	}); err != nil {
-		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	} else if err := dropFlowHandle.Get(ctx, nil); err != nil {
-		slog.ErrorContext(ctx, "DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
 		return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 	}
 
@@ -369,26 +355,18 @@ func (h *FlowRequestHandler) shutdownFlow(
 		return err
 	}
 
-	logs := slog.Group("shutdown-log",
-		slog.String(string(shared.FlowNameKey), flowJobName),
-		slog.String("workflowId", workflowID),
-	)
-
 	if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-		slog.ErrorContext(ctx, "unable to cancel workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
 	}
 
 	isCdc, err := h.isCDCFlow(ctx, flowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to check if workflow is cdc", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
 	}
 	var cdcConfig *protos.FlowConnectionConfigs
 	if isCdc {
 		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
 		if err != nil {
-			slog.ErrorContext(ctx, "unable to get cdc config from catalog", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
 		}
 	}
@@ -407,7 +385,6 @@ func (h *FlowRequestHandler) shutdownFlow(
 		// NOTE: Resync is false here during snapshot-only resync
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	}
 
@@ -422,12 +399,10 @@ func (h *FlowRequestHandler) shutdownFlow(
 	select {
 	case <-errLatch.Chan():
 		if err := errLatch.Wait(); err != nil {
-			slog.ErrorContext(ctx, "DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
 			return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 		}
 	case <-time.After(5 * time.Minute):
 		if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-			slog.ErrorContext(ctx, "unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
 		}
 	}
@@ -442,7 +417,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	logs := slog.String(string(shared.FlowNameKey), req.FlowJobName)
 	slog.InfoContext(ctx, "FlowStateChange called", logs, slog.Any("req", req))
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
-		slog.ErrorContext(ctx, "unable to check maintenance mode", logs, slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("unable to check maintenance mode: %w", err))
 	} else if underMaintenance {
 		slog.WarnContext(ctx, "Flow state change request denied due to maintenance", logs)
@@ -451,7 +425,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
 		if _, ok := errors.AsType[*exceptions.NotFoundError](err); ok {
 			return nil, NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
@@ -459,8 +432,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
-		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
-		return nil, NewInternalApiError(err)
+		return nil, NewInternalApiError(fmt.Errorf("unable to get workflow status: %w", err))
 	}
 
 	if cdcUpdate := req.FlowConfigUpdate.GetCdcFlowConfigUpdate(); cdcUpdate != nil {
@@ -513,7 +485,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 			"",
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		); err != nil {
-			slog.ErrorContext(ctx, "unable to signal workflow update", logs, slog.Any("error", err))
 			return nil, NewInternalApiError(fmt.Errorf("unable to signal workflow update: %w", err))
 		}
 		telemetry.LogActivityStartFlowConfigUpdate(ctx, req.FlowJobName, req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
@@ -597,13 +568,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 			}
 		default:
-			slog.ErrorContext(ctx, "illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
-				slog.Any("currState", currState))
 			return nil, NewInvalidArgumentApiError(fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState))
 		}
 		if changeErr != nil {
-			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", changeErr))
 			// Preserve typed API errors
 			if apiErr, ok := changeErr.(APIError); ok {
 				return nil, apiErr
