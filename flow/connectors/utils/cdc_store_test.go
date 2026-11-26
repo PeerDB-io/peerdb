@@ -147,3 +147,45 @@ func TestNullKeyDoesntStore(t *testing.T) {
 
 	require.NoError(t, cdcRecordsStore.Close())
 }
+
+// An empty binary value comes back from the disk spill with a nil Val (gob doesn't keep empty slices), while a NULL
+// stays QValueNull. A Postgres destination's raw-table JSON (NilBytesAsEmpty) still writes it as empty, for the
+// items of inserts and both images of updates.
+func TestEmptyBytesAfterSpill(t *testing.T) {
+	t.Parallel()
+
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), cdcStoreTestEnv(), "test_empty_bytes_spill")
+	require.NoError(t, err)
+	cdcRecordsStore.numRecordsSwitchThreshold = 0
+
+	items := func() model.RecordItems {
+		return model.RecordItems{ColToVal: map[string]types.QValue{
+			"empty": types.QValueBytes{Val: []byte{}},
+			"null":  types.QValueNull(types.QValueKindBytes),
+		}}
+	}
+	insertKey, _ := genKeyAndRec(t)
+	updateKey, _ := genKeyAndRec(t)
+	require.NoError(t, cdcRecordsStore.Set(insertKey, &model.InsertRecord[model.RecordItems]{Items: items()}))
+	require.NoError(t, cdcRecordsStore.Set(updateKey, &model.UpdateRecord[model.RecordItems]{
+		OldItems: items(), NewItems: items(),
+	}))
+	require.NotNil(t, cdcRecordsStore.pebbleDB)
+
+	inserted, ok, err := cdcRecordsStore.Get(insertKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	updated, ok, err := cdcRecordsStore.Get(updateKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	update := updated.(*model.UpdateRecord[model.RecordItems])
+
+	require.Nil(t, inserted.GetItems().GetColumnValue("empty").(types.QValueBytes).Val, "the spill loses the empty slice")
+	for _, spilled := range []model.RecordItems{inserted.GetItems(), update.OldItems, update.NewItems} {
+		got, err := spilled.ToJSONWithOptions(model.ToJSONOptions{NilBytesAsEmpty: true})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"empty":"","null":null}`, got)
+	}
+
+	require.NoError(t, cdcRecordsStore.Close())
+}

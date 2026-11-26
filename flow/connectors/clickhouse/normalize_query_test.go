@@ -43,7 +43,7 @@ func TestBuildQueryNullableDestinationTypeOverride(t *testing.T) {
 		[]*protos.TableMapping{tableMapping},
 		1, 0,
 		false, false,
-		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil, protos.DBType_POSTGRES,
 	).BuildQuery(t.Context())
 	require.NoError(t, err)
 
@@ -81,7 +81,7 @@ func TestBuildQueryTimestampArrays(t *testing.T) {
 		[]*protos.TableMapping{tableMapping},
 		1, 0,
 		false, false,
-		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil, protos.DBType_POSTGRES,
 	).BuildQuery(t.Context())
 	require.NoError(t, err)
 
@@ -103,6 +103,7 @@ func TestBuildQueryArrayOfJSON(t *testing.T) {
 			{Name: "id", Type: string(types.QValueKindString), TypeModifier: -1},
 			{Name: "docs", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
 			{Name: "docs_strict", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
+			{Name: "docs_lower", Type: string(types.QValueKindArrayJSON), TypeModifier: -1, Nullable: true},
 		},
 	}
 	tableMapping := &protos.TableMapping{
@@ -111,6 +112,8 @@ func TestBuildQueryArrayOfJSON(t *testing.T) {
 		Columns: []*protos.ColumnSetting{
 			{SourceName: "docs", DestinationType: "Array(Nullable(JSON))"},
 			{SourceName: "docs_strict", DestinationType: "Array(JSON)"},
+			// ClickHouse stores Array(json) as Array(JSON), so it is extracted the same way
+			{SourceName: "docs_lower", DestinationType: "Array(json)"},
 		},
 	}
 
@@ -120,14 +123,18 @@ func TestBuildQueryArrayOfJSON(t *testing.T) {
 		[]*protos.TableMapping{tableMapping},
 		1, 0,
 		false, false,
-		nil, "_peerdb_raw_t1", nil, false, "", 0, nil,
+		nil, "_peerdb_raw_t1", nil, false, "", 0, nil, protos.DBType_POSTGRES,
 	).BuildQuery(t.Context())
 	require.NoError(t, err)
 
 	require.Contains(t, query,
 		`JSONExtract(JSONExtractString(_peerdb_data, 'docs'), 'Array(Nullable(JSON))') AS `+"`docs`")
 	require.Contains(t, query,
-		`JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(JSON)') AS `+"`docs_strict`")
+		`arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(JSONExtractString(_peerdb_data, 'docs_strict'), 'Array(Nullable(JSON))'))`+
+			" AS `docs_strict`")
+	require.Contains(t, query,
+		`arrayMap(x -> ifNull(x, CAST('{}', 'JSON')), JSONExtract(JSONExtractString(_peerdb_data, 'docs_lower'), 'Array(Nullable(JSON))'))`+
+			" AS `docs_lower`")
 }
 
 // TestBuildQueryNullableJSON checks the projection for native JSON columns.
@@ -175,7 +182,7 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 			"t1_dst", schema, mappings,
 			1, 0,
 			enablePrimaryUpdate, false,
-			env, "_peerdb_raw_t1", chVersion, false, "", shared.InternalVersion_Latest, nil,
+			env, "_peerdb_raw_t1", chVersion, false, "", shared.InternalVersion_Latest, nil, protos.DBType_POSTGRES,
 		).BuildQuery(t.Context())
 		require.NoError(t, err)
 		return query
@@ -208,6 +215,13 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		require.Contains(t, query, nullableProjection)
 		require.Contains(t, query, nullableUpdate)
 		require.NotContains(t, query, "Nullable(Nullable(")
+
+		// lowercase overrides, which ClickHouse stores as JSON, take the same projection
+		for _, destinationType := range []string{"json", "Nullable(json)"} {
+			query = build(t, newSchema(true), newMapping(destinationType), true, nil)
+			require.Contains(t, query, nullableProjection, destinationType)
+			require.Contains(t, query, nullableUpdate, destinationType)
+		}
 	})
 
 	t.Run("non-nullable JSON column writes {} on empty", func(t *testing.T) {
@@ -217,9 +231,11 @@ func TestBuildQueryNullableJSON(t *testing.T) {
 		require.NotContains(t, query, "Nullable(JSON)")
 		require.True(t, peerdb_clickhouse.QueryCastsToJSON(query))
 
-		query = build(t, newSchema(false), newMapping("JSON"), true, nil)
-		require.Contains(t, query, plainProjection)
-		require.Contains(t, query, plainUpdate)
-		require.NotContains(t, query, "Nullable(JSON)")
+		for _, destinationType := range []string{"JSON", "json"} {
+			query = build(t, newSchema(false), newMapping(destinationType), true, nil)
+			require.Contains(t, query, plainProjection, destinationType)
+			require.Contains(t, query, plainUpdate, destinationType)
+			require.NotContains(t, query, "Nullable(JSON)", destinationType)
+		}
 	})
 }

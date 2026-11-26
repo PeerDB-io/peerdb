@@ -46,7 +46,7 @@ import (
 func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
-	config, err := pgx.ParseConfig("postgres://non-existent.domain.name.here:123/db")
+	config, err := pgx.ParseConfig("postgres://non-existent.domain.invalid:123/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
@@ -154,7 +154,7 @@ func TestQRepMissingWatermarkTableShouldBeSourceTableMissing(t *testing.T) {
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
-	hostName := "non-existent.domain.name.here"
+	hostName := "non-existent.domain.invalid"
 	_, err := net.Dial("tcp", hostName+":123")
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
@@ -745,6 +745,21 @@ func TestPostgresUniqueViolationOnNormalize(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UniqueViolation,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresNotNullViolationOnNormalize(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.NotNullViolation,
+		Message:  `null value in column "clientId" of relation "CarePlan" violates not-null constraint`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		fmt.Errorf("failed to normalize records: error executing normalize statement for table public.CarePlan: %w", err))
+	assert.Equal(t, ErrorNotifyConstraintViolation, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.NotNullViolation,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -1771,6 +1786,21 @@ func TestClickHouseTooManyTablesDuringTableCreationShouldNotifyUser(t *testing.T
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrTooManyTables)),
+	}, errInfo)
+}
+
+func TestInvalidRawSQLSettingDuringTableCreationShouldNotifyUser(t *testing.T) {
+	t.Parallel()
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error while generating create table sql: %w",
+		exceptions.NewClickHouseNormalizedTableCreationError(peerdb_clickhouse.ValidateExpression("id) --"), "test")))
+	assert.Equal(t, ErrorNotifyInvalidDestinationTableDefinition, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+		AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+			ErrorAttributeKeyTable: "test",
+		},
 	}, errInfo)
 }
 

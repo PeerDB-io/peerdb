@@ -223,22 +223,39 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 	return nil
 }
 
-func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset model.CdcCheckpoint) error {
-	p.logger.Info("finishing batch", "syncBatchID", syncBatchID, "offset", offset)
-	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
+const finishBatchSQL = `
+		INSERT INTO ` + lastSyncStateTableName + ` (job_name, last_offset, last_text, sync_batch_id)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (job_name)
 		DO UPDATE SET
-			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_offset = GREATEST(` + lastSyncStateTableName + `.last_offset, excluded.last_offset),
 			last_text = excluded.last_text,
-			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
+			sync_batch_id = GREATEST(` + lastSyncStateTableName + `.sync_batch_id, excluded.sync_batch_id),
 			updated_at = NOW()
-	`, jobName, offset.ID, offset.Text, syncBatchID); err != nil {
+	`
+
+// FinishBatch saves the catalog schema changes with the checkpoint, so a restart never
+// sees a synced batch with an outdated catalog schema. Apply destination DDL first.
+func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64,
+	offset model.CdcCheckpoint, schemaDeltas []*protos.TableSchemaDelta,
+) error {
+	p.logger.Info("finishing batch", "syncBatchID", syncBatchID, "offset", offset)
+	var err error
+	if len(schemaDeltas) == 0 {
+		_, err = p.pool.Exec(ctx, finishBatchSQL, jobName, offset.ID, offset.Text, syncBatchID)
+	} else {
+		err = pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
+			if err := internal.ApplySchemaDeltasToCatalogTx(ctx, tx, jobName, schemaDeltas); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, finishBatchSQL, jobName, offset.ID, offset.Text, syncBatchID)
+			return err
+		})
+	}
+	if err != nil {
 		p.logger.Error("failed to finish batch", slog.Any("error", err))
 		return err
 	}
-
 	return nil
 }
 

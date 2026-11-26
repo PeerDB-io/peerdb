@@ -87,7 +87,8 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	}
 
 	if err := c.ReplayTableSchemaDeltas(
-		ctx, config.Env, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil,
+		ctx, config.Env, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta}, nil, config.Version,
+		config.SourceType,
 	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}

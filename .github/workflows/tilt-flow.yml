@@ -47,6 +47,36 @@ on:
         type: string
         required: false
         default: ''
+      go_build_cache_artifact_id:
+        description: >-
+          ID of an unarchived artifact holding prebuilt Go build cache
+          entries as a zstd tarball (flow.yml's go_build_cache job). Leave
+          empty to compile from setup-go's dependency cache alone.
+        type: string
+        required: false
+        default: ''
+      go_build_cache_artifact_digest:
+        description: >-
+          SHA-256 digest of go_build_cache_artifact_id, as reported by
+          upload-artifact; the download is verified against it.
+        type: string
+        required: false
+        default: ''
+      flow_images_artifact_id:
+        description: >-
+          ID of an unarchived artifact holding the flow-api, flow-worker and
+          flow-snapshot-worker images as a zstd `docker save` tarball
+          (flow.yml's flow_images job). Leave empty to have Tilt build them.
+        type: string
+        required: false
+        default: ''
+      flow_images_artifact_digest:
+        description: >-
+          SHA-256 digest of flow_images_artifact_id, as reported by
+          upload-artifact; the download is verified against it.
+        type: string
+        required: false
+        default: ''
       # The <db>_image inputs pin the docker images of the ancillary DBs.
       # When empty, default to last combination declared at flow.yml
       # following scripts/generate-test-environment.sh's defaults.
@@ -148,6 +178,8 @@ permissions:
   # (RDS IAM auth tests).
   id-token: write
   contents: read
+  # actions: resolve the prebuilt Go build cache artifact's download URL.
+  actions: read
 
 concurrency:
   # Keyed per PR (falling back to the ref) and per input combination, so the
@@ -207,7 +239,7 @@ env:
 
 jobs:
   tilt:
-    runs-on: ubuntu-latest-64-core
+    runs-on: ubuntu-latest-32-cores
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1
@@ -235,7 +267,7 @@ jobs:
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           cache-dependency-path: |
             flow/go.sum
             flow/pkg/go.sum
@@ -244,30 +276,10 @@ jobs:
       # go generate) on `tilt up`. The flow docker images and the host-run tests
       # both consume the resulting flow/generated code, so buf must be on PATH.
       - name: Install buf
-        uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+        uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
           github_token: ${{ github.token }}
-
-      - name: install lib-geos and pg_dump
-        run: |
-          # No need to update man pages on package install
-          sudo apt-get remove --purge man-db
-          # Add PGDG apt repo for latest PostgreSQL client packages
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          # libgeos-dev: geometry support; retry: used by the test-results
-          # ingestion composite action's upload backoff.
-          sudo apt-get install -y libgeos-dev retry
-          # pg_dump must be >= the server major version; install v18 so it
-          # can dump PG 16, 17, and 18 (backward compatible).
-          sudo apt-get install -y postgresql-client-18
-          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
 
       - run: go mod download
         working-directory: ./flow
@@ -288,6 +300,28 @@ jobs:
           # but .env points the DBs at host.docker.internal. Map that name to the
           # loopback so the host can reach the docker-compose published ports.
           echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
+      # Load the flow images built once by the caller, so Tilt runs them instead
+      # of compiling peer-flow in Docker on every runner. Must finish before
+      # Tilt starts, since Tilt brings the flow containers up right away. Best
+      # effort: on any failure Tilt builds the images itself.
+      - name: Load prebuilt flow images
+        if: inputs.flow_images_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.flow_images_artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.flow_images_artifact_digest }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/flow-images.tar.zst"
+          bash .github/scripts/fetch-artifact.sh "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$archive"
+          start=$SECONDS
+          zstd -d -T0 < "$archive" | docker load
+          rm -f "$archive"
+          echo "loaded in $((SECONDS - start))s"
+          # Read by the Tiltfile.
+          echo "PEERDB_CI_PREBUILT_FLOW_IMAGES=1" >> "$GITHUB_ENV"
 
       # Start Tilt.
       - name: Start Tilt
@@ -333,8 +367,8 @@ jobs:
             exit 1
           fi
 
-      # Start the requested ancillary services and wait
-      # until they (and their provisioning steps) are confirmed up and running.
+      # Start the requested ancillary services without waiting for them, so
+      # the host-side steps below overlap with Tilt bringing everything up.
       - name: Start requested ancillary services
         env:
           ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
@@ -354,6 +388,61 @@ jobs:
             tilt --port "$TILT_PORT" trigger "$svc"
           done
 
+      # Layer the caller's prebuilt entries for this commit over setup-go's
+      # dependency cache. Runs while Tilt brings the services up in the
+      # background. Best effort: without them the tests still compile,
+      # just from scratch. download-artifact fetches over a single stream, so
+      # fetch-artifact.sh resolves the artifact's blob URL and lets azcopy
+      # fetch it in parallel ranges instead.
+      - name: Fetch prebuilt Go build cache
+        if: inputs.go_build_cache_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.go_build_cache_artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.go_build_cache_artifact_digest }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/go-build-cache.tar.zst"
+          bash .github/scripts/fetch-artifact.sh "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$archive"
+          # Tilt's proto-gen runs `go run` on the same GOCACHE; let it finish first.
+          tilt --port "$TILT_PORT" wait --for=condition=Ready uiresource/proto-gen --timeout=300s
+          start=$SECONDS
+          gocache="$(go env GOCACHE)"
+          mkdir -p "$gocache"
+          zstd -d -T0 < "$archive" | tar -x -C "$gocache"
+          rm -f "$archive"
+          echo "unpacked in $((SECONDS - start))s"
+
+      # Only the host-run tests need these (Tilt's proto-gen and provisioning
+      # don't), so install them while Tilt starts up.
+      - name: install lib-geos and pg_dump
+        run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+          # Add PGDG apt repo for latest PostgreSQL client packages
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          # libgeos-dev: geometry support; retry: used by the test-results
+          # ingestion composite action's upload backoff.
+          sudo apt-get install -y libgeos-dev retry
+          # pg_dump must be >= the server major version; install v18 so it
+          # can dump PG 16, 17, and 18 (backward compatible).
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> $GITHUB_PATH
+
+      # Wait until the requested ancillary services (and their provisioning
+      # steps) are confirmed up and running.
+      - name: Wait for ancillary services
+        env:
+          ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
+        run: |
+          set -euo pipefail
           wait_ready() {
             local res="$1"
             echo "Waiting for $res to be Ready..."
@@ -577,6 +666,10 @@ jobs:
         working-directory: ./flow
         env:
           PKG_TEST_PACKAGES: ${{ inputs.pkg_test_packages }}
+          # e2eshared.RunSuite marks every subtest parallel, and go test's
+          # -parallel defaults to GOMAXPROCS (the core count). The tests mostly
+          # wait on the databases, so don't let the runner size cap them.
+          TEST_PARALLEL: '64'
           TEST_ENV: ${{ inputs.test_env }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
@@ -661,7 +754,7 @@ jobs:
             echo "$label selection: ${#pkgs[@]} packages, $(printf '%s\n' "${names[@]}" | sort -u | wc -l) tests"
             for package in "${pkgs[@]}"; do printf '%s package: %s\n' "$label" "$package"; done
             gotestsum --format standard-quiet --no-color --junitfile "$junitfile" -- \
-              -tags tilt "$@" -p 32 "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
+              -tags tilt "$@" -p 32 -parallel "$TEST_PARALLEL" "${pkgs[@]}" -run "$regex" -timeout "$timeout" \
               -args -test.gocoverdir="$coverdir"
           }
 

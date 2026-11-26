@@ -2,116 +2,25 @@ package otel_metrics
 
 import (
 	"context"
-	"fmt"
+	"math"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
-type ObservationMapValue[V comparable] struct {
-	Value V
-}
+// Counters and gauges keep each series (attribute set) in atomics and report to the SDK only on collection.
+// Every SDK measurement walks the whole attribute set, too slow for per-event hot paths.
+// Series are never removed, same as contextAttributesCache entries.
 
-// SyncGauge is a generic synchronous gauge that can be used to observe any type of value
-// Inspired from https://github.com/open-telemetry/opentelemetry-go/issues/3984#issuecomment-1743231837
-type SyncGauge[V comparable, O metric.Observable] struct {
-	observableGauge O
-	observations    sync.Map
-	name            string
-}
-
-func (a *SyncGauge[V, O]) Callback(ctx context.Context, observeFunc func(value V, options ...metric.ObserveOption)) error {
-	a.observations.Range(func(key, value any) bool {
-		attrs := key.(attribute.Set)
-		val := value.(*ObservationMapValue[V])
-		observeFunc(val.Value, metric.WithAttributeSet(attrs))
-		// If the pointer is still same we can safely delete, else it means that the value was overwritten in parallel
-		a.observations.CompareAndDelete(attrs, val)
-		return true
-	})
-	return nil
-}
-
-func (a *SyncGauge[V, O]) Record(input V, attrs attribute.Set) {
-	val := ObservationMapValue[V]{Value: input}
-	a.observations.Store(attrs, &val)
-}
-
-type Int64SyncGauge struct {
-	embedded.Int64Gauge
-	syncGauge *SyncGauge[int64, metric.Int64ObservableGauge]
-}
-
-func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64SyncGauge, error) {
-	syncGauge := &SyncGauge[int64, metric.Int64ObservableGauge]{
-		name: gaugeName,
-	}
-	observableGauge, err := meter.Int64ObservableGauge(gaugeName,
-		append(opts, metric.WithInt64Callback(func(ctx context.Context, observer metric.Int64Observer) error {
-			return syncGauge.Callback(ctx, func(value int64, options ...metric.ObserveOption) {
-				observer.Observe(value, options...)
-			})
-		}))...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Int64SyncGauge: %w", err)
-	}
-	syncGauge.observableGauge = observableGauge
-	return &Int64SyncGauge{syncGauge: syncGauge}, nil
-}
-
-func (a *Int64SyncGauge) Enabled(context.Context) bool {
-	return a != nil
-}
-
-func (a *Int64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	if a == nil {
-		return
-	}
-	c := metric.NewRecordConfig(options)
-	a.syncGauge.Record(value, c.Attributes())
-}
-
-type Float64SyncGauge struct {
-	embedded.Float64Gauge
-	syncGauge *SyncGauge[float64, metric.Float64Observable]
-}
-
-func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64SyncGauge, error) {
-	syncGauge := &SyncGauge[float64, metric.Float64Observable]{
-		name: gaugeName,
-	}
-	observableGauge, err := meter.Float64ObservableGauge(gaugeName,
-		append(opts, metric.WithFloat64Callback(func(ctx context.Context, observer metric.Float64Observer) error {
-			return syncGauge.Callback(ctx, func(value float64, options ...metric.ObserveOption) {
-				observer.Observe(value, options...)
-			})
-		}))...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Float64SyncGauge: %w", err)
-	}
-	syncGauge.observableGauge = observableGauge
-	return &Float64SyncGauge{syncGauge: syncGauge}, nil
-}
-
-func (a *Float64SyncGauge) Enabled(context.Context) bool {
-	return a != nil
-}
-
-func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	if a == nil {
-		return
-	}
-	c := metric.NewRecordConfig(options)
-	a.syncGauge.Record(value, c.Attributes())
-}
-
-func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
+func buildContextualAttributeSet(ctx context.Context) attribute.Set {
 	attributes := make([]attribute.KeyValue, 0, 12)
 	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
@@ -149,120 +58,265 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 			attribute.String(TemporalWorkflowTypeKey, activityInfo.WorkflowType.Name),
 		)
 	}
-	return metric.WithAttributeSet(attribute.NewSet(attributes...))
+	return attribute.NewSet(attributes...)
 }
 
-// contextAttributesCache memoize buildContextualAttributes, which is expensive in the
-// hot path. Since gauges are singletons shared across mirrors, cache entries are keyed
-// by flow name (when exists) to so they don't evict each other across mirrors.
-type contextAttributesCache struct {
-	entries sync.Map
+// mergeAttributeSets adds the call's attributes to the contextual ones. The call's value wins on shared keys.
+func mergeAttributeSets(contextual attribute.Set, extra attribute.Set) attribute.Set {
+	kvs := make([]attribute.KeyValue, 0, contextual.Len()+extra.Len())
+	kvs = append(kvs, contextual.ToSlice()...)
+	kvs = append(kvs, extra.ToSlice()...)
+	return attribute.NewSet(kvs...)
 }
 
-type contextAttributesCacheEntry struct {
+// contextAttributesCache memoizes buildContextualAttributeSet, which is expensive in the hot path, and the
+// series state derived from it. Instruments are shared across mirrors, so entries are keyed by flow name
+// (when present) to keep mirrors from evicting each other. The last used entry is checked first, since hot
+// paths record with the same context repeatedly.
+type contextAttributesCache[V any] struct {
+	resolve func(attrs attribute.Set) *V
+	last    atomic.Pointer[contextEntry[V]]
+	entries sync.Map // flow name -> *contextEntry[V]
+}
+
+type contextEntry[V any] struct {
 	//nolint:containedctx // the context is a cache key compared by identity, not a stored dependency
 	ctx   context.Context
-	attrs metric.MeasurementOption
+	attrs attribute.Set
+	// Series state for calls without extra attributes.
+	base atomic.Pointer[V]
+	// Series state for calls with extra attributes: attribute.Distinct of the extra set -> *V.
+	extra sync.Map
 }
 
-func (c *contextAttributesCache) forContext(ctx context.Context) metric.MeasurementOption {
+func (c *contextAttributesCache[V]) entry(ctx context.Context) *contextEntry[V] {
+	if entry := c.last.Load(); entry != nil && entry.ctx == ctx {
+		return entry
+	}
 	var flowName string
 	if flowMetadata := internal.GetFlowMetadata(ctx); flowMetadata != nil {
 		flowName = flowMetadata.FlowName
 	}
 	if cached, ok := c.entries.Load(flowName); ok {
-		if entry := cached.(*contextAttributesCacheEntry); entry.ctx == ctx {
-			return entry.attrs
+		if entry := cached.(*contextEntry[V]); entry.ctx == ctx {
+			c.last.Store(entry)
+			return entry
 		}
 	}
-	attrs := buildContextualAttributes(ctx)
-	c.entries.Store(flowName, &contextAttributesCacheEntry{ctx: ctx, attrs: attrs})
-	return attrs
+	entry := &contextEntry[V]{ctx: ctx, attrs: buildContextualAttributeSet(ctx)}
+	c.entries.Store(flowName, entry)
+	c.last.Store(entry)
+	return entry
 }
 
-type ContextAwareInt64SyncGauge struct {
-	metric.Int64Gauge
-	attrsCache contextAttributesCache
+// get returns the series state for the context's attributes plus extra.
+// Callers should pass precomputed extra sets; building one per call is the cost this cache avoids.
+func (c *contextAttributesCache[V]) get(ctx context.Context, extra attribute.Set) *V {
+	entry := c.entry(ctx)
+	if extra.Len() == 0 {
+		if v := entry.base.Load(); v != nil {
+			return v
+		}
+		v := c.resolve(entry.attrs)
+		entry.base.Store(v)
+		return v
+	}
+	key := extra.Equivalent()
+	if cached, ok := entry.extra.Load(key); ok {
+		return cached.(*V)
+	}
+	v := c.resolve(mergeAttributeSets(entry.attrs, extra))
+	entry.extra.Store(key, v)
+	return v
 }
 
-func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
-	a.Int64Gauge.Record(ctx, value, newOptions...)
+func loadOrStoreSeries[T any](allSeries *sync.Map, attrs attribute.Set, newSeries func(attribute.Set) *T) *T {
+	key := attrs.Equivalent()
+	if series, ok := allSeries.Load(key); ok {
+		return series.(*T)
+	}
+	series, _ := allSeries.LoadOrStore(key, newSeries(attrs))
+	return series.(*T)
 }
 
-type ContextAwareFloat64SyncGauge struct {
-	metric.Float64Gauge
-	attrsCache contextAttributesCache
-}
-
-func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
-	a.Float64Gauge.Record(ctx, value, newOptions...)
+type counterSeries struct {
+	attrs attribute.Set
+	sum   atomic.Int64
 }
 
 type ContextAwareInt64Counter struct {
-	metric.Int64Counter
-	attrsCache contextAttributesCache
+	embedded.Int64Counter
+	contexts contextAttributesCache[counterSeries]
+	series   sync.Map // attribute.Distinct -> *counterSeries
 }
 
-func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
-	newOptions := append([]metric.AddOption{a.attrsCache.forContext(ctx)}, options...)
-	a.Int64Counter.Add(ctx, value, newOptions...)
+func (c *ContextAwareInt64Counter) Enabled(context.Context) bool {
+	return true
 }
 
-type ContextAwareInt64Histogram struct {
-	metric.Int64Histogram
-	attrsCache contextAttributesCache
+func (c *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
+	c.contexts.get(ctx, metric.NewAddConfig(options).Attributes()).sum.Add(value)
 }
 
-func (a *ContextAwareInt64Histogram) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	newOptions := append([]metric.RecordOption{a.attrsCache.forContext(ctx)}, options...)
-	a.Int64Histogram.Record(ctx, value, newOptions...)
-}
-
-func Int64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
-	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
-	return NewInt64SyncGauge(meter, name,
-		metric.WithDescription(gaugeConfig.Description()),
-		metric.WithUnit(gaugeConfig.Unit()),
-	)
-}
-
-func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
-	gauge, err := Int64Gauge(meter, name, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &ContextAwareInt64SyncGauge{Int64Gauge: gauge}, nil
-}
-
-func Float64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
-	gaugeConfig := metric.NewFloat64GaugeConfig(opts...)
-	return NewFloat64SyncGauge(meter, name,
-		metric.WithDescription(gaugeConfig.Description()),
-		metric.WithUnit(gaugeConfig.Unit()),
-	)
-}
-
-func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
-	gauge, err := Float64Gauge(meter, name, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &ContextAwareFloat64SyncGauge{Float64Gauge: gauge}, nil
+func (c *ContextAwareInt64Counter) observe(_ context.Context, observer metric.Int64Observer) error {
+	c.series.Range(func(_, value any) bool {
+		series := value.(*counterSeries)
+		observer.Observe(series.sum.Load(), metric.WithAttributeSet(series.attrs))
+		return true
+	})
+	return nil
 }
 
 func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
 	counterConfig := metric.NewInt64CounterConfig(opts...)
-	counter, err := meter.Int64Counter(name,
+	counter := &ContextAwareInt64Counter{}
+	counter.contexts.resolve = func(attrs attribute.Set) *counterSeries {
+		return loadOrStoreSeries(&counter.series, attrs, func(attrs attribute.Set) *counterSeries {
+			return &counterSeries{attrs: attrs}
+		})
+	}
+	observable, err := meter.Int64ObservableCounter(name,
 		metric.WithDescription(counterConfig.Description()),
 		metric.WithUnit(counterConfig.Unit()),
+		metric.WithInt64Callback(counter.observe),
 	)
 	if err != nil {
 		return nil, err
 	}
+	if _, isNoop := observable.(noop.Int64ObservableCounter); isNoop {
+		// A noop meter never collects, so recorded series would never be reported.
+		return noop.Int64Counter{}, nil
+	}
+	return counter, nil
+}
 
-	return &ContextAwareInt64Counter{Int64Counter: counter}, nil
+// gaugeSeries keeps the latest value. Collections report it only if recorded since the previous
+// collection, so idle series report nothing.
+type gaugeSeries struct {
+	attrs   attribute.Set
+	bits    atomic.Uint64
+	pending atomic.Bool
+}
+
+type contextAwareGauge struct {
+	contexts contextAttributesCache[gaugeSeries]
+	series   sync.Map // attribute.Distinct -> *gaugeSeries
+}
+
+func (g *contextAwareGauge) init() {
+	g.contexts.resolve = func(attrs attribute.Set) *gaugeSeries {
+		return loadOrStoreSeries(&g.series, attrs, func(attrs attribute.Set) *gaugeSeries {
+			return &gaugeSeries{attrs: attrs}
+		})
+	}
+}
+
+func (g *contextAwareGauge) record(ctx context.Context, bits uint64, extra attribute.Set) {
+	series := g.contexts.get(ctx, extra)
+	// Store the value before the flag, so a collection seeing the flag reads this value or a newer one.
+	series.bits.Store(bits)
+	series.pending.Store(true)
+}
+
+func (g *contextAwareGauge) collect(observe func(bits uint64, attrs attribute.Set)) {
+	g.series.Range(func(_, value any) bool {
+		series := value.(*gaugeSeries)
+		if series.pending.Swap(false) {
+			observe(series.bits.Load(), series.attrs)
+		}
+		return true
+	})
+}
+
+type contextAwareInt64Gauge struct {
+	embedded.Int64Gauge
+	gauge contextAwareGauge
+}
+
+func (g *contextAwareInt64Gauge) Enabled(context.Context) bool {
+	return true
+}
+
+func (g *contextAwareInt64Gauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
+	g.gauge.record(ctx, uint64(value), metric.NewRecordConfig(options).Attributes())
+}
+
+func (g *contextAwareInt64Gauge) observe(_ context.Context, observer metric.Int64Observer) error {
+	g.gauge.collect(func(bits uint64, attrs attribute.Set) {
+		observer.Observe(int64(bits), metric.WithAttributeSet(attrs))
+	})
+	return nil
+}
+
+func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
+	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
+	gauge := &contextAwareInt64Gauge{}
+	gauge.gauge.init()
+	observable, err := meter.Int64ObservableGauge(name,
+		metric.WithDescription(gaugeConfig.Description()),
+		metric.WithUnit(gaugeConfig.Unit()),
+		metric.WithInt64Callback(gauge.observe),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if _, isNoop := observable.(noop.Int64ObservableGauge); isNoop {
+		return noop.Int64Gauge{}, nil
+	}
+	return gauge, nil
+}
+
+type contextAwareFloat64Gauge struct {
+	embedded.Float64Gauge
+	gauge contextAwareGauge
+}
+
+func (g *contextAwareFloat64Gauge) Enabled(context.Context) bool {
+	return true
+}
+
+func (g *contextAwareFloat64Gauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
+	g.gauge.record(ctx, math.Float64bits(value), metric.NewRecordConfig(options).Attributes())
+}
+
+func (g *contextAwareFloat64Gauge) observe(_ context.Context, observer metric.Float64Observer) error {
+	g.gauge.collect(func(bits uint64, attrs attribute.Set) {
+		observer.Observe(math.Float64frombits(bits), metric.WithAttributeSet(attrs))
+	})
+	return nil
+}
+
+func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
+	gaugeConfig := metric.NewFloat64GaugeConfig(opts...)
+	gauge := &contextAwareFloat64Gauge{}
+	gauge.gauge.init()
+	observable, err := meter.Float64ObservableGauge(name,
+		metric.WithDescription(gaugeConfig.Description()),
+		metric.WithUnit(gaugeConfig.Unit()),
+		metric.WithFloat64Callback(gauge.observe),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if _, isNoop := observable.(noop.Float64ObservableGauge); isNoop {
+		return noop.Float64Gauge{}, nil
+	}
+	return gauge, nil
+}
+
+// Histograms still record into the SDK on every call, since they rely on its bucket aggregation.
+type histogramSeries struct {
+	options []metric.RecordOption
+}
+
+type ContextAwareInt64Histogram struct {
+	metric.Int64Histogram
+	contexts contextAttributesCache[histogramSeries]
+}
+
+func (h *ContextAwareInt64Histogram) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
+	series := h.contexts.get(ctx, metric.NewRecordConfig(options).Attributes())
+	h.Int64Histogram.Record(ctx, value, series.options...)
 }
 
 func NewContextAwareInt64Histogram(
@@ -280,5 +334,9 @@ func NewContextAwareInt64Histogram(
 		return nil, err
 	}
 
-	return &ContextAwareInt64Histogram{Int64Histogram: histogram}, nil
+	contextAware := &ContextAwareInt64Histogram{Int64Histogram: histogram}
+	contextAware.contexts.resolve = func(attrs attribute.Set) *histogramSeries {
+		return &histogramSeries{options: []metric.RecordOption{metric.WithAttributeSet(attrs)}}
+	}
+	return contextAware, nil
 }

@@ -23,8 +23,41 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Renovate rebases its branches whenever they fall behind main, which fires `synchronize`
+      # with an identical bump. Skip the review when the diff matches the one Claude last reviewed.
+      # `git patch-id --stable` ignores line offsets, so rebases over unrelated changes match.
+      - name: Skip if diff is unchanged since last Claude review
+        id: dedupe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          patch_id() {
+            gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/compare/$BASE_REF...$1" \
+              | git patch-id --stable | cut -d' ' -f1
+          }
+          prev_sha=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            --jq '.[] | select(.user.login == "claude[bot]") | .commit_id' | tail -n1)
+          if [ -z "$prev_sha" ]; then
+            echo "No previous Claude review, running."
+            exit 0
+          fi
+          prev_id=$(patch_id "$prev_sha")
+          head_id=$(patch_id "$HEAD_SHA")
+          if [ -n "$prev_id" ] && [ "$prev_id" = "$head_id" ]; then
+            echo "Diff unchanged since Claude reviewed $prev_sha (patch-id $head_id), skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Diff changed since Claude reviewed $prev_sha, running."
+          fi
+
       - name: Run Claude Code Review
         id: claude-review
+        if: steps.dedupe.outputs.skip != 'true'
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           allowed_bots: 'renovate'
@@ -37,11 +70,11 @@ jobs:
             You MUST FOLLOW the instructions at `.claude/REVIEW.md` always respecting the principles
             listed at `.claude/CLAUDE.md`.
             If findings exist, post them as inline comments via mcp__github_inline_comment__create_inline_comment.
-            If none, post one summary comment via `gh pr comment` saying the bump was reviewed and looks clean,
-            so reviewers know the workflow actually ran.
+            If none, post one summary review via `gh pr review --comment --body` saying the bump was reviewed
+            and looks clean, so reviewers know the workflow actually ran.
 
       - name: Print Claude execution output
-        if: always()
+        if: always() && steps.dedupe.outputs.skip != 'true'
         run: cat /home/runner/work/_temp/claude-execution-output.json || echo "No execution output found"
 
       - name: Fail if the review was skipped

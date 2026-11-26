@@ -57,6 +57,13 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigsCore, map[string]*protos.TableSchema) error
 }
 
+type DestinationTableValidationConnector interface {
+	Connector
+
+	// ValidateDestinationTables checks table mapping settings that need neither the server nor source schemas.
+	ValidateDestinationTables(context.Context, []*protos.TableMapping) error
+}
+
 type StatActivityConnector interface {
 	Connector
 
@@ -206,6 +213,7 @@ type NormalizedTablesConnector interface {
 		config *protos.SetupNormalizedTableBatchInput,
 		destinationTableIdentifier string,
 		sourceTableSchema *protos.TableSchema,
+		sourceType protos.DBType,
 	) (bool, error)
 }
 
@@ -231,7 +239,8 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
-		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string,
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, flags []string, version uint32,
+		sourceType protos.DBType,
 	) error
 }
 
@@ -438,39 +447,17 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 	return dbtype, nil
 }
 
-func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
-	if len(peerNames) == 0 {
-		return nil, nil
-	}
-
-	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query peer types: %w", err)
-	}
-
-	peerTypes := make(map[string]protos.DBType, len(peerNames))
-	var peerName string
+func LoadFlowSourcePeerType(ctx context.Context, catalogPool shared.CatalogPool, flowName string) (protos.DBType, error) {
+	row := catalogPool.QueryRow(ctx,
+		"SELECT p.type FROM flows f JOIN peers p ON p.id = f.source_peer WHERE f.name = $1", flowName)
 	var dbtype protos.DBType
-	if _, err := pgx.ForEachRow(rows, []any{&peerName, &dbtype}, func() error {
-		peerTypes[peerName] = dbtype
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("error querying peer rows: %w", err)
-	}
-
-	// Verify all requested peers were found
-	var missingPeers []string
-	for _, peerName := range peerNames {
-		if _, found := peerTypes[peerName]; !found {
-			missingPeers = append(missingPeers, peerName)
+	if err := row.Scan(&dbtype); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, exceptions.NewNotFoundError(fmt.Errorf("flow not found: %s", flowName))
 		}
+		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load source peer type for flow %s: %w", flowName, err))
 	}
-
-	if len(missingPeers) > 0 {
-		return nil, fmt.Errorf("peers not found: %v", missingPeers)
-	}
-
-	return peerTypes, nil
+	return dbtype, nil
 }
 
 func LoadPeers(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]*protos.Peer, error) {
@@ -871,6 +858,8 @@ var (
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ MirrorDestinationValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorDestinationValidationConnector = &connbigquery.BigQueryConnector{}
+
+	_ DestinationTableValidationConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetFlagsConnector = &connclickhouse.ClickHouseConnector{}
 

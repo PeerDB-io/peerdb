@@ -186,6 +186,8 @@ func (s *SetupFlowExecution) setupTableSchema(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    GetSetupFlowHeartbeatTimeout(ctx),
+		// Cancellation cleanup must not race a late table_schema_mapping write.
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -216,6 +218,7 @@ func (s *SetupFlowExecution) createNormalizedTables(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    GetSetupFlowHeartbeatTimeout(ctx),
+		WaitForCancellation: true,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},

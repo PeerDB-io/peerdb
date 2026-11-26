@@ -213,8 +213,11 @@ type NormalizeQueryCDCRequest struct {
 
 type ToJSONOptions struct {
 	UnnestColumns        map[string]struct{}
-	HStoreAsJSON         bool
 	ClearValuesOverBytes int // 0 means preserve values
+	HStoreAsJSON         bool
+	// NilBytesAsEmpty writes a QValueBytes with a nil Val as an empty value instead of null (a NULL arrives as
+	// QValueNull, so nil there is an empty value)
+	NilBytesAsEmpty bool
 }
 
 func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) ToJSONOptions {
@@ -278,6 +281,7 @@ type SyncRecordsRequest[T Items] struct {
 	SyncBatchID   int64
 	Version       uint32
 	Flags         []string
+	SourceType    protos.DBType
 }
 type NormalizeRecordsRequest struct {
 	Env                    map[string]string
@@ -289,6 +293,7 @@ type NormalizeRecordsRequest struct {
 	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
 	Version                uint32
+	SourceType             protos.DBType
 }
 
 //nolint:govet // no need to save on fieldalignment

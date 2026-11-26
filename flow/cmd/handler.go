@@ -476,6 +476,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 		for _, tm := range tablesToNormalize {
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
+		if len(cdcUpdate.AdditionalTables) > 0 {
+			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
+			}
+			additionConfig := pconv.FlowConnectionConfigsToCore(config)
+			additionConfig.TableMappings = cdcUpdate.AdditionalTables
+			if apiErr := h.checkAdditionalTables(ctx, additionConfig); apiErr != nil {
+				return nil, apiErr
+			}
+		}
 		if len(cdcUpdate.ResyncTables) > 0 {
 			if currState != protos.FlowStatus_STATUS_PAUSED {
 				return nil, NewInvalidArgumentApiError(fmt.Errorf("table-level resync requires the mirror to be paused"))
@@ -906,10 +917,11 @@ func (h *FlowRequestHandler) isMaintenanceWorkflowRunning(
 ) (*workflowservice.DescribeWorkflowExecutionResponse, bool, error) {
 	startWorkflowID := getMaintenanceWorkflowID(wfType)
 
-	desc, err := h.temporalClient.DescribeWorkflowExecution(ctx, startWorkflowID, "")
+	description, err := h.temporalClient.DescribeWorkflow(ctx, startWorkflowID, "")
 	if err != nil {
 		return nil, false, err
 	}
+	desc := description.RawResponse
 
 	isRunning := desc.WorkflowExecutionInfo != nil && desc.WorkflowExecutionInfo.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING
 	return desc, isRunning, nil

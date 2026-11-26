@@ -33,14 +33,6 @@ func (self TypedSignal[T]) SignalClientWorkflow(
 	return c.SignalWorkflow(ctx, workflowID, runID, self.Name, value)
 }
 
-func (self TypedSignal[T]) SignalChildWorkflow(
-	ctx workflow.Context,
-	wf workflow.ChildWorkflowFuture,
-	value T,
-) workflow.Future {
-	return wf.SignalChildWorkflow(ctx, self.Name, value)
-}
-
 func (self TypedSignal[T]) SignalExternalWorkflow(
 	ctx workflow.Context,
 	workflowID string,
@@ -54,28 +46,10 @@ type TypedReceiveChannel[T any] struct {
 	Chan workflow.ReceiveChannel
 }
 
-func (self TypedReceiveChannel[T]) Receive(ctx workflow.Context) (T, bool) {
-	var result T
-	more := self.Chan.Receive(ctx, &result)
-	return result, more
-}
-
-func (self TypedReceiveChannel[T]) ReceiveWithTimeout(ctx workflow.Context, timeout time.Duration) (T, bool, bool) {
-	var result T
-	ok, more := self.Chan.ReceiveWithTimeout(ctx, timeout, &result)
-	return result, ok, more
-}
-
 func (self TypedReceiveChannel[T]) ReceiveAsync() (T, bool) {
 	var result T
 	ok := self.Chan.ReceiveAsync(&result)
 	return result, ok
-}
-
-func (self TypedReceiveChannel[T]) ReceiveAsyncWithMoreFlag() (T, bool, bool) {
-	var result T
-	ok, more := self.Chan.ReceiveAsyncWithMoreFlag(&result)
-	return result, ok, more
 }
 
 func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f func(T, bool)) workflow.Selector {
@@ -136,6 +110,15 @@ var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 
 var StartMaintenanceSignal = TypedSignal[*protos.StartMaintenanceSignal]{
 	Name: "start-maintenance-signal",
+}
+
+var CancelTableResyncSignal = TypedSignal[struct{}]{
+	Name: "cancel-table-resync-signal",
+}
+
+// sent by the table-level resync child to its parent right before it starts swapping tables
+var TableResyncSwapStartedSignal = TypedSignal[struct{}]{
+	Name: "table-resync-swap-started-signal",
 }
 
 func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {

@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -85,7 +88,7 @@ func (s PostgresSchemaDeltaTestSuite) testSimpleAddColumn(t *testing.T, system p
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -151,7 +154,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddAllColumnTypes(t *testing.T, system
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -195,7 +198,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddTrickyColumnNames(t *testing.T, sys
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -239,7 +242,7 @@ func (s PostgresSchemaDeltaTestSuite) testAddDropWhitespaceColumnNames(t *testin
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 		System:       system,
-	}}, nil))
+	}}, nil, shared.InternalVersion_Latest, protos.DBType_POSTGRES))
 
 	output, err := s.connector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, system,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
@@ -255,6 +258,9 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 	enumType := s.schema + ".mood"
 	_, err := s.connector.conn.Exec(s.t.Context(), "CREATE TYPE "+enumType+" AS ENUM ('sad','ok')")
 	require.NoError(s.t, err)
+	jsonbArrayDomain := s.schema + ".jsonb_arr_domain"
+	_, err = s.connector.conn.Exec(s.t.Context(), "CREATE DOMAIN "+jsonbArrayDomain+" AS jsonb[]")
+	require.NoError(s.t, err)
 
 	// the case name doubles as the column name
 	for _, tc := range []struct {
@@ -266,6 +272,10 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		wantWrapped  string // literal with non-object JSON wrapping on; empty means the same as want
 		wantNonEmpty bool
 		notNull      bool
+
+		// literal for an Array(Nullable(JSON)) column, with the SQL NULL elements the catalog reports;
+		// empty means the catalog reports none
+		wantWrappedNullable string
 	}{
 		// Integer missing values are exposed directly in their text form.
 		{name: "c_int", colDef: "int DEFAULT 5", qkind: types.QValueKindInt32, want: "5"},
@@ -312,6 +322,34 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 		{
 			name: "c_jsonb_null", colDef: `jsonb DEFAULT 'null'`, qkind: types.QValueKindJSONB,
 			want: `'null'`, wantWrapped: `'{"_value":null}'`,
+		},
+		// json arrays take a default only as Array(JSON), with each element wrapped; a String column keeps none
+		{
+			name: "c_jsonb_arr", colDef: `jsonb[] DEFAULT ARRAY['{"a": 1}'::jsonb, '"dark"'::jsonb, 'null'::jsonb, NULL]`,
+			qkind:       types.QValueKindArrayJSONB,
+			wantWrapped: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},{"_value":null}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"a": 1},{"_value":"dark"},{"_value":null},null]', 'Array(Nullable(JSON))')`,
+		},
+		// a domain over jsonb[] takes the same default
+		{
+			name: "c_jsonb_arr_domain", colDef: jsonbArrayDomain + ` DEFAULT ARRAY['{"a": 1}'::jsonb, NULL]`,
+			qkind:       types.QValueKindArrayJSONB,
+			wantWrapped: `JSONExtract('[{"a": 1},{"_value":null}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"a": 1},null]', 'Array(Nullable(JSON))')`,
+		},
+		// the cells of a multidimensional value are not its top-level elements, so the catalog marks none:
+		// the NULL cell must not turn the first element, the array [null], into NULL
+		{
+			name: "c_json_arr_2d", colDef: `json[] DEFAULT '{{NULL},{1}}'`, qkind: types.QValueKindArrayJSON,
+			wantWrapped: `JSONExtract('[{"_value":[null]},{"_value":[1]}]', 'Array(JSON)')`,
+
+			wantWrappedNullable: `JSONExtract('[{"_value":[null]},{"_value":[1]}]', 'Array(Nullable(JSON))')`,
+		},
+		{
+			name: "c_json_arr_empty", colDef: `json[] DEFAULT ARRAY[]::json[]`, qkind: types.QValueKindArrayJSON,
+			wantWrapped: `JSONExtract('[]', 'Array(JSON)')`,
 		},
 		{name: "c_inet", colDef: "inet DEFAULT '10.0.0.1'", qkind: types.QValueKindINET, want: "'10.0.0.1'"},
 		{name: "c_date", colDef: "date DEFAULT '2020-01-02'", qkind: types.QValueKindDate, want: "'2020-01-02'"},
@@ -371,15 +409,28 @@ func (s PostgresSchemaDeltaTestSuite) TestAddedColumnCatalogInfo() {
 			var relID uint32
 			require.NoError(t, s.connector.conn.QueryRow(t.Context(), "SELECT $1::regclass::oid", tableName).Scan(&relID))
 
-			catalogInfo, err := s.connector.fetchAddedColumnCatalogInfo(t.Context(), relID, []string{tc.name})
+			// the caller resolves domains to tell json[]/jsonb[] columns apart; the case's kind stands in for that
+			var jsonArrayColumnNames []string
+			if tc.qkind == types.QValueKindArrayJSON || tc.qkind == types.QValueKindArrayJSONB {
+				jsonArrayColumnNames = []string{tc.name}
+			}
+			catalogInfo, err := s.connector.fetchAddedColumnCatalogInfo(t.Context(), relID, []string{tc.name}, jsonArrayColumnNames)
 			require.NoError(t, err)
 			require.Len(t, catalogInfo, 1)
 			require.Equal(t, tc.notNull, catalogInfo[tc.name].notNull)
 
 			var literal, wrappedLiteral string
 			if missingValue := catalogInfo[tc.name].missingValueFor(tc.qkind); missingValue != nil {
-				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, false)
-				wrappedLiteral, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true)
+				literal, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, false, false, nil)
+				wrappedLiteral, _ = defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true, false, nil)
+				if tc.wantWrappedNullable != "" {
+					nullableLiteral, _ := defaultExprFromPostgresMissingValue(*missingValue, tc.qkind, true, true,
+						catalogInfo[tc.name].missingNullElements)
+					require.Equal(t, tc.wantWrappedNullable, nullableLiteral)
+				}
+			}
+			if tc.wantWrappedNullable == "" {
+				require.Nil(t, catalogInfo[tc.name].missingNullElements)
 			}
 			if tc.wantNonEmpty {
 				require.NotEmpty(t, literal)
@@ -415,4 +466,145 @@ func (s PostgresSchemaDeltaTestSuite) Teardown(ctx context.Context) {
 	require.NoError(s.t, s.connector.ConnectionActive(ctx))
 	require.NoError(s.t, s.connector.Close())
 	require.Error(s.t, s.connector.ConnectionActive(ctx))
+}
+
+func (s PostgresSchemaDeltaTestSuite) prepareSyncSchemaChange() string {
+	t := s.t
+	ctx := t.Context()
+	tableName := s.schema + ".sync_target"
+	s.connector.metadataSchema = s.schema
+	t.Cleanup(func() {
+		_, _ = s.connector.conn.Exec(context.WithoutCancel(ctx), "DELETE FROM table_schema_mapping WHERE flow_name = $1", s.schema)
+	})
+
+	for _, stmt := range []string{
+		"CREATE TABLE " + tableName + " (id integer)",
+		fmt.Sprintf(createMirrorJobsTableSQL, s.schema, mirrorJobsTableIdentifier),
+		fmt.Sprintf(createRawTableSQL, s.schema, getRawTableIdentifier(s.schema)),
+	} {
+		_, err := s.connector.conn.Exec(ctx, stmt)
+		require.NoError(t, err)
+	}
+	_, err := s.connector.conn.Exec(ctx,
+		fmt.Sprintf("INSERT INTO %s.%s VALUES ($1, 0, 0, 0)", s.schema, mirrorJobsTableIdentifier), s.schema)
+	require.NoError(t, err)
+	initialSchema, err := proto.Marshal(&protos.TableSchema{
+		System:  protos.TypeSystem_PG,
+		Columns: []*protos.FieldDescription{{Name: "id", Type: "integer"}},
+	})
+	require.NoError(t, err)
+	_, err = s.connector.conn.Exec(ctx,
+		"INSERT INTO table_schema_mapping(flow_name, table_name, table_schema) VALUES ($1, $2, $3)",
+		s.schema, tableName, initialSchema)
+	require.NoError(t, err)
+	return tableName
+}
+
+func (s PostgresSchemaDeltaTestSuite) syncRequestWithAddedColumn(tableName string) *model.SyncRecordsRequest[model.PgItems] {
+	t := s.t
+	stream := model.NewCDCStream[model.PgItems](1)
+	items := model.NewPgItems(2)
+	items.AddColumn("id", []byte("1"))
+	items.AddColumn("added", []byte("2"))
+	require.NoError(t, stream.AddRecord(t.Context(), &model.InsertRecord[model.PgItems]{
+		Items: items, SourceTableName: tableName, DestinationTableName: tableName,
+	}))
+	stream.SchemaDeltas = []*protos.TableSchemaDelta{{
+		SrcTableName: tableName,
+		DstTableName: tableName,
+		System:       protos.TypeSystem_PG,
+		AddedColumns: []*protos.FieldDescription{{Name: "added", Type: "integer", TypeModifier: -1, Nullable: true}},
+	}}
+	stream.UpdateLatestCheckpointID(42)
+	stream.Close()
+	return &model.SyncRecordsRequest[model.PgItems]{
+		Records:       stream,
+		FlowJobName:   s.schema,
+		SyncBatchID:   1,
+		TableMappings: []*protos.TableMapping{{SourceTableIdentifier: tableName, DestinationTableIdentifier: tableName}},
+	}
+}
+
+func (s PostgresSchemaDeltaTestSuite) requireSyncedWithAddedColumn(tableName string) {
+	t := s.t
+	ctx := t.Context()
+	var syncBatchID, rawRows int
+	require.NoError(t, s.connector.conn.QueryRow(ctx,
+		fmt.Sprintf("SELECT sync_batch_id FROM %s.%s", s.schema, mirrorJobsTableIdentifier)).Scan(&syncBatchID))
+	require.Equal(t, 1, syncBatchID)
+	require.NoError(t, s.connector.conn.QueryRow(ctx,
+		fmt.Sprintf("SELECT count(*) FROM %s.%s", s.schema, getRawTableIdentifier(s.schema))).Scan(&rawRows))
+	require.Equal(t, 1, rawRows)
+
+	var destinationHasColumn bool
+	require.NoError(t, s.connector.conn.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid = $1::regclass AND attname = 'added' AND NOT attisdropped)",
+		tableName).Scan(&destinationHasColumn))
+	require.True(t, destinationHasColumn, "destination table is missing the added column")
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	require.NoError(t, err)
+	schema, err := internal.LoadTableSchemaFromCatalog(ctx, catalogPool, s.schema, tableName)
+	require.NoError(t, err)
+	require.Len(t, schema.Columns, 2, "catalog schema is missing the added column")
+}
+
+func (s PostgresSchemaDeltaTestSuite) TestSyncPgSavesSchemaChangesWithBatch() {
+	tableName := s.prepareSyncSchemaChange()
+	_, err := s.connector.SyncPg(s.t.Context(), s.syncRequestWithAddedColumn(tableName))
+	require.NoError(s.t, err)
+	s.requireSyncedWithAddedColumn(tableName)
+}
+
+// A failed attempt can commit the destination DDL without saving the batch.
+func (s PostgresSchemaDeltaTestSuite) TestSyncPgRetriesAfterDestinationColumnWasAdded() {
+	tableName := s.prepareSyncSchemaChange()
+	_, err := s.connector.conn.Exec(s.t.Context(), "ALTER TABLE "+tableName+" ADD COLUMN added integer")
+	require.NoError(s.t, err)
+
+	_, err = s.connector.SyncPg(s.t.Context(), s.syncRequestWithAddedColumn(tableName))
+	require.NoError(s.t, err)
+	s.requireSyncedWithAddedColumn(tableName)
+}
+
+// Normalize locks the destination table and then updates the metadata row, so sync
+// must not hold that row while its DDL waits for the table lock.
+func (s PostgresSchemaDeltaTestSuite) TestSyncPgSchemaChangeDoesNotLockOutNormalize() {
+	t := s.t
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	tableName := s.prepareSyncSchemaChange()
+
+	observer, err := pgx.ConnectConfig(ctx, s.connector.conn.Config())
+	require.NoError(t, err)
+	defer observer.Close(context.WithoutCancel(ctx))
+	normalizeConn, err := pgx.ConnectConfig(ctx, s.connector.conn.Config())
+	require.NoError(t, err)
+	defer normalizeConn.Close(context.WithoutCancel(ctx))
+	normalizeTx, err := normalizeConn.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = normalizeTx.Rollback(context.WithoutCancel(ctx)) }()
+	_, err = normalizeTx.Exec(ctx, fmt.Sprintf("SELECT * FROM %s.%s; INSERT INTO %s VALUES (0)",
+		s.schema, getRawTableIdentifier(s.schema), tableName))
+	require.NoError(t, err)
+
+	syncDone := make(chan error, 1)
+	req := s.syncRequestWithAddedColumn(tableName)
+	go func() {
+		_, err := s.connector.SyncPg(ctx, req)
+		syncDone <- err
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := observer.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation = $1::regclass AND mode = 'AccessExclusiveLock' AND NOT granted)",
+			tableName).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond, "sync schema change should wait for normalize's table lock")
+
+	_, err = normalizeTx.Exec(ctx, fmt.Sprintf("UPDATE %s.%s SET normalize_batch_id = 0 WHERE mirror_job_name = $1",
+		s.schema, mirrorJobsTableIdentifier), s.schema)
+	require.NoError(t, err, "sync must not hold the metadata row while its schema change waits")
+	require.NoError(t, normalizeTx.Commit(ctx))
+	require.NoError(t, <-syncDone)
 }

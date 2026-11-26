@@ -99,6 +99,13 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 	if err != nil {
 		return nil, err
 	}
+	var jsonColumns []string
+	if hasLongText(rs, nil) {
+		jsonColumns, err = c.getMariaDBJSONColumns(ctx, schema, table, version)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	columns := make([]*protos.ColumnsItem, 0, rs.RowNumber())
 	for idx := range rs.RowNumber() {
@@ -122,6 +129,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
+		qkind = mariaDBJSONKind(qkind, columnName, columnType, jsonColumns)
 		columns = append(columns, &protos.ColumnsItem{
 			Name:     columnName,
 			Type:     columnType,

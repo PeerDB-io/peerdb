@@ -37,7 +37,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
@@ -334,6 +333,11 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
+	sourceType, err := connectors.LoadFlowSourcePeerType(ctx, a.CatalogPool, config.FlowName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for _, tableMapping := range config.TableMappings {
@@ -345,6 +349,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			config,
 			tableIdentifier,
 			tableSchema,
+			sourceType,
 		)
 		if err != nil {
 			return nil, a.Alerter.LogFlowError(ctx, config.FlowName,
@@ -419,6 +424,10 @@ func (a *FlowableActivity) SyncFlow(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load destination peer type: %w", err))
 	}
+	sourceType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
 
 	srcConn, srcClose, err := connectors.GetByNameWithCDCDestinationTypeAs[connectors.CDCPullConnectorCore](
 		ctx, config.Env, a.CatalogPool, config.SourceName, destinationType,
@@ -445,7 +454,7 @@ func (a *FlowableActivity) SyncFlow(
 		return a.syncFlowQueryCDC(ctx, config, options, srcConn.(connectors.QueryCDCPullConnector), &shutDown)
 	}
 
-	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, &shutDown)
+	return a.syncFlowSharedStream(ctx, config, options, srcConn, destinationType, sourceType, &shutDown)
 }
 
 // syncFlowSharedStream runs the classic shared-stream CDC path: a single pull+sync
@@ -457,6 +466,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnectorCore,
 	destinationType protos.DBType,
+	sourceType protos.DBType,
 	shutDown *atomic.Bool,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
@@ -490,8 +500,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 
 	normDone := make(chan struct{})
-	normRequests := concurrency.NewLastChan()
-	normResponses := concurrency.NewLastChan()
 
 	lastNormBatchID, err := getInitialNormalizeBatchID(
 		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
@@ -501,7 +509,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	}
 	if lastNormBatchID > 0 {
 		normalizingBatchID.Store(lastNormBatchID)
-		normResponses.Update(lastNormBatchID)
 	}
 	lastSyncBatchID, err := getLastSyncBatchID(
 		ctx, logger, a.CatalogPool, config.Env, config.DestinationName, destinationType, config.FlowJobName,
@@ -510,12 +517,11 @@ func (a *FlowableActivity) syncFlowSharedStream(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	if lastSyncBatchID > lastNormBatchID {
-		// Batches synced before a restart would otherwise wait for the next sync to request normalize,
-		// which may never come if the source goes quiet
 		logger.Info("resuming normalize of batches synced before restart",
 			slog.Int64("lastSyncBatchID", lastSyncBatchID), slog.Int64("lastNormBatchID", lastNormBatchID))
-		normRequests.Update(lastSyncBatchID)
 	}
+	// Resume pending batches even if the source stays quiet after restart.
+	progress := newSyncNormalizeProgress(lastSyncBatchID, lastNormBatchID)
 	normBufferHours, err := internal.PeerDBNormalizeBufferHours(ctx, config.Env)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -534,7 +540,7 @@ func (a *FlowableActivity) syncFlowSharedStream(
 	defer cancelNormCtx()
 	go func() {
 		defer close(normDone)
-		a.normalizeLoop(normCtx, logger, config, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normCtx, logger, config, sourceType, progress, &normalizingBatchID, &normalizeWaiting)
 	}()
 
 	var syncErr error
@@ -544,11 +550,11 @@ func (a *FlowableActivity) syncFlowSharedStream(
 
 		var syncResponse *model.SyncResponse
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.pullAndSync(ctx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+			syncResponse, syncErr = a.pullAndSync(ctx, config, sourceType, options, srcConn.(connectors.CDCPullConnector),
+				progress, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, normResponses, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
+			syncResponse, syncErr = a.pullAndSyncPg(ctx, config, sourceType, options, srcConn.(connectors.CDCPullPgConnector),
+				progress, normBufferSize, idleTimeout, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil && ctx.Err() == nil {
@@ -569,8 +575,6 @@ func (a *FlowableActivity) syncFlowSharedStream(
 
 	syncState.Store(new("cleanup"))
 	cancelNormCtx()
-	normRequests.Close()
-	normResponses.Close()
 	<-normDone
 
 	if shutDown.Load() {
@@ -592,10 +596,10 @@ func (a *FlowableActivity) syncFlowSharedStream(
 func (a *FlowableActivity) pullAndSync(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
@@ -630,8 +634,8 @@ func (a *FlowableActivity) pullAndSync(
 			return stream, nil
 		}
 	}
-	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+	return pullAndSyncCore(ctx, a, config, sourceType, options, srcConn,
+		progress, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -640,17 +644,17 @@ func (a *FlowableActivity) pullAndSync(
 func (a *FlowableActivity) pullAndSyncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return pullAndSyncCore(ctx, a, config, options, srcConn,
-		normRequests, normResponses, normBufferSize, idleTimeout,
+	return pullAndSyncCore(ctx, a, config, sourceType, options, srcConn,
+		progress, normBufferSize, idleTimeout,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
@@ -770,6 +774,13 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		slog.String("table", config.WatermarkTable),
 		slog.Int64("batchID", int64(partitions.BatchId)),
 		slog.Int("totalPartitions", numPartitions))
+
+	// only snapshots set it, standalone QRep mirrors don't
+	sourceType, err := connectors.LoadPeerType(ctx, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load source peer type: %w", err))
+	}
+	config.SourceType = sourceType
 
 	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](
 		ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -1903,6 +1914,9 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	})
 	defer shutdown()
 
+	// xmin mirrors are standalone QRep mirrors, which don't set it
+	config.SourceType = protos.DBType_POSTGRES
+
 	switch config.System {
 	case protos.TypeSystem_Q:
 		stream := model.NewQRecordStream(shared.QRepChannelSize)
@@ -2079,6 +2093,52 @@ func (a *FlowableActivity) SkipPendingNormalizeForTables(
 		); err != nil {
 			return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 		}
+	}
+	return nil
+}
+
+// CleanupCancelledTableResync removes catalog leftovers of a cancelled table resync: snapshot stats of
+// "_resync" tables and their table_schema_mapping rows. The "_resync" destination tables are
+// left in place, the next resync of those tables replaces them.
+func (a *FlowableActivity) CleanupCancelledTableResync(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigsCore,
+	tableMappings []*protos.TableMapping,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
+	resyncTableNames := make([]string, 0, len(tableMappings))
+	for _, tm := range tableMappings {
+		// skip tables resynced in place, their rows belong to the live table
+		if resyncTable := internal.CDCResyncDestinationTable(tm); resyncTable != tm.DestinationTableIdentifier {
+			resyncTableNames = append(resyncTableNames, resyncTable)
+		}
+	}
+
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to begin cleanup of cancelled resync: %w", err))
+	}
+	defer shared.RollbackTx(tx, internal.LoggerFromCtx(ctx))
+
+	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.qrep_partitions qp
+		WHERE EXISTS (
+			SELECT 1 FROM peerdb_stats.qrep_runs qr
+			WHERE qr.flow_name = qp.flow_name AND qr.run_uuid = qp.run_uuid
+			AND qr.parent_mirror_name = $1 AND qr.destination_table = ANY($2)
+		)`, cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup qrep_partitions: %w", err))
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.qrep_runs
+		WHERE parent_mirror_name = $1 AND destination_table = ANY($2)`,
+		cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup qrep_runs: %w", err))
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name = $1 AND table_name = ANY($2)",
+		cfg.FlowJobName, resyncTableNames); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to cleanup table_schema_mapping: %w", err))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to commit cleanup of cancelled resync: %w", err))
 	}
 	return nil
 }
@@ -2317,11 +2377,20 @@ func (a *FlowableActivity) RunPgDumpSchema(
 		fmt.Sprintf("starting pg_dump schema migration from %s to %s", input.SourceName, input.DestinationName))
 
 	start := time.Now()
-	if err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig); err != nil {
+	ignoredErrors, err := connpostgres.RunPgDumpSchema(ctx, srcPgConfig.PostgresConfig, dstPgConfig.PostgresConfig)
+	if err != nil {
 		return false, a.Alerter.LogFlowError(ctx, input.FlowName, fmt.Errorf("pg_dump schema migration failed: %w", err))
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
+	if ignoredErrors != "" {
+		logger.Warn("pg_dump schema migration completed with skipped statements",
+			slog.Duration("elapsed", elapsed), slog.String("errors", ignoredErrors))
+		a.Alerter.LogFlowWarning(ctx, input.FlowName,
+			fmt.Errorf("pg_dump schema migration completed in %s, but some statements were skipped:\n%s", elapsed, ignoredErrors))
+		return true, nil
+	}
+
 	logger.Info("pg_dump schema migration completed successfully", slog.Duration("elapsed", elapsed))
 	a.Alerter.LogFlowInfo(ctx, input.FlowName,
 		fmt.Sprintf("pg_dump schema migration completed successfully in %s", elapsed))

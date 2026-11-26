@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode as jwt_encode};
-use rsa::RsaPrivateKey;
+use rsa::PrivateKey;
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use secrecy::SecretString;
@@ -24,7 +24,7 @@ pub struct SnowflakeAuth {
     account_id: String,
     normalized_account_id: String,
     username: String,
-    private_key: RsaPrivateKey,
+    private_key: PrivateKey,
     public_key_fp: Option<String>,
     refresh_threshold: u64,
     expiry_threshold: u64,
@@ -87,7 +87,7 @@ impl SnowflakeAuth {
     }
 
     #[tracing::instrument(name = "peer_sflake::gen_public_key_fp", skip_all)]
-    fn gen_public_key_fp(private_key: &RsaPrivateKey) -> anyhow::Result<String> {
+    fn gen_public_key_fp(private_key: &PrivateKey) -> anyhow::Result<String> {
         let public_key = private_key.to_public_key().to_public_key_der()?;
         let res = format!(
             "SHA256:{}",

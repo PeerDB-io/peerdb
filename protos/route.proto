@@ -585,6 +585,12 @@ message CancelTableAdditionOutput {
   string run_id = 3;
 }
 
+message CancelTableResyncRequest {
+  string flow_job_name = 1;
+}
+
+message CancelTableResyncResponse {}
+
 message ResetMirrorSequencesRequest {
   string flow_job_name = 1;
 }
@@ -896,6 +902,15 @@ service FlowService {
   rpc CancelTableAddition(CancelTableAdditionInput) returns (CancelTableAdditionOutput) {
     option (google.api.http) = {
       post : "/v1/flows/cdc/cancel_table_addition",
+      body : "*"
+    };
+  }
+
+  // Asynchronously cancels an in-progress table-level resync. Fails with FailedPrecondition
+  // once the resync started swapping tables.
+  rpc CancelTableResync(CancelTableResyncRequest) returns (CancelTableResyncResponse) {
+    option (google.api.http) = {
+      post : "/v1/flows/cdc/cancel_table_resync",
       body : "*"
     };
   }

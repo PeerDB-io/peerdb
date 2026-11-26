@@ -102,7 +102,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint, req.Records.SchemaDeltas); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 }
 
 func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta, _ []string, _ uint32, _ protos.DBType,
 ) error {
 	return nil
 }

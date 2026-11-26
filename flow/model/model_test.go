@@ -19,8 +19,8 @@ func TestCdcStreamGetLastCheckpointPanic(t *testing.T) {
 
 func TestCdcStreamAddRecordCancellation(t *testing.T) {
 	t.Parallel()
-	// minute to get coverage on timer case
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	// longer than AddRecord's 10s ticker to get coverage on timer case
+	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Second)
 	defer cancel()
 	stream := NewCDCStream[RecordItems](0)
 	require.Equal(t, context.DeadlineExceeded,

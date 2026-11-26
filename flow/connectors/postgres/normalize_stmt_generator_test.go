@@ -350,3 +350,44 @@ func TestGenerateNormalizeStatements_Merge(t *testing.T) {
 	require.Contains(t, stmts[0], "jsonb_to_record")
 	require.Contains(t, stmts[0], "MERGE INTO")
 }
+
+func TestGenerateStatements_AlwaysIdentity(t *testing.T) {
+	schema := buildTableSchema([]*protos.FieldDescription{
+		{Name: "id", Type: "integer"},
+		{Name: "n", Type: "integer"},
+		{Name: "v", Type: "text"},
+	}, []string{"id"})
+	idOnly := buildTableSchema([]*protos.FieldDescription{{Name: "id", Type: "integer"}}, []string{"id"})
+
+	gen := normalizeStmtGenerator{
+		rawTableName:       "_peerdb_raw_test",
+		tableSchemaMapping: map[string]*protos.TableSchema{"public.test_table": schema, "public.id_only": idOnly},
+		peerdbCols:         &protos.PeerDBColumns{SoftDeleteColName: "_peerdb_is_deleted"},
+		metadataSchema:     "_peerdb_internal",
+		alwaysIdentityColumns: map[string][]string{
+			"public.test_table": {"id", "n"},
+			"public.id_only":    {"id"},
+		},
+	}
+
+	merge := normalizeSQL(gen.generateMergeStatement("public.test_table", schema, []string{""}))
+	require.Contains(t, merge, normalizeSQL(`INSERT ("id","n","v") OVERRIDING SYSTEM VALUE VALUES`))
+	require.Contains(t, merge, normalizeSQL(`INSERT ("id","n","v","_peerdb_is_deleted") OVERRIDING SYSTEM VALUE VALUES`))
+	require.Contains(t, merge, normalizeSQL(`THEN UPDATE SET "v"=src."v","_peerdb_is_deleted"=FALSE`))
+	require.NotContains(t, merge, `"id"=src."id"`)
+	require.NotContains(t, merge, `"n"=src."n"`)
+
+	gen.peerdbCols = &protos.PeerDBColumns{}
+	require.Contains(t, normalizeSQL(gen.generateMergeStatement("public.id_only", idOnly, []string{""})),
+		normalizeSQL(`_peerdb_unchanged_toast_columns='' THEN DO NOTHING`))
+
+	fallback := gen.generateFallbackStatements("public.test_table", schema)
+	require.Contains(t, normalizeSQL(fallback[0]), normalizeSQL(`("id","n","v") OVERRIDING SYSTEM VALUE SELECT`))
+	require.Contains(t, normalizeSQL(fallback[0]), normalizeSQL(`DO UPDATE SET "v"=EXCLUDED."v"`))
+	require.Contains(t, normalizeSQL(gen.generateFallbackStatements("public.id_only", idOnly)[0]),
+		normalizeSQL(`ON CONFLICT (id) DO NOTHING`))
+
+	gen.alwaysIdentityColumns = nil
+	require.NotContains(t, gen.generateMergeStatement("public.test_table", schema, []string{""}), "OVERRIDING")
+	require.NotContains(t, gen.generateFallbackStatements("public.test_table", schema)[0], "OVERRIDING")
+}

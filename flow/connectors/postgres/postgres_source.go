@@ -330,6 +330,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
 	}
+	sourceSchemaFromInheritanceChild, err := internal.PeerDBPostgresSourceSchemaFromInheritanceChild(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get setting for sourceSchemaFromInheritanceChild: %w", err)
+	}
 	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
@@ -356,6 +360,7 @@ func pullCore[Items model.Items](
 		FastProcessJsonColumns:                   fastProcessJsonColumns,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		SourceSchemaFromInheritanceChild:         sourceSchemaFromInheritanceChild,
 		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 		Flags:                                    req.Flags,

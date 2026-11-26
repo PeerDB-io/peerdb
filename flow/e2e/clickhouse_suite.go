@@ -867,6 +867,8 @@ func (s ClickHouseSuite) Test_ValidatePartitionByExpression() {
 		{name: "invalid_syntax_rejected", expression: "INVALID EXPRESSION", wantErr: true},
 		{name: "missing_column_rejected", expression: "i_am_not_a_column % 2", wantErr: true},
 		{name: "aggregate_expression_rejected", expression: "MAX(id)", wantErr: true},
+		{name: "clause_breakout_rejected", expression: "id) FROM (SELECT 1 AS id) UNION ALL SELECT 1 --", wantErr: true},
+		{name: "subquery_rejected", expression: "(SELECT 1)", wantErr: true},
 		{name: "valid_expression_passes", expression: "id % 2", wantErr: false},
 		{name: "empty_expression_passes", expression: "", wantErr: false},
 	} {

@@ -199,7 +199,7 @@ func (s MongoClickhouseSuite) Test_Flow_With_Structured_Ingestion_Validations() 
 			columns: []*protos.ColumnSetting{
 				{SourceName: "n", DestinationType: "Int64 NOT NULL"},
 			},
-			expectedError: "invalid custom column type",
+			expectedError: "invalid column type",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -341,6 +341,8 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		{SourceName: "notes", DestinationType: "Array(JSON)"},
 		// arrays of dates, declared as discovery infers them
 		{SourceName: "visits", DestinationType: "Array(DateTime64(9))"},
+		// receives arrays, empty or of documents, which a JSON column does not take: only objects fit it
+		{SourceName: "slabs", DestinationType: "Nullable(JSON)"},
 	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -354,6 +356,10 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	insertNestedDocuments := func(prefix string) {
 		for i := range 10 {
+			slabs := bson.A{}
+			if i%2 == 1 {
+				slabs = bson.A{bson.D{{Key: "k", Value: int64(i)}}}
+			}
 			res, err := collection.InsertOne(t.Context(), bson.D{
 				{Key: "name", Value: fmt.Sprintf("%s_%d", prefix, i)},
 				{Key: "address", Value: bson.D{
@@ -366,6 +372,7 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 				{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(i)}}, nil}},
 				{Key: "notes", Value: bson.A{"text", bson.D{{Key: "k", Value: int64(i)}}}},
 				{Key: "visits", Value: bson.A{time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC).Add(time.Duration(i) * time.Hour), nil}},
+				{Key: "slabs", Value: slabs},
 			}, options.InsertOne())
 			require.NoError(t, err)
 			require.True(t, res.Acknowledged)
@@ -408,15 +415,17 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 
 	// every row got its embedded document and its typed array, while the unfitting array left its
 	// column empty and was reported instead
-	var nestedRows, arrayRows, emptyMixedRows, emptyNotesRows, reportedRows uint64
+	var nestedRows, arrayRows, emptyMixedRows, emptyNotesRows, nullSlabsRows, reportedRows uint64
 	require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
 		`SELECT countIf(address IS NOT NULL), countIf(length("items") = 2), countIf(empty(mixed)), countIf(empty(notes)),
-			countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
-		peer.GetClickhouseConfig().Database, dstTable)).Scan(&nestedRows, &arrayRows, &emptyMixedRows, &emptyNotesRows, &reportedRows))
+			countIf(slabs IS NULL), countIf(_peerdb_malformed_data IS NOT NULL) FROM "%s"."%s" FINAL`,
+		peer.GetClickhouseConfig().Database, dstTable)).Scan(
+		&nestedRows, &arrayRows, &emptyMixedRows, &emptyNotesRows, &nullSlabsRows, &reportedRows))
 	require.Equal(t, uint64(20), nestedRows)
 	require.Equal(t, uint64(20), arrayRows)
 	require.Equal(t, uint64(20), emptyMixedRows)
 	require.Equal(t, uint64(20), emptyNotesRows)
+	require.Equal(t, uint64(20), nullSlabsRows)
 	require.Equal(t, uint64(20), reportedRows)
 	// per leg, the nested document survives whole, the typed array lands element by element, and the
 	// unfitting array is reported verbatim in its JSON form
@@ -429,8 +438,16 @@ func (s MongoClickhouseSuite) Test_Structured_Ingestion_Nested_And_Arrays() {
 		require.Equal(t, fmt.Sprintf("['%s_item_3_a','%s_item_3_b']", prefix, prefix), items)
 		require.JSONEq(t, `{
 			"mixed": {"type_mismatch": true, "value": "[3,true]"},
-			"notes": {"type_mismatch": true, "value": "[\"text\",{\"k\":3}]"}
+			"notes": {"type_mismatch": true, "value": "[\"text\",{\"k\":3}]"},
+			"slabs": {"type_mismatch": true, "value": "[{\"k\":3}]"}
 		}`, malformed)
+
+		// the empty array is reported as well
+		var emptySlabs string
+		require.NoError(t, ch.QueryRow(t.Context(), fmt.Sprintf(
+			`SELECT toString(_peerdb_malformed_data.slabs.value) FROM "%s"."%s" FINAL WHERE name = '%s_2'`,
+			peer.GetClickhouseConfig().Database, dstTable, prefix)).Scan(&emptySlabs))
+		require.Equal(t, "[]", emptySlabs)
 
 		// the array of JSON keeps its elements, the null one as the empty object
 		var attachmentsLength uint64
@@ -823,7 +840,7 @@ func (s MongoClickhouseSuite) Test_QRep_Structured_Ingestion() {
 			name: "invalid destination type",
 			config: newQRepConfig("qrep_structured_invalid_type", s.Source().GeneratePeer(t).Name,
 				[]*protos.ColumnSetting{{SourceName: "pts", DestinationType: "Int64 NOT NULL"}}),
-			expectedError: "invalid custom column type",
+			expectedError: "invalid column type",
 		},
 		{
 			name:          "unsupported source peer",

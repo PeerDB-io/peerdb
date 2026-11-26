@@ -56,7 +56,7 @@ func TestSyncerClose(t *testing.T) {
 
 	pos, err := connector.GetMasterPos(ctx)
 	require.NoError(t, err)
-	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil) //nolint:dogsled
+	syncer, _, _, _, err := connector.startCdcStreamingFilePos(ctx, pos, nil, nil) //nolint:dogsled
 	require.NoError(t, err)
 
 	// Let CDC streaming establish before closing the syncer.

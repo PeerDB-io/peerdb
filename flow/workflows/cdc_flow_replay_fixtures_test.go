@@ -268,11 +268,11 @@ func startRunningFlow(ctx context.Context, t *testing.T, c client.Client, scenar
 func waitPendingActivity(ctx context.Context, t *testing.T, c client.Client, wfID, runID, activityName string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		resp, err := c.DescribeWorkflowExecution(ctx, wfID, runID)
+		resp, err := c.DescribeWorkflow(ctx, wfID, runID)
 		if err != nil {
 			return false
 		}
-		for _, pending := range resp.PendingActivities {
+		for _, pending := range resp.RawResponse.PendingActivities {
 			if pending.ActivityType.GetName() == activityName {
 				return true
 			}
@@ -284,11 +284,11 @@ func waitPendingActivity(ctx context.Context, t *testing.T, c client.Client, wfI
 func waitContinuedAsNew(ctx context.Context, t *testing.T, c client.Client, wfID, runID string, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		resp, err := c.DescribeWorkflowExecution(ctx, wfID, runID)
+		resp, err := c.DescribeWorkflow(ctx, wfID, runID)
 		if err != nil {
 			return false
 		}
-		return resp.WorkflowExecutionInfo.Status == enums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW
+		return resp.RawResponse.WorkflowExecutionInfo.Status == enums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW
 	}, timeout, 200*time.Millisecond, "run %s never continued-as-new", runID)
 }
 

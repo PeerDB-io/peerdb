@@ -399,9 +399,9 @@ func TestDocumentQValueIterator(t *testing.T) {
 	require.Equal(t, types.QValueBoolean{Val: true}, values["active"])
 	// nulls carry no kind, the consumer gives them the kind of the column they land in
 	require.Equal(t, types.QValueNull(""), values["nickname"])
-	// embedded documents and arrays are yielded whole, as JSON
+	// embedded documents are yielded whole as JSON, arrays as an array of JSON
 	require.Equal(t, types.QValueJSON{Val: `{"city":"London"}`}, values["address"])
-	require.Equal(t, types.QValueJSON{Val: `["math","cs"]`}, values["tags"])
+	require.Equal(t, types.QValueArrayJSON{Val: `["math","cs"]`}, values["tags"])
 }
 
 func TestDocumentQValueIteratorEmptyAndKeyOnly(t *testing.T) {
@@ -541,7 +541,7 @@ func TestStructuredArrayColumns(t *testing.T) {
 			{Key: "_id", Value: oid},
 			{Key: "scores", Value: bson.A{int32(1), int64(2)}},
 			{Key: "tags", Value: bson.A{"a", oid}},
-			{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(1)}}, bson.A{int64(2)}}},
+			{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(1)}}, bson.D{}}},
 		})
 		require.NoError(t, err)
 		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
@@ -549,7 +549,7 @@ func TestStructuredArrayColumns(t *testing.T) {
 		values := byName(record)
 		require.Equal(t, types.QValueArrayInt64{Val: []int64{1, 2}}, values["scores"])
 		require.Equal(t, types.QValueArrayString{Val: []string{"a", "507f1f77bcf86cd799439011"}}, values["tags"])
-		require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},[2]]`}, values["attachments"])
+		require.Equal(t, types.QValueArrayJSON{Val: `[{"k":1},{}]`}, values["attachments"])
 		require.Equal(t, types.QValueNull(types.QValueKindJSON), values[structured.MalformedDataColumn])
 	})
 
@@ -585,6 +585,22 @@ func TestStructuredArrayColumns(t *testing.T) {
 		require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "[\"text\",{\"k\":1}]"}}`, malformed.Val)
 	})
 
+	t.Run("a nested array in an array of JSON is a reported type mismatch", func(t *testing.T) {
+		raw, err := bson.Marshal(bson.D{
+			{Key: "_id", Value: oid},
+			{Key: "attachments", Value: bson.A{bson.D{{Key: "k", Value: int64(1)}}, bson.A{int64(2)}}},
+		})
+		require.NoError(t, err)
+		record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+		require.NoError(t, err)
+		values := byName(record)
+		// ClickHouse would silently turn the nested array into a NULL element of the JSON array
+		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
+		malformed, ok := values[structured.MalformedDataColumn].(types.QValueJSON)
+		require.True(t, ok)
+		require.JSONEq(t, `{"attachments": {"type_mismatch": true, "value": "[{\"k\":1},[2]]"}}`, malformed.Val)
+	})
+
 	t.Run("an absent array column is a null of its array kind", func(t *testing.T) {
 		raw, err := bson.Marshal(bson.D{{Key: "_id", Value: oid}})
 		require.NoError(t, err)
@@ -595,4 +611,51 @@ func TestStructuredArrayColumns(t *testing.T) {
 		require.Equal(t, types.QValueNull(types.QValueKindArrayString), values["tags"])
 		require.Equal(t, types.QValueNull(types.QValueKindArrayJSON), values["attachments"])
 	})
+}
+
+// TestStructuredArrayIntoJSONColumn: a JSON column only takes objects in ClickHouse, so an array, empty or
+// not, must be a reported type mismatch rather than a value that fails the whole insert.
+func TestStructuredArrayIntoJSONColumn(t *testing.T) {
+	projector, err := newStructuredSchemaProjector([]*protos.ColumnSetting{
+		{SourceName: "slabs", DestinationType: "JSON", NullableEnabled: true},
+	}, nil, true)
+	require.NoError(t, err)
+	converter := NewDirectBsonConverter()
+
+	for name, test := range map[string]struct {
+		input     any
+		projected types.QValue
+		malformed string
+	}{
+		"empty array": {
+			input:     bson.A{},
+			projected: types.QValueNull(types.QValueKindJSON),
+			malformed: `{"slabs": {"type_mismatch": true, "value": "[]"}}`,
+		},
+		"array of documents": {
+			input:     bson.A{bson.D{{Key: "from", Value: int64(101)}}},
+			projected: types.QValueNull(types.QValueKindJSON),
+			malformed: `{"slabs": {"type_mismatch": true, "value": "[{\"from\":101}]"}}`,
+		},
+		"document": {
+			input:     bson.D{{Key: "from", Value: int64(101)}},
+			projected: types.QValueJSON{Val: `{"from":101}`},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := bson.Marshal(bson.D{{Key: "_id", Value: "id"}, {Key: "slabs", Value: test.input}})
+			require.NoError(t, err)
+			record, err := StructuredQValuesFromBsonRaw(raw, shared.InternalVersion_Latest, converter, projector, "db.coll")
+			require.NoError(t, err)
+			require.Len(t, record, 3)
+			require.Equal(t, test.projected, record[1])
+			if test.malformed == "" {
+				require.Equal(t, types.QValueNull(types.QValueKindJSON), record[2])
+				return
+			}
+			malformed, ok := record[2].(types.QValueJSON)
+			require.True(t, ok)
+			require.JSONEq(t, test.malformed, malformed.Val)
+		})
+	}
 }

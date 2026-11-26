@@ -53,6 +53,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	sourceType protos.DBType,
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
@@ -70,6 +71,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		sourceTableSchema,
 		c.chVersion,
 		config.Flags,
+		sourceType,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -93,6 +95,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableSchema *protos.TableSchema,
 	chVersion *chproto.Version,
 	flags []string,
+	sourceType protos.DBType,
 ) ([]string, error) {
 	var engine string
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
@@ -100,6 +103,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tableMapping := findTableMappingByDestination(config.TableMappings, tableIdentifier)
 	if tableMapping != nil {
 		tmEngine = tableMapping.Engine
+	}
+	if err := validateRawSQLSettings(tableMapping); err != nil {
+		return nil, exceptions.NewClickHouseNormalizedTableCreationError(err, tableIdentifier)
 	}
 
 	isDeletedColumn := defaultIsDeletedColName
@@ -190,7 +196,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				colNameMap[colName] = dstColName
 			}
 			clickHouseType, err := resolveClickHouseColumnType(
-				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags,
+				ctx, column, colSetting, tableSchema.NullableEnabled, config.Env, chVersion, flags, config.Version, sourceType,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -267,8 +273,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+shardSuffix),
 			)
 			if tableMapping.ShardingKey != "" {
-				stmtBuilderDistributed.WriteByte(',')
-				stmtBuilderDistributed.WriteString(tableMapping.ShardingKey)
+				fmt.Fprintf(&stmtBuilderDistributed, ",(%s)", tableMapping.ShardingKey)
 				if tableMapping.PolicyName != "" {
 					stmtBuilderDistributed.WriteByte(',')
 					stmtBuilderDistributed.WriteString(peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
@@ -532,12 +537,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		})
 	}
 
-	// wrap query generation logic in a function to ensure queriesCh always closes once
-	if err := func() error {
+	// A query-generation error must cancel the INSERT workers.
+	// group.Wait below joins all workers before normalization can return.
+	group.Go(func() error {
 		defer close(queriesCh)
 
 		for _, tbl := range destinationTableNames {
-			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, tbl)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
 				return err
@@ -568,8 +574,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.SoftDeleteColName,
 				req.Version,
 				req.Flags,
+				req.SourceType,
 			)
-			query, err := queryGenerator.BuildQuery(ctx)
+			query, err := queryGenerator.BuildQuery(errCtx)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while building insert into select query",
 					slog.String("table", tbl),
@@ -593,9 +600,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 		}
 		return nil
-	}(); err != nil {
-		return model.NormalizeResponse{}, err
-	}
+	})
 
 	if err := group.Wait(); err != nil {
 		return model.NormalizeResponse{}, err
@@ -724,14 +729,16 @@ func resolveClickHouseColumnType(
 	env map[string]string,
 	chVersion *chproto.Version,
 	flags []string,
+	version uint32,
+	sourceType protos.DBType,
 ) (string, error) {
 	colType := types.QValueKind(column.Type)
 	nullableEnabled := tableNullableEnabled || colSetting.GetNullableEnabled()
 	clickHouseType := colSetting.GetDestinationType()
 	if clickHouseType == "" {
-		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags)
+		return qvalue.ToDWHColumnType(ctx, colType, env, protos.DBType_CLICKHOUSE, chVersion, column, nullableEnabled, flags, version,
+			sourceType)
 	}
-	// TODO basic validation to avoid injection
 	if nullableEnabled && column.Nullable && !colType.IsArray() && !strings.HasPrefix(clickHouseType, "Nullable(") {
 		// a nullable-enabled column must be Nullable(...), or JSON nulls turn into the type's default value
 		return fmt.Sprintf("Nullable(%s)", clickHouseType), nil

@@ -13,10 +13,12 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/protobuf/proto"
 
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 )
 
@@ -1186,23 +1188,37 @@ func (s APITestSuite) TestCancelTableAdditionDuringSetupFlow() {
 	// insert CDC row
 	s.insertIntoSourceTables([]string{AttachSchema(s, "original")}, 2, "second")
 
+	// The API connects to the destination to validate the added table, so the peer must stay reachable.
+	// A user that can't create tables gets the table addition stuck in setup instead.
 	originalConfig := s.ch.Peer().GetClickhouseConfig()
-	badClickHouseConfig := proto.Clone(originalConfig).(*protos.ClickhouseConfig)
-	badClickHouseConfig.Host = "nonexistent-host"
-	// Edit  ClickHouse peer to bad ClickHouse peer
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, originalConfig)
+	require.NoError(s.t, err)
+	defer ch.Close()
+	restrictedUser := "cancel_tbl_add_" + s.suffix
+	restrictedPassword := common.RandomString(16)
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("CREATE USER %s IDENTIFIED WITH plaintext_password BY %s",
+		clickhouse.QuoteIdentifier(restrictedUser), clickhouse.QuoteLiteral(restrictedPassword))))
+	defer func() {
+		require.NoError(s.t, ch.Exec(s.t.Context(), "DROP USER IF EXISTS "+clickhouse.QuoteIdentifier(restrictedUser)))
+	}()
+	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("GRANT SHOW TABLES ON %s.* TO %s",
+		clickhouse.QuoteIdentifier(originalConfig.Database), clickhouse.QuoteIdentifier(restrictedUser))))
+	restrictedConfig := proto.CloneOf(originalConfig)
+	restrictedConfig.User = restrictedUser
+	restrictedConfig.Password = restrictedPassword
 	_, err = s.CreatePeer(s.t.Context(), &protos.CreatePeerRequest{
 		Peer: &protos.Peer{
 			Name: flowConnConfig.DestinationName,
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
-				ClickhouseConfig: badClickHouseConfig,
+				ClickhouseConfig: restrictedConfig,
 			},
 		},
 		DisableValidation: true,
 		AllowUpdate:       true,
 	})
 	require.NoError(s.t, err)
-	s.t.Log("Edited peer with bad host")
+	s.t.Log("Edited peer to a user that can't create tables")
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,

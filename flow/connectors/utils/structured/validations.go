@@ -2,13 +2,10 @@ package structured
 
 import (
 	"fmt"
-	"regexp"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 )
-
-// ColumnTypeRegex matches the column type expressions accepted as a column's `destination_type`.
-var ColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 
 // SupportedSourcePeer reports whether peer can be the source of structured ingestion mappings
 // This condition must evolve as new connectors support structured ingestion.
@@ -25,11 +22,10 @@ func ValidateColumns(tableIdentifier string, columns []*protos.ColumnSetting) er
 	}
 	columnsWithoutTypes := make([]string, 0, len(columns))
 	for _, col := range columns {
-		if !ColumnTypeRegex.MatchString(col.DestinationType) {
-			return fmt.Errorf("invalid custom column type %s", col.DestinationType)
-		}
 		if col.DestinationType == "" {
 			columnsWithoutTypes = append(columnsWithoutTypes, col.SourceName)
+		} else if err := chvalidate.ValidateColumnType(col.DestinationType); err != nil {
+			return fmt.Errorf("table %s: column %s: %w", tableIdentifier, col.SourceName, err)
 		}
 	}
 	if len(columnsWithoutTypes) > 0 {

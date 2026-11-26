@@ -29,7 +29,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -62,70 +61,14 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 	return tableNameSchemaMapping, nil
 }
 
-func (a *FlowableActivity) applySchemaDeltas(
-	ctx context.Context,
-	config *protos.FlowConnectionConfigsCore,
-	schemaDeltas []*protos.TableSchemaDelta,
-) error {
-	logger := internal.LoggerFromCtx(ctx)
-
-	dstTableNamesInDeltas := make([]string, 0, len(schemaDeltas))
-	for _, schemaDelta := range schemaDeltas {
-		dstTableNamesInDeltas = append(dstTableNamesInDeltas, schemaDelta.DstTableName)
-	}
-
-	if err := internal.ReadModifyWriteTableSchemasToCatalog(
-		ctx,
-		a.CatalogPool,
-		logger,
-		config.FlowJobName,
-		dstTableNamesInDeltas,
-		func(schemas map[string]*protos.TableSchema) (map[string]*protos.TableSchema, error) {
-			// deep copy to avoid mutating input
-			schemasCopy := make(map[string]*protos.TableSchema, len(schemas))
-			for tableName, schema := range schemas {
-				if schema == nil {
-					return nil, fmt.Errorf("failed to deep copy table schema from catalog: table %s has nil schema", tableName)
-				}
-				schemasCopy[tableName] = proto.CloneOf(schema)
-			}
-
-			for _, schemaDelta := range schemaDeltas {
-				if schema, exists := schemasCopy[schemaDelta.DstTableName]; exists {
-					columnNames := make(map[string]struct{}, len(schema.GetColumns()))
-					for _, col := range schema.GetColumns() {
-						columnNames[col.Name] = struct{}{}
-					}
-					for _, newCol := range schemaDelta.GetAddedColumns() {
-						// only add columns that don't already exist
-						if _, exists := columnNames[newCol.Name]; !exists {
-							schema.Columns = append(schema.Columns, newCol)
-							columnNames[newCol.Name] = struct{}{}
-						} else {
-							logger.Warn(fmt.Sprintf("skip adding duplicated column '%s' (type '%s') in table %s",
-								newCol.Name, newCol.Type, schemaDelta.DstTableName))
-						}
-					}
-				} else {
-					logger.Warn(fmt.Sprintf("skip adding columns for table '%s' because it's not in catalog", schemaDelta.DstTableName))
-				}
-			}
-			return schemasCopy, nil
-		},
-	); err != nil {
-		return fmt.Errorf("failed to update table schemas in catalog: %w", err)
-	}
-	return nil
-}
-
 func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
-	normRequests *concurrency.LastChan,
-	normResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 	normBufferSize int64,
 	idleTimeout time.Duration,
 	syncingBatchID *atomic.Int64,
@@ -284,12 +227,12 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 		syncState.Store(new("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(
-			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags,
+			ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas, config.Flags, config.Version, sourceType,
 		); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
+		return nil, internal.ApplySchemaDeltasToCatalog(ctx, a.CatalogPool, flowName, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -334,6 +277,7 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 			Env:                    config.Env,
 			Version:                config.Version,
 			Flags:                  config.Flags,
+			SourceType:             sourceType,
 		})
 		if err != nil {
 			syncSpan.RecordError(err)
@@ -411,30 +355,20 @@ func pullAndSyncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDC
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
-	syncState.Store(new("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
-		return nil, err
-	}
-
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(new("normalizing"))
-		normRequests.Update(res.CurrentSyncBatchID)
-		normWaitThreshold := res.CurrentSyncBatchID - normBufferSize
-		if normResponses.Load() <= normWaitThreshold {
+		progress.RecordSyncedBatch(res.CurrentSyncBatchID)
+		if res.CurrentSyncBatchID-progress.NormalizedBatchID() >= normBufferSize {
 			logger.Warn("sync waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
-				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normalizeBatchID", progress.NormalizedBatchID()),
 				slog.Int64("normBufferSize", normBufferSize))
-			for normResponses.Load() <= normWaitThreshold {
-				select {
-				case <-normResponses.Wait():
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
+			if err := progress.WaitForNormalizeCatchup(ctx, normBufferSize); err != nil {
+				return nil, err
 			}
 			logger.Info("done waiting on normalize backpressure",
 				slog.Int64("syncBatchID", res.CurrentSyncBatchID),
-				slog.Int64("normalizeBatchID", normResponses.Load()),
+				slog.Int64("normalizeBatchID", progress.NormalizedBatchID()),
 				slog.Int64("normBufferSize", normBufferSize))
 		}
 	}
@@ -695,14 +629,15 @@ func replicateXminPartition[TRead any, TWrite QRepStreamCloser, TSync connectors
 func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigsCore,
+	sourceType protos.DBType,
 	batchID int64,
-	normalizeResponses *concurrency.LastChan,
+	progress *syncNormalizeProgress,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
 	// record gauge on error as well
 	defer func() {
-		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, normalizeResponses.Load(),
+		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, progress.NormalizedBatchID(),
 			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 	}()
 
@@ -713,7 +648,7 @@ func (a *FlowableActivity) startNormalize(
 		config.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
-		normalizeResponses.Update(batchID)
+		progress.RecordNormalizedBatch(batchID)
 		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
 		return fmt.Errorf("failed to get normalize connector: %w", err)
@@ -726,6 +661,9 @@ func (a *FlowableActivity) startNormalize(
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
 		res, err := func() (model.NormalizeResponse, error) {
 			normCtx, normSpan := a.OtelManager.Tracer.Start(ctx, "cdc.normalize", trace.WithAttributes(
@@ -743,6 +681,7 @@ func (a *FlowableActivity) startNormalize(
 				SyncBatchID:            batchID,
 				Version:                config.Version,
 				Flags:                  config.Flags,
+				SourceType:             sourceType,
 			})
 			if err != nil {
 				normSpan.RecordError(err)
@@ -768,7 +707,7 @@ func (a *FlowableActivity) startNormalize(
 
 		logger.Info("normalized batches",
 			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
-		normalizeResponses.Update(res.EndBatchID)
+		progress.RecordNormalizedBatch(res.EndBatchID)
 		a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, res.EndBatchID,
 			metric.WithAttributeSet(attribute.NewSet(attribute.String(otel_metrics.FlowNameKey, config.FlowJobName))))
 		if res.EndBatchID >= batchID {
@@ -797,56 +736,40 @@ func (a *FlowableActivity) recordDeliveryLag(ctx context.Context, flowJobName st
 	a.OtelManager.Metrics.E2ELagGauge.Record(ctx, now.Sub(commitTime).Milliseconds(), attrs)
 }
 
-// Suitable to be run as goroutine
+// normalizeLoop processes pending batches and retries failures until ctx is cancelled.
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
 	config *protos.FlowConnectionConfigsCore,
-	normalizeRequests *concurrency.LastChan,
-	normalizeResponses *concurrency.LastChan,
+	sourceType protos.DBType,
+	progress *syncNormalizeProgress,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
 	defer normalizeWaiting.Store(false)
 
 	for {
-		// Check for pending work before waiting on the channel.
-		// This avoids a race where Update() replaces the channel while we're
-		// processing, causing Wait() to return the new (unclosed) channel
-		// and missing the signal entirely until the next Update.
-		reqBatchID := normalizeRequests.Load()
-		lastNormalizedBatchID := normalizingBatchID.Load()
-		if reqBatchID <= lastNormalizedBatchID {
-			normalizeWaiting.Store(true)
-			ch := normalizeRequests.Wait()
-			if ch == nil {
-				logger.Info("[normalize-loop] lastChan closed")
-				return
-			}
-			select {
-			case <-ctx.Done():
-				logger.Info("[normalize-loop] context closed")
-				return
-			case <-ch:
-				continue
-			}
+		normalizeWaiting.Store(true)
+		targetBatchID, err := progress.WaitForUnnormalizedBatch(ctx)
+		if err != nil {
+			logger.Info("[normalize-loop] context closed")
+			return
 		}
 		normalizeWaiting.Store(false)
 
 		retryInterval := time.Minute
 	retryLoop:
 		for {
-			normalizingBatchID.Store(reqBatchID)
-			if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
+			normalizingBatchID.Store(targetBatchID)
+			if err := a.startNormalize(ctx, config, sourceType, targetBatchID, progress); err != nil {
 				_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				// update req to latest normalize request & retry
 				select {
 				case <-ctx.Done():
 					logger.Info("[normalize-loop] context closed before retry")
 					return
 				case <-time.After(retryInterval):
 					retryInterval = min(retryInterval*2, 5*time.Minute)
-					reqBatchID = normalizeRequests.Load()
+					targetBatchID = progress.SyncedBatchID()
 					continue retryLoop
 				}
 			}

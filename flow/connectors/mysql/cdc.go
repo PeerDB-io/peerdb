@@ -40,6 +40,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	mysql_validation "github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -213,6 +214,53 @@ func (c *MySqlConnector) GetTableSchema(
 	return res, nil
 }
 
+// hasLongText reports whether a columns result, with column_name and column_type as its first two columns,
+// has a LONGTEXT column outside exclude, the only type MariaDB's JSON alias creates
+func hasLongText(rs *mysql.Result, exclude []string) bool {
+	for idx := range rs.RowNumber() {
+		if columnType, err := rs.GetString(idx, 1); err == nil && strings.EqualFold(columnType, "longtext") {
+			if name, err := rs.GetString(idx, 0); err == nil && !slices.Contains(exclude, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getMariaDBJSONColumns returns the LONGTEXT columns of a MariaDB table that carry a json_valid check constraint
+func (c *MySqlConnector) getMariaDBJSONColumns(
+	ctx context.Context, schema string, table string, version uint32,
+) ([]string, error) {
+	if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA || version < shared.InternalVersion_MariaDBJSONColumns {
+		return nil, nil
+	}
+	cmp, err := c.CompareServerVersion(ctx, mysql_validation.MariaDBMinVersionForJSONCheck)
+	if err != nil {
+		return nil, err
+	}
+	if cmp < 0 {
+		return nil, nil
+	}
+	rs, err := c.Execute(ctx, fmt.Sprintf(`
+		select check_clause from information_schema.check_constraints
+		where constraint_schema = '%s' and table_name = '%s'`,
+		mysql.Escape(schema), mysql.Escape(table)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the check constraints of %s.%s: %w", schema, table, err)
+	}
+	var columns []string
+	for idx := range rs.RowNumber() {
+		clause, err := rs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+		if column, ok := jsonValidCheckColumn(clause); ok {
+			columns = append(columns, column)
+		}
+	}
+	return columns, nil
+}
+
 func (c *MySqlConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
@@ -258,6 +306,13 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine if binlog row metadata is supported: %w", err)
 	}
+	var jsonColumns []string
+	if hasLongText(rs, tm.Exclude) {
+		jsonColumns, err = c.getMariaDBJSONColumns(ctx, qualifiedTable.Namespace, qualifiedTable.Table, mirrorVersion)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var primaryEntries []pkEntry
 	for idx := range rs.RowNumber() {
@@ -289,6 +344,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
+		qkind = mariaDBJSONKind(qkind, columnName, dataType, jsonColumns)
 
 		column := &protos.FieldDescription{
 			Name:         columnName,
@@ -389,7 +445,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context, map[string]string) error
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string) (*binlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string, tables pipeTables) (*binlogSyncer, error) {
 	var tlsConfig *tls.Config
 	if c.needToVerifyTls() {
 		var err error
@@ -461,7 +517,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context, env map[string]string)
 		TLSConfig:             tlsConfig,
 		HeartbeatPeriod:       c.binlogHeartbeatPeriod,
 		EventCacheCount:       eventCacheCount,
-		RowsEventDecodeFunc:   decodeRowsEvent,
+		RowsEventDecodeFunc:   tables.decodeRowsEvent,
 	}, c.ssh.IsActive()), nil
 }
 
@@ -507,6 +563,7 @@ func (c *MySqlConnector) startStreaming(
 	ctx context.Context,
 	pos string,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	parsedOffset, err := parseReplicationOffsetText(c.Flavor(), pos)
 	if err != nil {
@@ -515,7 +572,7 @@ func (c *MySqlConnector) startStreaming(
 
 	switch parsedOffset.mechanism {
 	case protos.MySqlReplicationMechanism_MYSQL_FILEPOS.String():
-		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env)
+		return c.startCdcStreamingFilePos(ctx, parsedOffset.pos, env, tables)
 	case protos.MySqlReplicationMechanism_MYSQL_GTID.String():
 		skipGTIDs, err := internal.PeerDBMySQLSkipGTIDSet(ctx, env)
 		if err != nil {
@@ -530,7 +587,7 @@ func (c *MySqlConnector) startStreaming(
 				slog.String("skipGTIDSet", skipGTIDs),
 				slog.String("offset", parsedOffset.gset.String()))
 		}
-		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env)
+		return c.startCdcStreamingGtid(ctx, parsedOffset.gset, env, tables)
 	default:
 		return nil, nil, nil, mysql.Position{}, fmt.Errorf("empty mysql replication offset")
 	}
@@ -540,8 +597,9 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	ctx context.Context,
 	pos mysql.Position,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx, env)
+	syncer, err := c.startSyncer(ctx, env, tables)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -557,8 +615,9 @@ func (c *MySqlConnector) startCdcStreamingGtid(
 	ctx context.Context,
 	gset mysql.GTIDSet,
 	env map[string]string,
+	tables pipeTables,
 ) (*binlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer(ctx, env)
+	syncer, err := c.startSyncer(ctx, env, tables)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -631,7 +690,8 @@ func (c *MySqlConnector) PullRecords(
 			slog.Any("error", err))
 	}
 
-	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env)
+	tables := newPipeTables(req)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text, req.Env, tables)
 	if err != nil {
 		return err
 	}
@@ -647,33 +707,29 @@ func (c *MySqlConnector) PullRecords(
 
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
-	counters := newMysqlPullCounters(otelManager)
-	gauges := newMysqlPullGauges(otelManager, mysqlClockOffset)
+	var totalFetchedBytes atomic.Int64
 	var processStart time.Time
 	pullStart := time.Now()
 	defer func() {
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.Int64(otel_metrics.RowsInBatchKey, int64(recordCount)),
-			attribute.Int64(otel_metrics.BytesPulledKey, counters.totalFetchedBytes.Load()),
+			attribute.Int64(otel_metrics.BytesPulledKey, totalFetchedBytes.Load()),
 		)
 		if updatedOffset != "" {
 			span.SetAttributes(attribute.String(otel_metrics.GtidKey, updatedOffset))
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 
-	defer counters.flush(ctx)
-	defer gauges.recordBatchEnd(ctx)
 	shutdown := common.Interval(ctx, time.Minute, func() {
-		counters.flush(ctx)
 		c.logger.Info("[mysql] pulling records",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", counters.totalFetchedBytes.Load()),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	})
@@ -692,19 +748,19 @@ func (c *MySqlConnector) PullRecords(
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		addStart := time.Now()
-		counters.processTime.Add(int64(addStart.Sub(processStart)))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, int64(addStart.Sub(processStart)))
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 			return err
 		}
 		processStart = time.Now()
-		counters.addRecordTime.Add(int64(processStart.Sub(addStart)))
+		otelManager.Metrics.CDCAddRecordTimeCounter.Add(ctx, int64(processStart.Sub(addStart)))
 		if recordCount == 1 {
 			resetTimeout(req.IdleTimeout)
 		}
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", counters.totalFetchedBytes.Load()),
+				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("inTx", inTx),
@@ -713,6 +769,36 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	recordSourceEventLag := func(ctx context.Context, event *replication.BinlogEvent, receivedAt time.Time) {
+		if _, isHeartbeat := event.Event.(*replication.HeartbeatEvent); isHeartbeat {
+			// A heartbeat means there is currently no source change event to lag behind.
+			// Reset the gauge so a previously backlogged, now-idle pipe does not retain
+			// the old source-lag value.
+			otelManager.Metrics.SourceLagGauge.Record(ctx, 0)
+			return
+		}
+
+		// GTID commit timestamps are precise transaction timestamps. Other binlog
+		// events only have the common header timestamp, which is seconds-resolution
+		// but lets older MySQL/MariaDB versions report source lag as well.
+		timestampMicros := int64(event.Header.Timestamp) * int64(time.Second/time.Microsecond)
+		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		case *replication.GtidTaggedLogEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				timestampMicros = int64(ev.ImmediateCommitTimestamp)
+			}
+		}
+
+		if timestampMicros > 0 {
+			// receipt time, so inner events of a compressed transaction don't add AddRecord backpressure to the lag
+			otelManager.Metrics.SourceLagGauge.Record(ctx,
+				receivedAt.Add(mysqlClockOffset).Sub(time.UnixMicro(timestampMicros)).Milliseconds())
+		}
+	}
 	recordUnsupportedEvent := func(ctx context.Context, event *replication.BinlogEvent, prefix string) {
 		otelManager.Metrics.UnsupportedBinlogEventCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.BinlogEventTypeKey, fmt.Sprintf("%s_%d", prefix, int(event.Header.EventType))),
@@ -742,7 +828,7 @@ func (c *MySqlConnector) PullRecords(
 	// id; skip this many remaining PARTIAL_ROW_DATA_EVENTs before resolving table ids again.
 	var partialRowSkipFragments uint32
 	processEvent := func(event *replication.BinlogEvent) error {
-		gauges.observeEvent(event, lastEventAt)
+		recordSourceEventLag(ctx, event, lastEventAt)
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
@@ -782,7 +868,7 @@ func (c *MySqlConnector) PullRecords(
 						slog.Uint64("eventType", uint64(mariadbPartialRowDataEvent)), slog.Bool("parsed", ok))
 					return exceptions.NewMySQLUnsupportedPartialRowEventError(byte(mariadbPartialRowDataEvent), "", "")
 				}
-				if req.TableNameSchemaMapping[req.TableNameMapping[sourceTableName].Name] == nil {
+				if !tables.has(sourceTableName) {
 					// table not in the pipe - ignore this fragment group and its continuation fragments
 					if totalFragments > 1 {
 						partialRowSkipFragments = totalFragments - 1
@@ -851,17 +937,18 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		case *replication.TableMapEvent:
-			tableIdToName[ev.TableID] = string(ev.Schema) + "." + string(ev.Table)
+			tableIdToName[ev.TableID] = qualifiedTableName(ev)
 		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
-			destinationTableName := req.TableNameMapping[sourceTableName].Name
-			exclusion := req.TableNameMapping[sourceTableName].Exclude
-			columns := req.TableNameMapping[sourceTableName].Columns
-			shouldWrapJSON := func(fd *protos.FieldDescription) bool {
-				return shouldWrapNonObjectJSON(fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
-			}
-			schema := req.TableNameSchemaMapping[destinationTableName]
-			if schema != nil {
+			sourceTableName := qualifiedTableName(ev.Table)
+			if tables.has(sourceTableName) {
+				destinationTableName := req.TableNameMapping[sourceTableName].Name
+				exclusion := req.TableNameMapping[sourceTableName].Exclude
+				columns := req.TableNameMapping[sourceTableName].Columns
+				shouldWrapJSON := func(fd *protos.FieldDescription) bool {
+					return shouldWrapNonObjectJSON(
+						fd.Name, types.QValueKind(fd.Type), req.Flags, req.InternalVersion, nativeJSONEnabled, columns)
+				}
+				schema := req.TableNameSchemaMapping[destinationTableName]
 				if isMariaDb {
 					if err := checkTableMapForCompressedColumns(ev.Table); err != nil {
 						return err
@@ -875,8 +962,8 @@ func (c *MySqlConnector) PullRecords(
 					return e
 				}
 				eventSize := int64(len(event.RawData))
-				counters.fetchedBytes.Add(eventSize)
-				counters.totalFetchedBytes.Add(eventSize)
+				otelManager.Metrics.FetchedBytesCounter.Add(ctx, eventSize)
+				totalFetchedBytes.Add(eventSize)
 				otelManager.Metrics.FetchedEventSizeHistogram.Record(ctx, eventSize)
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
@@ -885,7 +972,7 @@ func (c *MySqlConnector) PullRecords(
 				// Build colIdx -> encoding directly from TABLE_MAP charset metadata.
 				// This mirrors go-mysql's collation traversal without allocating its maps;
 				// when all character columns are utf8/ascii/binary, the slice stays nil.
-				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, counters.recordUsedCharset)
+				colEncodings, err := c.tableMapColumnEncodings(ctx, ev.Table, enumMap, setMap, otelManager)
 				if err != nil {
 					return err
 				}
@@ -1055,7 +1142,12 @@ func (c *MySqlConnector) PullRecords(
 					recordUnsupportedEvent(ctx, event, "Rows")
 				}
 			}
-			gauges.observeConsumed(int64(event.Header.Timestamp))
+			if event.Header.Timestamp > 0 {
+				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
+					ctx,
+					int64(event.Header.Timestamp),
+				)
+			}
 		case *replication.FormatDescriptionEvent, *replication.PreviousGTIDsEvent,
 			*replication.HeartbeatEvent, *replication.RowsQueryEvent, *replication.IntVarEvent,
 			*replication.BeginLoadQueryEvent, *replication.ExecuteLoadQueryEvent,
@@ -1078,7 +1170,7 @@ func (c *MySqlConnector) PullRecords(
 		if err == nil {
 			receiveStart := time.Now()
 			event, err = mystream.GetEvent(timeoutCtx)
-			counters.receiveTime.Add(int64(time.Since(receiveStart)))
+			otelManager.Metrics.CDCReceiveTimeCounter.Add(ctx, int64(time.Since(receiveStart)))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1106,7 +1198,7 @@ func (c *MySqlConnector) PullRecords(
 					} else {
 						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 							slog.Uint64("records", uint64(recordCount)),
-							slog.Int64("bytes", counters.totalFetchedBytes.Load()),
+							slog.Int64("bytes", totalFetchedBytes.Load()),
 							slog.Int("channelLen", req.RecordStream.ChannelLen()),
 							slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 						resetTimeout(time.Minute)
@@ -1126,7 +1218,7 @@ func (c *MySqlConnector) PullRecords(
 		lastEventAt = time.Now()
 		processStart = lastEventAt
 
-		counters.allFetchedBytes.Add(int64(len(event.RawData)))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.TransactionPayloadEvent:
@@ -1142,8 +1234,7 @@ func (c *MySqlConnector) PullRecords(
 				return err
 			}
 		}
-		gauges.recordPeriodic(ctx, lastEventAt)
-		counters.processTime.Add(int64(time.Since(processStart)))
+		otelManager.Metrics.CDCProcessTimeCounter.Add(ctx, int64(time.Since(processStart)))
 	}
 	return nil
 }
@@ -1155,11 +1246,39 @@ const (
 	mysqlColumnTypeVarcharCompressed = 141
 )
 
-// decodeRowsEvent overrides default RowsEvent Decode method
-func decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
+// pipeTables holds the "schema.table" names a pull replicates. go-mysql's decoder goroutines read it
+// concurrently with processEvent, so it must not change once the syncer starts.
+type pipeTables map[string]struct{}
+
+func newPipeTables(req *model.PullRecordsRequest[model.RecordItems]) pipeTables {
+	tables := make(pipeTables, len(req.TableNameMapping))
+	for sourceTableName, mapping := range req.TableNameMapping {
+		if req.TableNameSchemaMapping[mapping.Name] != nil {
+			tables[sourceTableName] = struct{}{}
+		}
+	}
+	return tables
+}
+
+func (t pipeTables) has(sourceTableName string) bool {
+	_, ok := t[sourceTableName]
+	return ok
+}
+
+func qualifiedTableName(table *replication.TableMapEvent) string {
+	return string(table.Schema) + "." + string(table.Table)
+}
+
+// decodeRowsEvent overrides default RowsEvent Decode method.
+// processEvent ignores rows of tables outside the pipe, so skip decoding them to save CPU.
+func (t pipeTables) decodeRowsEvent(ev *replication.RowsEvent, data []byte) error {
 	pos, err := ev.DecodeHeader(data)
 	if err != nil {
 		return err
+	}
+	if !t.has(qualifiedTableName(ev.Table)) {
+		// Skip trying to decode events outside of the mirror in case they're malformed, and to save CPU
+		return nil
 	}
 
 	err = ev.DecodeData(pos, data)

@@ -51,6 +51,18 @@ func (s *BoundSelector) Wait(ctx workflow.Context) error {
 	return s.ferror
 }
 
+// WaitForCancellation drains every outstanding child, even after the first cancellation error.
+func (s *BoundSelector) WaitForCancellation(ctx workflow.Context) {
+	if ctx.Err() == nil {
+		return
+	}
+	waitCtx, cancel := workflow.NewDisconnectedContext(ctx)
+	defer cancel()
+	for s.count > 0 {
+		s.waitOne(waitCtx)
+	}
+}
+
 func (s *BoundSelector) waitOne(ctx workflow.Context) {
 	if s.count > 0 {
 		s.selector.Select(ctx)

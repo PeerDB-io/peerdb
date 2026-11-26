@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	"github.com/PeerDB-io/peerdb/flow/pkg/testutil"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -60,7 +61,7 @@ func SetupMySQLTestContainerSource(
 ) (*MySqlSource, string) {
 	t.Helper()
 
-	rootPassword := internal.MySQLTestRootPasswordWithFallback("cipass")
+	rootPassword := testutil.MySQLTestRootPasswordWithFallback("cipass")
 	env := map[string]string{}
 	if cfg.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		env["MARIADB_ROOT_PASSWORD"] = rootPassword
@@ -119,7 +120,7 @@ func SetupMySQLTestContainerSource(
 	config := &protos.MySqlConfig{
 		// host.docker.internal resolves both from the test process (to the published port) and from
 		// the flow worker container (via host-gateway), unlike the container's own hostname.
-		Host:                 internal.MySQLTestHost(),
+		Host:                 testutil.MySQLTestHost(),
 		Port:                 uint32(port),
 		User:                 "root",
 		Password:             rootPassword,

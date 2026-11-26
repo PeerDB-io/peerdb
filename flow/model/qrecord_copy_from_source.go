@@ -117,7 +117,12 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 		case types.QValueNumeric:
 			values[i] = v.Val
 		case types.QValueBytes:
-			values[i] = v.Val
+			// a NULL arrives as QValueNull, so a nil Val is an empty value: pgx would write nil as NULL
+			if v.Val == nil {
+				values[i] = []byte{}
+			} else {
+				values[i] = v.Val
+			}
 		case types.QValueDate:
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
 		case types.QValueHStore:

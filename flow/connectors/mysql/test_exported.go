@@ -20,7 +20,7 @@ func ConfigureReplication(t *testing.T, connector *MySqlConnector, config *proto
 	setupSQL := []string{
 		"set global binlog_format=row",
 		"set global binlog_row_image=full",
-		"set global max_connections=500",
+		"set global max_connections=1000",
 	}
 
 	if cmp, err := connector.CompareServerVersion(t.Context(), mysql_validation.MySQLMinVersionForBinlogRowMetadata); err != nil {

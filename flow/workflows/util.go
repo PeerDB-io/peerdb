@@ -24,6 +24,19 @@ func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
 	return result
 }
 
+// waitForCancellation keeps a cancelled workflow alive until its children/activities have stopped.
+// Futures must be configured with WaitForCancellation so they do not resolve on the cancel request.
+func waitForCancellation(ctx workflow.Context, futures ...workflow.Future) {
+	if ctx.Err() == nil {
+		return
+	}
+	waitCtx, cancel := workflow.NewDisconnectedContext(ctx)
+	defer cancel()
+	for _, future := range futures {
+		_ = future.Get(waitCtx, nil)
+	}
+}
+
 func GetFlowMetadataContext(
 	ctx workflow.Context,
 	input *protos.FlowContextMetadataInput,

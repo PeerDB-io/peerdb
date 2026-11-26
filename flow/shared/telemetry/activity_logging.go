@@ -98,6 +98,14 @@ func LogActivityStartFlowConfigUpdate(ctx context.Context, flowName string, upda
 		changes = append(changes, fmt.Sprintf("tables removed: %v", removedTables))
 	}
 
+	if len(update.ResyncTables) > 0 {
+		resyncTables := make([]string, 0, len(update.ResyncTables))
+		for _, t := range update.ResyncTables {
+			resyncTables = append(resyncTables, t.SourceTableIdentifier)
+		}
+		changes = append(changes, fmt.Sprintf("tables resynced: %v", resyncTables))
+	}
+
 	logActivity(ctx, ActionStartFlowConfigUpdate,
 		slog.String("flowName", flowName),
 		slog.String("activityDetails", strings.Join(changes, ", ")))

@@ -64,6 +64,9 @@ type CDCFlowWorkflowState struct {
 	SnapshotNumPartitionsOverride uint32
 	SnapshotMaxParallelWorkers    uint32
 	SnapshotNumTablesInParallel   uint32
+
+	// set once a table-level resync started swapping tables, after which it can no longer be cancelled
+	TableResyncSwapStarted bool
 }
 
 // returns a new empty PeerFlowState
