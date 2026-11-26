@@ -7,16 +7,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const droppedFlowsSweepInterval = time.Hour
-
-// FlowNamesLister returns the names of every flow in the catalog.
-type FlowNamesLister func(ctx context.Context) ([]string, error)
 
 // clockBase anchors monotonicNanos.
 var clockBase = time.Now()
@@ -151,7 +151,12 @@ func (s *seriesSweeper) sweep(liveFlows []string) int {
 // runSweepLoop sweeps every interval until ctx is done. A failed flow listing skips that sweep.
 // Flows are listed before sweeping, and a flow's row is created before its workflow starts, so a mirror created
 // after the listing has no series old enough to be deleted.
-func (s *seriesSweeper) runSweepLoop(ctx context.Context, list FlowNamesLister, interval time.Duration, wg *sync.WaitGroup) {
+func (s *seriesSweeper) runSweepLoop(
+	ctx context.Context,
+	catalogPool *shared.CatalogPool,
+	interval time.Duration,
+	wg *sync.WaitGroup,
+) {
 	defer wg.Done()
 	for {
 		select {
@@ -160,7 +165,11 @@ func (s *seriesSweeper) runSweepLoop(ctx context.Context, list FlowNamesLister, 
 		case <-time.After(interval):
 		}
 
-		flowNames, err := list(ctx)
+		rows, err := catalogPool.Query(ctx, "SELECT name FROM flows")
+		var flowNames []string
+		if err == nil {
+			flowNames, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		}
 		if err != nil {
 			if ctx.Err() == nil {
 				slog.WarnContext(ctx, "failed to list flows for sweeping metric series", slog.Any("error", err))

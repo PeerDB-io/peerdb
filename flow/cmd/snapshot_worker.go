@@ -80,11 +80,10 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		},
 	})
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelMetrics)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelMetrics, &conn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
-	otelManager.SweepDroppedFlows(ctx, listCatalogFlowNames(conn))
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	// explicitly not initializing mutex, in line with design

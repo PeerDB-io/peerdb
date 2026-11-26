@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -124,11 +123,10 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics, &conn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
-	otelManager.SweepDroppedFlows(ctx, listCatalogFlowNames(conn))
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool:    conn,
@@ -157,14 +155,4 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		OtelManager:    otelManager,
 		TracerProvider: tracerProvider,
 	}, nil
-}
-
-func listCatalogFlowNames(pool shared.CatalogPool) otel_metrics.FlowNamesLister {
-	return func(ctx context.Context) ([]string, error) {
-		rows, err := pool.Query(ctx, "SELECT name FROM flows")
-		if err != nil {
-			return nil, err
-		}
-		return pgx.CollectRows(rows, pgx.RowTo[string])
-	}
 }

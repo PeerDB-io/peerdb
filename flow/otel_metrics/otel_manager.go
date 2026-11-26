@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -216,7 +217,12 @@ type OtelManager struct {
 	Enabled              bool
 }
 
-func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
+func NewOtelManager(
+	ctx context.Context,
+	serviceName string,
+	enabled bool,
+	catalogPool *shared.CatalogPool,
+) (*OtelManager, error) {
 	sweeper := &seriesSweeper{}
 	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, &sweeper.exportWatermark)
 	if err != nil {
@@ -237,18 +243,13 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
 	}
-	return &otelManager, nil
-}
-
-// SweepDroppedFlows periodically deletes the metric series of flows that list no longer returns, once their
-// latest values have been exported. It runs in the background until ctx is done or the manager is closed.
-func (om *OtelManager) SweepDroppedFlows(ctx context.Context, list FlowNamesLister) {
-	if !om.Enabled || om.stopSweeper != nil {
-		return
+	if enabled && catalogPool != nil {
+		var sweepCtx context.Context
+		sweepCtx, otelManager.stopSweeper = context.WithCancel(ctx)
+		otelManager.wg.Add(1)
+		go otelManager.sweeper.runSweepLoop(sweepCtx, catalogPool, droppedFlowsSweepInterval, &otelManager.wg)
 	}
-	ctx, om.stopSweeper = context.WithCancel(ctx)
-	om.wg.Add(1)
-	go om.sweeper.runSweepLoop(ctx, list, droppedFlowsSweepInterval, &om.wg)
+	return &otelManager, nil
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
@@ -934,10 +935,6 @@ func setupMetricsAndProvider(
 		sdkmetric.WithCardinalityLimit(0),
 	)
 	return meterProvider, nil
-}
-
-func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
-	return setupPeerDBMetricsProvider(ctx, otelServiceName, enabled, nil)
 }
 
 func setupPeerDBMetricsProvider(
