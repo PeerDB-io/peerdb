@@ -45,7 +45,7 @@ _PROTOC_VERSION = "23.4"
 # Pins for the flow e2e host toolchain (baked into the x86_64 image used by the
 # heavy Tilt pool). Go matches .github/workflows/flow.yml; Tilt matches the pin
 # in .github/workflows/tilt-flow.yml.
-_GO_VERSION = "1.27.3"
+_GO_VERSION = "1.27.4"
 _TILT_VERSION = "0.37.0"
 
 
@@ -204,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.11"
+    image_recipe_version = "1.1.12"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -400,6 +400,7 @@ PROJECTS = [
                 allow_all_secrets=False,
                 allow_all_s3_prefixes=False,
                 allow_ssm_debug=False,
+                capacity_reserve=3,
                 ext={"system_logs": False, "host_metrics": False},
             ),
             # Smaller x86 pool for jobs that can't saturate the big one: the

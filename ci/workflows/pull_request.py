@@ -10,44 +10,33 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from flow_matrix import LABELS  # noqa: E402
 from flow_filter import should_skip_flow_test  # noqa: E402
 
-# Flow images (flow-api/worker/snapshot-worker) built once and shared with the
-# matrix as a docker-save+zstd tarball, so jobs load them instead of each
-# rebuilding (port of flow.yml's flow_images job). See ci/scripts/flow_images.py
-# and the loader in ci/scripts/flow_test.py.
+# flow-api/worker/snapshot-worker built once, shared with the matrix as a
+# docker-save+zstd tarball (ci/scripts/flow_images.py; loader in flow_test.py).
 FLOW_IMAGES_ARTIFACT = Artifact.Config(
     name="flow-images",
     type=Artifact.Type.S3,
     path="flow-images.tar.zst",
 )
 
-# Go build cache: every flow test package compiled once and shared with the
-# matrix as a GOCACHE tarball, so the permutations restore it instead of each
-# recompiling (port of flow.yml's go_build_cache job). See
-# ci/scripts/go_build_cache.py and the loader in ci/scripts/flow_test.py.
+# Every flow test package compiled once, shared as a GOCACHE tarball
+# (ci/scripts/go_build_cache.py; loader in flow_test.py).
 GO_BUILD_CACHE_ARTIFACT = Artifact.Config(
     name="go-build-cache",
     type=Artifact.Type.S3,
     path="go-build-cache.tar.zst",
 )
 
-# Go module cache: `go mod download` once, shared with every Go job as a
-# GOMODCACHE tarball (ci/scripts/go_mod_cache.py). Restored via
-# `ci/scripts/go_cache.py restore mod`. Unlike the build cache this rarely
-# changes, so the producer job is digest-cached on go.mod/go.sum below and
-# Praktika reuses the artifact across runs until dependencies move -- the
-# persisted, go.sum-keyed module cache GHA's setup-go gave us.
+# `go mod download` once, shared as a GOMODCACHE tarball; digest-cached on
+# go.mod/go.sum so Praktika reuses it across runs until deps move.
 GO_MOD_CACHE_ARTIFACT = Artifact.Config(
     name="go-mod-cache",
     type=Artifact.Type.S3,
     path="go-mod-cache.tar.zst",
 )
 
-# A digest doubles as Praktika's PR change-filter: a job runs only when a
-# changed file matches its include_paths, else it is SKIPPED (and SKIPPED does
-# not block merge-ready). A job's `requires` already pulls in its producers'
-# digests, so never repeat a path a required artifact already covers.
-
-# Reuse the module cache until deps or the producer logic move.
+# A job's digest doubles as Praktika's PR change-filter: it runs only when a
+# changed file matches include_paths, else SKIPPED (which doesn't block merge).
+# `requires` already pulls in producers' digests, so don't repeat their paths.
 _GO_MOD_CACHE_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./flow/go.mod",
@@ -70,7 +59,7 @@ _GO_BUILD_CACHE_DIGEST = Job.CacheDigestConfig(
     ],
 )
 
-# Not self-correcting (bundles a compiled binary): key everything affecting it.
+# Bundles a compiled binary (not self-correcting): key everything affecting it.
 _FLOW_IMAGES_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./flow",
@@ -86,7 +75,6 @@ _FLOW_IMAGES_DIGEST = Job.CacheDigestConfig(
 # Generated code is a shared input, so every Go/TS job keys on the proto inputs.
 _PROTO_INPUTS = ["./protos", "./buf.gen.yaml", "./generate-protos.sh"]
 
-# Lint: union of rust-lint (nexus), golang-lint (flow, e2e_cleanup) and ui-lint.
 _LINT_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./nexus",
@@ -98,12 +86,10 @@ _LINT_DIGEST = Job.CacheDigestConfig(
     ],
 )
 
-# ui-build.yml paths.
 _UI_BUILD_DIGEST = Job.CacheDigestConfig(
     include_paths=["./ui", *_PROTO_INPUTS],
 )
 
-# check-renovate-config.yml paths (its old `paths:` filter).
 _RENOVATE_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./renovate.json5",
@@ -111,14 +97,12 @@ _RENOVATE_DIGEST = Job.CacheDigestConfig(
     ],
 )
 
-# Go jobs over the flow module (nexus is gated by Lint's clippy, not these).
 _UNIT_TESTS_DIGEST = Job.CacheDigestConfig(
     include_paths=["./flow", "./ci/scripts/unit_tests.py", *_PROTO_INPUTS],
 )
 _CATALOG_MIGRATE_DIGEST = Job.CacheDigestConfig(
     include_paths=["./flow", "./ci/scripts/catalog_migrate.py", *_PROTO_INPUTS],
 )
-# Also re-run when the package/test mapping moves.
 _TEST_SELECTION_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./flow",
@@ -129,9 +113,8 @@ _TEST_SELECTION_DIGEST = Job.CacheDigestConfig(
     ],
 )
 
-# Flow test: only the stack + drivers. Everything else (./flow incl. e2e test
-# code, protos) rides in via the required flow-images / go-build-cache artifacts,
-# so a non-flow PR skips the matrix and the now-unrescued producers skip too.
+# Only the stack + drivers; ./flow + protos ride in via the required
+# flow-images / go-build-cache artifacts, so a non-flow PR skips the matrix.
 _FLOW_TEST_DIGEST = Job.CacheDigestConfig(
     include_paths=[
         "./Tiltfile",
@@ -151,46 +134,43 @@ _RESTORE_GO_MOD = "python3 ci/scripts/go_cache.py restore mod"
 # Postgres majors ci.yml exercises the catalog migrations against.
 _NEXUS_PG_VERSIONS = ["14", "15", "16", "17", "18"]
 
-# Cortages pin a chain of jobs to one runner / checkout / ci/tmp, run back-to-back
-# with no cleanup between them (praktika/docs/cortage-jobs.md). The critical path
-# then pays per-job overhead (queue wait, runner boot, checkout, artifact
-# download) only once, and a later member reads an earlier member's artifact
-# straight from the shared ci/tmp instead of round-tripping through S3.
-#
-# Two chains cover the critical path to the matrix (see
-# ci/praktika-vs-gha-critical-path.md):
-#   1. Config Workflow -> Go modules -> Flow images  (the prefix producers)
-#      Flow images promotes its runs_on so the whole chain runs on the
-#      amd_8cpu_16g pool (Config normally lands on the cheap arm pool); it is the
-#      heavy/long member and both Go jobs already target amd_8cpu_16g.
-#   2. Go build cache -> Flow test (longest perm)     (build + the long pole)
-#      Both already run on amd_32cpu_64g, so no promotion is needed; the flow
-#      test member reads the GOCACHE tarball from the shared ci/tmp.
-# Producers still upload to S3, so the matrix's other perms and every external
-# Go consumer (Lint, Unit tests, ...) read the artifacts normally.
-
-# Longest-executing flow perm (~276s — the matrix long pole by execution per
-# ci/praktika-vs-gha-critical-path.md §2). Chained onto Go build cache.
+# Cortages (praktika/docs/cortage-jobs.md) pin a chain of jobs to one runner /
+# checkout / ci/tmp and run them back-to-back with no cleanup, so the critical
+# path pays per-job overhead (queue, boot, checkout, artifact download) once and a
+# later member reads an earlier member's output from ci/tmp instead of S3. Three
+# chains cover the path to the matrix, each ending in one of the three longest
+# perms (ci/praktika-vs-gha-critical-path.md §2), all on amd_32cpu_64g:
+#   1. Flow images -> Flow test (pg17)
+#   2. Config Workflow -> Go modules -> Go build cache -> Flow test (pg16, long pole)
+#   3. Unit tests -> Flow test (pg18)
+# Chain 2 is the producer spine: Go modules warms the module cache in ci/tmp so Go
+# build cache compiles immediately (no cross-runner wait on the go-mod-cache
+# artifact), then ships GOCACHE that pg16 reads from ci/tmp. It promotes onto
+# amd_32cpu_64g from its native Config head; 1 and 3 are already headed by a 32-core
+# job. Producers still upload to S3, so the other matrix perms and external Go
+# consumers (incl. Unit tests) read the artifacts normally. No flow test gates on
+# Lint: it runs on a separate, slower pool and gates nothing the e2e needs, so
+# waiting on it only delays the matrix (they keep the Unit tests gate).
 _LONGEST_FLOW_LABEL = "postgres-16_ch-lts"
+_SECOND_FLOW_LABEL = "postgres-17_ch-stable"
+_THIRD_FLOW_LABEL = "postgres-18_ch-latest"
 
-# flow.yml's flow_test matrix. The driver (flow_test.py) resolves its target from
-# the job name via flow_matrix.py, loads the prebuilt images, brings up the
-# Tilt/compose stack and runs gotestsum. Blocking: gates merge via the
-# Ready-For-Merge status. Parametrized per enabled target below; the longest perm
-# is pulled out and chained onto Go build cache (cortage 2).
+# flow.yml's flow_test matrix: flow_test.py resolves the target from the job name,
+# loads the prebuilt images, brings up the Tilt stack and runs gotestsum. Gates
+# merge via Ready-For-Merge. Parametrized per enabled target; the three longest
+# perms are pulled out and chained into cortages below.
 _FLOW_TEST_BASE = Job.Config(
     name="Flow test",
     runs_on=[RunnerLabels.AMD_32CPU_64G],
     command="python3 ci/scripts/flow_test.py",
-    # Download the prep artifacts; Rust Lint + Unit tests are ordering-only gates
-    # so a broken build fails fast before the heavy e2e pool. flow_test.py
-    # restores both Go caches in-driver.
+    # Unit tests is an ordering-only gate (fail fast before the heavy e2e pool);
+    # flow_test.py restores both Go caches in-driver.
     requires=[
         FLOW_IMAGES_ARTIFACT.name,
         GO_BUILD_CACHE_ARTIFACT.name,
         GO_MOD_CACHE_ARTIFACT.name,
     ],
-    run_after=["Rust Lint", "Unit tests (no services)"],
+    run_after=["Unit tests (no services)"],
     digest_config=_FLOW_TEST_DIGEST,
     timeout=60 * 60,
 )
@@ -203,14 +183,11 @@ WORKFLOWS = [
         base_branches=["main"],
 
         jobs=[
-            # Native Praktika AI code review (replaces the GHA claude-code-review
-            # workflows). Invokes a Bedrock model, posts a summary + inline
-            # findings and manages its own threads. Runs on the arm pool (granted
-            # bedrock:InvokeModel in projects.py). allow_failure so a review
-            # hiccup never blocks merge; enable_gh_auth to post/resolve comments.
-            # NOTE: needs the Bedrock model enabled for the account in AWS_REGION;
-            # adjust --model if the inference profile differs.
-            # No digest_config: must run on every PR (incl. Renovate).
+            # Native Praktika AI review (replaces the GHA claude-code-review
+            # workflows): a Bedrock model posts a summary + inline findings and
+            # manages its own threads. Runs on every PR (no digest filter).
+            # allow_failure so a hiccup never blocks merge; enable_gh_auth to
+            # post/resolve. NOTE: needs the Bedrock model enabled in AWS_REGION.
             Job.Config(
                 name="Code Review",
                 runs_on=[RunnerLabels.ARM_2CPU_4G],
@@ -222,9 +199,8 @@ WORKFLOWS = [
                 allow_failure=True,
                 enable_gh_auth=True,
             ),
-            # Consolidated linters: rust-lint.yml (nexus clippy) + golang-lint.yml
-            # + the lint half of ui-lint.yml. Toolchains baked in; protos in the
-            # pre-hook.
+            # Consolidated linters: rust-lint (nexus clippy) + golang-lint + the
+            # lint half of ui-lint. Toolchains baked in; protos in the pre-hook.
             Job.Config(
                 name="Lint",
                 runs_on=[RunnerLabels.AMD_8CPU_16G],
@@ -243,13 +219,9 @@ WORKFLOWS = [
                 digest_config=_UI_BUILD_DIGEST,
                 timeout=20 * 60,
             ),
-            # Port of check-renovate-config.yml: validate renovate.json5 and
-            # simulate a Renovate run (needs node/npx + jq, baked in, and a
-            # github.com token for the shared renovate-config extension — hence
-            # enable_gh_auth). Digest-gated to the renovate config + script, so it
-            # only runs when those change (its old GHA `paths:` filter).
-            # allow_failure: the local Renovate run is network-heavy; don't block
-            # merge on a flaky sim. (The GHA PR-comment report is not ported yet.)
+            # Port of check-renovate-config.yml: validate + simulate a Renovate run
+            # (needs a github.com token -> enable_gh_auth). Digest-gated to its
+            # config/script; allow_failure since the sim is network-heavy and flaky.
             Job.Config(
                 name="Renovate config",
                 runs_on=[RunnerLabels.AMD_8CPU_16G],
@@ -260,19 +232,23 @@ WORKFLOWS = [
                 timeout=20 * 60,
             ),
             # `go mod download` once, published as the go-mod-cache artifact every
-            # Go job restores. Digest-cached on go.mod/go.sum, so it is reused
-            # across runs until dependencies change (see _GO_MOD_CACHE_DIGEST).
-            # Downloading is network- not CPU-bound; the small x86 pool suffices.
+            # Go job restores. Cortage 2 member (Config -> Go modules -> Go build
+            # cache): its module cache lands in the shared ci/tmp so Go build cache
+            # starts compiling immediately instead of waiting on the go-mod-cache
+            # artifact from another runner. runs_on is ignored (the chain promotes
+            # to amd_32cpu_64g); download is network- not CPU-bound.
             Job.Config(
                 name="Go modules",
-                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                runs_on=[RunnerLabels.AMD_32CPU_64G],
                 command="python3 ci/scripts/go_mod_cache.py",
                 provides=[GO_MOD_CACHE_ARTIFACT.name],
                 digest_config=_GO_MOD_CACHE_DIGEST,
                 timeout=20 * 60,
             ),
-            # Port of flow.yml's `unit_tests` job (no services); gotestsum ->
-            # structured Result. Protos in the pre-hook.
+            # Port of flow.yml's unit_tests (no services). Cortage 3 head; the 3rd
+            # perm chains onto it. Restores the module cache from the go-mod-cache
+            # artifact (another runner's Go modules); the restore untar is skipped
+            # when a prior job already warmed this runner's GOMODCACHE.
             Job.Config(
                 name="Unit tests (no services)",
                 runs_on=[RunnerLabels.AMD_32CPU_64G],
@@ -282,7 +258,7 @@ WORKFLOWS = [
                 digest_config=_UNIT_TESTS_DIGEST,
                 timeout=30 * 60,
             ),
-            # Port of flow.yml's `test_selection_coverage` job.
+            # Port of flow.yml's test_selection_coverage.
             Job.Config(
                 name="Test selection coverage",
                 runs_on=[RunnerLabels.AMD_8CPU_16G],
@@ -292,12 +268,11 @@ WORKFLOWS = [
                 digest_config=_TEST_SELECTION_DIGEST,
                 timeout=20 * 60,
             ),
-            # Port of ci.yml's catalog-migration check: `go run . migrate` against
-            # Postgres 14-18 (fresh container per version). ci.yml's nexus cargo
-            # check is covered by Lint's clippy; cargo test needs cloud creds.
+            # Port of ci.yml's catalog check: `go run . migrate` vs Postgres 14-18
+            # (fresh container per version). nexus cargo check rides Lint's clippy.
             *Job.Config(
                 name="Catalog migrate",
-                runs_on=[RunnerLabels.AMD_32CPU_64G],
+                runs_on=[RunnerLabels.AMD_8CPU_16G],
                 pre_hooks=[_RESTORE_GO_MOD, "./generate-protos.sh"],
                 command="python3 ci/scripts/catalog_migrate.py",
                 requires=[GO_MOD_CACHE_ARTIFACT.name],
@@ -307,27 +282,26 @@ WORKFLOWS = [
                 *[Job.ParamSet(parameter=f"pg-{v}") for v in _NEXUS_PG_VERSIONS]
             ),
             # Build the 3 flow images once; the matrix loads them (port of
-            # flow.yml's flow_images job). Cortage tail: Config Workflow -> Go
-            # modules -> Flow images, all on one amd_8cpu_16g runner. attach_to's
-            # ordered prefix pulls the native Config job and Go modules in front
-            # (they can't call attach_to themselves — Config is mangle-injected),
-            # and promote_runs_on pins the whole chain to this job's runs_on
-            # (Config would otherwise run on the cheap arm config pool).
+            # flow.yml's flow_images job). Cortage 1 head (32-core); the 2nd perm
+            # chains onto it. No module cache needed — it builds in clean Docker.
             Job.Config(
                 name="Flow images",
-                runs_on=[RunnerLabels.AMD_8CPU_16G],
+                runs_on=[RunnerLabels.AMD_32CPU_64G],
                 pre_hooks=["./generate-protos.sh"],
                 command="python3 ci/scripts/flow_images.py",
                 provides=[FLOW_IMAGES_ARTIFACT.name],
                 digest_config=_FLOW_IMAGES_DIGEST,
                 timeout=30 * 60,
-            ).attach_to(
-                [Settings.CI_CONFIG_JOB_NAME, "Go modules"], promote_runs_on=True
             ),
-            # Compile every flow + pkg test package once and publish GOCACHE as
-            # an artifact the matrix restores (port of flow.yml's go_build_cache
-            # job). Head of cortage 2: the longest flow perm chains onto it (see
-            # below) and reads this GOCACHE tarball from the shared ci/tmp.
+            # Compile every flow + pkg test package once, publish GOCACHE as an
+            # artifact the matrix restores (port of flow.yml's go_build_cache job).
+            # Cortage 2 member: Config Workflow -> Go modules -> Go build cache ->
+            # Flow test (longest perm), all on one runner. attach_to's ordered prefix
+            # pulls the native Config job and Go modules in front (Config is
+            # mangle-injected and can't attach itself); promote_runs_on pins the
+            # chain to amd_32cpu_64g. Go modules warms the module cache in the shared
+            # ci/tmp, so the _RESTORE_GO_MOD pre-hook is a no-op and compilation
+            # starts immediately instead of waiting on the go-mod-cache artifact.
             Job.Config(
                 name="Go build cache",
                 runs_on=[RunnerLabels.AMD_32CPU_64G],
@@ -337,38 +311,47 @@ WORKFLOWS = [
                 requires=[GO_MOD_CACHE_ARTIFACT.name],
                 digest_config=_GO_BUILD_CACHE_DIGEST,
                 timeout=30 * 60,
+            ).attach_to(
+                [Settings.CI_CONFIG_JOB_NAME, "Go modules"], promote_runs_on=True
             ),
-            # Flow test matrix (see _FLOW_TEST_BASE): one job per enabled target,
-            # minus the longest perm which is chained onto Go build cache below.
+            # Flow test matrix (see _FLOW_TEST_BASE), minus the three perms chained
+            # into cortages below.
             *_FLOW_TEST_BASE.parametrize(
                 *[
                     Job.ParamSet(parameter=label)
                     for label in LABELS
-                    if label != _LONGEST_FLOW_LABEL
+                    if label
+                    not in (_LONGEST_FLOW_LABEL, _SECOND_FLOW_LABEL, _THIRD_FLOW_LABEL)
                 ]
             ),
-            # Cortage 2 tail: the longest perm runs back-to-back after Go build
-            # cache on the same amd_32cpu_64g runner, reading the GOCACHE tarball
-            # from the shared ci/tmp instead of re-downloading it from S3.
+            # Cortage 2 tail: rides the producer spine, reading GOCACHE (and the
+            # already-warm module cache) from ci/tmp (Go build cache / Go modules).
             _FLOW_TEST_BASE.parametrize(
                 Job.ParamSet(parameter=_LONGEST_FLOW_LABEL)
             )[0].attach_to("Go build cache"),
+            # Cortage 1 tail: reads the flow-images tarball from ci/tmp (Flow
+            # images); the Go caches come from cortage 2 via S3.
+            _FLOW_TEST_BASE.parametrize(
+                Job.ParamSet(parameter=_SECOND_FLOW_LABEL)
+            )[0].attach_to("Flow images"),
+            # Cortage 3 tail: the inherited run_after=Unit tests gate matches its
+            # chain predecessor; the Go caches come from cortage 2 via S3.
+            _FLOW_TEST_BASE.parametrize(
+                Job.ParamSet(parameter=_THIRD_FLOW_LABEL)
+            )[0].attach_to("Unit tests (no services)"),
         ],
         artifacts=[FLOW_IMAGES_ARTIFACT, GO_BUILD_CACHE_ARTIFACT, GO_MOD_CACHE_ARTIFACT],
         enable_cache=True,
         enable_report=True,
         enable_gh_summary_comment=True,
         enable_exit_code_result=True,
-        # Skip jobs whose digest include_paths don't match the PR's changed
-        # files (a non-flow PR skips the Go/flow jobs; a docs-only PR skips
-        # almost everything). The `ci-force-all` label bypasses this.
+        # Skip jobs whose digest paths don't match the PR's changes (ci-force-all
+        # bypasses).
         enable_job_filtering_by_changes=True,
-        # Per-setup flow-matrix skipping: drop a permutation when the PR's flow
-        # changes are confined to other setups (ci/scripts/flow_filter.py).
+        # Per-setup flow-matrix skipping (ci/scripts/flow_filter.py).
         workflow_filter_hooks=[should_skip_flow_test],
-        # Aggregate every (non-allow_failure) job into one "Ready For Merge [PR]"
-        # commit status; make that the branch-protection required check so the
-        # whole matrix gates merge.
+        # Aggregate non-allow_failure jobs into the required "Ready For Merge [PR]"
+        # status.
         enable_merge_ready_status=True,
     )
 ]
