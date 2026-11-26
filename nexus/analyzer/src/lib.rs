@@ -71,7 +71,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
                         }
                     }
                 }
-                Statement::Declare { stmts } => {
+                Statement::Declare { stmts, .. } => {
                     for stmt in stmts {
                         if let Some(ref query) = stmt.for_query {
                             let _ = visit_relations(query, |relation| {
@@ -202,7 +202,7 @@ pub fn analyze_peerdb_stmt(statement: &PeerDBStatement) -> anyhow::Result<Option
                 let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
                 for option in &cdc.with_options {
                     if let SqlOption::KeyValue { key, value } = option {
-                        raw_options.insert(key.value.as_str(), value);
+                        raw_options.insert(option_key(key)?, value);
                     }
                 }
                 let do_initial_copy = match raw_options.remove("do_initial_copy") {
@@ -416,7 +416,7 @@ pub fn analyze_peerdb_stmt(statement: &PeerDBStatement) -> anyhow::Result<Option
                         value: Expr::Value(vws),
                     } = option
                     {
-                        raw_options.insert(key.value.as_str(), &vws.value);
+                        raw_options.insert(option_key(key)?, &vws.value);
                     }
                 }
 
@@ -470,7 +470,7 @@ pub fn analyze_peerdb_stmt(statement: &PeerDBStatement) -> anyhow::Result<Option
             let mut raw_options = HashMap::with_capacity(with_options.len());
             for option in with_options {
                 if let SqlOption::KeyValue { key, value } = option {
-                    raw_options.insert(key.value.as_str(), value);
+                    raw_options.insert(option_key(key)?, value);
                 }
             }
 
@@ -596,6 +596,15 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
     }
 }
 
+/// Name of a `WITH (key = value)` option. sqlparser 0.64 made the key an `ObjectName`;
+/// keep the 0.63 behaviour of a single identifier and reject qualified keys like `a.b`.
+fn option_key(key: &ast::ObjectName) -> anyhow::Result<&str> {
+    match key.0.as_slice() {
+        [ast::ObjectNamePart::Identifier(ident)] => Ok(ident.value.as_str()),
+        _ => anyhow::bail!("invalid option name: {key}"),
+    }
+}
+
 fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Result<Option<Config>> {
     let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
@@ -621,7 +630,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }) => "false",
             _ => anyhow::bail!("invalid option type for peer: {key}"),
         };
-        opts.insert(key.value.as_str(), val);
+        opts.insert(option_key(key)?, val);
     }
 
     Ok(Some(match db_type {
@@ -1243,4 +1252,17 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
         }
         DbType::DbtypeUnknown => return Ok(None),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_key_is_single_identifier() {
+        let quoted = ast::ObjectName::from(vec![ast::Ident::with_quote('"', "do_initial_copy")]);
+        assert_eq!(option_key(&quoted).unwrap(), "do_initial_copy");
+        let qualified = ast::ObjectName::from(vec![ast::Ident::new("a"), ast::Ident::new("b")]);
+        assert!(option_key(&qualified).is_err());
+    }
 }

@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use parser::ast_helpers::flatten_expr_to_in_list;
 use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
-    Array, BinaryOperator, CastKind, DataType, Expr, FunctionArgExpr, FunctionArguments,
+    Array, BinaryOperator, CastKind, DataType, Expr, FunctionArgExpr, FunctionArguments, InTarget,
     LimitClause, Offset, Query, TimezoneInfo, Value, ValueWithSpan, visit_expressions_mut,
     visit_relations_mut,
 };
@@ -134,10 +134,11 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
             } => {
                 if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
                     let list = flatten_expr_to_in_list(right).expect("failed to flatten");
-                    *node = Expr::InList {
+                    *node = Expr::In {
                         expr: left.clone(),
-                        list,
+                        target: InTarget::List(list),
                         negated: matches!(compare_op, BinaryOperator::NotEq),
+                        global: false,
                     };
                 }
             }

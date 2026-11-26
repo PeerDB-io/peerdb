@@ -108,7 +108,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 let cursor = self.query(query).await?;
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),
@@ -217,7 +217,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 });
                 Ok(Some(self.query_schema(query.to_string()).await?))
             }
-            Statement::Declare { stmts } => {
+            Statement::Declare { stmts, .. } => {
                 if stmts.len() != 1 {
                     Err(PgWireError::ApiError(
                         "peerdb only supports singular declare statements".into(),

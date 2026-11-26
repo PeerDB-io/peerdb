@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -495,8 +496,13 @@ func (s ClickHouseSuite) CreateSlowInsertViaMV(tableName string, sleepSeconds in
 		defer ch.Close()
 		rows, err := ch.Query(s.t.Context(), fmt.Sprintf(
 			`KILL QUERY WHERE current_database = currentDatabase() AND query ILIKE 'INSERT INTO%%%s%%' SYNC`, tableName))
+		// ClickHouse 26.11+ throws NOTHING_TO_KILL when nothing matches (kill_throw_if_noop)
+		if chErr, ok := errors.AsType[*clickhouse.Exception](err); ok && chErr.Code == 785 {
+			err = nil
+		} else if err == nil {
+			rows.Close()
+		}
 		require.NoError(s.t, err)
-		rows.Close()
 		require.NoError(s.t, ch.Exec(s.t.Context(), "DROP VIEW IF EXISTS "+mvName))
 	}
 	return cleanup, nil

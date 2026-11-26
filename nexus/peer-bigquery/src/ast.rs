@@ -5,8 +5,8 @@ use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
     Array, BinaryOperator, DataType, DateTimeField, Expr, Function, FunctionArg, FunctionArgExpr,
-    FunctionArgumentList, FunctionArguments, Ident, ObjectName, ObjectNamePart, Query, SetExpr,
-    SetOperator, SetQuantifier, TimezoneInfo, ValueWithSpan, visit_expressions_mut,
+    FunctionArgumentList, FunctionArguments, Ident, InTarget, ObjectName, ObjectNamePart, Query,
+    SetExpr, SetOperator, SetQuantifier, TimezoneInfo, ValueWithSpan, visit_expressions_mut,
     visit_relations_mut,
 };
 
@@ -261,10 +261,11 @@ impl BigqueryAst {
                 && matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq)
             {
                 let list = flatten_expr_to_in_list(right).expect("failed to flatten");
-                *node = Expr::InList {
+                *node = Expr::In {
                     expr: left.clone(),
-                    list,
+                    target: InTarget::List(list),
                     negated: matches!(compare_op, BinaryOperator::NotEq),
+                    global: false,
                 };
             }
 
