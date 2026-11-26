@@ -328,9 +328,19 @@ func (c *PostgresConnector) ValidateMirrorDestination(
 		}
 
 		if cfg.DoInitialSnapshot {
-			// Check if destination table already has rows
-			if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+			parsedDst, err := common.ParseTableIdentifier(dstTableIdentifier)
+			if err != nil {
+				return fmt.Errorf("invalid destination table identifier %s: %w", dstTableIdentifier, err)
+			}
+			// snapshot upserts into extension tables, which come prepopulated
+			extensionPkey, err := pkg_pg.ExtensionTablePrimaryKey(ctx, c.conn, *parsedDst)
+			if err != nil {
 				return err
+			}
+			if len(extensionPkey) == 0 {
+				if err := pkg_pg.CheckTableEmpty(ctx, c.conn, dstTableIdentifier); err != nil {
+					return err
+				}
 			}
 		}
 
