@@ -86,9 +86,9 @@ function ValidSchemaQualifiedTarget(
 
 // Pre-flight checks for a BigQuery CDC mirror (config.bigqueryCdcConfig is set), returning an
 // error message or ''. The backend re-validates all of this, but catching it here avoids a round trip.
-// Backend rules (flow/pkg/bigquery/validation.go): destination must be ClickHouse; QUERY needs a
-// watermark column on every table; EVENTS needs an events function on every table; a snapshot
-// needs a gs:// staging path.
+// Backend rules: destination must be ClickHouse (flow/cmd/validate_mirror.go); QUERY needs a
+// watermark column and EVENTS an events function on every table (flow/pkg/bigquery/validation.go);
+// a snapshot needs a gs:// staging path (parseGCSPath in flow/connectors/bigquery/gcp.go).
 function validateBigQueryCDC(
   tableMappings: TableMapping[],
   config: CDCConfig,
