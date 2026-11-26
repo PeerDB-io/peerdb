@@ -1469,6 +1469,33 @@ func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongoSocketIOErrorShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    29,
+		Message: "Socket IO error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "29",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoNonExistentPathWithoutSocketIOErrorStaysOther(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    29,
+		Name:    "NonExistentPath",
+		Message: "cannot use the part (a) of (a.b) to traverse the element",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "29",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMongoTooManyCursorsOpenedShouldNotifyUser(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
