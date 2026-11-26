@@ -25,7 +25,7 @@ type sweepHarness struct {
 func newSweepHarness(t *testing.T) *sweepHarness {
 	t.Helper()
 	meter, reader := newTestMeter(t)
-	sweeper := &seriesSweeper{}
+	sweeper := &seriesSweeper{droppedFlows: make(map[string]int64)}
 	counter, err := NewContextAwareInt64Counter(meter, "test_counter", withSweeper(sweeper))
 	require.NoError(t, err)
 	gauge, err := ContextAwareInt64Gauge(meter, "test_gauge", withSweeper(sweeper))
@@ -55,6 +55,15 @@ func (h *sweepHarness) export(t *testing.T) *metricdata.ResourceMetrics {
 	require.NoError(t, h.reader.Collect(t.Context(), &rm))
 	require.NoError(t, h.exporter.Export(t.Context(), &rm))
 	return &rm
+}
+
+// exportAfterGracePeriod exports like export, but as if that export started exportWatermarkBuffer from now, so
+// flows already recorded as dropped are past their grace period.
+func (h *sweepHarness) exportAfterGracePeriod(t *testing.T) *metricdata.ResourceMetrics {
+	t.Helper()
+	rm := h.export(t)
+	h.sweeper.exportWatermark.Store(monotonicNanos() + int64(exportWatermarkBuffer))
+	return rm
 }
 
 // valuesByFlow returns the value of each int64 sum or gauge point of the named metric by its flowName;
@@ -97,19 +106,24 @@ func countEntries(m *sync.Map) int {
 	return n
 }
 
-func TestSweepDeletesDroppedFlowSeriesOnceExported(t *testing.T) {
+func TestSweepDeletesDroppedFlowSeriesAfterGracePeriod(t *testing.T) {
 	h := newSweepHarness(t)
 	h.record(flowContext("live"), 1)
 	h.record(flowContext("dropped"), 2)
 	h.record(context.Background(), 3)
 
-	// Nothing is deleted before the latest values were exported.
+	// The first sweep that misses a flow only records it as dropped.
 	require.Zero(t, h.sweeper.sweep([]string{"live"}))
+	require.Contains(t, h.sweeper.droppedFlows, "dropped")
 	rm := h.export(t)
 	require.Equal(t, map[string]int64{"live": 1, "dropped": 2, "": 3}, valuesByFlow(t, rm, "test_counter"))
-	require.Equal(t, map[string]int64{"live": 1, "dropped": 2, "": 3}, valuesByFlow(t, rm, "test_gauge"))
+	// An export soon after is not enough: late updates from the drop may still be coming.
+	require.Zero(t, h.sweeper.sweep([]string{"live"}))
 
+	h.exportAfterGracePeriod(t)
 	require.Equal(t, 2, h.sweeper.sweep([]string{"live"}), "the dropped flow's counter and gauge series")
+	require.NotContains(t, h.sweeper.droppedFlows, "dropped")
+
 	h.record(flowContext("live"), 1)
 	h.record(context.Background(), 1)
 	rm = h.export(t)
@@ -119,56 +133,55 @@ func TestSweepDeletesDroppedFlowSeriesOnceExported(t *testing.T) {
 	require.Equal(t, 2, countEntries(&h.gauge.gauge.series))
 }
 
-func TestSweepKeepsSeriesUpdatedSinceExport(t *testing.T) {
+func TestSweepExportsLateUpdatesOfDroppedFlow(t *testing.T) {
 	h := newSweepHarness(t)
 	ctx := flowContext("dropped")
 	h.record(ctx, 1)
-	h.export(t)
-
-	// A late update after the flow was dropped must still be exported before the series goes away.
-	h.record(ctx, 10)
 	require.Zero(t, h.sweeper.sweep(nil))
-	rm := h.export(t)
+
+	// An update after the flow was dropped is exported before the series goes away.
+	h.record(ctx, 10)
+	rm := h.exportAfterGracePeriod(t)
 	require.Equal(t, map[string]int64{"dropped": 11}, valuesByFlow(t, rm, "test_counter"))
 	require.Equal(t, map[string]int64{"dropped": 10}, valuesByFlow(t, rm, "test_gauge"))
 	require.Equal(t, 2, h.sweeper.sweep(nil))
 }
 
-// Updates that skip the clock, because the series was already updated since the last export started, keep the time
-// of the first update after that export, and are exported by the next one.
-func TestSweepExportsUpdatesThatSkippedTheClock(t *testing.T) {
+func TestSweepRestartsGracePeriodOfRecreatedFlow(t *testing.T) {
 	h := newSweepHarness(t)
-	ctx := flowContext("dropped")
-	h.counter.Add(ctx, 1)
-	h.export(t)
-	h.counter.Add(ctx, 1) // reads the clock: the series was last updated before the export started
-	var lastUpdate int64
-	h.counter.series.Range(func(_, value any) bool {
-		lastUpdate = value.(*counterSeries).lastUpdate.Load()
-		return true
-	})
-	h.counter.Add(ctx, 1) // skips the clock
-	h.counter.series.Range(func(_, value any) bool {
-		require.Equal(t, lastUpdate, value.(*counterSeries).lastUpdate.Load())
-		return true
-	})
-
+	ctx := flowContext("recreated")
+	h.record(ctx, 1)
 	require.Zero(t, h.sweeper.sweep(nil))
-	require.Equal(t, map[string]int64{"dropped": 3}, valuesByFlow(t, h.export(t), "test_counter"))
-	require.Equal(t, 1, h.sweeper.sweep(nil))
+	h.exportAfterGracePeriod(t)
+
+	// The flow is back before its series were deleted, so its old dropped time is forgotten.
+	require.Zero(t, h.sweeper.sweep([]string{"recreated"}))
+	require.NotContains(t, h.sweeper.droppedFlows, "recreated")
+
+	// Dropped again: it gets a new grace period instead of being deleted right away.
+	require.Zero(t, h.sweeper.sweep(nil))
+	h.export(t)
+	require.Zero(t, h.sweeper.sweep(nil))
+	h.exportAfterGracePeriod(t)
+	require.Equal(t, 2, h.sweeper.sweep(nil))
 }
 
 func TestSweepKeepsGaugeValuePendingExport(t *testing.T) {
 	h := newSweepHarness(t)
 	h.gauge.Record(flowContext("dropped"), 1)
-	h.export(t)
-	// A value stored before its update time was recorded, as when a Record races the sweep, is still pending.
+	require.Zero(t, h.sweeper.sweep(nil))
+	h.exportAfterGracePeriod(t)
+	// A value recorded after the export, as when a Record races the sweep, is still pending.
 	h.gauge.gauge.series.Range(func(_, value any) bool {
 		value.(*gaugeSeries).pending.Store(true)
 		return true
 	})
 	require.Zero(t, h.sweeper.sweep(nil))
 	require.Equal(t, map[string]int64{"dropped": 1}, valuesByFlow(t, h.export(t), "test_gauge"))
+
+	// The flow was forgotten with its other series, so it gets a new grace period.
+	require.Zero(t, h.sweeper.sweep(nil))
+	h.exportAfterGracePeriod(t)
 	require.Equal(t, 1, h.sweeper.sweep(nil))
 }
 
@@ -179,7 +192,8 @@ func TestSweepInvalidatesCachedSeries(t *testing.T) {
 	explicit := metric.WithAttributeSet(attribute.NewSet(attribute.String(FlowNameKey, "explicit")))
 	h.counter.Add(ctx, 5)
 	h.counter.Add(context.Background(), 7, explicit)
-	h.export(t)
+	require.Zero(t, h.sweeper.sweep(nil))
+	h.exportAfterGracePeriod(t)
 	require.Equal(t, 2, h.sweeper.sweep(nil))
 
 	// The same contexts must resolve new series, not keep adding to the deleted ones.
@@ -194,7 +208,7 @@ func TestDeletedSeriesCachedAfterPruneIsResolvedAgain(t *testing.T) {
 	ctx := flowContext("flow")
 	h.counter.Add(ctx, 5)
 	h.counter.series.Range(func(key, value any) bool {
-		value.(*counterSeries).markDeleted()
+		value.(*counterSeries).deleted.Store(true)
 		h.counter.series.Delete(key)
 		return true
 	})
@@ -208,8 +222,8 @@ func TestSweepPrunesContextEntriesOfDroppedFlows(t *testing.T) {
 	h.record(flowContext("live"), 1)
 	h.record(flowContext("dropped"), 1)
 	h.record(context.Background(), 1)
-	h.export(t)
-	h.export(t)
+	h.sweeper.sweep([]string{"live"})
+	h.exportAfterGracePeriod(t)
 	h.sweeper.sweep([]string{"live"})
 
 	for name, entries := range map[string]*sync.Map{
@@ -267,7 +281,7 @@ func TestSweepConcurrentWithUpdatesAndExports(t *testing.T) {
 	})
 	wg.Go(func() {
 		for range rounds / 10 {
-			h.export(t)
+			h.exportAfterGracePeriod(t)
 			h.sweeper.sweep([]string{"live"})
 		}
 	})

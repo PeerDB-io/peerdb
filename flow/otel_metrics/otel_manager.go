@@ -223,7 +223,7 @@ func NewOtelManager(
 	enabled bool,
 	catalogPool *shared.CatalogPool,
 ) (*OtelManager, error) {
-	sweeper := &seriesSweeper{}
+	sweeper := &seriesSweeper{droppedFlows: make(map[string]int64)}
 	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, &sweeper.exportWatermark)
 	if err != nil {
 		return nil, err

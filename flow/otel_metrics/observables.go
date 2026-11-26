@@ -142,9 +142,9 @@ func (c *contextAttributesCache[V]) deleted(v *V) bool {
 // prune deletes the entries of flows that are not live, and drops pointers to deleted series from the others,
 // such as an explicit flowName passed on a context without flow metadata. Entries without a flow name are kept.
 // A pointer cached concurrently with the prune is caught by get's deleted check.
-func (c *contextAttributesCache[V]) prune(isLive func(flowName string) bool) {
+func (c *contextAttributesCache[V]) prune(keep func(flowName string) bool) {
 	c.entries.Range(func(key, value any) bool {
-		if flowName := key.(string); flowName != "" && !isLive(flowName) {
+		if flowName := key.(string); flowName != "" && !keep(flowName) {
 			c.entries.Delete(key)
 			return true
 		}
@@ -175,16 +175,15 @@ func loadOrStoreSeries[T any](allSeries *sync.Map, attrs attribute.Set, newSerie
 }
 
 type counterSeries struct {
-	attrs attribute.Set
-	seriesActivity
-	sum atomic.Int64
+	attrs   attribute.Set
+	sum     atomic.Int64
+	deleted atomic.Bool
 }
 
 type ContextAwareInt64Counter struct {
 	embedded.Int64Counter
-	exportWatermark *atomic.Int64
-	series          sync.Map // attribute.Distinct -> *counterSeries
-	contexts        contextAttributesCache[counterSeries]
+	series   sync.Map // attribute.Distinct -> *counterSeries
+	contexts contextAttributesCache[counterSeries]
 }
 
 func (c *ContextAwareInt64Counter) Enabled(context.Context) bool {
@@ -194,20 +193,19 @@ func (c *ContextAwareInt64Counter) Enabled(context.Context) bool {
 func (c *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
 	series := c.contexts.get(ctx, metric.NewAddConfig(options).Attributes())
 	series.sum.Add(value)
-	series.touch(c.exportWatermark.Load())
 }
 
-func (c *ContextAwareInt64Counter) sweep(isLive func(flowName string) bool, exportWatermark int64) int {
+func (c *ContextAwareInt64Counter) sweep(keep func(flowName string) bool) int {
 	deleted := 0
 	c.series.Range(func(key, value any) bool {
-		if series := value.(*counterSeries); series.shouldDelete(series.attrs, isLive, exportWatermark) {
-			series.markDeleted()
+		if series := value.(*counterSeries); shouldDelete(series.attrs, keep) {
+			series.deleted.Store(true)
 			c.series.Delete(key)
 			deleted++
 		}
 		return true
 	})
-	c.contexts.prune(isLive)
+	c.contexts.prune(keep)
 	return deleted
 }
 
@@ -223,15 +221,13 @@ func (c *ContextAwareInt64Counter) observe(_ context.Context, observer metric.In
 func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
 	sweeper, opts := takeSweeper(opts)
 	counterConfig := metric.NewInt64CounterConfig(opts...)
-	counter := &ContextAwareInt64Counter{exportWatermark: exportWatermarkFor(sweeper)}
+	counter := &ContextAwareInt64Counter{}
 	counter.contexts.resolve = func(attrs attribute.Set) *counterSeries {
 		return loadOrStoreSeries(&counter.series, attrs, func(attrs attribute.Set) *counterSeries {
-			series := &counterSeries{attrs: attrs}
-			series.touch(counter.exportWatermark.Load())
-			return series
+			return &counterSeries{attrs: attrs}
 		})
 	}
-	counter.contexts.isDeleted = func(series *counterSeries) bool { return series.isDeleted() }
+	counter.contexts.isDeleted = func(series *counterSeries) bool { return series.deleted.Load() }
 	observable, err := meter.Int64ObservableCounter(name,
 		metric.WithDescription(counterConfig.Description()),
 		metric.WithUnit(counterConfig.Unit()),
@@ -253,28 +249,25 @@ func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric
 // gaugeSeries keeps the latest value. Collections report it only if recorded since the previous
 // collection, so idle series report nothing.
 type gaugeSeries struct {
-	attrs attribute.Set
-	seriesActivity
+	attrs   attribute.Set
 	bits    atomic.Uint64
 	pending atomic.Bool
+	// deleted is set by a sweep before it removes the series, so cached pointers to it are resolved again.
+	deleted atomic.Bool
 }
 
 type contextAwareGauge struct {
-	exportWatermark *atomic.Int64
-	series          sync.Map // attribute.Distinct -> *gaugeSeries
-	contexts        contextAttributesCache[gaugeSeries]
+	series   sync.Map // attribute.Distinct -> *gaugeSeries
+	contexts contextAttributesCache[gaugeSeries]
 }
 
-func (g *contextAwareGauge) init(exportWatermark *atomic.Int64) {
-	g.exportWatermark = exportWatermark
+func (g *contextAwareGauge) init() {
 	g.contexts.resolve = func(attrs attribute.Set) *gaugeSeries {
 		return loadOrStoreSeries(&g.series, attrs, func(attrs attribute.Set) *gaugeSeries {
-			series := &gaugeSeries{attrs: attrs}
-			series.touch(g.exportWatermark.Load())
-			return series
+			return &gaugeSeries{attrs: attrs}
 		})
 	}
-	g.contexts.isDeleted = func(series *gaugeSeries) bool { return series.isDeleted() }
+	g.contexts.isDeleted = func(series *gaugeSeries) bool { return series.deleted.Load() }
 }
 
 func (g *contextAwareGauge) record(ctx context.Context, bits uint64, extra attribute.Set) {
@@ -282,20 +275,19 @@ func (g *contextAwareGauge) record(ctx context.Context, bits uint64, extra attri
 	// Store the value before the flag, so a collection seeing the flag reads this value or a newer one.
 	series.bits.Store(bits)
 	series.pending.Store(true)
-	series.touch(g.exportWatermark.Load())
 }
 
-func (g *contextAwareGauge) sweep(isLive func(flowName string) bool, exportWatermark int64) int {
+func (g *contextAwareGauge) sweep(keep func(flowName string) bool) int {
 	deleted := 0
 	g.series.Range(func(key, value any) bool {
-		if series := value.(*gaugeSeries); !series.pending.Load() && series.shouldDelete(series.attrs, isLive, exportWatermark) {
-			series.markDeleted()
+		if series := value.(*gaugeSeries); !series.pending.Load() && shouldDelete(series.attrs, keep) {
+			series.deleted.Store(true)
 			g.series.Delete(key)
 			deleted++
 		}
 		return true
 	})
-	g.contexts.prune(isLive)
+	g.contexts.prune(keep)
 	return deleted
 }
 
@@ -333,7 +325,7 @@ func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int6
 	sweeper, opts := takeSweeper(opts)
 	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
 	gauge := &contextAwareInt64Gauge{}
-	gauge.gauge.init(exportWatermarkFor(sweeper))
+	gauge.gauge.init()
 	observable, err := meter.Int64ObservableGauge(name,
 		metric.WithDescription(gaugeConfig.Description()),
 		metric.WithUnit(gaugeConfig.Unit()),
@@ -375,7 +367,7 @@ func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Fl
 	sweeper, opts := takeSweeper(opts)
 	gaugeConfig := metric.NewFloat64GaugeConfig(opts...)
 	gauge := &contextAwareFloat64Gauge{}
-	gauge.gauge.init(exportWatermarkFor(sweeper))
+	gauge.gauge.init()
 	observable, err := meter.Float64ObservableGauge(name,
 		metric.WithDescription(gaugeConfig.Description()),
 		metric.WithUnit(gaugeConfig.Unit()),
@@ -409,8 +401,8 @@ func (h *ContextAwareInt64Histogram) Record(ctx context.Context, value int64, op
 }
 
 // sweep only frees cached entries of dropped flows: the SDK owns histogram series and keeps exporting them.
-func (h *ContextAwareInt64Histogram) sweep(isLive func(flowName string) bool, _ int64) int {
-	h.contexts.prune(isLive)
+func (h *ContextAwareInt64Histogram) sweep(keep func(flowName string) bool) int {
+	h.contexts.prune(keep)
 	return 0
 }
 

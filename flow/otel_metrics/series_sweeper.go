@@ -18,6 +18,10 @@ import (
 
 const droppedFlowsSweepInterval = time.Hour
 
+// A flow's series are deleted if it was last seen as a live flow more than exportWatermarkBuffer before
+// the start of the last successful metric export.
+const exportWatermarkBuffer = 5 * time.Minute
+
 // clockBase anchors monotonicNanos.
 var clockBase = time.Now()
 
@@ -25,60 +29,26 @@ func monotonicNanos() int64 {
 	return int64(time.Since(clockBase))
 }
 
-// seriesActivity records when a series was last updated, and whether a sweep deleted it.
-type seriesActivity struct {
-	lastUpdate atomic.Int64 // monotonicNanos; see touch
-	deleted    atomic.Bool
-}
-
-// touch records an update. Call it after storing the value to update the watermark of when
-// this value was last seen and needs to be exported.
-// exportWatermark is the watermark loaded after storing the value.
-func (a *seriesActivity) touch(exportWatermark int64) {
-	last := a.lastUpdate.Load()
-	if last >= exportWatermark {
-		return
-	}
-	now := monotonicNanos()
-	for {
-		// Concurrent updates may record out of order; keep the latest.
-		if last >= now || a.lastUpdate.CompareAndSwap(last, now) {
-			return
-		}
-		last = a.lastUpdate.Load()
-	}
-}
-
-// shouldDelete reports whether a series belongs to a flow that is not live and its latest value was exported.
-func (a *seriesActivity) shouldDelete(attrs attribute.Set, isLive func(flowName string) bool, exportWatermark int64) bool {
-	if a.lastUpdate.Load() >= exportWatermark {
-		return false
-	}
+// shouldDelete reports whether a series has a flowName that keep rejects. Series without one are always kept.
+func shouldDelete(attrs attribute.Set, keep func(flowName string) bool) bool {
 	flowName, ok := attrs.Value(FlowNameKey)
-	return ok && !isLive(flowName.AsString())
-}
-
-func (a *seriesActivity) markDeleted() {
-	a.deleted.Store(true)
-}
-
-func (a *seriesActivity) isDeleted() bool {
-	return a.deleted.Load()
+	return ok && !keep(flowName.AsString())
 }
 
 type sweepableInstrument interface {
-	// sweep deletes the instrument's sweepable series and returns how many it deleted.
-	sweep(isLive func(flowName string) bool, exportWatermark int64) int
+	// sweep deletes the series whose flows keep rejects and returns how many it deleted.
+	sweep(keep func(flowName string) bool) int
 }
 
-// seriesSweeper deletes the series of dropped flows from every instrument of an OtelManager, once
-// exportWatermarkExporter has advanced past their last update, so a dropped flow's last values are exported first.
+// seriesSweeper deletes the series of dropped flows from every instrument of an OtelManager.
 type seriesSweeper struct {
-	mu struct {
+	// droppedFlows maps flows missing from the catalog to when they were first seen missing, in monotonicNanos.
+	// Only used by sweep, which runs on one goroutine, so it needs no synchronization.
+	droppedFlows map[string]int64
+	mu           struct {
 		instruments []sweepableInstrument
 		sync.Mutex
 	}
-	// exportWatermark is the monotonicNanos start of the last successful export.
 	exportWatermark atomic.Int64
 }
 
@@ -117,40 +87,51 @@ func takeSweeper[O any](opts []O) (*seriesSweeper, []O) {
 	return sweeper, rest
 }
 
-// exportWatermarkFor returns the watermark instruments record updates against: the sweeper's, or for instruments
-// without one, a watermark that never advances, so their series are never deleted.
-func exportWatermarkFor(sweeper *seriesSweeper) *atomic.Int64 {
-	if sweeper == nil {
-		return new(atomic.Int64)
-	}
-	return &sweeper.exportWatermark
-}
-
-// sweep deletes the series of flows not in liveFlows whose latest values were exported.
+// sweep deletes the series of flows not in liveFlows that were already missing at an earlier sweep, once an export
+// has started exportWatermarkBuffer after that. Only safe to call from one goroutine, see runSweepLoop.
 func (s *seriesSweeper) sweep(liveFlows []string) int {
 	live := make(map[string]struct{}, len(liveFlows))
 	for _, name := range liveFlows {
 		live[name] = struct{}{}
-	}
-	isLive := func(flowName string) bool {
-		_, ok := live[flowName]
-		return ok
 	}
 	exportWatermark := s.exportWatermark.Load()
 
 	s.mu.Lock()
 	instruments := s.mu.instruments
 	s.mu.Unlock()
+	now := monotonicNanos()
+	toDelete := make(map[string]struct{})
+	keep := func(flowName string) bool {
+		if flowName == "" {
+			return true
+		}
+		if _, ok := live[flowName]; ok {
+			// A recreated flow must start its grace period over when it is dropped again.
+			delete(s.droppedFlows, flowName)
+			return true
+		}
+		missingSince, ok := s.droppedFlows[flowName]
+		if !ok {
+			// Delete on a later sweep, once an export has started exportWatermarkBuffer after now.
+			s.droppedFlows[flowName] = now
+			return true
+		}
+		if exportWatermark-int64(exportWatermarkBuffer) > missingSince {
+			toDelete[flowName] = struct{}{}
+			return false
+		}
+		return true
+	}
 	deleted := 0
 	for _, instrument := range instruments {
-		deleted += instrument.sweep(isLive, exportWatermark)
+		deleted += instrument.sweep(keep)
+	}
+	for key := range toDelete {
+		delete(s.droppedFlows, key)
 	}
 	return deleted
 }
 
-// runSweepLoop sweeps every interval until ctx is done. A failed flow listing skips that sweep.
-// Flows are listed before sweeping, and a flow's row is created before its workflow starts, so a mirror created
-// after the listing has no series old enough to be deleted.
 func (s *seriesSweeper) runSweepLoop(
 	ctx context.Context,
 	catalogPool *shared.CatalogPool,
@@ -182,9 +163,7 @@ func (s *seriesSweeper) runSweepLoop(
 	}
 }
 
-// exportWatermarkExporter sets the export watermark to the start of each successful export. The data was collected
-// just before Export was called, so updates made between that collection and the start of Export are treated as
-// exported although they are not; that window is accepted.
+// exportWatermarkExporter sets the export watermark to the start of each successful export.
 type exportWatermarkExporter struct {
 	sdkmetric.Exporter
 	watermark *atomic.Int64
