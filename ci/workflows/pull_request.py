@@ -2,6 +2,7 @@ import os
 import sys
 
 from praktika import Artifact, Job, Workflow
+from praktika.settings import Settings
 from ci.settings.settings import RunnerLabels
 
 # flow_matrix / flow_filter live under ci/scripts (the job scripts dir).
@@ -150,6 +151,50 @@ _RESTORE_GO_MOD = "python3 ci/scripts/go_cache.py restore mod"
 # Postgres majors ci.yml exercises the catalog migrations against.
 _NEXUS_PG_VERSIONS = ["14", "15", "16", "17", "18"]
 
+# Cortages pin a chain of jobs to one runner / checkout / ci/tmp, run back-to-back
+# with no cleanup between them (praktika/docs/cortage-jobs.md). The critical path
+# then pays per-job overhead (queue wait, runner boot, checkout, artifact
+# download) only once, and a later member reads an earlier member's artifact
+# straight from the shared ci/tmp instead of round-tripping through S3.
+#
+# Two chains cover the critical path to the matrix (see
+# ci/praktika-vs-gha-critical-path.md):
+#   1. Config Workflow -> Go modules -> Flow images  (the prefix producers)
+#      Flow images promotes its runs_on so the whole chain runs on the
+#      amd_8cpu_16g pool (Config normally lands on the cheap arm pool); it is the
+#      heavy/long member and both Go jobs already target amd_8cpu_16g.
+#   2. Go build cache -> Flow test (longest perm)     (build + the long pole)
+#      Both already run on amd_32cpu_64g, so no promotion is needed; the flow
+#      test member reads the GOCACHE tarball from the shared ci/tmp.
+# Producers still upload to S3, so the matrix's other perms and every external
+# Go consumer (Lint, Unit tests, ...) read the artifacts normally.
+
+# Longest-executing flow perm (~276s — the matrix long pole by execution per
+# ci/praktika-vs-gha-critical-path.md §2). Chained onto Go build cache.
+_LONGEST_FLOW_LABEL = "postgres-16_ch-lts"
+
+# flow.yml's flow_test matrix. The driver (flow_test.py) resolves its target from
+# the job name via flow_matrix.py, loads the prebuilt images, brings up the
+# Tilt/compose stack and runs gotestsum. Blocking: gates merge via the
+# Ready-For-Merge status. Parametrized per enabled target below; the longest perm
+# is pulled out and chained onto Go build cache (cortage 2).
+_FLOW_TEST_BASE = Job.Config(
+    name="Flow test",
+    runs_on=[RunnerLabels.AMD_32CPU_64G],
+    command="python3 ci/scripts/flow_test.py",
+    # Download the prep artifacts; Rust Lint + Unit tests are ordering-only gates
+    # so a broken build fails fast before the heavy e2e pool. flow_test.py
+    # restores both Go caches in-driver.
+    requires=[
+        FLOW_IMAGES_ARTIFACT.name,
+        GO_BUILD_CACHE_ARTIFACT.name,
+        GO_MOD_CACHE_ARTIFACT.name,
+    ],
+    run_after=["Rust Lint", "Unit tests (no services)"],
+    digest_config=_FLOW_TEST_DIGEST,
+    timeout=60 * 60,
+)
+
 
 WORKFLOWS = [
     Workflow.Config(
@@ -262,7 +307,12 @@ WORKFLOWS = [
                 *[Job.ParamSet(parameter=f"pg-{v}") for v in _NEXUS_PG_VERSIONS]
             ),
             # Build the 3 flow images once; the matrix loads them (port of
-            # flow.yml's flow_images job).
+            # flow.yml's flow_images job). Cortage tail: Config Workflow -> Go
+            # modules -> Flow images, all on one amd_8cpu_16g runner. attach_to's
+            # ordered prefix pulls the native Config job and Go modules in front
+            # (they can't call attach_to themselves — Config is mangle-injected),
+            # and promote_runs_on pins the whole chain to this job's runs_on
+            # (Config would otherwise run on the cheap arm config pool).
             Job.Config(
                 name="Flow images",
                 runs_on=[RunnerLabels.AMD_8CPU_16G],
@@ -271,10 +321,13 @@ WORKFLOWS = [
                 provides=[FLOW_IMAGES_ARTIFACT.name],
                 digest_config=_FLOW_IMAGES_DIGEST,
                 timeout=30 * 60,
+            ).attach_to(
+                [Settings.CI_CONFIG_JOB_NAME, "Go modules"], promote_runs_on=True
             ),
             # Compile every flow + pkg test package once and publish GOCACHE as
             # an artifact the matrix restores (port of flow.yml's go_build_cache
-            # job).
+            # job). Head of cortage 2: the longest flow perm chains onto it (see
+            # below) and reads this GOCACHE tarball from the shared ci/tmp.
             Job.Config(
                 name="Go build cache",
                 runs_on=[RunnerLabels.AMD_32CPU_64G],
@@ -285,28 +338,21 @@ WORKFLOWS = [
                 digest_config=_GO_BUILD_CACHE_DIGEST,
                 timeout=30 * 60,
             ),
-            # flow.yml's flow_test matrix. The driver (flow_test.py) resolves its
-            # target from the job name via flow_matrix.py, loads the prebuilt
-            # images, brings up the Tilt/compose stack and runs gotestsum.
-            # Blocking: gates merge via the Ready-For-Merge status below.
-            *Job.Config(
-                name="Flow test",
-                runs_on=[RunnerLabels.AMD_32CPU_64G],
-                command="python3 ci/scripts/flow_test.py",
-                # Download the prep artifacts; Rust Lint + Unit tests are
-                # ordering-only gates so a broken build fails fast before the
-                # heavy e2e pool. flow_test.py restores both Go caches in-driver.
-                requires=[
-                    FLOW_IMAGES_ARTIFACT.name,
-                    GO_BUILD_CACHE_ARTIFACT.name,
-                    GO_MOD_CACHE_ARTIFACT.name,
-                ],
-                run_after=["Rust Lint", "Unit tests (no services)"],
-                digest_config=_FLOW_TEST_DIGEST,
-                timeout=60 * 60,
-            ).parametrize(
-                *[Job.ParamSet(parameter=label) for label in LABELS]
+            # Flow test matrix (see _FLOW_TEST_BASE): one job per enabled target,
+            # minus the longest perm which is chained onto Go build cache below.
+            *_FLOW_TEST_BASE.parametrize(
+                *[
+                    Job.ParamSet(parameter=label)
+                    for label in LABELS
+                    if label != _LONGEST_FLOW_LABEL
+                ]
             ),
+            # Cortage 2 tail: the longest perm runs back-to-back after Go build
+            # cache on the same amd_32cpu_64g runner, reading the GOCACHE tarball
+            # from the shared ci/tmp instead of re-downloading it from S3.
+            _FLOW_TEST_BASE.parametrize(
+                Job.ParamSet(parameter=_LONGEST_FLOW_LABEL)
+            )[0].attach_to("Go build cache"),
         ],
         artifacts=[FLOW_IMAGES_ARTIFACT, GO_BUILD_CACHE_ARTIFACT, GO_MOD_CACHE_ARTIFACT],
         enable_cache=True,

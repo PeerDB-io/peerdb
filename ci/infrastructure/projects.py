@@ -27,7 +27,7 @@ _PRAKTIKA_PACKAGE_BASE_URL = (
 )
 # praktika and praktika-controller are versioned in lockstep (single
 # source of truth), so one pinned version drives both wheels.
-_PRAKTIKA_VERSION = "0.1.31"
+_PRAKTIKA_VERSION = "0.1.32"
 _PRAKTIKA_WHL = f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika-{_PRAKTIKA_VERSION}-py3-none-any.whl"
 _PRAKTIKA_CONTROLLER_WHL = (
     f"{_PRAKTIKA_PACKAGE_BASE_URL}/praktika_controller-{_PRAKTIKA_VERSION}-py3-none-any.whl"
@@ -204,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.8"
+    image_recipe_version = "1.1.11"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -299,7 +299,7 @@ _IMAGE_BUILDERS_BY_NAME = {builder.name: builder for builder in _IMAGE_BUILDERS}
 PROJECTS = [
     CloudInfrastructure.Config(
         name=Settings.PROJECT_NAME,
-        min_praktika_version="0.1.29",
+        min_praktika_version="0.1.32",
         vpcs=[
             VPC.Config(
                 subnets=[
@@ -323,12 +323,13 @@ PROJECTS = [
         # per-task clone only applies the PR delta (no full head fetch, no
         # unshallow). See praktika/docs/ci-config.md.
         orchestrator_pool=Components.OrchestratorPool(
-            instance_type="t4g.small",
+            instance_type="t4g.medium",
             scaling=Components.OrchestratorPool.Scaling.Auto,
             size=0,
             max_size=50,
             volume_size_gb=30,
-            capacity_reserve=1,
+            capacity_reserve=2,
+            scale_coefficient=1,
             image_builder=_IMAGE_BUILDERS_BY_NAME["ci-arm64-image"],
             ext={"allowed_push_branches": ['main'], "allowed_pr_base_branches": ['main'], "system_logs": False, "host_metrics": False, "allowed_users": ["maxknv"]},
         ),
@@ -337,6 +338,7 @@ PROJECTS = [
                 name="arm_2cpu_4g",
                 instance_type="c8g.large",
                 scaling=Components.RunnerPool.Scaling.Auto,
+                scale_coefficient=1,
                 size=0,
                 max_size=50,
                 volume_size_gb=60,
@@ -380,6 +382,7 @@ PROJECTS = [
                 name="amd_32cpu_64g",
                 instance_type="c8i.8xlarge",
                 scaling=Components.RunnerPool.Scaling.Auto,
+                scale_coefficient=1,
                 size=0,
                 max_size=20,
                 volume_size_gb=200,
@@ -406,6 +409,7 @@ PROJECTS = [
                 name="amd_8cpu_16g",
                 instance_type="c8i.2xlarge",
                 scaling=Components.RunnerPool.Scaling.Auto,
+                scale_coefficient=1,
                 size=0,
                 max_size=20,
                 volume_size_gb=120,
@@ -428,7 +432,7 @@ PROJECTS = [
                 # and Go modules gates every downstream Go job. Matches the
                 # first-job fan-out, mirroring arm_2cpu_4g's reserve=1 for Code
                 # Review.
-                capacity_reserve=4,
+                capacity_reserve=1,
                 ext={"system_logs": False, "host_metrics": False},
             ),
         ],
