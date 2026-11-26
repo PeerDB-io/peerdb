@@ -33,6 +33,10 @@ function bigqueryCdcValues(mirrorConfig: FlowConnectionConfigs | undefined) {
       value: orDefault(queryCdc?.maxQueryWindowSeconds, 'seconds'),
       label: 'Max Query Window',
     },
+    {
+      value: queryCdc?.syncCron || 'Sync interval',
+      label: 'Sync Schedule',
+    },
   ];
 }
 

@@ -139,6 +139,17 @@ export const cdcSettings: MirrorSetting[] = [
     advanced: AdvancedSettingType.ALL,
   },
   {
+    label: 'Sync Schedule (Cron)',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig): CDCConfig =>
+        bigqueryQueryCdcUpdate(curr, {
+          syncCron: ((value as string) ?? '').trim(),
+        })
+      ),
+    tips: 'Standard 5-field cron expression, e.g. "0 * * * *" to poll every hour sharp. Evaluated in UTC unless prefixed with CRON_TZ=<zone>. When set, polls follow this schedule instead of the sync interval. Leave empty to poll every sync interval.',
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
     label: 'Publication Name',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig): CDCConfig => ({

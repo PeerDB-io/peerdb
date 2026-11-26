@@ -128,7 +128,7 @@ function configFromState(res: MirrorStatusResponse): CDCFlowConfigUpdate {
 
 const queryCdcFields: {
   label: string;
-  key: keyof QueryCdcConfig;
+  key: Exclude<keyof QueryCdcConfig, 'syncCron'>;
   tips: string;
 }[] = [
   {
@@ -391,6 +391,34 @@ export default function EditMirror({
             }
           />
         ))}
+
+      {config.queryCdc && (
+        <RowWithTextField
+          key='query-cdc-syncCron'
+          label={<Label>{'Sync Schedule (Cron)'}</Label>}
+          action={
+            <div
+              style={fieldStyle}
+              title='5-field cron expression, e.g. "0 * * * *", in UTC unless prefixed with CRON_TZ=<zone>. Overrides the sync interval when set; empty polls every sync interval.'
+            >
+              <TextField
+                variant='simple'
+                placeholder='0 * * * *'
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setConfig({
+                    ...config,
+                    queryCdc: {
+                      ...config.queryCdc!,
+                      syncCron: e.target.value.trim(),
+                    },
+                  })
+                }
+                value={config.queryCdc.syncCron}
+              />
+            </div>
+          }
+        />
+      )}
 
       <RowWithTextField
         key={6}

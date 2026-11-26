@@ -212,6 +212,7 @@ export default function CDCConfigForm({
     'pull sync parallelism',
     'safety lag (seconds)',
     'max query window (seconds)',
+    'sync schedule (cron)',
   ];
 
   const shouldHideBigQueryCdcSettings = (label: string) => {
