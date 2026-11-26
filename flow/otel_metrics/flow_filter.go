@@ -3,9 +3,9 @@ package otel_metrics
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -17,29 +17,22 @@ const liveFlowsRefreshInterval = 5 * time.Minute
 
 type FlowNamesLister func(ctx context.Context) ([]string, error)
 
-type liveFlowsSnapshot struct {
-	names   map[string]struct{}
-	takenAt time.Time
-}
-
 // liveFlowsFilter drops exported data points whose flowName is not in the catalog, so dropped mirrors
 // stop being exported by every process that ran them. It only filters the export; series stay in memory.
 type liveFlowsFilter struct {
-	snapshot atomic.Pointer[liveFlowsSnapshot]
-	now      func() time.Time
+	now func() time.Time
 
-	mu struct {
-		// missingSince records when a flowName was first exported while absent from the snapshot. A flow is only
-		// dropped once a snapshot taken after that time still lacks it.
-		missingSince map[string]time.Time
-		sync.Mutex
-	}
+	mu sync.Mutex
+	// names is nil until the first successful refresh, and nothing is filtered until then.
+	names   map[string]struct{}
+	takenAt time.Time
+	// missingSince records when a flowName was first exported while absent from names. A flow is only
+	// dropped once a listing taken after that time still lacks it.
+	missingSince map[string]time.Time
 }
 
 func newLiveFlowsFilter() *liveFlowsFilter {
-	lff := &liveFlowsFilter{now: time.Now}
-	lff.mu.missingSince = make(map[string]time.Time)
-	return lff
+	return &liveFlowsFilter{now: time.Now, missingSince: make(map[string]time.Time)}
 }
 
 func (f *liveFlowsFilter) refresh(ctx context.Context, list FlowNamesLister) error {
@@ -52,22 +45,19 @@ func (f *liveFlowsFilter) refresh(ctx context.Context, list FlowNamesLister) err
 	for _, name := range flowNames {
 		names[name] = struct{}{}
 	}
-	func() {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		for name := range f.mu.missingSince {
-			if _, ok := names[name]; ok {
-				delete(f.mu.missingSince, name)
-			}
-		}
-	}()
 
-	f.snapshot.Store(&liveFlowsSnapshot{names: names, takenAt: takenAt})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	maps.DeleteFunc(f.missingSince, func(name string, _ time.Time) bool {
+		_, live := names[name]
+		return live
+	})
+	f.names = names
+	f.takenAt = takenAt
 	return nil
 }
 
-// runRefreshLoop refreshes the snapshot until ctx is done. Until the first successful refresh nothing is filtered,
-// and a failed refresh keeps the previous snapshot.
+// runRefreshLoop refreshes the flow listing until ctx is done. A failed refresh keeps the previous listing.
 func (f *liveFlowsFilter) runRefreshLoop(ctx context.Context, list FlowNamesLister, interval time.Duration, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
@@ -85,34 +75,33 @@ func (f *liveFlowsFilter) runRefreshLoop(ctx context.Context, list FlowNamesList
 }
 
 // dropLocked reports whether a data point with these attributes belongs to a dropped flow.
-func (f *liveFlowsFilter) dropLocked(snapshot *liveFlowsSnapshot, now time.Time, attrs attribute.Set) bool {
+func (f *liveFlowsFilter) dropLocked(now time.Time, attrs attribute.Set) bool {
 	value, ok := attrs.Value(FlowNameKey)
 	if !ok {
 		return false
 	}
 	flowName := value.AsString()
-	if _, live := snapshot.names[flowName]; live {
+	if _, live := f.names[flowName]; live {
 		return false
 	}
-	since, seen := f.mu.missingSince[flowName]
+	since, seen := f.missingSince[flowName]
 	if !seen {
-		// We will start dropping this series after the next snapshot.
-		f.mu.missingSince[flowName] = now
+		// We will start dropping this series after the next listing.
+		f.missingSince[flowName] = now
 		return false
 	}
-	return since.Before(snapshot.takenAt)
+	return since.Before(f.takenAt)
 }
 
 // filter returns rm without data points of dropped flows. rm is not modified, since the SDK reuses it.
 func (f *liveFlowsFilter) filter(rm *metricdata.ResourceMetrics) *metricdata.ResourceMetrics {
-	snapshot := f.snapshot.Load()
-	if snapshot == nil {
-		return rm
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.names == nil {
+		return rm
+	}
 	now := f.now()
-	drop := func(attrs attribute.Set) bool { return f.dropLocked(snapshot, now, attrs) }
+	drop := func(attrs attribute.Set) bool { return f.dropLocked(now, attrs) }
 
 	filtered := &metricdata.ResourceMetrics{
 		Resource:     rm.Resource,

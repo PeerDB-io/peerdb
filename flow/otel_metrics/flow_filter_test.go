@@ -141,7 +141,7 @@ func TestLiveFlowsFilterKeepsFlowCreatedAfterSnapshot(t *testing.T) {
 
 	require.NoError(t, filter.refresh(t.Context(), listing("new")))
 	require.Equal(t, []string{"new"}, flowNamesByMetric(t, filter.filter(meter.collect(t)))["test_counter"])
-	require.Empty(t, filter.mu.missingSince)
+	require.Empty(t, filter.missingSince)
 }
 
 func TestLiveFlowsFilterRemovesEmptiedMetrics(t *testing.T) {
@@ -159,12 +159,13 @@ func TestLiveFlowsFilterRemovesEmptiedMetrics(t *testing.T) {
 func TestLiveFlowsFilterKeepsSnapshotOnRefreshFailure(t *testing.T) {
 	filter := newTestLiveFlowsFilter()
 	require.NoError(t, filter.refresh(t.Context(), listing("live")))
-	snapshot := filter.snapshot.Load()
+	names, takenAt := filter.names, filter.takenAt
 
 	require.Error(t, filter.refresh(t.Context(), func(context.Context) ([]string, error) {
 		return nil, errors.New("catalog unavailable")
 	}))
-	require.Same(t, snapshot, filter.snapshot.Load())
+	require.Equal(t, names, filter.names)
+	require.Equal(t, takenAt, filter.takenAt)
 }
 
 type capturingExporter struct {
