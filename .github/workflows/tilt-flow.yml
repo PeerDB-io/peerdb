@@ -40,6 +40,13 @@ on:
         type: string
         required: false
         default: ''
+      runner:
+        description: >-
+          GitHub-hosted runner label for the tilt job. flow.yml sets it per
+          source family.
+        type: string
+        required: false
+        default: ubuntu-latest-8-cores
       run_label:
         description: >-
           Short label identifying this run's version/flavor combination; used in
@@ -239,7 +246,7 @@ env:
 
 jobs:
   tilt:
-    runs-on: ubuntu-latest-32-cores
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1

@@ -302,6 +302,7 @@ jobs:
           - {job: bigquery_clickhouse,    ch: latest, label: bigquery_ch-latest}
         jobs:
           - postgres_clickhouse:
+              runner: ubuntu-latest-16-cores
               packages: >-
                 ./e2e/postgres_clickhouse/...
                 ./e2e/postgres_postgres/...
@@ -315,10 +316,12 @@ jobs:
               pkg: ./clickhouse/...
               services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 postgres postgres2
             postgres_other:
+              runner: ubuntu-latest-8-cores
               packages: ./e2e/postgres_other/...
               pkg: ''
               services: otel-collector toxiproxy openssh postgres
             mysql_clickhouse:
+              runner: ubuntu-latest-16-cores
               packages: >-
                 ./e2e/mysql_clickhouse/...
                 ./e2e/switchboard_mysql/...
@@ -326,6 +329,7 @@ jobs:
               pkg: ./mysql/...
               services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02
             mongo_clickhouse:
+              runner: ubuntu-latest-8-cores
               packages: >-
                 ./e2e/mongo_clickhouse/...
                 ./e2e/switchboard_mongo/...
@@ -333,10 +337,12 @@ jobs:
               pkg: ./mongo/...
               services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 mongodb
             cockroachdb_clickhouse:
+              runner: ubuntu-latest-8-cores
               packages: ./e2e/cockroachdb_clickhouse/...
               pkg: ''
               services: otel-collector toxiproxy openssh clickhouse clickhouse-keeper clickhouse-02 cockroachdb
             bigquery_clickhouse:
+              runner: ubuntu-latest-8-cores
               packages: >-
                 ./e2e/bigquery_clickhouse/...
                 ./connectors/bigquery/...
@@ -362,6 +368,7 @@ jobs:
     with:
       checkout_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       run_label: ${{ matrix.target.label }}
+      runner: ${{ matrix.jobs[matrix.target.job].runner }}
       go_build_cache_artifact_id: ${{ needs.go_build_cache.outputs.artifact-id }}
       go_build_cache_artifact_digest: ${{ needs.go_build_cache.outputs.artifact-digest }}
       flow_images_artifact_id: ${{ needs.flow_images.outputs.artifact-id }}
