@@ -4430,47 +4430,90 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		s.t.Skip("only for PostgreSQL source")
 	}
 
+	schema := "e2e_test_" + s.suffix
+	quotedSchema := common.QuoteIdentifier(schema)
 	srcTable := AttachSchema(s, "seq_src")
 	dstTable := AttachSchema(s, "seq_dst")
 	// mixed-case destination table and columns to exercise identifier quoting in the reset
 	mixedSrcTable := AttachSchema(s, "seq_src_mixed")
 	mixedDstTable := AttachSchema(s, "seq_Dst_MixedCase")
-	quotedMixedDstTable := fmt.Sprintf(`"e2e_test_%s"."seq_Dst_MixedCase"`, s.suffix)
-	unownedSeq := fmt.Sprintf(`"e2e_test_%s"."Unowned_Seq"`, s.suffix)
-	unusedSeq := AttachSchema(s, "seq_unused")
+	quotedMixedDstTable := quotedSchema + `."seq_Dst_MixedCase"`
+	unownedSeq := quotedSchema + ".unowned_seq"
+	legacySeq := quotedSchema + ".legacy_seq"
+	procSeq := quotedSchema + ".proc_seq"
+	orphanSeq := quotedSchema + ".orphan_seq"
+	unusedSeq := quotedSchema + ".unused_seq"
 
-	// Create source tables with a serial column and insert rows
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT, alt_id BIGINT)", srcTable)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(val, alt_id) VALUES ('a',101),('b',102),('c',103),('d',104),('e',105)", srcTable)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT, alt_id BIGINT)`, mixedSrcTable)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s("Val", alt_id) VALUES ('x',10),('y',20),('z',30)`, mixedSrcTable)))
+	// Destination is a separate cluster so sequence matching is exercised across databases
+	dstCfg := internal.GetSecondaryPostgresConfigFromEnv()
+	dstConn, err := pgx.Connect(s.t.Context(), fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		dstCfg.Host, dstCfg.Port, dstCfg.User, dstCfg.Password, dstCfg.Database))
+	require.NoError(s.t, err, "failed to connect to secondary postgres on %s:%d (postgres2 tilt resource running?)",
+		dstCfg.Host, dstCfg.Port)
+	s.t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = dstConn.Exec(cleanupCtx, "DROP SCHEMA IF EXISTS "+quotedSchema+" CASCADE")
+		dstConn.Close(cleanupCtx)
+	})
+	dstExec := func(sql string) {
+		s.t.Helper()
+		_, err := dstConn.Exec(s.t.Context(), sql)
+		require.NoError(s.t, err)
+	}
+	dstNextval := func(seq string) int64 {
+		s.t.Helper()
+		var v int64
+		require.NoError(s.t, dstConn.QueryRow(s.t.Context(), "SELECT nextval($1::regclass)", seq).Scan(&v))
+		return v
+	}
 
-	// The same unowned sequence is referenced by defaults on both mapped tables.
-	_, err := s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE SEQUENCE %s", unownedSeq))
-	require.NoError(s.t, err)
-	_, err = s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE SEQUENCE %s", unusedSeq))
-	require.NoError(s.t, err)
-	_, err = s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT, alt_id BIGINT DEFAULT nextval('%s'))",
-			dstTable, unownedSeq))
-	require.NoError(s.t, err)
-	_, err = s.pg.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT, alt_id BIGINT DEFAULT nextval('%s'))`,
-			quotedMixedDstTable, unownedSeq))
-	require.NoError(s.t, err)
+	dstPeerName := "reset_seq_dst_" + s.suffix
+	CreatePeer(s.t, &protos.Peer{
+		Name:   dstPeerName,
+		Type:   protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{PostgresConfig: dstCfg},
+	})
 
-	// Create PG-to-PG mirror with initial snapshot only
+	// Source: a serial column, an unowned sequence via ::regclass default, a legacy ::text default,
+	// a standalone sequence (as used from stored procedures), one with no destination counterpart,
+	// and one that is never used.
+	for _, sql := range []string{
+		"CREATE SEQUENCE " + unownedSeq,
+		"CREATE SEQUENCE " + legacySeq,
+		"CREATE SEQUENCE " + procSeq,
+		"CREATE SEQUENCE " + orphanSeq,
+		"CREATE SEQUENCE " + unusedSeq,
+		fmt.Sprintf(`CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT,
+			alt_id BIGINT DEFAULT nextval('%s'::regclass), legacy_id BIGINT DEFAULT nextval('%s'::text))`,
+			srcTable, unownedSeq, legacySeq),
+		fmt.Sprintf("INSERT INTO %s(val) SELECT 'v' || g FROM generate_series(1, 7) g", srcTable),
+		// sequences are now at 7 while MAX(id) is 5, so a MAX-based reset would be wrong
+		fmt.Sprintf("DELETE FROM %s WHERE id > 5", srcTable),
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, mixedSrcTable),
+		fmt.Sprintf(`INSERT INTO %s("Val") VALUES ('x'),('y'),('z')`, mixedSrcTable),
+		fmt.Sprintf("SELECT setval('%s', 42)", procSeq),
+		fmt.Sprintf("SELECT setval('%s', 10)", orphanSeq),
+	} {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), sql))
+	}
+
+	// Destination mirrors the source layout, except the tables are renamed and orphan_seq is absent
+	dstExec("CREATE SCHEMA " + quotedSchema)
+	dstExec("CREATE SEQUENCE " + unownedSeq)
+	dstExec("CREATE SEQUENCE " + legacySeq)
+	dstExec("CREATE SEQUENCE " + procSeq)
+	dstExec("CREATE SEQUENCE " + unusedSeq)
+	dstExec(fmt.Sprintf(`CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT,
+		alt_id BIGINT DEFAULT nextval('%s'::regclass), legacy_id BIGINT DEFAULT nextval('%s'::text))`,
+		dstTable, unownedSeq, legacySeq))
+	dstExec(fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, quotedMixedDstTable))
+
 	flowJobName := "reset_seq_" + s.suffix
 	flowConnConfig := &protos.FlowConnectionConfigs{
 		FlowJobName:     flowJobName,
 		SourceName:      s.source.GeneratePeer(s.t).Name,
-		DestinationName: s.pg.GeneratePeer(s.t).Name,
+		DestinationName: dstPeerName,
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcTable,
 			DestinationTableIdentifier: dstTable,
@@ -4495,75 +4538,39 @@ func (s APITestSuite) TestResetMirrorSequences() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
-	// Verify data arrived
 	var rowCount int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		"SELECT COUNT(*) FROM "+dstTable).Scan(&rowCount)
-	require.NoError(s.t, err)
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+dstTable).Scan(&rowCount))
 	require.Equal(s.t, int64(5), rowCount)
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM "+quotedMixedDstTable).Scan(&rowCount))
+	require.Equal(s.t, int64(3), rowCount)
 
-	var mixedRowCount int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		"SELECT COUNT(*) FROM "+quotedMixedDstTable).Scan(&mixedRowCount)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(3), mixedRowCount)
-
-	// Before reset: destination sequence has not been advanced by the snapshot (ids were copied
-	// explicitly), so it is not yet at the max id. pg_sequence_last_value is NULL until the
-	// sequence is first used, so coalesce to 0.
+	// The snapshot copies ids explicitly, so no destination sequence has been touched yet
 	var seqValBefore int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT COALESCE(pg_sequence_last_value(pg_get_serial_sequence('%s', 'id')), 0)", dstTable)).Scan(&seqValBefore)
-	require.NoError(s.t, err)
-	require.NotEqual(s.t, int64(5), seqValBefore)
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT COALESCE(pg_sequence_last_value(pg_get_serial_sequence('%s', 'id')), 0)", dstTable),
+	).Scan(&seqValBefore))
+	require.Equal(s.t, int64(0), seqValBefore)
 
-	// Call ResetMirrorSequences
 	resetResp, err := s.ResetMirrorSequences(s.t.Context(), &protos.ResetMirrorSequencesRequest{
 		FlowJobName: flowJobName,
 	})
 	require.NoError(s.t, err)
-	require.True(s.t, resetResp.Ok)
+	require.True(s.t, resetResp.Ok, resetResp.ErrorMessage)
+	require.Len(s.t, resetResp.Warnings, 1)
+	require.Contains(s.t, resetResp.Warnings[0], `"orphan_seq"`)
 
-	// After reset: sequence should be at 5 (max id)
-	var seqValAfter int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&seqValAfter)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(5), seqValAfter)
-
-	// nextval should return 6
-	var nextVal int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&nextVal)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(6), nextVal)
-
-	// Mixed-case table: sequence should be at 3 (max id), nextval should return 4
-	var mixedSeqValAfter int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'Id'))",
-			quotedMixedDstTable)).Scan(&mixedSeqValAfter)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(3), mixedSeqValAfter)
-
-	var mixedNextVal int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'Id'))",
-			quotedMixedDstTable)).Scan(&mixedNextVal)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(4), mixedNextVal)
-
-	var unownedNextVal int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		"SELECT nextval($1::regclass)", unownedSeq).Scan(&unownedNextVal)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(106), unownedNextVal)
-
-	var unusedNextVal int64
-	err = s.pg.Conn().QueryRow(s.t.Context(),
-		"SELECT nextval($1::regclass)", unusedSeq).Scan(&unusedNextVal)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(1), unusedNextVal)
+	// Renamed table: serial sequence is found through the column mapping and takes the source's
+	// value (7), not MAX(id) (5)
+	require.Equal(s.t, int64(8), dstNextval(quotedSchema+".seq_dst_id_seq"))
+	// Unowned and legacy ::text sequences are matched by name
+	require.Equal(s.t, int64(8), dstNextval(unownedSeq))
+	require.Equal(s.t, int64(8), dstNextval(legacySeq))
+	// Renamed mixed-case table
+	require.Equal(s.t, int64(4), dstNextval(quotedSchema+`."seq_Dst_MixedCase_Id_seq"`))
+	// Standalone sequence with no column at all
+	require.Equal(s.t, int64(43), dstNextval(procSeq))
+	// Never used on the source, so left alone
+	require.Equal(s.t, int64(1), dstNextval(unusedSeq))
 }
 
 func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {
