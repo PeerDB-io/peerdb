@@ -128,7 +128,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	if err != nil {
 		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
-	otelManager.FilterDroppedFlows(ctx, listCatalogFlowNames(conn))
+	otelManager.SweepDroppedFlows(ctx, listCatalogFlowNames(conn))
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool:    conn,

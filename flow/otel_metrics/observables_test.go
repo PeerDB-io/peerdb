@@ -3,6 +3,7 @@ package otel_metrics
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -403,7 +404,7 @@ func TestContextAwareCounterConcurrentAdds(t *testing.T) {
 // collection or the next one, never dropped.
 func TestContextAwareGaugeConcurrentRecordAndCollect(t *testing.T) {
 	var gauge contextAwareGauge
-	gauge.init()
+	gauge.init(new(atomic.Int64))
 	ctx := flowContext("test-flow")
 	gauge.record(ctx, 0, attribute.Set{})
 

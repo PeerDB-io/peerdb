@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -208,21 +210,21 @@ type OtelManager struct {
 	Int64GaugesCache     map[string]metric.Int64Gauge
 	Int64CountersCache   map[string]metric.Int64Counter
 	Int64HistogramsCache map[string]metric.Int64Histogram
-	liveFlows            *liveFlowsFilter
-	stopLiveFlows        context.CancelFunc
+	sweeper              *seriesSweeper
+	stopSweeper          context.CancelFunc
 	wg                   sync.WaitGroup
 	Enabled              bool
 }
 
 func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
-	liveFlows := newLiveFlowsFilter()
-	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, liveFlows)
+	sweeper := &seriesSweeper{}
+	metricsProvider, err := setupPeerDBMetricsProvider(ctx, serviceName, enabled, &sweeper.exportWatermark)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
-		liveFlows:            liveFlows,
+		sweeper:              sweeper,
 		Enabled:              enabled,
 		MetricsProvider:      metricsProvider,
 		Meter:                metricsProvider.Meter("io.peerdb." + serviceName),
@@ -238,18 +240,20 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 	return &otelManager, nil
 }
 
-func (om *OtelManager) FilterDroppedFlows(ctx context.Context, list FlowNamesLister) {
-	if !om.Enabled || om.stopLiveFlows != nil {
+// SweepDroppedFlows periodically deletes the metric series of flows that list no longer returns, once their
+// latest values have been exported. It runs in the background until ctx is done or the manager is closed.
+func (om *OtelManager) SweepDroppedFlows(ctx context.Context, list FlowNamesLister) {
+	if !om.Enabled || om.stopSweeper != nil {
 		return
 	}
-	ctx, om.stopLiveFlows = context.WithCancel(ctx)
+	ctx, om.stopSweeper = context.WithCancel(ctx)
 	om.wg.Add(1)
-	go om.liveFlows.runRefreshLoop(ctx, list, liveFlowsRefreshInterval, &om.wg)
+	go om.sweeper.runSweepLoop(ctx, list, droppedFlowsSweepInterval, &om.wg)
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
-	if om.stopLiveFlows != nil {
-		om.stopLiveFlows()
+	if om.stopSweeper != nil {
+		om.stopSweeper()
 		om.wg.Wait()
 	}
 	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
@@ -280,23 +284,27 @@ func getOrInitMetric[M any, O any](
 
 func (om *OtelManager) GetOrInitInt64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Int64Gauge
-	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, om.Int64GaugesCache, name,
+		append(slices.Clip(opts), withSweeper(om.sweeper))...)
 }
 
 func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Float64Gauge
-	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, om.Float64GaugesCache, name,
+		append(slices.Clip(opts), withSweeper(om.sweeper))...)
 }
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
-	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name,
+		append(slices.Clip(opts), withSweeper(om.sweeper))...)
 }
 
 func (om *OtelManager) GetOrInitInt64Histogram(
 	name string,
 	opts ...metric.Int64HistogramOption,
 ) (metric.Int64Histogram, error) {
-	return getOrInitMetric(NewContextAwareInt64Histogram, om.Meter, om.Int64HistogramsCache, name, opts...)
+	return getOrInitMetric(NewContextAwareInt64Histogram, om.Meter, om.Int64HistogramsCache, name,
+		append(slices.Clip(opts), withSweeper(om.sweeper))...)
 }
 
 // CodeNotificationCounter is a global counter for emitting notifications for one-off things we want to know about with the least effort.
@@ -873,7 +881,8 @@ func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata
 	return nil
 }
 
-func setupExporter(ctx context.Context, liveFlows *liveFlowsFilter) (sdkmetric.Exporter, error) {
+// setupExporter wraps the exporter to advance exportWatermark, unless it is nil.
+func setupExporter(ctx context.Context, exportWatermark *atomic.Int64) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
@@ -895,8 +904,8 @@ func setupExporter(ctx context.Context, liveFlows *liveFlowsFilter) (sdkmetric.E
 	if internal.GetEnvBool("PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE", false) {
 		metricExporter = &panicOnFailureExporter{metricExporter}
 	}
-	if liveFlows != nil {
-		metricExporter = &flowFilteringExporter{Exporter: metricExporter, filter: liveFlows}
+	if exportWatermark != nil {
+		metricExporter = &exportWatermarkExporter{Exporter: metricExporter, watermark: exportWatermark}
 	}
 	return metricExporter, nil
 }
@@ -905,13 +914,13 @@ func setupMetricsAndProvider(
 	ctx context.Context,
 	otelResource *resource.Resource,
 	enabled bool,
-	liveFlows *liveFlowsFilter,
+	exportWatermark *atomic.Int64,
 	views ...sdkmetric.View,
 ) (metric.MeterProvider, error) {
 	if !enabled {
 		return noop.NewMeterProvider(), nil
 	}
-	metricExporter, err := setupExporter(ctx, liveFlows)
+	metricExporter, err := setupExporter(ctx, exportWatermark)
 	if err != nil {
 		return nil, err
 	}
@@ -935,13 +944,13 @@ func setupPeerDBMetricsProvider(
 	ctx context.Context,
 	otelServiceName string,
 	enabled bool,
-	liveFlows *liveFlowsFilter,
+	exportWatermark *atomic.Int64,
 ) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsAndProvider(ctx, otelResource, enabled, liveFlows)
+	return setupMetricsAndProvider(ctx, otelResource, enabled, exportWatermark)
 }
 
 func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
