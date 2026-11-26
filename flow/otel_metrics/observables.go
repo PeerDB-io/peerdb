@@ -5,6 +5,7 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -18,7 +19,8 @@ import (
 
 // Counters and gauges keep each series (attribute set) in atomics and report to the SDK only on collection.
 // Every SDK measurement walks the whole attribute set, too slow for per-event hot paths.
-// Series are never removed, same as contextAttributesCache entries.
+// Series of flows deleted from the catalog are removed by evictDroppedFlows; histogram series live in the
+// SDK, which cannot remove them.
 
 func buildContextualAttributeSet(ctx context.Context) attribute.Set {
 	attributes := make([]attribute.KeyValue, 0, 12)
@@ -130,6 +132,56 @@ func (c *contextAttributesCache[V]) get(ctx context.Context, extra attribute.Set
 	return v
 }
 
+// evictDroppedFlows removes cache entries of flows missing from live. This only drops memoization, so it is
+// safe even for a flow created after the listing.
+func (c *contextAttributesCache[V]) evictDroppedFlows(live map[string]struct{}) {
+	c.entries.Range(func(key, value any) bool {
+		if _, ok := live[key.(string)]; !ok && key.(string) != "" {
+			c.entries.Delete(key)
+			// The last entry would otherwise keep pointing at series removed from the instrument.
+			c.last.CompareAndSwap(value.(*contextEntry[V]), nil)
+		}
+		return true
+	})
+}
+
+type seriesInfo struct {
+	attrs     attribute.Set
+	createdAt time.Time
+	flowName  string
+}
+
+func newSeriesInfo(attrs attribute.Set) seriesInfo {
+	flowName, _ := attrs.Value(FlowNameKey)
+	return seriesInfo{attrs: attrs, flowName: flowName.AsString(), createdAt: time.Now()}
+}
+
+// droppedBefore reports whether the series belongs to a flow missing from a listing taken at listedAt.
+// A series created after listedAt may belong to a flow created after the listing, so it is kept.
+func (s *seriesInfo) droppedBefore(live map[string]struct{}, listedAt time.Time) bool {
+	if s.flowName == "" || !s.createdAt.Before(listedAt) {
+		return false
+	}
+	_, ok := live[s.flowName]
+	return !ok
+}
+
+func evictDroppedFlowSeries(allSeries *sync.Map, live map[string]struct{}, listedAt time.Time) {
+	allSeries.Range(func(key, value any) bool {
+		if value.(interface {
+			droppedBefore(map[string]struct{}, time.Time) bool
+		}).droppedBefore(live, listedAt) {
+			allSeries.Delete(key)
+		}
+		return true
+	})
+}
+
+// droppedFlowsEvicter is implemented by instruments that keep their own series.
+type droppedFlowsEvicter interface {
+	evictDroppedFlows(live map[string]struct{}, listedAt time.Time)
+}
+
 func loadOrStoreSeries[T any](allSeries *sync.Map, attrs attribute.Set, newSeries func(attribute.Set) *T) *T {
 	key := attrs.Equivalent()
 	if series, ok := allSeries.Load(key); ok {
@@ -140,8 +192,8 @@ func loadOrStoreSeries[T any](allSeries *sync.Map, attrs attribute.Set, newSerie
 }
 
 type counterSeries struct {
-	attrs attribute.Set
-	sum   atomic.Int64
+	seriesInfo
+	sum atomic.Int64
 }
 
 type ContextAwareInt64Counter struct {
@@ -158,6 +210,11 @@ func (c *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options
 	c.contexts.get(ctx, metric.NewAddConfig(options).Attributes()).sum.Add(value)
 }
 
+func (c *ContextAwareInt64Counter) evictDroppedFlows(live map[string]struct{}, listedAt time.Time) {
+	c.contexts.evictDroppedFlows(live)
+	evictDroppedFlowSeries(&c.series, live, listedAt)
+}
+
 func (c *ContextAwareInt64Counter) observe(_ context.Context, observer metric.Int64Observer) error {
 	c.series.Range(func(_, value any) bool {
 		series := value.(*counterSeries)
@@ -172,7 +229,7 @@ func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric
 	counter := &ContextAwareInt64Counter{}
 	counter.contexts.resolve = func(attrs attribute.Set) *counterSeries {
 		return loadOrStoreSeries(&counter.series, attrs, func(attrs attribute.Set) *counterSeries {
-			return &counterSeries{attrs: attrs}
+			return &counterSeries{seriesInfo: newSeriesInfo(attrs)}
 		})
 	}
 	observable, err := meter.Int64ObservableCounter(name,
@@ -193,7 +250,7 @@ func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric
 // gaugeSeries keeps the latest value. Collections report it only if recorded since the previous
 // collection, so idle series report nothing.
 type gaugeSeries struct {
-	attrs   attribute.Set
+	seriesInfo
 	bits    atomic.Uint64
 	pending atomic.Bool
 }
@@ -206,7 +263,7 @@ type contextAwareGauge struct {
 func (g *contextAwareGauge) init() {
 	g.contexts.resolve = func(attrs attribute.Set) *gaugeSeries {
 		return loadOrStoreSeries(&g.series, attrs, func(attrs attribute.Set) *gaugeSeries {
-			return &gaugeSeries{attrs: attrs}
+			return &gaugeSeries{seriesInfo: newSeriesInfo(attrs)}
 		})
 	}
 }
@@ -216,6 +273,11 @@ func (g *contextAwareGauge) record(ctx context.Context, bits uint64, extra attri
 	// Store the value before the flag, so a collection seeing the flag reads this value or a newer one.
 	series.bits.Store(bits)
 	series.pending.Store(true)
+}
+
+func (g *contextAwareGauge) evictDroppedFlows(live map[string]struct{}, listedAt time.Time) {
+	g.contexts.evictDroppedFlows(live)
+	evictDroppedFlowSeries(&g.series, live, listedAt)
 }
 
 func (g *contextAwareGauge) collect(observe func(bits uint64, attrs attribute.Set)) {
@@ -239,6 +301,10 @@ func (g *contextAwareInt64Gauge) Enabled(context.Context) bool {
 
 func (g *contextAwareInt64Gauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
 	g.gauge.record(ctx, uint64(value), metric.NewRecordConfig(options).Attributes())
+}
+
+func (g *contextAwareInt64Gauge) evictDroppedFlows(live map[string]struct{}, listedAt time.Time) {
+	g.gauge.evictDroppedFlows(live, listedAt)
 }
 
 func (g *contextAwareInt64Gauge) observe(_ context.Context, observer metric.Int64Observer) error {
@@ -277,6 +343,10 @@ func (g *contextAwareFloat64Gauge) Enabled(context.Context) bool {
 
 func (g *contextAwareFloat64Gauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
 	g.gauge.record(ctx, math.Float64bits(value), metric.NewRecordConfig(options).Attributes())
+}
+
+func (g *contextAwareFloat64Gauge) evictDroppedFlows(live map[string]struct{}, listedAt time.Time) {
+	g.gauge.evictDroppedFlows(live, listedAt)
 }
 
 func (g *contextAwareFloat64Gauge) observe(_ context.Context, observer metric.Float64Observer) error {
