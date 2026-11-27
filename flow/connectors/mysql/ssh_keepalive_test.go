@@ -179,7 +179,7 @@ func setupCDCPullRecords(
 		offsetText = posToOffsetText(pos)
 	}
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, "test", false, nil)
 	require.NoError(t, err)
 
 	req := &model.PullRecordsRequest[model.RecordItems]{

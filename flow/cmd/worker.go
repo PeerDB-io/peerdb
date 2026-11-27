@@ -123,7 +123,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics)
+	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics, &conn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
