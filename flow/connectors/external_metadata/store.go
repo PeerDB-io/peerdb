@@ -223,6 +223,22 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 	return nil
 }
 
+// ReplaceLastOffsetText overwrites the text checkpoint of an existing job unconditionally,
+// unlike SetLastOffset which only moves last_offset forward.
+func (p *PostgresMetadata) ReplaceLastOffsetText(ctx context.Context, jobName string, offsetText string) error {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+` SET last_text = $2, updated_at = NOW() WHERE job_name = $1`,
+		jobName, offsetText,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to replace last offset text: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("no sync state found for job %s", jobName)
+	}
+	return nil
+}
+
 const finishBatchSQL = `
 		INSERT INTO ` + lastSyncStateTableName + ` (job_name, last_offset, last_text, sync_batch_id)
 		VALUES ($1, $2, $3, $4)

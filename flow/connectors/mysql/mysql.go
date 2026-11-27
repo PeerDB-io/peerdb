@@ -151,7 +151,11 @@ func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
 }
 
 func (c *MySqlConnector) Flavor() string {
-	switch c.config.Flavor {
+	return flavorString(c.config.Flavor)
+}
+
+func flavorString(flavor protos.MySqlFlavor) string {
+	switch flavor {
 	case protos.MySqlFlavor_MYSQL_MYSQL:
 		return mysql.MySQLFlavor
 	case protos.MySqlFlavor_MYSQL_MARIA:
