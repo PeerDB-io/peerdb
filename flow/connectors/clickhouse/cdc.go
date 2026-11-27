@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -39,6 +40,8 @@ const (
 	)`
 	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/"
 )
+
+var rawTableDeletePollIntervals = []time.Duration{5 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute}
 
 // GetRawTableName returns the raw table name for the given table identifier.
 func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
@@ -464,23 +467,62 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		return nil
 	}
 
+	rawTableName := c.GetRawTableName(req.FlowJobName)
+	// Return as soon as the mutation is registered
+	deleteSettings := chinternal.NewCHSettingsString(c.chVersion, chinternal.SettingLightweightDeletesSync, "0")
+
 	// chunk to bound statement size, one mutation covers many tables instead of one mutation each
 	for chunk := range slices.Chunk(req.DestinationTableNames, 100) {
 		quoted := make([]string, len(chunk))
 		for i, tableName := range chunk {
 			quoted[i] = peerdb_clickhouse.QuoteLiteral(tableName)
 		}
+		condition := fmt.Sprintf("_peerdb_destination_table_name IN (%s) AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
+			strings.Join(quoted, ","), req.NormalizeBatchId, req.SyncBatchId)
 		// Better to use lightweight deletes here as the main goal is to not have
 		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
-		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name IN (%s)"+
-			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.GetRawTableName(req.FlowJobName), strings.Join(quoted, ","), req.NormalizeBatchId, req.SyncBatchId),
-		); err != nil {
+		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s%s", rawTableName, condition, deleteSettings)); err != nil {
 			return fmt.Errorf("unable to remove tables from raw table: %w", err)
+		}
+
+		// Poll the raw table to ensure all rows matching the condition are removed.
+		// This replaces lightweight_deletes_sync=2 at the lightweight delete level and waiting on the query result
+		// as the connection might drop on long-running queries.
+		//
+		// Check https://linear.app/clickhouse/issue/DBI-1405 for more details
+		probeQuery := fmt.Sprintf("SELECT 1 FROM %s WHERE %s LIMIT 1", rawTableName, condition)
+		pendingRows := true
+		for attempt := 0; pendingRows; attempt++ {
+			interval := rawTableDeletePollIntervals[min(attempt, len(rawTableDeletePollIntervals)-1)]
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("interrupted while waiting for removal of tables from raw table: %w", context.Cause(ctx))
+			case <-time.After(interval):
+			}
+			// HEADS UP!
+			// This query is cheap and fast for as long as `condition` filters on the raw table's sorting key.
+			// If that changes, we need a different polling method.
+			// Checking active mutations was considered but discarded due to the imposed need to have access
+			// on `system.mutations` table.
+			var err error
+			pendingRows, err = c.rawTableHasRows(ctx, probeQuery)
+			if err != nil {
+				return fmt.Errorf("unable to check removal of tables from raw table: %w", err)
+			}
 		}
 
 		c.logger.Info("successfully removed entries for tables from raw table", slog.Any("tables", chunk))
 	}
 
 	return nil
+}
+
+func (c *ClickHouseConnector) rawTableHasRows(ctx context.Context, probeQuery string) (bool, error) {
+	rows, err := c.query(ctx, probeQuery)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	hasRows := rows.Next()
+	return hasRows, rows.Err()
 }
