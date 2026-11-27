@@ -212,12 +212,6 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
-	// SyncFlow normalizes with cfg.TableMappings, so carry over the tables added, removed or resynced above
-	cfg.TableMappings = make([]*protos.TableMapping, 0, len(state.SyncFlowOptions.TableMappings))
-	for _, tableMapping := range state.SyncFlowOptions.TableMappings {
-		cfg.TableMappings = append(cfg.TableMappings, proto.CloneOf(tableMapping))
-	}
-
 	telemetry.LogActivityUpdateFlowConfig(context.Background(), cfg.FlowJobName, oldValues, flowConfigUpdate)
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	if stayPaused {
@@ -1270,6 +1264,11 @@ func CDCFlowWorkflow(
 		return *state, nil
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
+	}
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowConfigQuery, func() (*protos.FlowConnectionConfigsCore, error) {
+		return cfg, nil
+	}); err != nil {
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowConfigQuery, err)
 	}
 
 	// completion from a snapshot-only mirror, we are done

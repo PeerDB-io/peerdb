@@ -477,6 +477,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 		if len(cdcUpdate.AdditionalTables) > 0 {
+			if apiErr := h.checkCDCFlowPayloadSizeForTableAddition(ctx, workflowID, cdcUpdate); apiErr != nil {
+				return nil, apiErr
+			}
 			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 			if err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
@@ -917,10 +920,11 @@ func (h *FlowRequestHandler) isMaintenanceWorkflowRunning(
 ) (*workflowservice.DescribeWorkflowExecutionResponse, bool, error) {
 	startWorkflowID := getMaintenanceWorkflowID(wfType)
 
-	desc, err := h.temporalClient.DescribeWorkflowExecution(ctx, startWorkflowID, "")
+	description, err := h.temporalClient.DescribeWorkflow(ctx, startWorkflowID, "")
 	if err != nil {
 		return nil, false, err
 	}
+	desc := description.RawResponse
 
 	isRunning := desc.WorkflowExecutionInfo != nil && desc.WorkflowExecutionInfo.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING
 	return desc, isRunning, nil

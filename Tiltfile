@@ -28,6 +28,24 @@ if prebuilt_flow_images:
     for svc in ['flow-migrate', 'flow-api', 'flow-worker', 'flow-snapshot-worker']:
         compose['services'][svc].pop('build')
 
+# Use an already running Temporal instead of the temporal containers, e.g. one shared with
+# other local services. It must have the default namespace and the MirrorName search attribute.
+external_temporal = os.getenv('EXTERNAL_TEMPORAL_HOST_PORT', resolve_env('EXTERNAL_TEMPORAL_HOST_PORT', ''))
+temporal_services = ['temporal', 'temporal-admin-tools', 'temporal-ui']
+if external_temporal:
+    for svc in temporal_services:
+        compose['services'].pop(svc)
+    for svc in compose['services'].values():
+        env = svc.get('environment')
+        if type(env) == 'dict' and 'TEMPORAL_HOST_PORT' in env:
+            env['TEMPORAL_HOST_PORT'] = external_temporal
+        deps = svc.get('depends_on')
+        if type(deps) == 'dict':
+            for dep in temporal_services:
+                deps.pop(dep, None)
+        elif type(deps) == 'list':
+            svc['depends_on'] = [dep for dep in deps if dep not in temporal_services]
+
 docker_compose(encode_yaml(compose), project_name='peerdb-' + resolve_env('DEFAULT_TILT_PORT', '10350'), env_file='.env')
 
 peerbd_ui_port = resolve_env('PEERBD_UI_PORT', '3030')
@@ -74,12 +92,13 @@ dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
 ])
-dc_resource('temporal-ui', labels=['PeerDB'], links=[
-    link('http://localhost:' + str(temporal_ui_port), 'Temporal UI'),
-])
+if not external_temporal:
+    dc_resource('temporal-ui', labels=['PeerDB'], links=[
+        link('http://localhost:' + str(temporal_ui_port), 'Temporal UI'),
+    ])
+    dc_resource('temporal', labels=['PeerDB'])
+    dc_resource('temporal-admin-tools', labels=['PeerDB'])
 dc_resource('catalog', labels=['PeerDB'])
-dc_resource('temporal', labels=['PeerDB'])
-dc_resource('temporal-admin-tools', labels=['PeerDB'])
 dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])

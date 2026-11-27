@@ -3953,6 +3953,75 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestTableAdditionOverPayloadLimit() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "payload_limit"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("payload_limit").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "added_tables_payload_limit_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "payload_limit"): "payload_limit"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to run", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// enough tables to push the next run's workflow input over Temporal's 2MB payload limit;
+	// the size check runs before the tables are validated, so they don't need to exist in db
+	tablesToAdd := make([]*protos.TableMapping, 0, 20_000)
+	for i := range 20_000 {
+		tablesToAdd = append(tablesToAdd, &protos.TableMapping{
+			SourceTableIdentifier:      AttachSchema(s, fmt.Sprintf("oversized_%05d", i)),
+			DestinationTableIdentifier: fmt.Sprintf("oversized_%05d", i),
+		})
+	}
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables:                     tablesToAdd,
+					SkipInitialSnapshotForTableAdditions: true,
+				},
+			},
+		},
+	})
+	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(s.t, err, "payload limit exceeded")
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Simulate a mirror whose Temporal workflow no longer exists (e.g. completed or failed
 // over 30 days ago and was already cleaned up).
 func (s APITestSuite) TestDropMissing() {
@@ -4320,13 +4389,13 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	// Wait for workflow to be canceled
 	var firstRunID string
 	EnvWaitFor(s.t, env, 30*time.Second, "wait for workflow to be canceled", func() bool {
-		desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response1.WorkflowId, "")
+		desc, err := tc.DescribeWorkflow(s.t.Context(), response1.WorkflowId, "")
 		if err != nil {
 			return false
 		}
-		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		status := desc.RawResponse.GetWorkflowExecutionInfo().GetStatus()
 		if status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED {
-			firstRunID = desc.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+			firstRunID = desc.RawResponse.GetWorkflowExecutionInfo().GetExecution().GetRunId()
 			return true
 		}
 		return false
@@ -4342,10 +4411,10 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
 
 	// Verify a new workflow run was created (different run ID, status is RUNNING)
-	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	desc, err := tc.DescribeWorkflow(s.t.Context(), response2.WorkflowId, "")
 	require.NoError(s.t, err)
-	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
-	require.NotEqual(s.t, firstRunID, desc.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.RawResponse.GetWorkflowExecutionInfo().GetStatus())
+	require.NotEqual(s.t, firstRunID, desc.RawResponse.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
 		"should have created a new workflow run")
 
 	// Clean up
@@ -4415,9 +4484,9 @@ func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
 	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId, "Should return same workflow ID after continue-as-new")
 
 	// Verify workflow is still running
-	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	desc, err := tc.DescribeWorkflow(s.t.Context(), response2.WorkflowId, "")
 	require.NoError(s.t, err)
-	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.RawResponse.GetWorkflowExecutionInfo().GetStatus())
 
 	// Clean up
 	env.Cancel(s.t.Context())
@@ -4432,16 +4501,27 @@ func (s APITestSuite) TestResetMirrorSequences() {
 
 	srcTable := AttachSchema(s, "seq_src")
 	dstTable := AttachSchema(s, "seq_dst")
+	// mixed-case destination table and columns to exercise identifier quoting in the reset
+	mixedSrcTable := AttachSchema(s, "seq_src_mixed")
+	mixedDstTable := AttachSchema(s, "seq_Dst_MixedCase")
+	quotedMixedDstTable := fmt.Sprintf(`"e2e_test_%s"."seq_Dst_MixedCase"`, s.suffix)
 
-	// Create source table with a serial column and insert rows
+	// Create source tables with a serial column and insert rows
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", srcTable)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(val) VALUES ('a'),('b'),('c'),('d'),('e')", srcTable)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, mixedSrcTable)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s("Val") VALUES ('x'),('y'),('z')`, mixedSrcTable)))
 
-	// Create destination table with same structure (serial column)
+	// Create destination tables with same structure (serial column)
 	_, err := s.pg.Conn().Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id SERIAL PRIMARY KEY, val TEXT)", dstTable))
+	require.NoError(s.t, err)
+	_, err = s.pg.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE %s("Id" SERIAL PRIMARY KEY, "Val" TEXT)`, quotedMixedDstTable))
 	require.NoError(s.t, err)
 
 	// Create PG-to-PG mirror with initial snapshot only
@@ -4453,6 +4533,9 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcTable,
 			DestinationTableIdentifier: dstTable,
+		}, {
+			SourceTableIdentifier:      mixedSrcTable,
+			DestinationTableIdentifier: mixedDstTable,
 		}},
 		DoInitialSnapshot:   true,
 		InitialSnapshotOnly: true,
@@ -4477,6 +4560,12 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		"SELECT COUNT(*) FROM "+dstTable).Scan(&rowCount)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(5), rowCount)
+
+	var mixedRowCount int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		"SELECT COUNT(*) FROM "+quotedMixedDstTable).Scan(&mixedRowCount)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(3), mixedRowCount)
 
 	// Before reset: destination sequence has not been advanced by the snapshot (ids were copied
 	// explicitly), so it is not yet at the max id. pg_sequence_last_value is NULL until the
@@ -4507,6 +4596,21 @@ func (s APITestSuite) TestResetMirrorSequences() {
 		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'id'))", dstTable)).Scan(&nextVal)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(6), nextVal)
+
+	// Mixed-case table: sequence should be at 3 (max id), nextval should return 4
+	var mixedSeqValAfter int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT pg_sequence_last_value(pg_get_serial_sequence('%s', 'Id'))",
+			quotedMixedDstTable)).Scan(&mixedSeqValAfter)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(3), mixedSeqValAfter)
+
+	var mixedNextVal int64
+	err = s.pg.Conn().QueryRow(s.t.Context(),
+		fmt.Sprintf("SELECT nextval(pg_get_serial_sequence('%s', 'Id'))",
+			quotedMixedDstTable)).Scan(&mixedNextVal)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(4), mixedNextVal)
 }
 
 func (s APITestSuite) TestResetMirrorSequences_EmptyTable() {

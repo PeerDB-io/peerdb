@@ -78,6 +78,7 @@ const (
 
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-state"
+	CDCFlowConfigQuery = "q-cdc-flow-config"
 	QRepFlowStateQuery = "q-qrep-flow-state"
 )
 

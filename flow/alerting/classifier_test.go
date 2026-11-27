@@ -1469,6 +1469,33 @@ func TestMongoFailedToParseWithoutResumeTokenStaysOther(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestMongoSocketIOErrorShouldBeRecoverable(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    29,
+		Message: "Socket IO error",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "29",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoNonExistentPathWithoutSocketIOErrorStaysOther(t *testing.T) {
+	err := mongo.CommandError{
+		Code:    29,
+		Name:    "NonExistentPath",
+		Message: "cannot use the part (a) of (a.b) to traverse the element",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "29",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestMongoTooManyCursorsOpenedShouldNotifyUser(t *testing.T) {
 	// Name stays empty because DocumentDB sends no codeName
 	err := mongo.CommandError{
@@ -1752,6 +1779,47 @@ func TestMySQLExecuteError(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMySQL,
 		Code:   "EXECUTE_ERROR",
+	}, errInfo)
+}
+
+func TestTLSRecordVersionMismatch(t *testing.T) {
+	t.Parallel()
+
+	recordErr := tls.RecordHeaderError{
+		Msg:          "received record with version 0 when expecting version 303",
+		RecordHeader: [5]byte{0x45, 0x00, 0x00, 0x00, 0x66},
+	}
+	recoverable := ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   "tls.RecordHeaderError",
+	}
+
+	// Postgres CDC source creation, as logged by the SyncFlow activity
+	cdcErr := fmt.Errorf("error checking publish_via_partition_root for publication %s: %w", "test_publication", recordErr)
+	errorClass, errInfo := GetErrorClass(t.Context(), cdcErr)
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, recoverable, errInfo)
+
+	errorClass, errInfo = GetErrorClass(t.Context(), fmt.Errorf("failed in pull records when: %w", cdcErr))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass)
+	assert.Equal(t, recoverable, errInfo)
+
+	// A tunnel already known to be bad keeps its SSH classification
+	errorClass, errInfo = GetErrorClass(t.Context(),
+		exceptions.NewSSHTunnelConnectionError(fmt.Errorf("ReceiveMessage failed: %w", recordErr)))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceSSH,
+		Code:   "TUNNEL_CONNECTION_LOST",
+	}, errInfo)
+
+	// Other record header errors are not covered
+	errorClass, errInfo = GetErrorClass(t.Context(),
+		fmt.Errorf("error getting major version: %w", tls.RecordHeaderError{Msg: "oversized record received with length 20527"}))
+	assert.Equal(t, ErrorOther, errorClass)
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}, errInfo)
 }
 

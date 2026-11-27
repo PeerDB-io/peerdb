@@ -573,6 +573,24 @@ func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
 	return &state, nil
 }
 
+func (h *FlowRequestHandler) getCDCWorkflowCfg(ctx context.Context,
+	workflowID string,
+) (*protos.FlowConnectionConfigsCore, error) {
+	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowConfigQuery)
+	if err != nil {
+		slog.ErrorContext(ctx, fmt.Sprintf("failed to get config in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get config in workflow with ID %s: %w", workflowID, err)
+	}
+	var cfg protos.FlowConnectionConfigsCore
+	if err := res.Get(&cfg); err != nil {
+		slog.ErrorContext(ctx, fmt.Sprintf("failed to get config in workflow with ID %s: %s", workflowID, err.Error()))
+		return nil,
+			fmt.Errorf("failed to get config in workflow with ID %s: %w", workflowID, err)
+	}
+	return &cfg, nil
+}
+
 func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName string) (*time.Time, error) {
 	var createdAt pgtype.Timestamp
 	err := h.pool.QueryRow(ctx, "SELECT created_at FROM flows WHERE name=$1", flowJobName).Scan(&createdAt)

@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -50,6 +51,7 @@ const (
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 	MongoInvalidResumeToken              = "Invalid resume token"
 	MongoTooManyCursorsOpened            = "Cannot open a new cursor since too many cursors are already opened"
+	MongoSocketIOError                   = "Socket IO error"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -418,14 +420,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// For now we are not making it as verbose, will take this up later
 			return errorClass, unknownErrorInfo(ErrorSourceOther)
 		}
-
-		if _, ok := errors.AsType[*exceptions.PostgresSetupError](err); ok {
-			errorClass := ErrorNotifyConnectivity
-			if pgErr != nil {
-				return errorClass, pgErrorInfo
-			}
-			return errorClass, unknownErrorInfo(pgErrSource)
-		}
 	}
 
 	if changefeedErr, ok := errors.AsType[*exceptions.CockroachChangefeedIrrecoverableError](err); ok {
@@ -601,6 +595,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "tls.CertificateVerificationError",
+		}
+	}
+
+	// Non-TLS bytes arrived on an established TLS connection; reconnecting recovers.
+	// https://github.com/golang/go/blob/go1.25.0/src/crypto/tls/conn.go#L658-L663
+	if tlsErr, ok := errors.AsType[tls.RecordHeaderError](err); ok &&
+		strings.HasPrefix(tlsErr.Msg, "received record with version") {
+		// Log the full header to see what arrived instead of TLS.
+		internal.LoggerFromCtx(ctx).Warn("TLS record header with unexpected version",
+			slog.String("recordHeader", hex.EncodeToString(tlsErr.RecordHeader[:])))
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.RecordHeaderError",
 		}
 	}
 
@@ -1042,6 +1049,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 29: // NonExistentPath
+			// observed with message "Socket IO error" on change streams, recovers on retry
+			if mongoCmdErr.HasErrorMessage(MongoSocketIOError) {
+				return ErrorRetryRecoverable, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 40: // ConflictingUpdateOperators
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 43: // CursorNotFound

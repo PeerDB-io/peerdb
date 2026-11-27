@@ -4,6 +4,10 @@
     "local>PeerDB-io/.github:renovate-config",
     ":preserveSemverRanges"
   ],
+  "prBodyNotes": [
+    // This adds a comment in the description referencing the continuous task of keeping deps up to date
+    "Part of https://linear.app/clickhouse/issue/DBI-1390"
+  ], 
   "packageRules": [
     {
       "groupName": "{{manager}} dependencies",

@@ -33,12 +33,12 @@ func startBinlogStream(t *testing.T, ctx context.Context, c *MySqlConnector) *re
 	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 		pos, err := c.GetMasterPos(ctx)
 		require.NoError(t, err)
-		syncer, stream, _, _, err = c.startCdcStreamingFilePos(ctx, pos, nil)
+		syncer, stream, _, _, err = c.startCdcStreamingFilePos(ctx, pos, nil, nil)
 		require.NoError(t, err)
 	} else {
 		gset, err := c.GetMasterGTIDSet(ctx)
 		require.NoError(t, err)
-		syncer, stream, _, _, err = c.startCdcStreamingGtid(ctx, gset, nil)
+		syncer, stream, _, _, err = c.startCdcStreamingGtid(ctx, gset, nil, nil)
 		require.NoError(t, err)
 	}
 	t.Cleanup(syncer.Close)
