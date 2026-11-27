@@ -204,7 +204,7 @@ def _peerdb_flow_host_toolchain_component():
 
 
 def _image_builders():
-    image_recipe_version = "1.1.12"
+    image_recipe_version = "1.1.13"
     prebuilt_venvs = [
         # The `infrastructure` extra pulls Praktika's runtime deps
         # (boto3/PyJWT/cryptography/requests) automatically; pytest is
@@ -426,14 +426,13 @@ PROJECTS = [
                 allow_all_secrets=False,
                 allow_all_s3_prefixes=False,
                 allow_ssm_debug=False,
-                # Keep 4 instances warm: this pool carries all 4 dependency-free
-                # "first" jobs (Go modules, Flow images, UI build, Renovate
-                # config) that dispatch the instant the workflow starts. Without
-                # a reserve each eats an EC2 cold-start at the front of the DAG --
-                # and Go modules gates every downstream Go job. Matches the
+                # Keep instances warm: this pool carries the dependency-free
+                # "first" jobs (Flow images, UI build, Renovate config) that
+                # dispatch the instant the workflow starts. Without a reserve each
+                # eats an EC2 cold-start at the front of the DAG. Matches the
                 # first-job fan-out, mirroring arm_2cpu_4g's reserve=1 for Code
                 # Review.
-                capacity_reserve=1,
+                capacity_reserve=0,
                 ext={"system_logs": False, "host_metrics": False},
             ),
         ],

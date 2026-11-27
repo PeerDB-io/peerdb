@@ -49,7 +49,6 @@ _FLOW_RELEVANT = [
     "ci/scripts/flow_images.py",
     "ci/scripts/go_build_cache.py",
     "ci/scripts/go_cache.py",
-    "ci/scripts/go_mod_cache.py",
     ".github/scripts/select-flow-tests.sh",
 ]
 
