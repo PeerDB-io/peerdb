@@ -229,6 +229,15 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSlotResponse, APIError) {
+	var slotName string
+	if req.FlowJobName != "" {
+		var apiErr APIError
+		slotName, apiErr = h.getSlotNameForFlow(ctx, req.FlowJobName, req.PeerName)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
 	pgConn, pgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
@@ -237,7 +246,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	defer pgClose(ctx)
 
 	var customSlotNames []string
-	if req.PeerdbManagedOnly {
+	if slotName == "" && req.PeerdbManagedOnly {
 		customSlotNames, err = h.getCustomSlotNamesForPeer(ctx, req.PeerName)
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to resolve custom slot names, proceeding without filter", slog.Any("error", err))
@@ -245,7 +254,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		}
 	}
 
-	slotInfo, err := pgConn.GetSlotInfo(ctx, "", req.PeerdbManagedOnly, customSlotNames)
+	slotInfo, err := pgConn.GetSlotInfo(ctx, slotName, req.PeerdbManagedOnly, customSlotNames)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get slot info", slog.Any("error", err))
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get slot info: %w", err))
@@ -254,6 +263,24 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	return &protos.PeerSlotResponse{
 		SlotData: slotInfo,
 	}, nil
+}
+
+func (h *FlowRequestHandler) getSlotNameForFlow(ctx context.Context, flowJobName string, peerName string) (string, APIError) {
+	config, err := internal.FetchConfigFromDB(ctx, h.pool, flowJobName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", NewNotFoundApiError(fmt.Errorf("flow %s not found", flowJobName))
+		}
+		return "", NewInternalApiError(fmt.Errorf("failed to get config of flow %s: %w", flowJobName, err))
+	}
+	// a slot name is only unique per Postgres cluster, so the flow must read from the peer being queried
+	if config.SourceName != peerName {
+		return "", NewInvalidArgumentApiError(fmt.Errorf("flow %s does not use peer %s as its source", flowJobName, peerName))
+	}
+	if config.ReplicationSlotName != "" {
+		return config.ReplicationSlotName, nil
+	}
+	return connpostgres.GetDefaultSlotName(config.FlowJobName), nil
 }
 
 func (h *FlowRequestHandler) getCustomSlotNamesForPeer(ctx context.Context, peerName string) ([]string, error) {
