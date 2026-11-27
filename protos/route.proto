@@ -598,6 +598,8 @@ message ResetMirrorSequencesRequest {
 message ResetMirrorSequencesResponse {
   bool ok = 1;
   string error_message = 2;
+  // source sequences that could not be matched to a destination sequence and were skipped
+  repeated string warnings = 3;
 }
 
 service FlowService {
