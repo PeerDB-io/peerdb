@@ -10,8 +10,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/log"
 
