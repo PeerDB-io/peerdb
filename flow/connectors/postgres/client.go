@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 
 	"github.com/jackc/pgerrcode"
@@ -49,8 +48,6 @@ const (
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 	setSessionReplicaRoleSQL             = "SET LOCAL session_replication_role = 'replica'"
 
-	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
-	_peerdb_batch_id=$1`
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
 	_peerdb_batch_id=$1 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
@@ -807,33 +804,6 @@ func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName 
 	}
 
 	return nil
-}
-
-func (c *PostgresConnector) getDistinctTableNamesInBatch(
-	ctx context.Context,
-	flowJobName string,
-	currentBatchID int64,
-	tableToSchema map[string]*protos.TableSchema,
-) ([]string, error) {
-	rawTableIdentifier := getRawTableIdentifier(flowJobName)
-
-	rows, err := c.conn.Query(ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
-		rawTableIdentifier), currentBatchID)
-	if err != nil {
-		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
-	}
-
-	destinationTableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
-	}
-	return slices.DeleteFunc(destinationTableNames, func(name string) bool {
-		if _, ok := tableToSchema[name]; !ok {
-			c.logger.Warn("table not found in table to schema mapping", "table", name)
-			return true
-		}
-		return false
-	}), nil
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(
