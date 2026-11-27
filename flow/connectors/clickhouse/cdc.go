@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -37,7 +38,8 @@ const (
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	)`
-	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/"
+	zooPathPrefix                   = "/clickhouse/tables/{uuid}/{shard}/{database}/"
+	clickHouseLightweightPingPeriod = 1 * time.Minute
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
@@ -464,6 +466,27 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		return nil
 	}
 
+	// Cancelled when this function returns (stopping the pinger below) or when a ping fails (aborting the DELETE).
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	// Ping ClickHouse every clickHouseLightweightPingPeriod while the DELETEs run, to make sure the connection is still alive.
+	go func() {
+		ticker := time.NewTicker(clickHouseLightweightPingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := c.database.Ping(ctx); err != nil {
+					cancel(fmt.Errorf("connection to ClickHouse was interrupted: %w", err))
+					return
+				}
+			}
+		}
+	}()
+
 	// chunk to bound statement size, one mutation covers many tables instead of one mutation each
 	for chunk := range slices.Chunk(req.DestinationTableNames, 100) {
 		quoted := make([]string, len(chunk))
@@ -476,6 +499,9 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
 			c.GetRawTableName(req.FlowJobName), strings.Join(quoted, ","), req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
+			if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+				err = cause
+			}
 			return fmt.Errorf("unable to remove tables from raw table: %w", err)
 		}
 
