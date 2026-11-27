@@ -14,41 +14,36 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 var GrpcFullServiceName = protos.FlowService_ServiceDesc.ServiceName
 
+// RequestLoggingMiddleware always logs failed requests, so handlers should return errors without logging them.
+// Received/completed logs are gated behind PEERDB_API_REQUEST_LOGGING_ENABLED.
 func RequestLoggingMiddleware(ctx context.Context) grpc.UnaryServerInterceptor {
-	if !internal.PeerDBRAPIRequestLoggingEnabled(ctx) {
-		slog.InfoContext(ctx, "Request Logging Interceptor is disabled")
-		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
+	logRequests := internal.PeerDBRAPIRequestLoggingEnabled(ctx)
 	httpMethodMapping := BuildHttpMethodMapping(ctx)
-	slog.InfoContext(ctx, "Setting up request logging middleware")
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		var httpMethod string
-		if method, exists := httpMethodMapping[info.FullMethod]; exists {
-			httpMethod = method
+		attrs := []any{
+			slog.String("method", info.FullMethod),
+			slog.String("httpMethod", httpMethodMapping[info.FullMethod]),
+		}
+		if r, ok := req.(interface{ GetFlowJobName() string }); ok && r.GetFlowJobName() != "" {
+			attrs = append(attrs, slog.String(string(shared.FlowNameKey), r.GetFlowJobName()))
 		}
 		startTime := time.Now()
-		slog.InfoContext(ctx, "Received gRPC request",
-			slog.String("method", info.FullMethod),
-			slog.String("httpMethod", httpMethod))
+		if logRequests {
+			slog.InfoContext(ctx, "Received gRPC request", attrs...)
+		}
 
 		resp, err := handler(ctx, req)
 		if err != nil {
 			slog.ErrorContext(ctx, "gRPC request failed",
-				slog.String("method", info.FullMethod),
-				slog.String("httpMethod", httpMethod),
-				slog.Any("error", err),
-				slog.Duration("duration", time.Since(startTime)))
-		} else {
+				append(attrs, slog.Any("error", err), slog.Duration("duration", time.Since(startTime)))...)
+		} else if logRequests {
 			slog.InfoContext(ctx, "gRPC request completed successfully",
-				slog.String("method", info.FullMethod),
-				slog.String("httpMethod", httpMethod),
-				slog.Duration("duration", time.Since(startTime)))
+				append(attrs, slog.Duration("duration", time.Since(startTime)))...)
 		}
 		return resp, err
 	}
