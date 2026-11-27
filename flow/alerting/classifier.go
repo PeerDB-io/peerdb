@@ -51,6 +51,7 @@ const (
 	MongoTLSInvalidServerCertSignature   = "tls: invalid signature by the server certificate"
 	MongoInvalidResumeToken              = "Invalid resume token"
 	MongoTooManyCursorsOpened            = "Cannot open a new cursor since too many cursors are already opened"
+	MongoSocketIOError                   = "Socket IO error"
 
 	// mysqlGeometryLinearRingNotClosedError is the specific WKB parse failure raised by the
 	// go-geos library when a LinearRing's points do not close. Used to give a more specific code
@@ -1048,6 +1049,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 18: // AuthenticationFailed
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 29: // NonExistentPath
+			// observed with message "Socket IO error" on change streams, recovers on retry
+			if mongoCmdErr.HasErrorMessage(MongoSocketIOError) {
+				return ErrorRetryRecoverable, mongoErrorInfo
+			}
+			return ErrorOther, mongoErrorInfo
 		case 40: // ConflictingUpdateOperators
 			return ErrorRetryRecoverable, mongoErrorInfo
 		case 43: // CursorNotFound
