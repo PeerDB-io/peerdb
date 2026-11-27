@@ -16,6 +16,32 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+// createDatabase drops database on cleanup over its own connection, as a timed out query closes the pgx conn
+func createDatabase(t *testing.T, dbName string) {
+	t.Helper()
+	cfg := internal.GetAncillaryPostgresConfigFromEnv()
+	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database)
+	conn, err := pgx.Connect(t.Context(), connStr)
+	require.NoError(t, err)
+	defer conn.Close(t.Context())
+	_, err = conn.Exec(t.Context(), "CREATE DATABASE "+dbName)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		dropConn, err := pgx.Connect(ctx, connStr)
+		if err != nil {
+			t.Logf("failed to connect to drop database %s: %v", dbName, err)
+			return
+		}
+		defer dropConn.Close(ctx)
+		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName+" WITH (FORCE)"); err != nil {
+			t.Logf("failed to drop database %s: %v", dbName, err)
+		}
+	})
+}
+
 // setupDedicatedPgDumpSource creates a fresh database on the primary PG instance
 // to serve as the source for schema-dump tests. pg_dump dumps a whole database,
 // so sharing the source DB with other parallel tests caused the dump to include
@@ -31,18 +57,13 @@ func setupDedicatedPgDumpSource(t *testing.T, suffix string) (*pgx.Conn, string,
 	srcDBName := "e2e_pgdump_src_" + suffix
 	srcSchema := "e2e_test_" + suffix
 
-	bootstrapStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
-		srcCfg.Host, srcCfg.Port, srcCfg.User, srcCfg.Password, srcCfg.Database)
-	bootstrap, err := pgx.Connect(t.Context(), bootstrapStr)
-	require.NoError(t, err)
-	_, err = bootstrap.Exec(t.Context(), "CREATE DATABASE "+srcDBName)
-	require.NoError(t, err)
-	bootstrap.Close(t.Context())
+	createDatabase(t, srcDBName)
 
 	srcConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
 		srcCfg.Host, srcCfg.Port, srcCfg.User, srcCfg.Password, srcDBName)
 	srcConn, err := pgx.Connect(t.Context(), srcConnStr)
 	require.NoError(t, err)
+	t.Cleanup(func() { srcConn.Close(context.Background()) })
 	_, err = srcConn.Exec(t.Context(), "CREATE SCHEMA "+srcSchema)
 	require.NoError(t, err)
 
@@ -55,21 +76,6 @@ func setupDedicatedPgDumpSource(t *testing.T, suffix string) (*pgx.Conn, string,
 		Config: &protos.Peer_PostgresConfig{PostgresConfig: srcPeerCfg},
 	})
 
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		srcConn.Close(ctx)
-		dropConn, err := pgx.Connect(ctx, bootstrapStr)
-		if err != nil {
-			t.Logf("failed to connect for source DB cleanup: %v", err)
-			return
-		}
-		defer dropConn.Close(ctx)
-		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+srcDBName+" WITH (FORCE)"); err != nil {
-			t.Logf("failed to drop source database %s: %v", srcDBName, err)
-		}
-	})
-
 	return srcConn, srcPeerName, srcSchema
 }
 
@@ -78,25 +84,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_And_CDC() {
 
 	dstDBName := "e2e_pgdump_" + s.suffix
 
-	// create destination database on the same PG instance
-	_, err := s.Conn().Exec(s.t.Context(), "CREATE DATABASE "+dstDBName)
-	require.NoError(s.t, err)
-	s.t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cfg := internal.GetAncillaryPostgresConfigFromEnv()
-		connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres",
-			cfg.Host, cfg.Port, cfg.User, cfg.Password)
-		dropConn, err := pgx.Connect(ctx, connStr)
-		if err != nil {
-			s.t.Logf("failed to connect for cleanup: %v", err)
-			return
-		}
-		defer dropConn.Close(ctx)
-		if _, err := dropConn.Exec(ctx, "DROP DATABASE IF EXISTS "+dstDBName+" WITH (FORCE)"); err != nil {
-			s.t.Logf("failed to drop destination database %s: %v", dstDBName, err)
-		}
-	})
+	createDatabase(s.t, dstDBName)
 
 	// connect to destination database for verification later
 	dstCfg := internal.GetAncillaryPostgresConfigFromEnv()
@@ -472,6 +460,83 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_Schema_Dump_No_Owner_No_Privileges() {
 		"SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema=$1 AND table_name=$2 AND grantee=$3",
 		srcSchema, tableName, roleName).Scan(&grantCount))
 	require.Zero(s.t, grantCount, "no privileges should be granted to the source-only role on destination")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// postgis fills spatial_ref_sys on CREATE EXTENSION, so destination starts with source's built-in rows
+func (s PeerFlowE2ETestSuitePG) Test_PG_Extension_Table_Snapshot() {
+	var hasPostgis bool
+	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(),
+		"SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'postgis')").Scan(&hasPostgis))
+	if !hasPostgis {
+		s.t.Skip("postgis not available")
+	}
+
+	srcConn, srcPeerName, _ := setupDedicatedPgDumpSource(s.t, s.suffix)
+
+	dstDBName := "e2e_pgext_" + s.suffix
+	createDatabase(s.t, dstDBName)
+
+	dstPeerCfg := internal.GetAncillaryPostgresConfigFromEnv()
+	dstPeerCfg.Database = dstDBName
+	dstConn, err := pgx.Connect(s.t.Context(), fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		dstPeerCfg.Host, dstPeerCfg.Port, dstPeerCfg.User, dstPeerCfg.Password, dstDBName))
+	require.NoError(s.t, err)
+	s.t.Cleanup(func() { dstConn.Close(context.Background()) })
+	dstPeerName := "pgext_dst_" + s.suffix
+	e2e.CreatePeer(s.t, &protos.Peer{
+		Name:   dstPeerName,
+		Type:   protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{PostgresConfig: dstPeerCfg},
+	})
+
+	for _, conn := range []*pgx.Conn{srcConn, dstConn} {
+		_, err := conn.Exec(s.t.Context(), "CREATE EXTENSION postgis")
+		require.NoError(s.t, err)
+	}
+	const insertSrid = `INSERT INTO public.spatial_ref_sys (srid, auth_name, auth_srid, srtext, proj4text)
+		VALUES ($1, 'peerdb', $1, '', '+proj=longlat +datum=WGS84 +no_defs')`
+	_, err = srcConn.Exec(s.t.Context(), insertSrid, 900914)
+	require.NoError(s.t, err)
+
+	sridExists := func(srid int) func() bool {
+		return func() bool {
+			var exists bool
+			err := dstConn.QueryRow(s.t.Context(),
+				"SELECT EXISTS(SELECT 1 FROM public.spatial_ref_sys WHERE srid = $1)", srid).Scan(&exists)
+			return err == nil && exists
+		}
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix("test_pgext"),
+		DestinationName: dstPeerName,
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      "public.spatial_ref_sys",
+			DestinationTableIdentifier: "public.spatial_ref_sys",
+		}},
+		SourceName:        srcPeerName,
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+		System:            protos.TypeSystem_PG,
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "initial load user srid", sridExists(900914))
+
+	_, err = srcConn.Exec(s.t.Context(), insertSrid, 900915)
+	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "cdc user srid", sridExists(900915))
+
+	var srcCount, dstCount int64
+	require.NoError(s.t, srcConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM public.spatial_ref_sys").Scan(&srcCount))
+	require.NoError(s.t, dstConn.QueryRow(s.t.Context(), "SELECT COUNT(*) FROM public.spatial_ref_sys").Scan(&dstCount))
+	require.Equal(s.t, srcCount, dstCount)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

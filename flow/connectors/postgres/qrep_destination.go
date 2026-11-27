@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
+	pkg_pg "github.com/PeerDB-io/peerdb/flow/pkg/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -71,6 +72,19 @@ func syncQRepRecords(
 	flowJobName := config.FlowJobName
 	writeMode := config.WriteMode
 	syncedAtCol := config.SyncedAtColName
+
+	if writeMode == nil || writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND {
+		extensionPkey, err := pkg_pg.ExtensionTablePrimaryKey(ctx, c.conn, *dstTable)
+		if err != nil {
+			return 0, nil, err
+		}
+		if len(extensionPkey) > 0 {
+			writeMode = &protos.QRepWriteMode{
+				WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+				UpsertKeyColumns: extensionPkey,
+			}
+		}
+	}
 
 	syncLog := slog.Group("sync-qrep-log",
 		slog.String(string(shared.FlowNameKey), flowJobName),
@@ -169,8 +183,10 @@ func syncQRepRecords(
 		// construct the SET clause for the upsert operation
 		upsertMatchColsList := writeMode.UpsertKeyColumns
 		upsertMatchCols := make(map[string]struct{}, len(upsertMatchColsList))
+		quotedMatchCols := make([]string, 0, len(upsertMatchColsList))
 		for _, col := range upsertMatchColsList {
 			upsertMatchCols[col] = struct{}{}
+			quotedMatchCols = append(quotedMatchCols, common.QuoteIdentifier(col))
 		}
 
 		columnNames, err := sink.GetColumnNames()
@@ -187,21 +203,28 @@ func syncQRepRecords(
 			}
 			selectStrArray = append(selectStrArray, quotedCol)
 		}
-		setClauseArray = append(setClauseArray,
-			common.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
-		setClause := strings.Join(setClauseArray, ",")
-		selectSQL := strings.Join(selectStrArray, ",")
+		insertSQL := strings.Join(selectStrArray, ",")
+		selectSQL := insertSQL
+		if syncedAtCol != "" {
+			setClauseArray = append(setClauseArray,
+				common.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
+			insertSQL += "," + common.QuoteIdentifier(syncedAtCol)
+			selectSQL += ",CURRENT_TIMESTAMP"
+		}
+		conflictAction := "NOTHING"
+		if len(setClauseArray) > 0 {
+			conflictAction = "UPDATE SET " + strings.Join(setClauseArray, ",")
+		}
 
 		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
 		upsertStmt := fmt.Sprintf(
-			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
+			`INSERT INTO %s (%s) SELECT %s FROM %s ON CONFLICT (%s) DO %s;`,
 			dstTableIdentifier.Sanitize(),
-			selectSQL,
-			common.QuoteIdentifier(syncedAtCol),
+			insertSQL,
 			selectSQL,
 			stagingTableIdentifier.Sanitize(),
-			strings.Join(writeMode.UpsertKeyColumns, ", "),
-			setClause,
+			strings.Join(quotedMatchCols, ","),
+			conflictAction,
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
 		if _, err := tx.Exec(ctx, upsertStmt); err != nil {

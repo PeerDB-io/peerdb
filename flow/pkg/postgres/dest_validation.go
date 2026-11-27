@@ -122,6 +122,28 @@ func CheckTableEmpty(ctx context.Context, conn *pgx.Conn, tableIdentifier string
 	return nil
 }
 
+// ExtensionTablePrimaryKey returns primary key columns when table belongs to an extension, nil otherwise.
+// Extensions like postgis populate such tables (spatial_ref_sys) on CREATE EXTENSION
+func ExtensionTablePrimaryKey(ctx context.Context, conn *pgx.Conn, table common.QualifiedTable) ([]string, error) {
+	rows, err := conn.Query(ctx,
+		`SELECT a.attname FROM pg_index i
+		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+		WHERE i.indrelid = $1::text::regclass AND i.indisprimary AND EXISTS (
+			SELECT 1 FROM pg_depend d
+			WHERE d.classid = 'pg_class'::regclass AND d.objid = i.indrelid AND d.deptype = 'e'
+		)
+		ORDER BY array_position(i.indkey, a.attnum)`,
+		table.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if table %s belongs to an extension: %w", table, err)
+	}
+	cols, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read primary key of extension table %s: %w", table, err)
+	}
+	return cols, nil
+}
+
 // CheckColumnExists returns an error if dstColName is not present in dstColumns.
 func CheckColumnExists(srcColName, dstColName string, dstColumns map[string]ColumnSchema, dstTableIdentifier string) error {
 	if _, exists := dstColumns[dstColName]; !exists {
