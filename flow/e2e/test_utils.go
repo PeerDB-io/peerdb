@@ -293,6 +293,9 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		env.Cancel(t.Context())
 		t.Fatal("could not get catalog connection", err)
 	}
+	start := time.Now()
+	ok := false
+	defer func() { recordWait(t, waitKindStatus, "running", start, ok) }()
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
@@ -301,6 +304,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
 		if err == nil {
 			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
+				ok = true
 				return
 			} else if counter > 120 {
 				env.Cancel(t.Context())
@@ -912,9 +916,17 @@ func EnvEqualRecordBatches(t *testing.T, env WorkflowRun, q *model.QRecordBatch,
 
 func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason string, f func() bool) {
 	t.Helper()
-	t.Log("WaitFor", reason, time.Now())
+	envWaitFor(t, env, timeout, waitKindWait, reason, f)
+}
 
-	deadline := time.Now().Add(timeout)
+func envWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, kind string, reason string, f func() bool) {
+	t.Helper()
+	start := time.Now()
+	t.Log("WaitFor", reason, start)
+	ok := false
+	defer func() { recordWait(t, kind, reason, start, ok) }()
+
+	deadline := start.Add(timeout)
 	for !f() {
 		if time.Now().After(deadline) {
 			env.Cancel(t.Context())
@@ -925,12 +937,13 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 			t.Fatal(reason, err)
 		}
 	}
+	ok = true
 }
 
 func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	t.Helper()
 
-	EnvWaitFor(t, env, timeout, "finish", func() bool {
+	envWaitFor(t, env, timeout, waitKindFinish, "finish", func() bool {
 		t.Helper()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
