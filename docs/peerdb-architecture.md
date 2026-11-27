@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-PeerDB is a distributed ETL/ELT system purpose-built for streaming data from transactional databases (PostgreSQL, MySQL, MongoDB, CockroachDB) to analytical destinations. The actively maintained destinations are ClickHouse and PostgreSQL; Snowflake, BigQuery, S3, Kafka, Elasticsearch, Azure Event Hubs, and Google Pub/Sub remain functional but are deprecated as destinations (see [deprecated-connectors.md](./deprecated-connectors.md)). It provides Change Data Capture (CDC), Query Replication (QRep), and initial snapshot capabilities, orchestrated through Temporal workflows and exposed via a PostgreSQL-compatible SQL interface.
+PeerDB is a distributed ETL/ELT system purpose-built for streaming data from transactional databases (PostgreSQL, MySQL, MongoDB, CockroachDB) to analytical destinations. The actively maintained destinations are ClickHouse and PostgreSQL; Snowflake, BigQuery, S3, Kafka, Elasticsearch, Azure Event Hubs, and Google Pub/Sub remain functional but are deprecated as destinations (see [deprecated-connectors.md](./deprecated-connectors.md)). It provides Change Data Capture (CDC), Query Replication (QRep), and initial snapshot capabilities, orchestrated through Temporal workflows and managed through the Flow API (gRPC/REST) and the PeerDB UI.
 
 ---
 
@@ -18,13 +18,11 @@ PeerDB is a distributed ETL/ELT system purpose-built for streaming data from tra
 ```mermaid
 graph TB
     subgraph CLIENT["CLIENT LAYER"]
-        psql["psql / PG client"]
         browser["Browser"]
         grpc_client["gRPC / REST client"]
     end
 
     subgraph SERVICES["SERVICE LAYER"]
-        nexus["PeerDB Server<br/><i>Rust, port 9900</i>"]
         ui["PeerDB UI<br/><i>Next.js, port 3000</i>"]
         api["Flow API<br/><i>Go, gRPC 8112 / HTTP 8113</i>"]
     end
@@ -66,10 +64,9 @@ graph TB
         minio["MinIO<br/><i>S3-compatible AVRO staging</i>"]
     end
 
-    psql --> nexus
     browser --> ui
+    ui --> api
     grpc_client --> api
-    nexus --> ORCHESTRATION
     api --> ORCHESTRATION
     ORCHESTRATION --> flow_worker
     ORCHESTRATION --> snap_worker
@@ -87,31 +84,7 @@ graph TB
 
 ## 3. Service Components
 
-### 3.1 PeerDB Server (Nexus) — Rust
-
-**Location**: `/nexus/`
-**Entry point**: `nexus/server/src/main.rs`
-**Port**: 9900
-
-A PostgreSQL-compatible wire protocol server that allows users to manage PeerDB using familiar SQL commands:
-
-```sql
-CREATE PEER my_source FROM POSTGRES WITH (...);
-CREATE MIRROR my_mirror FROM my_source TO my_dest WITH (...);
-ALTER MIRROR my_mirror ADD TABLES ...;
-SELECT * FROM mirror_status;
-DROP MIRROR my_mirror;
-```
-
-**Key subsystems**:
-- **PgWire Server**: Implements PostgreSQL wire protocol (SCRAM-SHA-256 auth)
-- **SQL Parser**: Custom parser for PeerDB DDL extensions (`CREATE PEER`, `CREATE MIRROR`)
-- **Query Executor**: Routes queries to appropriate peer executors or the Flow API
-- **Catalog Integration**: Encrypted credential storage with optional KMS
-
-**Rust workspace crates**: `analyzer`, `catalog`, `flow-rs`, `parser`, `peer-ast`, `peer-bigquery`, `peer-mysql`, `peer-postgres`, `peer-snowflake`, `postgres-connection`, `pt` (protobuf types), `server`, `value`
-
-### 3.2 Flow API — Go
+### 3.1 Flow API — Go
 
 **Location**: `/flow/cmd/handler.go`
 **Ports**: 8112 (gRPC), 8113 (HTTP gateway via grpc-gateway)
@@ -127,7 +100,7 @@ The gRPC API layer that manages the lifecycle of mirrors and peers. Key service 
 
 The API handler (`FlowRequestHandler`) wraps a Temporal client, catalog pool, and alerter. It never directly manages connector lifecycles — all data movement is delegated through Temporal workflows.
 
-### 3.3 Flow Worker & Snapshot Worker — Go
+### 3.2 Flow Worker & Snapshot Worker — Go
 
 **Location**: `/flow/cmd/worker.go`
 **Task queues**: `peerflow` (default), `snapshot-flow` (dedicated)
@@ -139,14 +112,14 @@ Workers register 40+ Temporal activities and execute the actual data movement:
 
 Configuration: Max concurrent activities = 1000, max concurrent workflow tasks = 1000.
 
-### 3.4 PeerDB UI — Next.js
+### 3.3 PeerDB UI — Next.js
 
 **Location**: `/ui/`
 **Port**: 3000 (3030 in dev)
 
 Dashboard for creating/monitoring peers and mirrors. Communicates with the Flow API via the HTTP gateway. Built with React 19, Radix UI components, Chart.js for visualization, and Monaco editor for SQL editing.
 
-### 3.5 Temporal Server
+### 3.4 Temporal Server
 
 **Port**: 7233
 
@@ -156,13 +129,13 @@ Temporal provides durable workflow execution with automatic retries, checkpointi
 - Search attributes for mirror name filtering
 - Activity retry with exponential backoff
 
-### 3.6 Catalog (PostgreSQL)
+### 3.5 Catalog (PostgreSQL)
 
 **Port**: 5432 (9901 in dev)
 
 Stores all PeerDB metadata: peer configurations (encrypted), flow definitions (serialized protobuf), CDC batch progress, schema mappings, and error logs. Uses `pgxpool` with max_conns=3 and 90s idle timeout.
 
-### 3.7 MinIO
+### 3.6 MinIO
 
 S3-compatible object storage used for staging AVRO files during snapshot operations. In production, replaced by actual S3/GCS.
 
@@ -583,7 +556,6 @@ flowchart LR
 
 Generated code is produced by `buf generate` and lives in:
 - **Go**: `flow/generated/protos/` (protobuf + gRPC + gateway)
-- **Rust**: `nexus/pt/src/gen/` (prost + tonic)
 - **TypeScript**: `ui/grpc_generated/` (ts-proto, types only)
 
 ---
@@ -641,14 +613,14 @@ Runtime-tunable via `PostDynamicSetting` API. These are system-wide settings tha
 - **Flow API monitoring endpoints**: `MirrorStatus`, `CDCGraph`, `ListMirrorLogs`, `CDCTableTotalCounts`
 - **Alerting**: Email and Slack notifications on flow errors
 - **pprof**: Optional Go profiling (`ENABLE_PROFILING=true`)
-- **Structured logging**: `slog` in Go, `RUST_LOG` in Rust
+- **Structured logging**: `slog`
 
 ---
 
 ## 13. Security
 
 - **Peer credentials**: Encrypted at rest in the catalog with optional KMS integration
-- **Authentication**: SCRAM-SHA-256 for the PeerDB server; per-connector auth (IAM, SSH tunnels, TLS, SASL)
+- **Authentication**: per-connector auth (IAM, SSH tunnels, TLS, SASL)
 - **Network**: SSH tunnel support for all connectors; TLS with custom CA certificates
 - **Cloud IAM**: RDS IAM auth for Postgres/MySQL; DocumentDB IAM auth (`MONGODB-AWS`) for MongoDB; GCP service accounts for BigQuery/PubSub; Azure managed identity for EventHub
 

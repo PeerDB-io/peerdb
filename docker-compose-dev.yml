@@ -4,7 +4,6 @@ name: peerdb-quickstart-dev
 # Overridable using environment variables for flexibility when using multiple tilt environments
 x-ports:
   - &peerdb-catalog-port      ${PEERDB_CATALOG_PORT:-9901}:5432
-  - &peerdb-nexus-port        ${PEERDB_NEXUS_PORT:-9900}:9900
   - &peerdb-switchboard-port  ${PEERDB_SWITCHBOARD_PORT:-5732}:5732
   - &peerdb-ui-port           ${PEERBD_UI_PORT:-3030}:3000
   - &temporal-port            ${TEMPORAL_PORT:-7233}:7233
@@ -235,29 +234,6 @@ services:
         condition: service_completed_successfully
       temporal-admin-tools:
         condition: service_healthy
-
-  peerdb:
-    container_name: peerdb-server
-    stop_signal: SIGINT
-    image: peerdb
-    build:
-      context: .
-      dockerfile: stacks/peerdb-server.Dockerfile
-      args:
-        BUILD_MODE: "debug"
-        CARGO_FLAGS: "--no-default-features --features mysql"
-    environment:
-      <<: *catalog-config
-      PEERDB_PASSWORD: peerdb
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
-      PEERDB_MIGRATIONS_DISABLED: true
-      RUST_LOG: info
-      RUST_BACKTRACE: 1
-    ports:
-      - *peerdb-nexus-port
-    depends_on:
-      flow-migrate:
-        condition: service_completed_successfully
 
   peerdb-ui:
     container_name: peerdb-ui

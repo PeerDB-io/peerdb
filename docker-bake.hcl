@@ -12,7 +12,6 @@ variable REGISTRY {
 
 group "default" {
   targets = [
-    "peerdb",
     "flow-worker",
     "flow-api",
     "flow-snapshot-worker",
@@ -86,22 +85,6 @@ target "flow-maintenance" {
   tags = [
     "${REGISTRY}/flow-maintenance:${TAG}",
     "${REGISTRY}/flow-maintenance:${SHA_SHORT}",
-  ]
-}
-
-target "peerdb" {
-  context    = "."
-  dockerfile = "stacks/peerdb-server.Dockerfile"
-  platforms = [
-    "linux/amd64",
-    "linux/arm64",
-  ]
-  args = {
-    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
-  }
-  tags = [
-    "${REGISTRY}/peerdb-server:${TAG}",
-    "${REGISTRY}/peerdb-server:${SHA_SHORT}",
   ]
 }
 

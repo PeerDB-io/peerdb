@@ -167,24 +167,6 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  peerdb:
-    container_name: peerdb-server
-    stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.37.17
-    restart: unless-stopped
-    environment:
-      <<: *catalog-config
-      PEERDB_PASSWORD:
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
-      PEERDB_MIGRATIONS_DISABLED: true
-      RUST_LOG: info
-      RUST_BACKTRACE: 1
-    ports:
-      - 9900:9900
-    depends_on:
-      flow-migrate:
-        condition: service_completed_successfully
-
   peerdb-ui:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.37.17

@@ -14,11 +14,10 @@ def resolve_ancillary_env(var_name, default=None):
             return line.strip().split('=', 1)[1]
     return default
 
-# Flow tests talk to flow-api directly, so skip nexus and the UI there.
+# Flow tests talk to flow-api directly, so skip the UI there.
 ci = os.getenv('PEERDB_CI') == '1'
 compose = read_yaml('./docker-compose-dev.yml')
 if ci:
-    compose['services'].pop('peerdb')
     compose['services'].pop('peerdb-ui')
 
 # CI can load the flow images, built once per workflow run, instead of having
@@ -71,15 +70,6 @@ if not prebuilt_flow_images:
         )
 
 if not ci:
-    docker_build('peerdb', '.',
-        dockerfile='stacks/peerdb-server.Dockerfile',
-        only=['nexus/', 'protos/', 'scripts/', 'stacks/peerdb-server.Dockerfile'],
-        build_args={
-            'BUILD_MODE': 'debug',
-            'CARGO_FLAGS': '--no-default-features --features mysql',
-        },
-    )
-
     docker_build('peerdb-ui', '.',
         dockerfile='stacks/peerdb-ui.Dockerfile',
         target='dev',
@@ -97,7 +87,6 @@ if not ci:
     dc_resource('peerdb-ui', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
         link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
     ])
-    dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-migrate', resource_deps=['proto-gen'], labels=['PeerDB'])
 dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),

@@ -9,7 +9,6 @@ runs:
       with:
         path: |
           ./flow/generated
-          ./nexus/pt/src/gen
           ./ui/grpc_generated
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto', './flow/cmd/codegen/*.go') }}
 

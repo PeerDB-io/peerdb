@@ -32,7 +32,7 @@ The generated template contains placeholder statements and a `-- +goose Down` se
 
 ## History and bootstrap from refinery
 
-The catalog was previously migrated by [refinery](https://github.com/rust-db/refinery) in Rust. Those migrations lived in `nexus/catalog/migrations/` as `V<n>__<name>.sql` and were recorded in `public.refinery_schema_history`. The files here are the same SQL, renamed to goose's `000<n>_<name>.sql` format: **version numbers are the shared identity across both tools**, which is what makes the cutover safe.
+The catalog was previously migrated by [refinery](https://github.com/rust-db/refinery) in Rust. Those migrations lived in `nexus/catalog/migrations/` (the Rust server has since been removed) as `V<n>__<name>.sql` and were recorded in `public.refinery_schema_history`. The files here are the same SQL, renamed to goose's `000<n>_<name>.sql` format: **version numbers are the shared identity across both tools**, which is what makes the cutover safe.
 
 On every run, before applying anything, `bootstrapFromRefinery` (in `migrations.go`) translates refinery's ledger into goose's in a single transaction under an advisory lock:
 

@@ -27,7 +27,7 @@ We support different modes of streaming - log based (CDC), cursor based (timesta
 git clone git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
-# Run docker containers: postgres as catalog, temporal, PeerDB server, PeerDB flow API + workers, PeerDB UI
+# Run docker containers: postgres as catalog, temporal, PeerDB flow API + workers, PeerDB UI
 # Requires docker and docker-compose installed: https://docs.docker.com/engine/install/
 bash ./run-peerdb.sh
 # OR for local development, images will be built locally.
@@ -35,12 +35,9 @@ bash ./run-peerdb.sh
 # https://buf.build/docs/installation
 bash ./generate-protos.sh
 bash ./dev-peerdb.sh
-
-# connect to peerdb and query away (Use psql version >=14.0)
-psql "port=9900 host=localhost password=peerdb"
 ```
 
-<img src="images/peerdb-demo.gif" width="512" />
+Once the containers are up, open the PeerDB UI at <http://localhost:3000> (<http://localhost:3030> for `dev-peerdb.sh`) to create peers and mirrors.
 
 ### **IMPORTANT: Ensuring ClickHouse Access to MinIO**
 
@@ -78,18 +75,6 @@ PeerDB is now available natively in ClickHouse Cloud (Generally Available). Lear
 <a href="https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector">
 <img src="images/in-clickpipes.png" width="512" />
 </a>
-
-#### **Postgres-compatible SQL interface to do ETL**
-
-The Postgres-compatible SQL interface for ETL is unique to PeerDB and enables you to operate in a language you are familiar with. You can do ETL the same way you work with your databases.
-
-You can use Postgres’ ecosystem to manage your ETL —
-
-1. Client tools like pgAdmin, psql to run SQL commands.
-2. BI tools like Grafana, Tableau to visually monitor syncs and transforms.
-3. Database migration and versioning tools like Flyway to manage your ETL.
-4. Any language (e.g., Python, Go, Node.js) and Scheduler (Airflow) for development.
-5. And many more.
 
 ## Status
 

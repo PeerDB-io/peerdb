@@ -6,8 +6,6 @@ tmp/
 .DS_Store
 
 private/
-nexus/server/tests/assets/*.json
-nexus/server/tests/results/actual/
 e2e_cleanup/peer-flow-cleanup
 flow/peer-flow
 target/
@@ -18,7 +16,6 @@ go.work.sum
 # generated protobuf files and go generate
 ui/grpc_generated
 flow/generated
-nexus/pt/src/gen
 
 # generated ancillary images file
 ancillary.env

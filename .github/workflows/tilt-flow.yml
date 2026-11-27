@@ -194,7 +194,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
-  # Tells the Tiltfile to skip services the tests don't use (nexus, UI).
+  # Tells the Tiltfile to skip services the tests don't use (UI).
   PEERDB_CI: "1"
   # All tilt CLI calls in this repo talk to the control API on this port (see tilt.sh).
   TILT_PORT: "10352"
