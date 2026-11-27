@@ -1265,6 +1265,11 @@ func CDCFlowWorkflow(
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowConfigQuery, func() (*protos.FlowConnectionConfigsCore, error) {
+		return cfg, nil
+	}); err != nil {
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowConfigQuery, err)
+	}
 
 	// completion from a snapshot-only mirror, we are done
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {

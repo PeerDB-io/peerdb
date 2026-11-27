@@ -477,6 +477,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 			structured.NormalizeStructuredIngestionTypes(tm.StructuredIngestionConfig, tm.Columns)
 		}
 		if len(cdcUpdate.AdditionalTables) > 0 {
+			if apiErr := h.checkCDCFlowPayloadSizeForTableAddition(ctx, workflowID, cdcUpdate); apiErr != nil {
+				return nil, apiErr
+			}
 			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 			if err != nil {
 				return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))

@@ -3953,6 +3953,75 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s APITestSuite) TestTableAdditionOverPayloadLimit() {
+	switch s.source.(type) {
+	case *PostgresSource, *MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "payload_limit"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("payload_limit").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "added_tables_payload_limit_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, "payload_limit"): "payload_limit"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.catalog, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for mirror to run", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// enough tables to push the next run's workflow input over Temporal's 2MB payload limit;
+	// the size check runs before the tables are validated, so they don't need to exist in db
+	tablesToAdd := make([]*protos.TableMapping, 0, 20_000)
+	for i := range 20_000 {
+		tablesToAdd = append(tablesToAdd, &protos.TableMapping{
+			SourceTableIdentifier:      AttachSchema(s, fmt.Sprintf("oversized_%05d", i)),
+			DestinationTableIdentifier: fmt.Sprintf("oversized_%05d", i),
+		})
+	}
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables:                     tablesToAdd,
+					SkipInitialSnapshotForTableAdditions: true,
+				},
+			},
+		},
+	})
+	require.Equal(s.t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(s.t, err, "payload limit exceeded")
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, env.GetFlowStatus(s.t))
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 // Simulate a mirror whose Temporal workflow no longer exists (e.g. completed or failed
 // over 30 days ago and was already cleaned up).
 func (s APITestSuite) TestDropMissing() {
