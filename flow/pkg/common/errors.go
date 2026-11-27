@@ -17,6 +17,7 @@ const (
 	ErrorInfoReasonSourceTableMissing     = "SOURCE_TABLE_MISSING"
 	ErrorInfoReasonTablesNotInPublication = "TABLES_NOT_IN_PUBLICATION"
 	ErrorInfoReasonSourceValidationFailed = "SOURCE_VALIDATION_FAILED"
+	ErrorInfoReasonSourceConnectionFailed = "SOURCE_CONNECTION_FAILED"
 
 	ErrorMetadataOffendingField = "offendingField"
 	ErrorMetadataPublication    = "publication"
