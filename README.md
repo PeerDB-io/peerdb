@@ -149,6 +149,8 @@ Then you can just run:
 ./tilt.sh
 ```
 
+To use a Temporal that is already running instead of the bundled one, set `EXTERNAL_TEMPORAL_HOST_PORT` in your environment or `.env`, e.g. `EXTERNAL_TEMPORAL_HOST_PORT=host.docker.internal:7233`. Tilt then skips the `temporal`, `temporal-admin-tools` and `temporal-ui` containers and points the flow services at that address. The Temporal must have the `default` namespace and the `MirrorName` search attribute (`temporal operator search-attribute create --name MirrorName --type Text --namespace default`). Host-side e2e tests connect to `localhost:7233`, so they need the external Temporal at that address too.
+
 And follow the status of the services and access logs through the Tilt UI at http://localhost:10352/. [Dozzle](https://dozzle.dev/) is also included at http://localhost:8118/, providing real-time container resource utilization metrics (CPU, memory) and log streaming for all running Docker containers.
 
 <img width="1593" height="693" alt="image" src="https://github.com/user-attachments/assets/6c294dda-ca8f-45cc-b75c-11594118a641" />
