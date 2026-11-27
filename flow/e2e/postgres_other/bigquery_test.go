@@ -720,6 +720,10 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
+	// BigQuery allows 5 metadata updates per table every 10 seconds. With the short default
+	// idle timeout, the five added columns are replayed right after the previous batch
+	// updated the table, and the replay can fail with jobRateLimitExceeded.
+	flowConnConfig.IdleTimeoutSeconds = 15
 
 	// wait for PeerFlowStatusQuery to finish setup
 	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)

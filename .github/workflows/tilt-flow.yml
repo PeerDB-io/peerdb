@@ -40,6 +40,13 @@ on:
         type: string
         required: false
         default: ''
+      runner:
+        description: >-
+          GitHub-hosted runner label for the tilt job. flow.yml sets it per
+          source family.
+        type: string
+        required: false
+        default: ubuntu-latest-8-cores
       run_label:
         description: >-
           Short label identifying this run's version/flavor combination; used in
@@ -239,7 +246,7 @@ env:
 
 jobs:
   tilt:
-    runs-on: ubuntu-latest-32-cores
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - uses: Kesin11/actions-timeline@460b1f8a750077029ad3589824d371b200e91dcf # v3.2.1
@@ -265,6 +272,41 @@ jobs:
           suffix="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | tr -s '-' | sed 's/^-*//; s/-*$//')"
           echo "suffix=${suffix:-all}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare environment for Tilt
+        run: |
+          # Tilt reads .env at the project root; it is gitignored, so seed it
+          # from the checked-in template.
+          if [ ! -f .env ]; then
+            cp .env.example .env
+          fi
+          # The test launchers run `go test` on the host (Tilt local_resource),
+          # but .env points the DBs at host.docker.internal. Map that name to the
+          # loopback so the host can reach the docker-compose published ports.
+          echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
+      # Optimization: Tilt pulls the service images one at a time. Pull them all in
+      # parallel in the background in advance, so they are on the runner when Tilt
+      # starts the services. If a pull here fails, Tilt pulls that image itself,
+      # and a pull still running here is joined, not repeated.
+      - name: Start pulling service images
+        continue-on-error: true
+        env:
+          ANCILLARY_SERVICES: ${{ inputs.ancillary_services }}
+        run: |
+          # Unset empty *_IMAGE pins, as the Tiltfile does, so compose uses ancillary.env.
+          for var in $(compgen -e); do
+            if [[ "$var" == *_IMAGE && -z "${!var}" ]]; then unset "$var"; fi
+          done
+          ./scripts/generate-test-environment.sh
+          images="$RUNNER_TEMP/service-images.txt"
+          {
+            docker compose -f docker-compose-dev.yml --env-file .env config --images \
+              catalog temporal temporal-admin-tools minio
+            docker compose -f ancillary-docker-compose.yml --env-file ancillary.env config --images \
+              $ANCILLARY_SERVICES
+          } > "$images"
+          nohup xargs -P 16 -n 1 docker pull --quiet < "$images" > "$RUNNER_TEMP/image-pull.log" 2>&1 &
+
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.4'
@@ -288,18 +330,6 @@ jobs:
         run: |
           curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
           tilt version
-
-      - name: Prepare environment for Tilt
-        run: |
-          # Tilt reads .env at the project root; it is gitignored, so seed it
-          # from the checked-in template.
-          if [ ! -f .env ]; then
-            cp .env.example .env
-          fi
-          # The test launchers run `go test` on the host (Tilt local_resource),
-          # but .env points the DBs at host.docker.internal. Map that name to the
-          # loopback so the host can reach the docker-compose published ports.
-          echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
 
       # Load the flow images built once by the caller, so Tilt runs them instead
       # of compiling peer-flow in Docker on every runner. Must finish before

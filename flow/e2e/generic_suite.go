@@ -805,7 +805,6 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.PublicationName = srcPublicationName
-	flowConnConfig.IdleTimeoutSeconds = 60
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -932,7 +931,6 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.PublicationName = srcPublicationName
-	flowConnConfig.IdleTimeoutSeconds = 60
 	flowConnConfig.DoInitialSnapshot = true
 
 	tc := NewTemporalClient(t)

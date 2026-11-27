@@ -183,6 +183,8 @@ func (s GenericFuzzer) mirrorAndCompare(job string, pairs []string, cols string,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	// Parallelize snapshot to help speed up the mirror start
+	flowConnConfig.SnapshotNumTablesInParallel = 8
 
 	// PEERDB_NULLABLE added to use real null values rather than go type defaults.
 	// It also routes nullable columns through Avro ["null", T] unions.

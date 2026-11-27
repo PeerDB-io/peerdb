@@ -1979,7 +1979,17 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 	})
 	RequireEqualTables(s.ch, tableName, cols)
 
-	// add a row so the resync has something to snapshot
+	// Pause the flow.
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for mirror to pause", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// Insert while paused, so the row can only reach the destination through the resync snapshot.
 	switch s.source.(type) {
 	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1991,16 +2001,6 @@ func (s APITestSuite) TestResyncWithSnapshotConfigOnPausedPipe() {
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
 	}
-
-	// Pause the flow.
-	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
-		FlowJobName:        flowConnConfig.FlowJobName,
-		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
-	})
-	require.NoError(s.t, err)
-	EnvWaitFor(s.t, env, time.Minute, "wait for mirror to pause", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
-	})
 
 	const (
 		newMaxParallelWorkers    uint32 = 4

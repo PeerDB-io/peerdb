@@ -80,19 +80,32 @@ if not ci:
         link('http://localhost:' + str(peerbd_ui_port), 'PeerDB UI'),
     ])
     dc_resource('peerdb', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('flow-migrate', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('flow-api', resource_deps=['proto-gen'], labels=['PeerDB'], links=[
+local_resource(
+    'catalog-ready',
+    cmd='for i in $(seq 240); do docker exec catalog pg_isready -q -h 127.0.0.1 -U postgres && exit 0; sleep 0.5; done; exit 1',
+    resource_deps=['catalog'],
+    labels=['PeerDB'],
+)
+dc_resource('flow-migrate', resource_deps=['proto-gen', 'catalog-ready'], labels=['PeerDB'])
+dc_resource('flow-api', resource_deps=['proto-gen', 'temporal-ready'], labels=['PeerDB'], links=[
     link('http://localhost:' + str(flow_api_grpc_port), 'Flow API gRPC'),
     link('http://localhost:' + str(flow_api_http_port), 'Flow API HTTP'),
 ])
-dc_resource('temporal-ui', labels=['PeerDB'], links=[
+# The UIs are for people; CI registers them without starting them.
+dc_resource('temporal-ui', labels=['PeerDB'], auto_init=not ci, links=[
     link('http://localhost:' + str(temporal_ui_port), 'Temporal UI'),
 ])
 dc_resource('catalog', labels=['PeerDB'])
-dc_resource('temporal', labels=['PeerDB'])
+dc_resource('temporal', resource_deps=['catalog-ready'], labels=['PeerDB'])
 dc_resource('temporal-admin-tools', labels=['PeerDB'])
-dc_resource('flow-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
-dc_resource('flow-snapshot-worker', resource_deps=['proto-gen'], labels=['PeerDB'])
+local_resource(
+    'temporal-ready',
+    cmd='for i in $(seq 240); do docker exec temporal-admin-tools temporal operator search-attribute list --namespace default 2>/dev/null | grep -qw MirrorName && exit 0; sleep 0.5; done; exit 1',
+    resource_deps=['temporal-admin-tools'],
+    labels=['PeerDB'],
+)
+dc_resource('flow-worker', resource_deps=['proto-gen', 'temporal-ready'], labels=['PeerDB'])
+dc_resource('flow-snapshot-worker', resource_deps=['proto-gen', 'temporal-ready'], labels=['PeerDB'])
 dc_resource('minio', labels=['PeerDB'])
 
 
@@ -315,7 +328,7 @@ local_resource(
 
 # Monitoring and utility tools
 
-dc_resource('dozzle', labels=['Monitoring'], links=[
+dc_resource('dozzle', labels=['Monitoring'], auto_init=not ci, links=[
     link('http://localhost:8118', 'Dozzle Container Monitor'),
 ])
 
