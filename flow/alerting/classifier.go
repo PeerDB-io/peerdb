@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -593,6 +594,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "tls.CertificateVerificationError",
+		}
+	}
+
+	// Non-TLS bytes arrived on an established TLS connection; reconnecting recovers.
+	// https://github.com/golang/go/blob/go1.25.0/src/crypto/tls/conn.go#L658-L663
+	if tlsErr, ok := errors.AsType[tls.RecordHeaderError](err); ok &&
+		strings.HasPrefix(tlsErr.Msg, "received record with version") {
+		// Log the full header to see what arrived instead of TLS.
+		internal.LoggerFromCtx(ctx).Warn("TLS record header with unexpected version",
+			slog.String("recordHeader", hex.EncodeToString(tlsErr.RecordHeader[:])))
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.RecordHeaderError",
 		}
 	}
 
