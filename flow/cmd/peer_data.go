@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -34,6 +35,18 @@ func redactProto(message proto.Message) {
 		}
 		return true
 	})
+}
+
+// newPeerConnectorApiError tags connector creation failures caused by an unreachable source,
+// so callers can tell them apart from PeerDB faults. Errors raised before the connector is built
+// (e.g. loading the peer from catalog) are not PeerCreateError and stay untagged.
+func newPeerConnectorApiError(ctx context.Context, err error) *apiError {
+	if _, ok := errors.AsType[*exceptions.PeerCreateError](err); ok {
+		if errClass, _ := alerting.GetErrorClass(ctx, err); errClass == alerting.ErrorNotifyConnectivity {
+			return NewFailedPreconditionApiError(err, NewSourceConnectionFailedErrorInfo())
+		}
+	}
+	return NewFailedPreconditionApiError(err)
 }
 
 func wrapErrorAsFailedPrecondition[T any](value T, err error) (T, APIError) {
@@ -232,7 +245,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	pgConn, pgClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
-		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
+		return nil, newPeerConnectorApiError(ctx, fmt.Errorf("failed to get postgres connector: %w", err))
 	}
 	defer pgClose(ctx)
 
@@ -330,7 +343,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 ) (*protos.PeerStatResponse, APIError) {
 	peerConn, peerClose, err := connectors.GetByNameAs[connectors.StatActivityConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get stat activity connector: %w", err))
+		return nil, newPeerConnectorApiError(ctx, fmt.Errorf("failed to get stat activity connector: %w", err))
 	}
 	defer peerClose(ctx)
 
