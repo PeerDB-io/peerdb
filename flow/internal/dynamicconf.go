@@ -551,6 +551,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_POSTGRES_SSL_NEGOTIATION",
+		Description: "SSL negotiation for Postgres peers that use TLS: \"postgres\" sends an SSLRequest first, " +
+			"\"direct\" starts the TLS handshake right away with ALPN (requires Postgres 17+ servers)",
+		DefaultValue:     "postgres",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_POSTGRES_APPLY_CTID_BLOCK_PARTITIONING_OVERRIDE",
 		Description:      "Use CTID block partitioning for initial snapshot if watermark column is ctid",
 		DefaultValue:     "true",
@@ -1148,6 +1157,19 @@ func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]strin
 
 func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT")
+}
+
+func PeerDBPostgresSSLNegotiation(ctx context.Context, env map[string]string) (string, error) {
+	value, err := dynLookup(ctx, env, "PEERDB_POSTGRES_SSL_NEGOTIATION")
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case "postgres", "direct":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid PEERDB_POSTGRES_SSL_NEGOTIATION %q: must be \"postgres\" or \"direct\"", value)
+	}
 }
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {
