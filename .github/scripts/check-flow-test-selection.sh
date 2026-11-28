@@ -7,10 +7,11 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 repo=$PWD
-workflow="$repo/.github/workflows/flow.yml"
-table='.jobs.flow_test.strategy.matrix.jobs[0]'
-jobs=$(yq -r "$table | keys | .[]" "$workflow" | sort)
-targets=$(yq -r '.jobs.flow_test.strategy.matrix.target[].job' "$workflow" | sort -u)
+# Source of truth for the flow matrix is ci/scripts/flow_matrix.py (was
+# .github/workflows/flow.yml). Snapshot it as JSON once and query with jq.
+matrix=$(python3 "$repo/ci/scripts/flow_matrix.py")
+jobs=$(jq -r '.jobs | keys | .[]' <<<"$matrix" | sort)
+targets=$(jq -r '.targets[].job' <<<"$matrix" | sort -u)
 if ! diff <(printf '%s\n' "$jobs") <(printf '%s\n' "$targets") >&2; then
   echo 'Flow test targets and source jobs differ (see diff above)' >&2
   exit 1
@@ -22,7 +23,7 @@ test_files() {
   go list -f '{{range .TestGoFiles}}{{printf "%s\t%s\n" $.ImportPath .}}{{end}}{{range .XTestGoFiles}}{{printf "%s\t%s\n" $.ImportPath .}}{{end}}' "$@" ./... | sed '/^$/d' | sort -u
 }
 job_patterns() {
-  yq -r "$table | to_entries[] | .key + \" \" + ($1)" "$workflow"
+  jq -r ".jobs | to_entries[] | .key + \" \" + ($1)" <<<"$matrix"
 }
 
 # Check one module against its source-job package lists. The second argument

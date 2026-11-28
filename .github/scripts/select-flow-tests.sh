@@ -9,8 +9,20 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../../flow"
 # step reads the selected package/test pairs from this directory.
 selectiondir="$RUNNER_TEMP/test-selection"
 mkdir -p "$selectiondir"
-COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
-COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
+# Coverage instrumentation (-cover) roughly doubles test-compile cost. It is
+# irrelevant to *selection* (which tests exist), and is only kept in the -list
+# compile so its cached objects match the coverage-instrumented run. When
+# FLOW_COVERAGE != 1 we drop it so the listing compiles the same (uninstrumented)
+# objects the run will use. Defaults to 1 for GHA parity; the Praktika scripts
+# (go_build_cache.py / flow_test.py) pass FLOW_COVERAGE=0 in lockstep so producer,
+# selection and run all share one cache.
+if [ "${FLOW_COVERAGE:-1}" = "1" ]; then
+  COVERFLAGS_FLOW=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/...)
+  COVERFLAGS_PKG=(-cover -coverpkg github.com/PeerDB-io/peerdb/flow/pkg/...)
+else
+  COVERFLAGS_FLOW=()
+  COVERFLAGS_PKG=()
+fi
 
 # List all requested packages in one invocation. Keep package names in the
 # output so subtraction cannot confuse identically named tests in different
@@ -94,12 +106,12 @@ select_tests() (
 
 # Run (flow, pkg) x (untagged, tagged) concurrently. Wait for every
 # listing and fail this step if any listing or parsing fails.
-select_tests flow "$TEST_PACKAGES" "${COVERFLAGS_FLOW[@]}" &
+select_tests flow "$TEST_PACKAGES" ${COVERFLAGS_FLOW[@]+"${COVERFLAGS_FLOW[@]}"} &
 selection_pids=("$!")
 if [ -n "$PKG_TEST_PACKAGES" ]; then
   (
     cd pkg || exit 1
-    select_tests pkg "$PKG_TEST_PACKAGES" "${COVERFLAGS_PKG[@]}"
+    select_tests pkg "$PKG_TEST_PACKAGES" ${COVERFLAGS_PKG[@]+"${COVERFLAGS_PKG[@]}"}
   ) &
   selection_pids+=("$!")
 fi

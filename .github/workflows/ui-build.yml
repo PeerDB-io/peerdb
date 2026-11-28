@@ -3,28 +3,7 @@ name: Build & Test UI
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    paths: [ui/**, protos/**, buf.gen.yaml]
+#   pull_request:
+#     branches: [main]
+#     paths: [ui/**, protos/**, buf.gen.yaml]
 
-jobs:
-  build-test:
-    name: Build & Test UI
-    strategy:
-      matrix:
-        runner: [ubuntu-24.04]
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: generate or hydrate protos
-        uses: ./.github/actions/genprotos
-
-      - name: Install Node.js dependencies
-        working-directory: ui
-        run: npm ci
-
-      - name: Build
-        working-directory: ui
-        run: npm run build

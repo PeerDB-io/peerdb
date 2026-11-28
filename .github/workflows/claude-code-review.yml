@@ -1,64 +1,9 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-  pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_dispatch:  # migrated to Praktika; PR trigger commented above
+#   pull_request:
+#     types: [opened, synchronize, ready_for_review, reopened]
+#   pull_request_target:
+#     types: [opened, synchronize, ready_for_review, reopened]
 
-jobs:
-  claude-review:
-    if: |
-      !github.event.pull_request.draft &&
-      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository))
-    environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: read
-      id-token: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 1
-
-      - name: Checkout ClickPipes docs
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: ClickHouse/ClickHouse
-          path: clickhouse-docs
-          fetch-depth: 1
-          sparse-checkout: docs/integrations/clickpipes
-
-      - name: Run Claude Code Review
-        id: claude-review
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
-        with:
-          allowed_bots: 'renovate'
-          # Fork PR workflow runs are already manually approved at this stage, so it's safe to trigger a review.
-          allowed_non_write_users: ${{ github.event_name == 'pull_request_target' && '*' || '' }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Fork PRs get an environment-scoped OIDC token that the Claude App token exchange rejects (401),
-          # so pass github_token only there; internal PRs keep the App token flow.
-          github_token: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && github.token || '' }}
-          claude_args: |
-            --model fable
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-
-      - name: Print Claude execution output
-        if: always()
-        run: cat /home/runner/work/_temp/claude-execution-output.json || echo "No execution output found"
-
-      - name: Fail if the review was skipped
-        if: steps.claude-review.outputs.skipped_due_to_workflow_validation_mismatch == 'true'
-        run: |
-          echo "::error::Claude review did not run: this PR modifies its own review workflow, so claude-code-action skipped the token exchange. This PR needs a manual review."
-          exit 1
