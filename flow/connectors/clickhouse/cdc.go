@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -178,6 +179,8 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 // getDistributedShardTable queries the Distributed table engine definition from system.tables
 // and extracts the shard (local) table name. After a resync, shard tables have a timestamp suffix
 // (e.g., table_shard1710425678) and the Distributed table is the source of truth for the actual name.
+// Returns an empty name if the table is not a Distributed table, e.g. a pre-created
+// Replicated*MergeTree table on a single-shard cluster, which has no shard table behind it.
 func (c *ClickHouseConnector) getDistributedShardTable(ctx context.Context, tableName string) (string, error) {
 	var engineFull string
 	if err := c.queryRow(ctx, fmt.Sprintf(
@@ -185,6 +188,9 @@ func (c *ClickHouseConnector) getDistributedShardTable(ctx context.Context, tabl
 		peerdb_clickhouse.QuoteLiteral(c.Config.Database),
 		peerdb_clickhouse.QuoteLiteral(tableName),
 	)).Scan(&engineFull); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
 		return "", fmt.Errorf("failed to get engine_full for Distributed table %s: %w", tableName, err)
 	}
 
@@ -264,6 +270,8 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		// After resync, the shard table has a timestamp suffix (e.g., table_shard1710425678)
 		// and hardcoding "_shard" would target the wrong table.
 		// Distributed table isn't created for null tables
+		// shardTableName stays empty if the destination is not a Distributed table,
+		// in which case the column is only added to the destination table itself.
 		var shardTableName string
 		if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 			var err error
